@@ -1,0 +1,448 @@
+#include "lua_runtime.h"
+#include <esp_heap_caps.h>
+#include <LittleFS.h>
+
+// Include Lua headers
+extern "C" {
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
+}
+
+// Forward declarations of module registration functions
+void registerSystemModule(lua_State* L);
+void registerDisplayModule(lua_State* L);
+void registerKeyboardModule(lua_State* L);
+void registerScreenModule(lua_State* L);
+// Phase 3 modules
+void registerRadioModule(lua_State* L);
+void registerMeshModule(lua_State* L);
+void registerAudioModule(lua_State* L);
+// Phase 4 modules
+void registerStorageModule(lua_State* L);
+
+// Memory threshold for using PSRAM vs internal RAM
+// Allocations larger than this go to PSRAM for memory efficiency
+static constexpr size_t PSRAM_THRESHOLD = 4096;
+
+LuaRuntime& LuaRuntime::instance() {
+    static LuaRuntime runtime;
+    return runtime;
+}
+
+LuaRuntime::~LuaRuntime() {
+    shutdown();
+}
+
+void* LuaRuntime::luaAlloc(void* ud, void* ptr, size_t osize, size_t nsize) {
+    LuaRuntime* self = static_cast<LuaRuntime*>(ud);
+
+    // Free operation
+    if (nsize == 0) {
+        if (ptr != nullptr) {
+            self->_memoryUsed -= osize;
+            heap_caps_free(ptr);
+        }
+        return nullptr;
+    }
+
+    // Allocation or reallocation
+    void* newPtr = nullptr;
+
+    if (nsize >= PSRAM_THRESHOLD) {
+        // Large allocations go to PSRAM
+        if (ptr == nullptr) {
+            newPtr = heap_caps_malloc(nsize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        } else {
+            newPtr = heap_caps_realloc(ptr, nsize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        }
+    }
+
+    // Fall back to internal RAM if PSRAM allocation failed or for small allocations
+    if (newPtr == nullptr) {
+        if (ptr == nullptr) {
+            newPtr = heap_caps_malloc(nsize, MALLOC_CAP_8BIT);
+        } else {
+            newPtr = heap_caps_realloc(ptr, nsize, MALLOC_CAP_8BIT);
+        }
+    }
+
+    if (newPtr != nullptr) {
+        self->_memoryUsed = self->_memoryUsed - osize + nsize;
+    }
+
+    return newPtr;
+}
+
+int LuaRuntime::errorHandler(lua_State* L) {
+    const char* msg = lua_tostring(L, 1);
+    if (msg == nullptr) {
+        msg = "(error object is not a string)";
+    }
+
+    // Add traceback
+    luaL_traceback(L, L, msg, 1);
+    return 1;
+}
+
+void LuaRuntime::reportError(const char* error) {
+    // Store error message
+    strncpy(_lastError, error, sizeof(_lastError) - 1);
+    _lastError[sizeof(_lastError) - 1] = '\0';
+
+    // Log to serial
+    Serial.printf("[Lua Error] %s\n", error);
+
+    // Call error callback if set
+    if (_errorCallback) {
+        _errorCallback(error);
+    }
+}
+
+bool LuaRuntime::init() {
+    if (_state != nullptr) {
+        Serial.println("[LuaRuntime] Already initialized");
+        return true;
+    }
+
+    Serial.println("[LuaRuntime] Initializing...");
+
+    // Create Lua state with custom allocator
+    _state = lua_newstate(luaAlloc, this);
+    if (_state == nullptr) {
+        reportError("Failed to create Lua state");
+        return false;
+    }
+
+    // Open standard libraries
+    luaL_openlibs(_state);
+
+    // Create the tdeck namespace
+    createTdeckNamespace();
+
+    // Register all hardware modules
+    registerAllModules();
+
+    Serial.printf("[LuaRuntime] Initialized, memory: %u bytes\n", _memoryUsed);
+    return true;
+}
+
+void LuaRuntime::shutdown() {
+    if (_state != nullptr) {
+        lua_close(_state);
+        _state = nullptr;
+        _memoryUsed = 0;
+        Serial.println("[LuaRuntime] Shutdown complete");
+    }
+}
+
+void LuaRuntime::createTdeckNamespace() {
+    // Create the global 'tdeck' table
+    lua_newtable(_state);
+    lua_setglobal(_state, "tdeck");
+}
+
+void LuaRuntime::registerAllModules() {
+    Serial.println("[LuaRuntime] Registering modules...");
+
+    // Each module adds itself to the tdeck table
+    registerSystemModule(_state);
+    registerDisplayModule(_state);
+    registerKeyboardModule(_state);
+    registerScreenModule(_state);
+
+    // Phase 3 modules
+    registerRadioModule(_state);
+    registerMeshModule(_state);
+    registerAudioModule(_state);
+
+    // Phase 4 modules
+    registerStorageModule(_state);
+
+    Serial.println("[LuaRuntime] Modules registered");
+}
+
+bool LuaRuntime::executeString(const char* script, const char* name) {
+    if (_state == nullptr) {
+        reportError("Lua not initialized");
+        return false;
+    }
+
+    // Push error handler
+    lua_pushcfunction(_state, errorHandler);
+    int errfunc = lua_gettop(_state);
+
+    // Load the script
+    int status = luaL_loadbuffer(_state, script, strlen(script), name);
+    if (status != LUA_OK) {
+        const char* err = lua_tostring(_state, -1);
+        reportError(err ? err : "Load error");
+        lua_pop(_state, 2);  // error message and error handler
+        return false;
+    }
+
+    // Execute with error handler
+    status = lua_pcall(_state, 0, LUA_MULTRET, errfunc);
+    if (status != LUA_OK) {
+        const char* err = lua_tostring(_state, -1);
+        reportError(err ? err : "Runtime error");
+        lua_pop(_state, 2);  // error message and error handler
+        return false;
+    }
+
+    lua_remove(_state, errfunc);  // Remove error handler
+    return true;
+}
+
+bool LuaRuntime::executeFile(const char* path) {
+    if (_state == nullptr) {
+        reportError("Lua not initialized");
+        return false;
+    }
+
+    // Open file from LittleFS
+    File file = LittleFS.open(path, "r");
+    if (!file) {
+        char err[128];
+        snprintf(err, sizeof(err), "Cannot open file: %s", path);
+        reportError(err);
+        return false;
+    }
+
+    // Read entire file into buffer
+    size_t size = file.size();
+    char* buffer = static_cast<char*>(heap_caps_malloc(size + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (buffer == nullptr) {
+        buffer = static_cast<char*>(malloc(size + 1));
+    }
+
+    if (buffer == nullptr) {
+        file.close();
+        reportError("Out of memory loading script");
+        return false;
+    }
+
+    file.readBytes(buffer, size);
+    buffer[size] = '\0';
+    file.close();
+
+    // Execute the script
+    bool result = executeString(buffer, path);
+    free(buffer);
+
+    return result;
+}
+
+bool LuaRuntime::callGlobalFunction(const char* name) {
+    if (_state == nullptr) return false;
+
+    // Push error handler
+    lua_pushcfunction(_state, errorHandler);
+    int errfunc = lua_gettop(_state);
+
+    // Get the global function
+    lua_getglobal(_state, name);
+    if (!lua_isfunction(_state, -1)) {
+        lua_pop(_state, 2);  // value and error handler
+        return false;
+    }
+
+    // Call with no arguments
+    int status = lua_pcall(_state, 0, 0, errfunc);
+    if (status != LUA_OK) {
+        const char* err = lua_tostring(_state, -1);
+        reportError(err ? err : "Call error");
+        lua_pop(_state, 2);
+        return false;
+    }
+
+    lua_remove(_state, errfunc);
+    return true;
+}
+
+bool LuaRuntime::callTableMethod(int tableRef, const char* method) {
+    if (_state == nullptr) return false;
+
+    // Push error handler
+    lua_pushcfunction(_state, errorHandler);
+    int errfunc = lua_gettop(_state);
+
+    // Push the table from registry
+    lua_rawgeti(_state, LUA_REGISTRYINDEX, tableRef);
+    if (!lua_istable(_state, -1)) {
+        lua_pop(_state, 2);
+        return false;
+    }
+
+    // Get the method
+    lua_getfield(_state, -1, method);
+    if (!lua_isfunction(_state, -1)) {
+        lua_pop(_state, 3);  // method, table, error handler
+        return false;
+    }
+
+    // Push table as first argument (self)
+    lua_pushvalue(_state, -2);
+
+    // Call method(self)
+    int status = lua_pcall(_state, 1, 0, errfunc);
+    if (status != LUA_OK) {
+        const char* err = lua_tostring(_state, -1);
+        reportError(err ? err : "Method call error");
+        lua_pop(_state, 3);
+        return false;
+    }
+
+    lua_pop(_state, 1);  // table
+    lua_remove(_state, errfunc);
+    return true;
+}
+
+bool LuaRuntime::callTableMethod(int tableRef, const char* method, int arg1) {
+    if (_state == nullptr) return false;
+
+    // Push error handler
+    lua_pushcfunction(_state, errorHandler);
+    int errfunc = lua_gettop(_state);
+
+    // Push the table from registry
+    lua_rawgeti(_state, LUA_REGISTRYINDEX, tableRef);
+    if (!lua_istable(_state, -1)) {
+        lua_pop(_state, 2);
+        return false;
+    }
+
+    // Get the method
+    lua_getfield(_state, -1, method);
+    if (!lua_isfunction(_state, -1)) {
+        lua_pop(_state, 3);
+        return false;
+    }
+
+    // Push table as first argument (self)
+    lua_pushvalue(_state, -2);
+
+    // Push additional argument
+    lua_pushinteger(_state, arg1);
+
+    // Call method(self, arg1)
+    int status = lua_pcall(_state, 2, 0, errfunc);
+    if (status != LUA_OK) {
+        const char* err = lua_tostring(_state, -1);
+        reportError(err ? err : "Method call error");
+        lua_pop(_state, 3);
+        return false;
+    }
+
+    lua_pop(_state, 1);  // table
+    lua_remove(_state, errfunc);
+    return true;
+}
+
+int LuaRuntime::createRef() {
+    if (_state == nullptr) return LUA_NOREF;
+    return luaL_ref(_state, LUA_REGISTRYINDEX);
+}
+
+void LuaRuntime::pushRef(int ref) {
+    if (_state == nullptr || ref == LUA_NOREF) return;
+    lua_rawgeti(_state, LUA_REGISTRYINDEX, ref);
+}
+
+void LuaRuntime::releaseRef(int ref) {
+    if (_state == nullptr || ref == LUA_NOREF) return;
+    luaL_unref(_state, LUA_REGISTRYINDEX, ref);
+}
+
+// Forward declaration for timer processing
+extern void processLuaTimers();
+
+void LuaRuntime::update() {
+    if (_state == nullptr) return;
+
+    // Process pending timers
+    processLuaTimers();
+
+    // Incremental garbage collection step
+    lua_gc(_state, LUA_GCSTEP, 10);
+}
+
+bool LuaRuntime::reloadScripts() {
+    if (_state == nullptr) {
+        reportError("Lua not initialized");
+        return false;
+    }
+
+    Serial.println("[LuaRuntime] Reloading scripts...");
+
+    // Force garbage collection before reload
+    collectGarbage();
+
+    // Clear the package.loaded table to force re-require of modules
+    lua_getglobal(_state, "package");
+    if (lua_istable(_state, -1)) {
+        lua_getfield(_state, -1, "loaded");
+        if (lua_istable(_state, -1)) {
+            // Iterate and clear non-standard modules
+            lua_pushnil(_state);
+            while (lua_next(_state, -2) != 0) {
+                const char* key = lua_tostring(_state, -2);
+                // Keep standard libraries, clear user scripts
+                if (key && strncmp(key, "scripts/", 8) == 0) {
+                    lua_pushnil(_state);
+                    lua_setfield(_state, -4, key);
+                }
+                lua_pop(_state, 1);
+            }
+        }
+        lua_pop(_state, 1);
+    }
+    lua_pop(_state, 1);
+
+    Serial.println("[LuaRuntime] Scripts reloaded");
+    return true;
+}
+
+bool LuaRuntime::reloadBootScript() {
+    if (_state == nullptr) {
+        reportError("Lua not initialized");
+        return false;
+    }
+
+    Serial.println("[LuaRuntime] Reloading boot script...");
+
+    // Clear cached modules
+    reloadScripts();
+
+    // Execute boot script again
+    return executeFile("/scripts/boot.lua");
+}
+
+void LuaRuntime::collectGarbage() {
+    if (_state == nullptr) return;
+
+    size_t before = _memoryUsed;
+    lua_gc(_state, LUA_GCCOLLECT, 0);
+    size_t after = _memoryUsed;
+
+    Serial.printf("[LuaRuntime] GC: freed %u bytes (was %u, now %u)\n",
+                  before - after, before, after);
+}
+
+void LuaRuntime::setGCPause(int pause) {
+    if (_state == nullptr) return;
+    lua_gc(_state, LUA_GCSETPAUSE, pause);
+}
+
+void LuaRuntime::setGCStepMul(int stepmul) {
+    if (_state == nullptr) return;
+    lua_gc(_state, LUA_GCSETSTEPMUL, stepmul);
+}
+
+bool LuaRuntime::isLowMemory() const {
+    return getAvailableMemory() < 32768;  // Less than 32KB available
+}
+
+size_t LuaRuntime::getAvailableMemory() const {
+    return heap_caps_get_free_size(MALLOC_CAP_8BIT);
+}

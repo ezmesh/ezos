@@ -1,0 +1,9 @@
+# Wallpaper: carbon
+# Size: 16x16 (seamlessly tileable)
+
+Carbon fiber weave pattern.
+- Dark gray/black base with subtle diagonal weave
+- Must tile seamlessly in both X and Y directions
+- Subtle highlight on weave to give 3D depth
+- Colors: dark charcoal (#1a1a1a) to black (#0d0d0d)
+- Slight sheen/reflection on fibers

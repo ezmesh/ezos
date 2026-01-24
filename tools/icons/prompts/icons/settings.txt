@@ -1,0 +1,9 @@
+# Icon: settings
+# Used for: Settings menu item - configuration
+
+Gear/cog icon representing settings and configuration.
+- Single gear wheel with teeth
+- IMPORTANT: Gear must be perfectly circular (1:1 width to height ratio)
+- Center the gear in the icon
+- Primary color: gray/silver (#78909C to #546E7A gradient)
+- Classic settings gear shape with evenly spaced teeth

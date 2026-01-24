@@ -1,0 +1,9 @@
+# Icon: contacts
+# Used for: Contacts menu item - known nodes/people
+
+Person silhouette icon representing contacts/users.
+- Stylized person bust (head and shoulders)
+- IMPORTANT: Head circle must be horizontally centered in the icon
+- Head in upper portion, shoulders/body curve in lower portion
+- Primary color: green (#66BB6A to #43A047 gradient)
+- Clean, simple recognizable human silhouette

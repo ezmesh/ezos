@@ -1,0 +1,7 @@
+# Icon: info
+# Used for: Node Info menu item - device status
+
+Information icon representing device/system status.
+- Circular "i" information symbol
+- Primary color: blue (#42A5F5 to #1E88E5 gradient)
+- Classic info icon with lowercase "i" in circle

@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T-Deck OS Lua API Reference</title>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --fg: #eee;
+            --accent: #00d4ff;
+            --accent2: #ff6b6b;
+            --code-bg: #16213e;
+            --border: #0f3460;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: var(--accent);
+            border-bottom: 2px solid var(--accent);
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: var(--accent);
+            margin-top: 40px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 5px;
+        }
+        h3 {
+            color: var(--accent2);
+            margin-top: 25px;
+        }
+        h4 {
+            color: #fff;
+            margin-top: 20px;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+        code {
+            font-family: 'Fira Code', 'Consolas', monospace;
+            background: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            padding: 15px;
+            overflow-x: auto;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th, td {
+            border: 1px solid var(--border);
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background: var(--code-bg);
+            color: var(--accent);
+        }
+        .toc {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .toc h3 {
+            margin-top: 0;
+            color: var(--accent);
+        }
+        .toc ul {
+            columns: 2;
+            list-style: none;
+            padding: 0;
+        }
+        .toc a {
+            color: var(--fg);
+            text-decoration: none;
+        }
+        .toc a:hover {
+            color: var(--accent);
+        }
+        .method {
+            background: var(--code-bg);
+            border-left: 3px solid var(--accent);
+            padding: 10px 15px;
+            margin: 10px 0;
+        }
+        .method-name {
+            font-family: 'Fira Code', 'Consolas', monospace;
+            color: var(--accent);
+            font-weight: bold;
+        }
+        .method-desc {
+            margin-top: 5px;
+            color: #ccc;
+        }
+        .nav {
+            position: fixed;
+            top: 0;
+            right: 0;
+            background: var(--code-bg);
+            padding: 10px;
+            border-bottom-left-radius: 5px;
+        }
+        .nav a {
+            color: var(--accent);
+            text-decoration: none;
+            margin: 0 10px;
+        }
+        @media (max-width: 600px) {
+            .toc ul { columns: 1; }
+            .nav { position: static; margin-bottom: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <a href="#top">Top</a>
+        <a href="#display">Display</a>
+        <a href="#screen">Screen</a>
+        <a href="#system">System</a>
+    </div>
+
+    <div class="container">
+        <h1 id="top">T-Deck OS Lua API Reference</h1>
+        <p>Complete API documentation for creating custom UI screens and applications on T-Deck OS.</p>
+
+        <div class="toc">
+            <h3>Table of Contents</h3>
+            <ul>
+                <li><a href="#display">tdeck.display</a> - Display drawing</li>
+                <li><a href="#keyboard">tdeck.keyboard</a> - Keyboard input</li>
+                <li><a href="#screen">tdeck.screen</a> - Screen navigation</li>
+                <li><a href="#system">tdeck.system</a> - System utilities</li>
+                <li><a href="#storage">tdeck.storage</a> - File storage</li>
+                <li><a href="#mesh">tdeck.mesh</a> - MeshCore networking</li>
+                <li><a href="#radio">tdeck.radio</a> - LoRa radio</li>
+                <li><a href="#audio">tdeck.audio</a> - Audio output</li>
+                <li><a href="#lifecycle">Screen Lifecycle</a></li>
+            </ul>
+        </div>
+
+        <h2 id="display">tdeck.display</h2>
+        <p>Display drawing functions. A <code>display</code> object is passed to screen <code>render()</code> methods.</p>
+
+        <h3>Properties (Read-only)</h3>
+        <table>
+            <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+            <tr><td><code>width</code></td><td>integer</td><td>Display width in pixels (320)</td></tr>
+            <tr><td><code>height</code></td><td>integer</td><td>Display height in pixels (240)</td></tr>
+            <tr><td><code>cols</code></td><td>integer</td><td>Display columns in characters (40)</td></tr>
+            <tr><td><code>rows</code></td><td>integer</td><td>Display rows in characters (15)</td></tr>
+            <tr><td><code>font_width</code></td><td>integer</td><td>Font character width (8)</td></tr>
+            <tr><td><code>font_height</code></td><td>integer</td><td>Font character height (16)</td></tr>
+            <tr><td><code>colors</code></td><td>table</td><td>Named color constants</td></tr>
+        </table>
+
+        <h3>Color Constants</h3>
+        <p>Access via <code>display.colors.*</code>:</p>
+        <p><code>BLACK</code>, <code>WHITE</code>, <code>RED</code>, <code>GREEN</code>, <code>BLUE</code>, <code>CYAN</code>, <code>YELLOW</code>, <code>ORANGE</code>, <code>GRAY</code>, <code>TEXT</code>, <code>TEXT_DIM</code>, <code>SELECTION</code>, <code>BORDER</code>, <code>DARK_GRAY</code></p>
+
+        <h3>Methods</h3>
+
+        <div class="method">
+            <div class="method-name">draw_text(x, y, text, color)</div>
+            <div class="method-desc">Draw text at pixel coordinates.</div>
+            <pre><code>display.draw_text(10, 20, "Hello", colors.WHITE)</code></pre>
+        </div>
+
+        <div class="method">
+            <div class="method-name">draw_text_centered(y, text, color)</div>
+            <div class="method-desc">Draw horizontally centered text at y pixel position.</div>
+            <pre><code>display.draw_text_centered(5 * display.font_height, "Centered", colors.CYAN)</code></pre>
+        </div>
+
+        <div class="method">
+            <div class="method-name">draw_box(x, y, w, h, title, border_color, title_color)</div>
+            <div class="method-desc">Draw a bordered box with optional title. Coordinates in character cells.</div>
+            <pre><code>display.draw_box(0, 0, display.cols, display.rows - 1, "Title", colors.CYAN, colors.WHITE)</code></pre>
+        </div>
+
+        <div class="method">
+            <div class="method-name">fill_rect(x, y, w, h, color)</div>
+            <div class="method-desc">Fill a rectangle. Coordinates in pixels.</div>
+            <pre><code>display.fill_rect(0, 0, 100, 50, colors.BLUE)</code></pre>
+        </div>
+
+        <div class="method">
+            <div class="method-name">draw_progress(x, y, w, h, progress, fg_color, bg_color)</div>
+            <div class="method-desc">Draw a progress bar. Progress is 0.0 to 1.0.</div>
+            <pre><code>display.draw_progress(10, 50, 100, 10, 0.75, colors.GREEN, colors.DARK_GRAY)</code></pre>
+        </div>
+
+        <div class="method">
+            <div class="method-name">text_width(text) → integer</div>
+            <div class="method-desc">Returns the pixel width of text string.</div>
+        </div>
+
+        <div class="method">
+            <div class="method-name">rgb(r, g, b) → integer</div>
+            <div class="method-desc">Convert RGB (0-255) to RGB565 color value.</div>
+            <pre><code>local custom_color = display.rgb(255, 128, 0)</code></pre>
+        </div>
+
+        <h2 id="keyboard">tdeck.keyboard</h2>
+        <p>Keyboard input. Key events are passed to screen <code>handle_key()</code> methods.</p>
+
+        <h3>Key Event Structure</h3>
+        <pre><code>key = {
+    character = "a",      -- Printable character or nil
+    special = "ENTER",    -- Special key name or nil
+    shift = false,        -- Modifier states
+    ctrl = false,
+    alt = false,
+    fn = false,
+    valid = true
+}</code></pre>
+
+        <h3>Special Key Names</h3>
+        <p>Navigation: <code>"UP"</code>, <code>"DOWN"</code>, <code>"LEFT"</code>, <code>"RIGHT"</code></p>
+        <p>Actions: <code>"ENTER"</code>, <code>"ESCAPE"</code>, <code>"BACKSPACE"</code>, <code>"TAB"</code></p>
+
+        <h2 id="screen">tdeck.screen</h2>
+        <p>Screen navigation and lifecycle management.</p>
+
+        <div class="method">
+            <div class="method-name">push(screen)</div>
+            <div class="method-desc">Push a new screen onto the stack.</div>
+            <pre><code>local NewScreen = dofile("/scripts/ui/screens/my_screen.lua")
+tdeck.screen.push(NewScreen:new())</code></pre>
+        </div>
+
+        <div class="method">
+            <div class="method-name">pop()</div>
+            <div class="method-desc">Pop current screen and return to previous.</div>
+        </div>
+
+        <div class="method">
+            <div class="method-name">replace(screen)</div>
+            <div class="method-desc">Replace current screen (no stack growth).</div>
+        </div>
+
+        <div class="method">
+            <div class="method-name">invalidate()</div>
+            <div class="method-desc">Mark screen for redraw. Call after state changes.</div>
+        </div>
+
+        <h2 id="system">tdeck.system</h2>
+        <p>System utilities, timing, and memory management.</p>
+
+        <h3>Timing</h3>
+        <table>
+            <tr><th>Function</th><th>Description</th></tr>
+            <tr><td><code>millis()</code></td><td>Milliseconds since boot</td></tr>
+            <tr><td><code>uptime()</code></td><td>Seconds since boot</td></tr>
+            <tr><td><code>delay(ms)</code></td><td>Blocking delay (use sparingly)</td></tr>
+            <tr><td><code>set_timer(ms, callback)</code></td><td>Schedule one-shot callback</td></tr>
+            <tr><td><code>set_interval(ms, callback)</code></td><td>Schedule repeating callback</td></tr>
+            <tr><td><code>cancel_timer(id)</code></td><td>Cancel a timer</td></tr>
+        </table>
+
+        <h3>System Info</h3>
+        <table>
+            <tr><th>Function</th><th>Returns</th></tr>
+            <tr><td><code>get_battery_percent()</code></td><td>Battery level 0-100%</td></tr>
+            <tr><td><code>get_free_heap()</code></td><td>Free internal RAM bytes</td></tr>
+            <tr><td><code>get_free_psram()</code></td><td>Free PSRAM bytes</td></tr>
+            <tr><td><code>chip_model()</code></td><td>Chip model string</td></tr>
+            <tr><td><code>cpu_freq()</code></td><td>CPU frequency MHz</td></tr>
+        </table>
+
+        <h3>Memory Management</h3>
+        <table>
+            <tr><th>Function</th><th>Description</th></tr>
+            <tr><td><code>gc()</code></td><td>Force garbage collection</td></tr>
+            <tr><td><code>gc_step(steps)</code></td><td>Incremental GC</td></tr>
+            <tr><td><code>get_lua_memory()</code></td><td>Lua memory usage</td></tr>
+            <tr><td><code>is_low_memory()</code></td><td>Check if memory critical</td></tr>
+            <tr><td><code>reload_scripts()</code></td><td>Hot reload scripts</td></tr>
+        </table>
+
+        <h3>Miscellaneous</h3>
+        <table>
+            <tr><th>Function</th><th>Description</th></tr>
+            <tr><td><code>log(message)</code></td><td>Write to serial log</td></tr>
+            <tr><td><code>restart()</code></td><td>Restart device</td></tr>
+            <tr><td><code>get_last_error()</code></td><td>Get last error message</td></tr>
+        </table>
+
+        <h2 id="storage">tdeck.storage</h2>
+        <p>File and preferences storage. Paths starting with <code>/sd/</code> access SD card.</p>
+
+        <h3>File Operations</h3>
+        <table>
+            <tr><th>Function</th><th>Description</th></tr>
+            <tr><td><code>read_file(path)</code></td><td>Read file contents</td></tr>
+            <tr><td><code>write_file(path, content)</code></td><td>Write/create file</td></tr>
+            <tr><td><code>append_file(path, content)</code></td><td>Append to file</td></tr>
+            <tr><td><code>exists(path)</code></td><td>Check if file exists</td></tr>
+            <tr><td><code>remove(path)</code></td><td>Delete file</td></tr>
+            <tr><td><code>list_dir(path)</code></td><td>List directory contents</td></tr>
+        </table>
+
+        <h3>Preferences</h3>
+        <table>
+            <tr><th>Function</th><th>Description</th></tr>
+            <tr><td><code>get_pref(key, default)</code></td><td>Get preference value</td></tr>
+            <tr><td><code>set_pref(key, value)</code></td><td>Set preference value</td></tr>
+            <tr><td><code>remove_pref(key)</code></td><td>Remove preference</td></tr>
+        </table>
+
+        <h2 id="mesh">tdeck.mesh</h2>
+        <p>MeshCore networking functions.</p>
+
+        <h3>Identity & Status</h3>
+        <table>
+            <tr><th>Function</th><th>Description</th></tr>
+            <tr><td><code>is_initialized()</code></td><td>Check if mesh ready</td></tr>
+            <tr><td><code>get_node_id()</code></td><td>This node's ID</td></tr>
+            <tr><td><code>get_nodes()</code></td><td>List discovered nodes</td></tr>
+            <tr><td><code>get_node_count()</code></td><td>Number of known nodes</td></tr>
+        </table>
+
+        <h3>Channels</h3>
+        <table>
+            <tr><th>Function</th><th>Description</th></tr>
+            <tr><td><code>join_channel(name, password)</code></td><td>Join/create channel</td></tr>
+            <tr><td><code>leave_channel(name)</code></td><td>Leave channel</td></tr>
+            <tr><td><code>get_channels()</code></td><td>List channels</td></tr>
+            <tr><td><code>send_channel_message(channel, text)</code></td><td>Send message</td></tr>
+            <tr><td><code>get_channel_messages(channel)</code></td><td>Get messages</td></tr>
+        </table>
+
+        <h2 id="radio">tdeck.radio</h2>
+        <p>LoRa radio control.</p>
+
+        <table>
+            <tr><th>Function</th><th>Description</th></tr>
+            <tr><td><code>is_initialized()</code></td><td>Check if radio ready</td></tr>
+            <tr><td><code>get_last_rssi()</code></td><td>Last RSSI (dBm)</td></tr>
+            <tr><td><code>get_last_snr()</code></td><td>Last SNR (dB)</td></tr>
+            <tr><td><code>set_frequency(mhz)</code></td><td>Set frequency</td></tr>
+            <tr><td><code>set_tx_power(dbm)</code></td><td>Set TX power (0-22)</td></tr>
+            <tr><td><code>sleep()</code></td><td>Enter sleep mode</td></tr>
+            <tr><td><code>wake()</code></td><td>Wake from sleep</td></tr>
+        </table>
+
+        <h2 id="audio">tdeck.audio</h2>
+        <p>Audio output functions.</p>
+
+        <table>
+            <tr><th>Function</th><th>Description</th></tr>
+            <tr><td><code>play_tone(frequency, duration_ms)</code></td><td>Play tone</td></tr>
+            <tr><td><code>stop()</code></td><td>Stop playback</td></tr>
+            <tr><td><code>is_playing()</code></td><td>Check if playing</td></tr>
+            <tr><td><code>beep()</code></td><td>Short beep</td></tr>
+        </table>
+
+        <h2 id="lifecycle">Screen Lifecycle</h2>
+        <p>Screens are Lua tables with specific methods the system calls.</p>
+
+        <h3>Screen Template</h3>
+        <pre><code>local MyScreen = {title = "My Screen"}
+
+function MyScreen:new()
+    local o = {title = self.title}
+    setmetatable(o, {__index = MyScreen})
+    return o
+end
+
+function MyScreen:on_enter()
+    -- Called when screen becomes active
+end
+
+function MyScreen:on_exit()
+    -- Called when screen is popped
+end
+
+function MyScreen:render(display)
+    local colors = display.colors
+    display.draw_box(0, 0, display.cols, display.rows - 1,
+                    self.title, colors.CYAN, colors.WHITE)
+    -- Draw your content
+end
+
+function MyScreen:handle_key(key)
+    if key.special == "ESCAPE" or key.character == "q" then
+        return "pop"
+    end
+    tdeck.screen.invalidate()
+    return "continue"
+end
+
+return MyScreen</code></pre>
+
+        <h3>handle_key Return Values</h3>
+        <ul>
+            <li><code>"continue"</code> - Stay on current screen</li>
+            <li><code>"pop"</code> - Pop this screen</li>
+            <li><code>"exit"</code> - Exit application (main menu only)</li>
+        </ul>
+
+        <h3>Navigation Example</h3>
+        <pre><code>-- Push a new screen
+local OtherScreen = dofile("/scripts/ui/screens/other.lua")
+tdeck.screen.push(OtherScreen:new())
+
+-- Request redraw after state change
+self.counter = self.counter + 1
+tdeck.screen.invalidate()</code></pre>
+
+        <hr>
+        <p style="text-align: center; color: #666; margin-top: 40px;">
+            T-Deck OS Lua API Documentation<br>
+            Generated for Phase 6
+        </p>
+    </div>
+</body>
+</html>

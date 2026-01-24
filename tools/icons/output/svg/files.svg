@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="folderGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#5C6BC0"/>
+      <stop offset="100%" style="stop-color:#3F51B5"/>
+    </linearGradient>
+    <linearGradient id="folderHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:0.4"/>
+      <stop offset="60%" style="stop-color:#FFFFFF;stop-opacity:0"/>
+    </linearGradient>
+  </defs>
+  <path d="M3 8 L3 26 Q3 28 5 28 L27 28 Q29 28 29 26 L29 12 Q29 10 27 10 L15 10 L13 7 Q12 6 10 6 L5 6 Q3 6 3 8 Z" fill="#3949AB"/>
+  <path d="M3 12 L29 12 L29 26 Q29 28 27 28 L5 28 Q3 28 3 26 Z" fill="url(#folderGrad)"/>
+  <path d="M3 8 L3 10 L13 10 L15 7 Q14 6 12 6 L5 6 Q3 6 3 8 Z" fill="url(#folderGrad)"/>
+  <rect x="3" y="12" width="26" height="8" fill="url(#folderHighlight)"/>
+</svg>

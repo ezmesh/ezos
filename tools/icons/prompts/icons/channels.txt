@@ -1,0 +1,7 @@
+# Icon: channels
+# Used for: Channels menu item - group messaging
+
+Speech bubbles or chat bubbles representing group conversation.
+- Two overlapping speech bubbles
+- Primary color: teal/cyan (#4ECDC4 to #2AB7CA gradient)
+- Suggests multiple people communicating

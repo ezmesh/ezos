@@ -1,0 +1,7 @@
+# Icon: games
+# Used for: Games menu item - play games
+
+Game controller or joystick icon.
+- Game controller shape or dice
+- Primary color: purple (#AB47BC to #8E24AA gradient)
+- Fun, playful design suggesting entertainment
