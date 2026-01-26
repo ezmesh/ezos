@@ -1,0 +1,13 @@
+# PlatformIO build directory
+.pio/
+
+# IDE settings
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
