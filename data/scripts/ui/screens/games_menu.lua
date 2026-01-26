@@ -25,40 +25,48 @@ function GamesMenu:new()
 end
 
 function GamesMenu:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
 
-    display.draw_box(0, 0, display.cols, display.rows - 1, self.title, colors.CYAN, colors.WHITE)
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
+    end
+
+    -- Title bar
+    TitleBar.draw(display, self.title)
+
+    -- Content font
+    display.set_font_size("medium")
+    local fw = display.get_font_width()
+    local fh = display.get_font_height()
 
     local start_y = 3
     for i, item in ipairs(self.items) do
-        local y = (start_y + i - 1) * display.font_height
+        local y = (start_y + i - 1) * fh
         local is_selected = (i == self.selected)
 
         if is_selected then
-            display.fill_rect(display.font_width, y,
-                            (display.cols - 2) * display.font_width,
-                            display.font_height, colors.SELECTION)
-            display.draw_text(2 * display.font_width, y, ">", colors.CYAN)
+            display.fill_rect(fw, y, (display.cols - 2) * fw, fh, colors.SELECTION)
+            display.draw_text(2 * fw, y, ">", colors.CYAN)
         end
 
         local text_color = is_selected and colors.CYAN or colors.TEXT
-        display.draw_text(4 * display.font_width, y, item.label, text_color)
-        display.draw_text(15 * display.font_width, y, item.description, colors.TEXT_DIM)
+        display.draw_text(4 * fw, y, item.label, text_color)
+        display.draw_text(15 * fw, y, item.description, colors.TEXT_DIM)
     end
-
-    local help_y = (display.rows - 2) * display.font_height
-    display.draw_text_centered(help_y, "[Enter] Play  [Esc] Back", colors.TEXT_DIM)
 end
 
 function GamesMenu:handle_key(key)
     if key.special == "UP" then
         self.selected = self.selected - 1
         if self.selected < 1 then self.selected = #self.items end
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     elseif key.special == "DOWN" then
         self.selected = self.selected + 1
         if self.selected > #self.items then self.selected = 1 end
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     elseif key.special == "ENTER" then
         self:launch_game()
     elseif key.special == "ESCAPE" or key.character == "q" then
@@ -70,15 +78,30 @@ end
 function GamesMenu:launch_game()
     local item = self.items[self.selected]
     if item.label == "Snake" then
-        local Game = dofile("/scripts/ui/screens/snake.lua")
-        tdeck.screen.push(Game:new())
+        local Game = load_module("/scripts/ui/screens/snake.lua")
+        ScreenManager.push(Game:new())
     elseif item.label == "Tetris" then
-        local Game = dofile("/scripts/ui/screens/tetris.lua")
-        tdeck.screen.push(Game:new())
+        local Game = load_module("/scripts/ui/screens/tetris.lua")
+        ScreenManager.push(Game:new())
     elseif item.label == "Breakout" then
-        local Game = dofile("/scripts/ui/screens/breakout.lua")
-        tdeck.screen.push(Game:new())
+        local Game = load_module("/scripts/ui/screens/breakout.lua")
+        ScreenManager.push(Game:new())
     end
+end
+
+-- Menu items for app menu integration
+function GamesMenu:get_menu_items()
+    local self_ref = self
+    local items = {}
+
+    table.insert(items, {
+        label = "Play",
+        action = function()
+            self_ref:launch_game()
+        end
+    })
+
+    return items
 end
 
 return GamesMenu

@@ -36,9 +36,11 @@ namespace KeyCodes {
     constexpr uint8_t KEY_RELEASE    = 0x80;
 }
 
-// Keyboard backlight command (from T-Deck keyboard firmware)
+// Keyboard commands (from T-Deck keyboard firmware)
 namespace KBCommands {
     constexpr uint8_t CMD_BRIGHTNESS = 0x01;
+    constexpr uint8_t CMD_MODE_RAW = 0x03;     // Raw mode - sends matrix state
+    constexpr uint8_t CMD_MODE_NORMAL = 0x04;  // Disable raw mode (return to normal)
 }
 
 Keyboard::Keyboard() : _wire(nullptr) {
@@ -151,15 +153,66 @@ KeyEvent Keyboard::read() {
     if (_wire->available()) {
         uint8_t code = _wire->read();
         if (code != 0) {
-            Serial.printf("KB raw: 0x%02X (release=%d, key=0x%02X)\n",
-                         code, (code & 0x80) ? 1 : 0, code & 0x7F);
-            return translateKeycode(code);
+            // Debug: log all non-zero keyboard codes
+            Serial.printf("[KB] I2C code: 0x%02X\n", code);
+
+            bool isRelease = (code & 0x80) != 0;
+            uint8_t keyCode = code & 0x7F;
+
+            // Track held key for repeat (excluding modifiers)
+            if (keyCode < KeyCodes::KEY_SHIFT || keyCode > KeyCodes::KEY_FN) {
+                if (isRelease) {
+                    // Key released - stop repeat
+                    if (_heldKeyCode == keyCode) {
+                        _heldKeyCode = 0;
+                        _repeatStarted = false;
+                    }
+                } else {
+                    // New key pressed - start tracking
+                    _heldKeyCode = keyCode;
+                    _keyPressTime = millis();
+                    _lastRepeatTime = 0;
+                    _repeatStarted = false;
+                }
+            }
+
+            KeyEvent evt = translateKeycode(code);
+            if (evt.valid) {
+                Serial.printf("[KB] Event: special=%d char='%c'\n",
+                              evt.special, evt.character ? evt.character : '?');
+            }
+            return evt;
         }
     }
 
-    // Check trackball GPIO pins (active LOW) with edge detection
+    // Check for key repeat (if a key is held and repeat is enabled)
+    if (_keyRepeatEnabled && _heldKeyCode != 0) {
+        uint32_t now = millis();
+        uint32_t elapsed = now - _keyPressTime;
+
+        if (!_repeatStarted) {
+            // Check if we've passed the initial delay
+            if (elapsed >= _keyRepeatDelay) {
+                _repeatStarted = true;
+                _lastRepeatTime = now;
+                // Generate repeat event
+                return translateKeycode(_heldKeyCode);
+            }
+        } else {
+            // We're in repeat mode - check rate
+            if (now - _lastRepeatTime >= _keyRepeatRate) {
+                _lastRepeatTime = now;
+                return translateKeycode(_heldKeyCode);
+            }
+        }
+    }
+
+    // GPIO polling for trackball
     static bool lastUp = false, lastDown = false, lastLeft = false, lastRight = false;
     static bool lastClick = false;
+    static bool clickHeld = false;
+    static uint32_t clickStartTime = 0;
+    static bool clickFired = false;
 
     bool up = (digitalRead(TRACKBALL_UP) == LOW);
     bool down = (digitalRead(TRACKBALL_DOWN) == LOW);
@@ -167,19 +220,16 @@ KeyEvent Keyboard::read() {
     bool right = (digitalRead(TRACKBALL_RIGHT) == LOW);
     bool click = (digitalRead(TRACKBALL_CLICK) == LOW);
 
-    // Detect edges (transitions from HIGH to LOW)
+    // Log state changes
+    if (up != lastUp || down != lastDown || left != lastLeft || right != lastRight || click != lastClick) {
+        Serial.printf("[TB] up=%d down=%d left=%d right=%d click=%d\n", up, down, left, right, click);
+    }
+
+    // Detect edges for scroll (transitions from HIGH to LOW)
     bool upEdge = up && !lastUp;
     bool downEdge = down && !lastDown;
     bool leftEdge = left && !lastLeft;
     bool rightEdge = right && !lastRight;
-    bool clickEdge = click && !lastClick;
-
-    // Debug: show trackball edges
-    static uint32_t lastTbDebug = 0;
-    if ((upEdge || downEdge || leftEdge || rightEdge || clickEdge) && (millis() - lastTbDebug > 50)) {
-        Serial.printf("Trackball edge: U=%d D=%d L=%d R=%d C=%d\n", upEdge, downEdge, leftEdge, rightEdge, clickEdge);
-        lastTbDebug = millis();
-    }
 
     // Save current state for next edge detection
     lastUp = up;
@@ -188,9 +238,23 @@ KeyEvent Keyboard::read() {
     lastRight = right;
     lastClick = click;
 
-    // Handle trackball click as Enter
-    if (clickEdge) {
-        return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
+    // Handle click (30ms debounce)
+    uint32_t now = millis();
+
+    if (click) {
+        // On one of my devices the trackball click got stuck in a low state, auto triggering clicks, this fixes it...
+        pinMode(TRACKBALL_CLICK, INPUT_PULLUP);
+        if (!clickHeld) {
+            clickHeld = true;
+            clickStartTime = now;
+            clickFired = false;
+        } else if (!clickFired && (now - clickStartTime) >= 30) {
+            clickFired = true;
+            return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
+        }
+    } else {
+        clickHeld = false;
+        clickFired = false;
     }
 
     // Accumulate trackball movement (only on edges)
@@ -228,7 +292,59 @@ KeyEvent Keyboard::read() {
         }
     };
 
-    // Generate directional keys when threshold reached
+    // Tick-based scrolling: accumulate and emit on fixed clock
+    if (_tickBasedScrolling) {
+        uint32_t now = millis();
+
+        // Accumulate movement that exceeds threshold
+        if (_trackballY <= -effectiveThreshold) {
+            _pendingScrollY--;
+            _trackballY = 0;
+        }
+        if (_trackballY >= effectiveThreshold) {
+            _pendingScrollY++;
+            _trackballY = 0;
+        }
+        if (_trackballX <= -effectiveThreshold) {
+            _pendingScrollX--;
+            _trackballX = 0;
+        }
+        if (_trackballX >= effectiveThreshold) {
+            _pendingScrollX++;
+            _trackballX = 0;
+        }
+
+        // Check if tick interval has passed
+        if (now - _lastScrollTick >= _scrollTickInterval) {
+            _lastScrollTick = now;
+
+            // Emit one event per tick, prioritizing Y (vertical) movement
+            if (_pendingScrollY < 0) {
+                _pendingScrollY++;
+                updateAdaptive(-1);
+                return KeyEvent::fromSpecial(SpecialKey::UP, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
+            }
+            if (_pendingScrollY > 0) {
+                _pendingScrollY--;
+                updateAdaptive(1);
+                return KeyEvent::fromSpecial(SpecialKey::DOWN, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
+            }
+            if (_pendingScrollX < 0) {
+                _pendingScrollX++;
+                updateAdaptive(-1);
+                return KeyEvent::fromSpecial(SpecialKey::LEFT, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
+            }
+            if (_pendingScrollX > 0) {
+                _pendingScrollX--;
+                updateAdaptive(1);
+                return KeyEvent::fromSpecial(SpecialKey::RIGHT, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
+            }
+        }
+
+        return KeyEvent::invalid();
+    }
+
+    // Immediate mode: generate directional keys when threshold reached
     if (_trackballY <= -effectiveThreshold) {
         _trackballY = 0;
         updateAdaptive(-1);  // Up direction
@@ -491,4 +607,95 @@ void Keyboard::setBacklight(uint8_t level) {
     } else {
         Serial.printf("[Keyboard] Backlight set to %d\n", level);
     }
+}
+
+bool Keyboard::setMode(KeyboardMode mode) {
+    if (!_initialized || !_wire) return false;
+
+    uint8_t cmd = (mode == KeyboardMode::RAW) ? KBCommands::CMD_MODE_RAW : KBCommands::CMD_MODE_NORMAL;
+
+    _wire->beginTransmission(KB_I2C_ADDR);
+    _wire->write(cmd);
+    uint8_t error = _wire->endTransmission();
+
+    if (error != 0) {
+        Serial.printf("[Keyboard] Mode switch failed (error %d)\n", error);
+        return false;
+    }
+
+    // Verify raw mode actually works by trying a test read
+    if (mode == KeyboardMode::RAW) {
+        delay(10);  // Give keyboard time to switch modes
+
+        // Try to read matrix data
+        _wire->requestFrom((uint8_t)KB_I2C_ADDR, (uint8_t)MATRIX_COLS);
+        uint8_t available = _wire->available();
+
+        // Drain any data
+        while (_wire->available()) {
+            _wire->read();
+        }
+
+        if (available == 0) {
+            Serial.println("[Keyboard] Raw mode not supported by keyboard firmware");
+            // The keyboard doesn't support raw mode - stay in normal mode
+            _mode = KeyboardMode::NORMAL;
+            return false;
+        }
+    }
+
+    _mode = mode;
+
+    // Clear cached matrix state when switching modes
+    memset(_rawMatrix, 0, sizeof(_rawMatrix));
+
+    return true;
+}
+
+bool Keyboard::readRawMatrix(uint8_t matrix[MATRIX_COLS]) {
+    if (!_initialized || !_wire) return false;
+
+    // Request data from keyboard
+    _wire->requestFrom((uint8_t)KB_I2C_ADDR, (uint8_t)MATRIX_COLS);
+
+    // Read whatever bytes are available, fill rest with zeros
+    uint8_t available = _wire->available();
+    if (available == 0) {
+        return false;
+    }
+
+    for (uint8_t col = 0; col < MATRIX_COLS; col++) {
+        if (col < available) {
+            matrix[col] = _wire->read();
+        } else {
+            matrix[col] = 0;
+        }
+        _rawMatrix[col] = matrix[col];
+    }
+
+    return true;
+}
+
+bool Keyboard::isKeyPressed(uint8_t col, uint8_t row) {
+    if (col >= MATRIX_COLS || row >= MATRIX_ROWS) return false;
+
+    // Use cached matrix state
+    return (_rawMatrix[col] & (1 << row)) != 0;
+}
+
+uint64_t Keyboard::getRawMatrixBits() {
+    uint64_t bits = 0;
+
+    // Read fresh matrix data
+    uint8_t matrix[MATRIX_COLS];
+    if (!readRawMatrix(matrix)) {
+        return 0;
+    }
+
+    // Pack into 64-bit value: bits 0-6 = col 0, bits 7-13 = col 1, etc. (7 bits per column)
+    for (uint8_t col = 0; col < MATRIX_COLS; col++) {
+        bits |= ((uint64_t)(matrix[col] & 0x7F)) << (col * 7);
+    }
+
+    return bits;
 }

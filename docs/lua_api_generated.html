@@ -95,6 +95,29 @@
 </ul></div>
 </div>
 <div class="func">
+<div class="sig">tdeck.display.draw_bitmap(x, y, width, height, data)</div>
+<div class="desc">Draw a bitmap image from raw RGB565 data</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>x</code>: X position</li>
+<li><code>y</code>: Y position</li>
+<li><code>width</code>: Bitmap width in pixels</li>
+<li><code>height</code>: Bitmap height in pixels</li>
+<li><code>data</code>: Raw RGB565 pixel data (2 bytes per pixel, big-endian)</li>
+</ul></div>
+</div>
+<div class="func">
+<div class="sig">tdeck.display.draw_bitmap_transparent(x, y, width, height, data, transparent_color)</div>
+<div class="desc">Draw a bitmap with transparency</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>x</code>: X position</li>
+<li><code>y</code>: Y position</li>
+<li><code>width</code>: Bitmap width in pixels</li>
+<li><code>height</code>: Bitmap height in pixels</li>
+<li><code>data</code>: Raw RGB565 pixel data</li>
+<li><code>transparent_color</code>: RGB565 color to treat as transparent</li>
+</ul></div>
+</div>
+<div class="func">
 <div class="sig">tdeck.display.draw_box(x, y, w, h, title, border_color, title_color)</div>
 <div class="desc">Draw bordered box with optional title</div>
 <div class="params"><strong>Parameters:</strong><ul>
@@ -279,6 +302,11 @@
 <div><strong>Returns:</strong> true if adaptive scrolling is on</div>
 </div>
 <div class="func">
+<div class="sig">tdeck.keyboard.get_backlight() -&gt; integer</div>
+<div class="desc">Get current keyboard backlight level</div>
+<div><strong>Returns:</strong> Backlight level (0-255, 0 = off)</div>
+</div>
+<div class="func">
 <div class="sig">tdeck.keyboard.get_trackball_sensitivity() -&gt; integer</div>
 <div class="desc">Get trackball sensitivity level</div>
 <div><strong>Returns:</strong> Sensitivity value</div>
@@ -326,6 +354,13 @@
 <div class="desc">Enable or disable adaptive scrolling</div>
 <div class="params"><strong>Parameters:</strong><ul>
 <li><code>enabled</code>: true to enable, false to disable</li>
+</ul></div>
+</div>
+<div class="func">
+<div class="sig">tdeck.keyboard.set_backlight(level)</div>
+<div class="desc">Set keyboard backlight brightness</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>level</code>: Brightness level (0-255, 0 = off)</li>
 </ul></div>
 </div>
 <div class="func">
@@ -575,6 +610,11 @@
 <div><strong>Returns:</strong> Result string</div>
 </div>
 <h2 id="screen">tdeck.screen</h2>
+<div class="func">
+<div class="sig">tdeck.screen.get_status() -&gt; table</div>
+<div class="desc">Get current status bar info</div>
+<div><strong>Returns:</strong> Table with battery, radio_ok, signal_bars, node_count, has_unread, node_id</div>
+</div>
 <div class="func">
 <div class="sig">tdeck.screen.invalidate()</div>
 <div class="desc">Mark screen for redraw</div>
@@ -843,6 +883,16 @@
 <div><strong>Returns:</strong> true if less than 32KB available</div>
 </div>
 <div class="func">
+<div class="sig">tdeck.system.is_sd_available() -&gt; boolean</div>
+<div class="desc">Check if SD card is available</div>
+<div><strong>Returns:</strong> true if SD card is present and accessible</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.system.is_usb_msc_active() -&gt; boolean</div>
+<div class="desc">Check if USB MSC mode is active</div>
+<div><strong>Returns:</strong> true if MSC mode is active</div>
+</div>
+<div class="func">
 <div class="sig">tdeck.system.log(message)</div>
 <div class="desc">Log message to serial output</div>
 <div class="params"><strong>Parameters:</strong><ul>
@@ -880,6 +930,15 @@
 <li><code>callback</code>: Function to call</li>
 </ul></div>
 <div><strong>Returns:</strong> Timer ID for cancellation</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.system.start_usb_msc() -&gt; boolean</div>
+<div class="desc">Start USB Mass Storage mode to access SD card from PC</div>
+<div><strong>Returns:</strong> true if started successfully</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.system.stop_usb_msc()</div>
+<div class="desc">Stop USB Mass Storage mode</div>
 </div>
 <div class="func">
 <div class="sig">tdeck.system.uptime() -&gt; integer</div>

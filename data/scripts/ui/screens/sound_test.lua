@@ -26,32 +26,44 @@ function SoundTest:on_exit()
 end
 
 function SoundTest:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
 
-    display.draw_box(0, 0, display.cols, display.rows - 1,
-                    self.title, colors.CYAN, colors.WHITE)
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
+    end
 
-    local y = 3 * display.font_height
-    local x = 4 * display.font_width
+    -- Title bar
+    TitleBar.draw(display, self.title)
+
+    -- Content font
+    display.set_font_size("medium")
+    local fw = display.get_font_width()
+    local fh = display.get_font_height()
+
+    local y = 3 * fh
+    local x = 4 * fw
 
     display.draw_text(x, y, "Select a note to play:", colors.TEXT)
-    y = y + display.font_height * 2
+    y = y + fh * 2
 
     -- Draw piano keys representation
     for i, name in ipairs(self.note_names) do
         local is_selected = (i == self.selected)
-        local key_x = x + (i - 1) * 4 * display.font_width
+        local key_x = x + (i - 1) * 4 * fw
 
         -- Key background
         local key_color = is_selected and colors.CYAN or colors.WHITE
-        display.fill_rect(key_x, y, 3 * display.font_width, 3 * display.font_height, key_color)
+        display.fill_rect(key_x, y, 3 * fw, 3 * fh, key_color)
 
         -- Key label
-        local text_color = is_selected and colors.BLACK or colors.BLACK
-        display.draw_text(key_x + display.font_width, y + display.font_height, name, text_color)
+        local text_color = colors.BLACK
+        display.draw_text(key_x + fw, y + fh, name, text_color)
     end
 
-    y = y + 5 * display.font_height
+    y = y + 5 * fh
 
     -- Status
     if self.playing then
@@ -60,14 +72,10 @@ function SoundTest:render(display)
         display.draw_text(x, y, "Press ENTER to play", colors.TEXT_DIM)
     end
 
-    y = y + display.font_height * 2
+    y = y + fh * 2
 
     -- Beep button
     display.draw_text(x, y, "[B] Quick beep", colors.TEXT)
-
-    -- Help text
-    display.draw_text(display.font_width, (display.rows - 3) * display.font_height,
-                    "[<>]Select [Enter]Play [S]Stop [Q]Back", colors.TEXT_DIM)
 end
 
 function SoundTest:handle_key(key)
@@ -75,12 +83,12 @@ function SoundTest:handle_key(key)
         if self.selected > 1 then
             self.selected = self.selected - 1
         end
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     elseif key.special == "RIGHT" then
         if self.selected < #self.note_names then
             self.selected = self.selected + 1
         end
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     elseif key.special == "ENTER" then
         self:play_note()
     elseif key.special == "ESCAPE" or key.character == "q" then
@@ -100,7 +108,7 @@ function SoundTest:play_note()
         local freq = self.frequencies[self.selected]
         tdeck.audio.play_tone(freq, 500)
         self.playing = true
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
 
         -- Auto-stop indicator after duration
         -- (The actual sound stops automatically)
@@ -111,7 +119,7 @@ function SoundTest:stop()
     if tdeck.audio and tdeck.audio.stop then
         tdeck.audio.stop()
         self.playing = false
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     end
 end
 

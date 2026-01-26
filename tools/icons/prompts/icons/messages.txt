@@ -1,7 +1,0 @@
-# Icon: messages
-# Used for: Messages menu item - view conversations
-
-An envelope icon representing email/messages.
-- Closed envelope shape
-- Primary color: warm orange/coral (#FF6B6B to #FF8E53 gradient)
-- Small decorative element suggesting a sealed letter

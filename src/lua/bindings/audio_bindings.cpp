@@ -8,10 +8,12 @@
 #include <cmath>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <LittleFS.h>
 
 // I2S configuration
 static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 static constexpr int SAMPLE_RATE = 44100;
+static constexpr int SAMPLE_RATE_PCM = 22050;  // PCM files are at 22050Hz
 static constexpr int AMPLITUDE = 16000;
 
 // Audio state
@@ -21,6 +23,7 @@ static volatile uint32_t audioFrequency = 440;
 static volatile bool i2sInitialized = false;
 static volatile uint32_t toneEndTime = 0;
 static volatile bool toneHasDuration = false;
+static volatile uint8_t audioVolume = 100;  // 0-100 volume level
 
 static bool initI2S() {
     if (i2sInitialized) return true;
@@ -78,9 +81,10 @@ static void audioTask(void* param) {
         if (audioRunning) {
             uint32_t freq = audioFrequency;
             float phaseIncrement = 2.0f * M_PI * freq / SAMPLE_RATE;
+            float volumeScale = audioVolume / 100.0f;
 
             for (int i = 0; i < 256; i++) {
-                samples[i] = (int16_t)(AMPLITUDE * sinf(phase));
+                samples[i] = (int16_t)(AMPLITUDE * volumeScale * sinf(phase));
                 phase += phaseIncrement;
                 if (phase >= 2.0f * M_PI) {
                     phase -= 2.0f * M_PI;
@@ -225,14 +229,101 @@ LUA_FUNCTION(l_audio_start) {
     return 0;
 }
 
+// @lua tdeck.audio.set_volume(level)
+// @brief Set audio volume level
+// @param level Volume level 0-100
+LUA_FUNCTION(l_audio_set_volume) {
+    LUA_CHECK_ARGC(L, 1);
+    int level = luaL_checkinteger(L, 1);
+    audioVolume = constrain(level, 0, 100);
+    return 0;
+}
+
+// @lua tdeck.audio.get_volume() -> integer
+// @brief Get current volume level
+// @return Volume level 0-100
+LUA_FUNCTION(l_audio_get_volume) {
+    lua_pushinteger(L, audioVolume);
+    return 1;
+}
+
+// @lua tdeck.audio.play_sample(filename) -> boolean
+// @brief Play a PCM sample file from LittleFS
+// @param filename Path to .pcm file (16-bit signed, 22050Hz mono)
+// @return true if played successfully
+LUA_FUNCTION(l_audio_play_sample) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* filename = luaL_checkstring(L, 1);
+
+    if (!initI2S()) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    // Stop any running audio first
+    audioRunning = false;
+
+    // Build full path
+    String path = "/sounds/";
+    path += filename;
+    if (!path.endsWith(".pcm")) {
+        path += ".pcm";
+    }
+
+    // Open file
+    File file = LittleFS.open(path, "r");
+    if (!file) {
+        Serial.printf("[Audio] Failed to open: %s\n", path.c_str());
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    size_t fileSize = file.size();
+    size_t numSamples = fileSize / 2;  // 16-bit samples
+
+    // Read and play in chunks, upsampling 2x (22050 -> 44100)
+    int16_t readBuf[128];
+    int16_t playBuf[256];  // 2x for upsampling
+    float volumeScale = audioVolume / 100.0f;
+
+    while (file.available()) {
+        size_t bytesRead = file.read((uint8_t*)readBuf, sizeof(readBuf));
+        size_t samplesRead = bytesRead / 2;
+
+        // Upsample 2x and apply volume
+        for (size_t i = 0; i < samplesRead; i++) {
+            int16_t sample = (int16_t)(readBuf[i] * volumeScale);
+            playBuf[i * 2] = sample;
+            playBuf[i * 2 + 1] = sample;  // Duplicate for 2x upsampling
+        }
+
+        // Write to I2S
+        size_t bytesWritten;
+        i2s_write(I2S_PORT, playBuf, samplesRead * 4, &bytesWritten, portMAX_DELAY);
+    }
+
+    file.close();
+
+    // Write silence to flush
+    int16_t silence[256] = {0};
+    size_t bytesWritten;
+    i2s_write(I2S_PORT, silence, sizeof(silence), &bytesWritten, 10);
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
 // Function table for tdeck.audio
 static const luaL_Reg audio_funcs[] = {
     {"play_tone",     l_audio_play_tone},
+    {"play_sample",   l_audio_play_sample},
     {"stop",          l_audio_stop},
     {"is_playing",    l_audio_is_playing},
     {"beep",          l_audio_beep},
     {"set_frequency", l_audio_set_frequency},
     {"start",         l_audio_start},
+    {"set_volume",    l_audio_set_volume},
+    {"get_volume",    l_audio_get_volume},
     {nullptr, nullptr}
 };
 

@@ -19,30 +19,40 @@ function InputTest:new()
 end
 
 function InputTest:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
 
-    display.draw_box(0, 0, display.cols, display.rows - 1,
-                    self.title, colors.CYAN, colors.WHITE)
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
+    end
 
-    local y = 2 * display.font_height
-    local x = 2 * display.font_width
+    -- Title bar
+    TitleBar.draw(display, self.title)
+
+    -- Content font
+    display.set_font_size("medium")
+    local fw = display.get_font_width()
+    local fh = display.get_font_height()
+
+    local y = 2 * fh
+    local x = 2 * fw
 
     display.draw_text(x, y, "Press any key to test:", colors.TEXT)
-    y = y + display.font_height * 2
+    y = y + fh * 2
 
     if self.last_key then
         -- Show last key details
         display.draw_text(x, y, "Last Key:", colors.TEXT_DIM)
-        y = y + display.font_height
+        y = y + fh
 
         if self.last_key.special then
-            display.draw_text(x + 2 * display.font_width, y,
-                            "Special: " .. self.last_key.special, colors.CYAN)
+            display.draw_text(x + 2 * fw, y, "Special: " .. self.last_key.special, colors.CYAN)
         elseif self.last_key.character then
-            display.draw_text(x + 2 * display.font_width, y,
-                            "Char: '" .. self.last_key.character .. "'", colors.CYAN)
+            display.draw_text(x + 2 * fw, y, "Char: '" .. self.last_key.character .. "'", colors.CYAN)
         end
-        y = y + display.font_height
+        y = y + fh
 
         -- Modifiers
         local mods = {}
@@ -52,30 +62,25 @@ function InputTest:render(display)
         if self.last_key.fn then table.insert(mods, "FN") end
 
         if #mods > 0 then
-            display.draw_text(x + 2 * display.font_width, y,
-                            "Mods: " .. table.concat(mods, " + "), colors.TEXT)
+            display.draw_text(x + 2 * fw, y, "Mods: " .. table.concat(mods, " + "), colors.TEXT)
         else
-            display.draw_text(x + 2 * display.font_width, y, "Mods: none", colors.TEXT_DIM)
+            display.draw_text(x + 2 * fw, y, "Mods: none", colors.TEXT_DIM)
         end
-        y = y + display.font_height * 2
+        y = y + fh * 2
     else
         display.draw_text(x, y, "(waiting for input...)", colors.TEXT_DIM)
-        y = y + display.font_height * 4
+        y = y + fh * 4
     end
 
     -- Key history
     display.draw_text(x, y, "History:", colors.TEXT_DIM)
-    y = y + display.font_height
+    y = y + fh
 
     for i, key_str in ipairs(self.key_history) do
         if i > 5 then break end  -- Only show last 5
-        display.draw_text(x + 2 * display.font_width, y, key_str, colors.TEXT)
-        y = y + display.font_height
+        display.draw_text(x + 2 * fw, y, key_str, colors.TEXT)
+        y = y + fh
     end
-
-    -- Help text
-    display.draw_text(display.font_width, (display.rows - 3) * display.font_height,
-                    "ESC or Q: Back", colors.TEXT_DIM)
 end
 
 function InputTest:handle_key(key)
@@ -107,7 +112,7 @@ function InputTest:handle_key(key)
         table.remove(self.key_history)
     end
 
-    tdeck.screen.invalidate()
+    ScreenManager.invalidate()
 
     -- Check for exit
     if key.special == "ESCAPE" or key.character == "q" then

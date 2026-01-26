@@ -98,9 +98,10 @@ namespace Colors {
 
 // Font size options for TUI
 enum class FontSize : uint8_t {
-    SMALL = 0,   // FreeMono9pt - compact, more text fits
-    MEDIUM = 1,  // FreeMono12pt - balanced (default)
-    LARGE = 2    // FreeMono18pt - easier to read
+    TINY = 0,    // FreeMono5pt - compact (6x10), UTF-8 monospace
+    SMALL = 1,   // FreeMono9pt - compact (6x12), full UTF-8
+    MEDIUM = 2,  // FreeMono12pt - balanced (7x16), default
+    LARGE = 3    // FreeMono18pt - easier to read (11x24)
 };
 
 // Font metrics for each size
@@ -178,6 +179,21 @@ public:
     void drawPixel(int x, int y, uint16_t color);
     void fillRect(int x, int y, int w, int h, uint16_t color);
     void drawRect(int x, int y, int w, int h, uint16_t color);
+
+    // Line drawing
+    void drawLine(int x1, int y1, int x2, int y2, uint16_t color);
+
+    // Circle drawing
+    void drawCircle(int x, int y, int r, uint16_t color);
+    void fillCircle(int x, int y, int r, uint16_t color);
+
+    // Triangle drawing
+    void drawTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color);
+    void fillTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color);
+
+    // Rounded rectangle drawing
+    void drawRoundRect(int x, int y, int w, int h, int r, uint16_t color);
+    void fillRoundRect(int x, int y, int w, int h, int r, uint16_t color);
 
     // Bitmap drawing (RGB565 format)
     void drawBitmap(int x, int y, int w, int h, const uint16_t* data);

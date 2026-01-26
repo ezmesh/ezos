@@ -2,16 +2,32 @@
 -- These services run automatically when the scheduler is active
 
 -- Use global Scheduler set up by boot.lua
-local Scheduler = _G.Scheduler or require("services/scheduler")
+local Scheduler = _G.Scheduler
 
-local Builtin = {}
+local Builtin = {
+    channels_loaded = false
+}
+
+-- Lazy-load Channels service (saves ~27KB at boot)
+function Builtin.get_channels()
+    if not Builtin.channels_loaded then
+        _G.Channels = load_module("/scripts/services/channels.lua")
+        if tdeck.mesh.is_initialized() then
+            _G.Channels.init()
+        end
+        Builtin.channels_loaded = true
+    end
+    return _G.Channels
+end
 
 -- Battery monitoring service
 -- Updates status bar and warns on low battery
 function Builtin.init_battery_service()
     Scheduler.register_service("battery", function()
         local percent = tdeck.system.get_battery_percent()
-        tdeck.screen.set_battery(percent)
+        if StatusBar then
+            StatusBar.set_battery(percent)
+        end
 
         -- Low battery warning at 10%
         if percent <= 10 then
@@ -28,18 +44,24 @@ function Builtin.init_mesh_service()
         if tdeck.mesh.is_initialized() then
             -- Update node count in status bar
             local count = tdeck.mesh.get_node_count()
-            tdeck.screen.set_node_count(count)
+            if StatusBar then
+                StatusBar.set_node_count(count)
+            end
 
-            -- Check for unread messages
-            local channels = tdeck.mesh.get_channels()
-            local has_unread = false
-            for _, ch in ipairs(channels) do
-                if ch.unread_count > 0 then
-                    has_unread = true
-                    break
+            -- Check for unread messages (only if channels loaded)
+            if _G.Channels then
+                local channels = _G.Channels.get_all()
+                local has_unread = false
+                for _, ch in ipairs(channels) do
+                    if ch.unread and ch.unread > 0 then
+                        has_unread = true
+                        break
+                    end
+                end
+                if StatusBar then
+                    StatusBar.set_unread(has_unread)
                 end
             end
-            tdeck.screen.set_unread(has_unread)
         end
     end, 5000)  -- Every 5 seconds
 
@@ -70,13 +92,18 @@ function Builtin.init_radio_service()
                 bars = 1
             end
         end
-        tdeck.screen.set_radio(ok, bars)
+        if StatusBar then
+            StatusBar.set_radio(ok, bars)
+        end
     end, 2000)  -- Every 2 seconds
 end
 
 -- Initialize all built-in services
 function Builtin.init_all()
     tdeck.system.log("[Builtin] Initializing built-in services...")
+
+    -- NOTE: Channels service is loaded on-demand via get_channels()
+    -- to save memory at boot
 
     Builtin.init_battery_service()
     Builtin.init_mesh_service()

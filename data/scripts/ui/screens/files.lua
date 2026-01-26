@@ -1,6 +1,8 @@
 -- files.lua - Basic file explorer
 -- Browse files, run Lua scripts, edit text files
 
+local TextUtils = dofile("/scripts/ui/text_utils.lua")
+
 local Files = {
     title = "Files",
     current_path = "/",
@@ -8,7 +10,9 @@ local Files = {
     selected = 1,
     scroll = 0,
     message = nil,
-    message_time = 0
+    message_time = 0,
+    clipboard_path = nil,
+    clipboard_mode = nil  -- "copy" or "cut"
 }
 
 function Files:new(start_path)
@@ -19,14 +23,24 @@ function Files:new(start_path)
         selected = 1,
         scroll = 0,
         message = nil,
-        message_time = 0
+        message_time = 0,
+        clipboard_path = nil,
+        clipboard_mode = nil
     }
     setmetatable(o, {__index = Files})
     return o
 end
 
 function Files:on_enter()
+    collectgarbage("collect")
     self:load_directory(self.current_path)
+end
+
+function Files:on_exit()
+    -- Clear entries to free memory
+    self.entries = {}
+    self.clipboard_path = nil
+    collectgarbage("collect")
 end
 
 function Files:show_message(msg)
@@ -141,8 +155,8 @@ function Files:open_entry()
 
         if self:is_text_file(entry.name) then
             -- Open in editor
-            local Edit = dofile("/scripts/ui/screens/edit.lua")
-            tdeck.screen.push(Edit:new(path))
+            local FileEdit = load_module("/scripts/ui/screens/file_edit.lua")
+            ScreenManager.push(FileEdit:new(path))
         else
             self:show_message("Cannot open: " .. entry.name)
         end
@@ -172,7 +186,7 @@ function Files:run_lua_file()
         if type(result) == "table" and result.new then
             -- It's a screen module, push it
             local screen = result:new()
-            tdeck.screen.push(screen)
+            ScreenManager.push(screen)
         else
             self:show_message("Script executed")
         end
@@ -192,8 +206,175 @@ function Files:delete_entry()
 
     local path = self:get_full_path(entry)
 
-    -- For now just show a message - actual delete would need confirmation
-    self:show_message("Delete not implemented (safety)")
+    if tdeck.storage.delete(path) then
+        self:show_message("Deleted: " .. entry.name)
+        self:load_directory(self.current_path)
+    else
+        self:show_message("Delete failed!")
+    end
+end
+
+function Files:copy_entry()
+    if #self.entries == 0 then return end
+    local entry = self.entries[self.selected]
+    if entry.name == ".." or entry.is_dir then
+        self:show_message("Cannot copy directory")
+        return
+    end
+    self.clipboard_path = self:get_full_path(entry)
+    self.clipboard_mode = "copy"
+    self:show_message("Copied: " .. entry.name)
+end
+
+function Files:cut_entry()
+    if #self.entries == 0 then return end
+    local entry = self.entries[self.selected]
+    if entry.name == ".." or entry.is_dir then
+        self:show_message("Cannot cut directory")
+        return
+    end
+    self.clipboard_path = self:get_full_path(entry)
+    self.clipboard_mode = "cut"
+    self:show_message("Cut: " .. entry.name)
+end
+
+function Files:paste_entry()
+    if not self.clipboard_path then
+        self:show_message("Nothing to paste")
+        return
+    end
+
+    local src_name = self.clipboard_path:match("([^/]+)$")
+    local dest_path = self.current_path
+    if dest_path ~= "/" then
+        dest_path = dest_path .. "/"
+    end
+    dest_path = dest_path .. src_name
+
+    -- Read source file
+    local content = tdeck.storage.read_file(self.clipboard_path)
+    if not content then
+        self:show_message("Read failed!")
+        return
+    end
+
+    -- Write to destination
+    if not tdeck.storage.write_file(dest_path, content) then
+        self:show_message("Write failed!")
+        return
+    end
+
+    -- If cut mode, delete source
+    if self.clipboard_mode == "cut" then
+        tdeck.storage.delete(self.clipboard_path)
+        self.clipboard_path = nil
+        self.clipboard_mode = nil
+    end
+
+    self:show_message("Pasted: " .. src_name)
+    self:load_directory(self.current_path)
+end
+
+function Files:rename_entry()
+    if #self.entries == 0 then return end
+    local entry = self.entries[self.selected]
+    if entry.name == ".." then
+        self:show_message("Cannot rename ..")
+        return
+    end
+
+    -- For now show message - would need input screen for new name
+    self:show_message("Rename: use Edit to modify")
+end
+
+function Files:new_file()
+    local FileEdit = load_module("/scripts/ui/screens/file_edit.lua")
+    local new_path = self.current_path
+    if new_path ~= "/" then
+        new_path = new_path .. "/"
+    end
+    new_path = new_path .. "new.lua"
+    ScreenManager.push(FileEdit:new(new_path))
+end
+
+-- Menu items for app menu integration
+function Files:get_menu_items()
+    local self_ref = self
+    local items = {}
+    local entry = self.entries[self.selected]
+
+    -- File-specific options
+    if entry and entry.name ~= ".." and not entry.is_dir then
+        -- Run option for Lua files
+        if self:is_lua_file(entry.name) then
+            table.insert(items, {
+                label = "Run",
+                action = function()
+                    self_ref:run_lua_file()
+                    ScreenManager.invalidate()
+                end
+            })
+        end
+
+        -- Edit option for text files
+        if self:is_text_file(entry.name) then
+            table.insert(items, {
+                label = "Edit",
+                action = function()
+                    local path = self_ref:get_full_path(entry)
+                    local FileEdit = load_module("/scripts/ui/screens/file_edit.lua")
+                    ScreenManager.push(FileEdit:new(path))
+                end
+            })
+        end
+
+        -- Copy/Cut
+        table.insert(items, {
+            label = "Copy",
+            action = function()
+                self_ref:copy_entry()
+                ScreenManager.invalidate()
+            end
+        })
+
+        table.insert(items, {
+            label = "Cut",
+            action = function()
+                self_ref:cut_entry()
+                ScreenManager.invalidate()
+            end
+        })
+
+        -- Delete
+        table.insert(items, {
+            label = "Delete",
+            action = function()
+                self_ref:delete_entry()
+                ScreenManager.invalidate()
+            end
+        })
+    end
+
+    -- Paste option if clipboard has content
+    if self.clipboard_path then
+        table.insert(items, {
+            label = "Paste",
+            action = function()
+                self_ref:paste_entry()
+                ScreenManager.invalidate()
+            end
+        })
+    end
+
+    -- New file option
+    table.insert(items, {
+        label = "New",
+        action = function()
+            self_ref:new_file()
+        end
+    })
+
+    return items
 end
 
 function Files:update_scroll(visible_rows)
@@ -205,14 +386,33 @@ function Files:update_scroll(visible_rows)
 end
 
 function Files:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
 
-    -- Header with current path
-    local title = self.current_path
-    if #title > display.cols - 4 then
-        title = "..." .. title:sub(-(display.cols - 7))
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
     end
-    display.draw_box(0, 0, display.cols, display.rows - 1, title, colors.CYAN, colors.WHITE)
+
+    -- Truncate path if too long for title bar
+    display.set_font_size("small")
+    local title_max_width = display.width - 20
+    local title = self.current_path
+    if display.text_width(title) > title_max_width then
+        while display.text_width("..." .. title) > title_max_width and #title > 1 do
+            title = title:sub(2)
+        end
+        title = "..." .. title
+    end
+
+    -- Title bar
+    TitleBar.draw(display, title)
+
+    -- Content font
+    display.set_font_size("medium")
+    local fw = display.get_font_width()
+    local fh = display.get_font_height()
 
     local visible_rows = display.rows - 4
     self:update_scroll(visible_rows)
@@ -220,7 +420,7 @@ function Files:render(display)
     -- File list
     for i = 1, visible_rows do
         local idx = self.scroll + i
-        local py = i * display.font_height
+        local py = (i + 1) * fh
 
         if idx <= #self.entries then
             local entry = self.entries[idx]
@@ -228,10 +428,8 @@ function Files:render(display)
 
             -- Selection highlight
             if is_selected then
-                display.fill_rect(display.font_width, py,
-                                (display.cols - 2) * display.font_width,
-                                display.font_height, colors.SELECTION)
-                display.draw_text(display.font_width, py, ">", colors.CYAN)
+                display.fill_rect(fw, py, (display.cols - 2) * fw, fh, colors.SELECTION)
+                display.draw_text(fw, py, ">", colors.CYAN)
             end
 
             -- Icon/prefix
@@ -245,40 +443,34 @@ function Files:render(display)
                 name_color = is_selected and colors.CYAN or colors.GREEN
             end
 
-            -- Name (truncate if needed)
-            local max_name_len = display.cols - 12
-            local name = entry.name
-            if #name > max_name_len then
-                name = name:sub(1, max_name_len - 2) .. ".."
-            end
+            -- Name (truncate if needed using pixel measurement)
+            local name_start_x = 4 * fw  -- After prefix
+            local name_max_width = display.width - name_start_x - (8 * fw)  -- Leave room for size
+            local name = TextUtils.truncate(entry.name, name_max_width, display)
 
-            display.draw_text(2 * display.font_width, py, prefix .. name, name_color)
+            display.draw_text(2 * fw, py, prefix .. name, name_color)
 
-            -- Size for files
+            -- Size for files (right-aligned using pixel measurement)
             if not entry.is_dir and entry.size then
                 local size_str = self:format_size(entry.size)
-                local size_x = (display.cols - #size_str - 1) * display.font_width
+                local size_width = display.text_width(size_str)
+                local size_x = display.width - size_width - fw
                 display.draw_text(size_x, py, size_str, colors.TEXT_DIM)
             end
         end
     end
 
-    -- Status/help bar
-    local status_y = (display.rows - 2) * display.font_height
-    local help_text
-
+    -- Status message only (no help bar - use app menu)
     if self.message and (tdeck.system.millis() - self.message_time) < 2000 then
-        help_text = self.message
+        local status_y = (display.rows - 2) * fh
+        display.draw_text(fw, status_y, self.message, colors.TEXT_DIM)
     else
-        help_text = "[Enter]Open [R]Run [E]Edit [Esc]Back"
         self.message = nil
     end
-
-    display.draw_text(display.font_width, status_y, help_text, colors.TEXT_DIM)
 end
 
 function Files:handle_key(key)
-    tdeck.screen.invalidate()
+    ScreenManager.invalidate()
 
     if key.special == "UP" then
         if self.selected > 1 then
@@ -308,19 +500,19 @@ function Files:handle_key(key)
             local entry = self.entries[self.selected]
             if not entry.is_dir then
                 local path = self:get_full_path(entry)
-                local Edit = dofile("/scripts/ui/screens/edit.lua")
-                tdeck.screen.push(Edit:new(path))
+                local FileEdit = load_module("/scripts/ui/screens/file_edit.lua")
+                ScreenManager.push(FileEdit:new(path))
             end
         end
     elseif key.character == "n" or key.character == "N" then
         -- New file - open editor with path in current directory
-        local Edit = dofile("/scripts/ui/screens/edit.lua")
+        local FileEdit = load_module("/scripts/ui/screens/file_edit.lua")
         local new_path = self.current_path
         if new_path ~= "/" then
             new_path = new_path .. "/"
         end
         new_path = new_path .. "new.lua"
-        tdeck.screen.push(Edit:new(new_path))
+        ScreenManager.push(FileEdit:new(new_path))
     elseif key.character == "g" or key.character == "G" then
         -- Go to root
         self:load_directory("/")

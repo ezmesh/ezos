@@ -1,12 +1,14 @@
 #include "display.h"
 #include <cstring>
 #include <Arduino.h>
+#include "../fonts/FreeMono5pt7b.h"
 
 // Font metrics for each size (width, height measured for monospace 'M')
-// FreeMono is a true monospace font
+// All fonts are FreeMono - true monospace with UTF-8 support
 static const FontMetrics FONT_METRICS[] = {
-    { 6, 12, &fonts::FreeMono9pt7b },    // SMALL: ~6x12
-    { 7, 16, &fonts::FreeMono12pt7b },   // MEDIUM: ~7x16
+    { 6, 10, &FreeMono5pt7b },           // TINY: ~6x10 (compact UTF-8 monospace)
+    { 6, 12, &fonts::FreeMono9pt7b },    // SMALL: ~6x12 (UTF-8 monospace)
+    { 7, 16, &fonts::FreeMono12pt7b },   // MEDIUM: ~7x16 (default)
     { 11, 24, &fonts::FreeMono18pt7b }   // LARGE: ~11x24
 };
 
@@ -28,13 +30,16 @@ bool Display::init() {
     _lcd.setRotation(1);
     Serial.println("Display: Rotation set to landscape");
 
-    // Turn on backlight
-    _lcd.setBrightness(255);
-    Serial.println("Display: Backlight on");
+    // Keep backlight off while we clear the screen to avoid showing garbage
+    _lcd.setBrightness(0);
 
-    // Clear screen
+    // Clear screen first (before turning on backlight)
     _lcd.fillScreen(Colors::BACKGROUND);
     Serial.println("Display: Screen cleared");
+
+    // Now turn on backlight
+    _lcd.setBrightness(255);
+    Serial.println("Display: Backlight on");
 
     // Create sprite buffer for double-buffering (uses PSRAM if available)
     _buffer.setColorDepth(16);
@@ -97,19 +102,17 @@ int Display::textWidth(const char* text) {
 
 void Display::setFontSize(FontSize size) {
     int idx = static_cast<int>(size);
-    if (idx < 0 || idx > 2) idx = 1;  // Default to MEDIUM
+    if (idx < 0 || idx > 3) idx = 2;  // Default to MEDIUM
 
     _fontSize = size;
     _fontWidth = FONT_METRICS[idx].width;
     _fontHeight = FONT_METRICS[idx].height;
     _buffer.setFont(FONT_METRICS[idx].font);
-
-    Serial.printf("Display: Font set to %s (%dx%d)\n",
-                  getFontSizeName(size), _fontWidth, _fontHeight);
 }
 
 const char* Display::getFontSizeName(FontSize size) {
     switch (size) {
+        case FontSize::TINY:   return "Tiny";
         case FontSize::SMALL:  return "Small";
         case FontSize::MEDIUM: return "Medium";
         case FontSize::LARGE:  return "Large";
@@ -354,4 +357,32 @@ void Display::drawBitmapTransparent(int x, int y, int w, int h, const uint16_t* 
             }
         }
     }
+}
+
+void Display::drawLine(int x1, int y1, int x2, int y2, uint16_t color) {
+    _buffer.drawLine(x1, y1, x2, y2, color);
+}
+
+void Display::drawCircle(int x, int y, int r, uint16_t color) {
+    _buffer.drawCircle(x, y, r, color);
+}
+
+void Display::fillCircle(int x, int y, int r, uint16_t color) {
+    _buffer.fillCircle(x, y, r, color);
+}
+
+void Display::drawTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color) {
+    _buffer.drawTriangle(x1, y1, x2, y2, x3, y3, color);
+}
+
+void Display::fillTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color) {
+    _buffer.fillTriangle(x1, y1, x2, y2, x3, y3, color);
+}
+
+void Display::drawRoundRect(int x, int y, int w, int h, int r, uint16_t color) {
+    _buffer.drawRoundRect(x, y, w, h, r, color);
+}
+
+void Display::fillRoundRect(int x, int y, int w, int h, int r, uint16_t color) {
+    _buffer.fillRoundRect(x, y, w, h, r, color);
 }

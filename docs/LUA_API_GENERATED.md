@@ -109,6 +109,37 @@ Draw battery indicator icon
 - `y`: Y position in pixels
 - `percent`: Battery percentage (0-100)
 
+#### draw_bitmap
+
+```lua
+tdeck.display.draw_bitmap(x, y, width, height, data)
+```
+
+Draw a bitmap image from raw RGB565 data
+
+**Parameters:**
+- `x`: X position
+- `y`: Y position
+- `width`: Bitmap width in pixels
+- `height`: Bitmap height in pixels
+- `data`: Raw RGB565 pixel data (2 bytes per pixel, big-endian)
+
+#### draw_bitmap_transparent
+
+```lua
+tdeck.display.draw_bitmap_transparent(x, y, width, height, data, transparent_color)
+```
+
+Draw a bitmap with transparency
+
+**Parameters:**
+- `x`: X position
+- `y`: Y position
+- `width`: Bitmap width in pixels
+- `height`: Bitmap height in pixels
+- `data`: Raw RGB565 pixel data
+- `transparent_color`: RGB565 color to treat as transparent
+
 #### draw_box
 
 ```lua
@@ -398,6 +429,16 @@ Check if adaptive scrolling is enabled
 
 **Returns:** true if adaptive scrolling is on
 
+#### get_backlight
+
+```lua
+tdeck.keyboard.get_backlight() -> integer
+```
+
+Get current keyboard backlight level
+
+**Returns:** Backlight level (0-255, 0 = off)
+
 #### get_trackball_sensitivity
 
 ```lua
@@ -491,6 +532,17 @@ Enable or disable adaptive scrolling
 
 **Parameters:**
 - `enabled`: true to enable, false to disable
+
+#### set_backlight
+
+```lua
+tdeck.keyboard.set_backlight(level)
+```
+
+Set keyboard backlight brightness
+
+**Parameters:**
+- `level`: Brightness level (0-255, 0 = off)
 
 #### set_trackball_sensitivity
 
@@ -938,6 +990,16 @@ Wake radio from sleep
 ## screen
 
 ### tdeck.screen
+
+#### get_status
+
+```lua
+tdeck.screen.get_status() -> table
+```
+
+Get current status bar info
+
+**Returns:** Table with battery, radio_ok, signal_bars, node_count, has_unread, node_id
 
 #### invalidate
 
@@ -1405,6 +1467,26 @@ Check if memory is critically low
 
 **Returns:** true if less than 32KB available
 
+#### is_sd_available
+
+```lua
+tdeck.system.is_sd_available() -> boolean
+```
+
+Check if SD card is available
+
+**Returns:** true if SD card is present and accessible
+
+#### is_usb_msc_active
+
+```lua
+tdeck.system.is_usb_msc_active() -> boolean
+```
+
+Check if USB MSC mode is active
+
+**Returns:** true if MSC mode is active
+
 #### log
 
 ```lua
@@ -1471,6 +1553,24 @@ Schedule a one-shot callback
 - `callback`: Function to call
 
 **Returns:** Timer ID for cancellation
+
+#### start_usb_msc
+
+```lua
+tdeck.system.start_usb_msc() -> boolean
+```
+
+Start USB Mass Storage mode to access SD card from PC
+
+**Returns:** true if started successfully
+
+#### stop_usb_msc
+
+```lua
+tdeck.system.stop_usb_msc()
+```
+
+Stop USB Mass Storage mode
 
 #### uptime
 

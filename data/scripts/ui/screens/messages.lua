@@ -91,14 +91,25 @@ function Messages:format_time(timestamp)
 end
 
 function Messages:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
 
-    display.draw_box(0, 0, display.cols, display.rows - 1,
-                    self.title, colors.CYAN, colors.WHITE)
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
+    end
+
+    -- Title bar
+    TitleBar.draw(display, self.title)
+
+    -- Content font
+    display.set_font_size("medium")
+    local fh = display.get_font_height()
 
     if #self.conversations == 0 then
-        display.draw_text_centered(6 * display.font_height, "No messages yet", colors.TEXT_DIM)
-        display.draw_text_centered(8 * display.font_height, "Press [N] to compose", colors.TEXT_DIM)
+        display.draw_text_centered(6 * fh, "No messages yet", colors.TEXT_DIM)
+        display.draw_text_centered(8 * fh, "Use app menu to compose", colors.TEXT_DIM)
     else
         local y = 2
         for i = 1, self.visible_items do
@@ -107,12 +118,12 @@ function Messages:render(display)
 
             local conv = self.conversations[idx]
             local is_selected = (idx == self.selected)
-            local py = y * display.font_height
+            local py = y * fh
 
             if is_selected then
                 display.fill_rect(display.font_width, py,
                                 (display.cols - 2) * display.font_width,
-                                display.font_height * 2,
+                                fh * 2,
                                 colors.SELECTION)
                 display.draw_text(display.font_width, py, ">", colors.CYAN)
             end
@@ -148,26 +159,20 @@ function Messages:render(display)
             if #preview > max_preview then
                 preview = string.sub(preview, 1, max_preview - 3) .. "..."
             end
-            display.draw_text(3 * display.font_width, py + display.font_height, preview, preview_color)
+            display.draw_text(3 * display.font_width, py + fh, preview, preview_color)
 
             y = y + 2
         end
 
         -- Scroll indicators
         if self.scroll_offset > 0 then
-            display.draw_text((display.cols - 1) * display.font_width, 2 * display.font_height,
-                            "^", colors.TEXT_DIM)
+            display.draw_text((display.cols - 1) * display.font_width, 2 * fh, "^", colors.TEXT_DIM)
         end
         if self.scroll_offset + self.visible_items < #self.conversations then
             display.draw_text((display.cols - 1) * display.font_width,
-                            (2 + self.visible_items * 2 - 1) * display.font_height,
-                            "v", colors.TEXT_DIM)
+                            (2 + self.visible_items * 2 - 1) * fh, "v", colors.TEXT_DIM)
         end
     end
-
-    -- Help bar
-    display.draw_text(display.font_width, (display.rows - 3) * display.font_height,
-                    "[N]ew [Enter]Open [Q]Back", colors.TEXT_DIM)
 end
 
 function Messages:handle_key(key)
@@ -179,8 +184,6 @@ function Messages:handle_key(key)
         self:open_conversation()
     elseif key.special == "ESCAPE" or key.character == "q" then
         return "pop"
-    elseif key.character == "n" then
-        self:compose_new()
     end
 
     return "continue"
@@ -194,7 +197,7 @@ function Messages:select_next()
         if self.selected > self.scroll_offset + self.visible_items then
             self.scroll_offset = self.scroll_offset + 1
         end
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     end
 end
 
@@ -206,7 +209,7 @@ function Messages:select_previous()
         if self.selected <= self.scroll_offset then
             self.scroll_offset = self.scroll_offset - 1
         end
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     end
 end
 
@@ -214,14 +217,46 @@ function Messages:open_conversation()
     if #self.conversations == 0 then return end
 
     local conv = self.conversations[self.selected]
-    local ConversationView = dofile("/scripts/ui/screens/conversation_view.lua")
-    tdeck.screen.push(ConversationView:new(conv.path_hash, conv.name))
+    local ConversationView = load_module("/scripts/ui/screens/conversation_view.lua")
+    ScreenManager.push(ConversationView:new(conv.path_hash, conv.name))
 end
 
 function Messages:compose_new()
     -- For now, just open broadcast compose
-    local Compose = dofile("/scripts/ui/screens/compose.lua")
-    tdeck.screen.push(Compose:new())
+    local Compose = load_module("/scripts/ui/screens/compose.lua")
+    ScreenManager.push(Compose:new())
+end
+
+-- Menu items for app menu integration
+function Messages:get_menu_items()
+    local self_ref = self
+    local items = {}
+
+    table.insert(items, {
+        label = "Compose",
+        action = function()
+            self_ref:compose_new()
+        end
+    })
+
+    table.insert(items, {
+        label = "Refresh",
+        action = function()
+            self_ref:refresh_conversations()
+            ScreenManager.invalidate()
+        end
+    })
+
+    if #self.conversations > 0 then
+        table.insert(items, {
+            label = "Open",
+            action = function()
+                self_ref:open_conversation()
+            end
+        })
+    end
+
+    return items
 end
 
 return Messages

@@ -80,8 +80,15 @@ function Tetris:new()
 end
 
 function Tetris:on_enter()
+    -- Enter game mode (disables GC, slows mesh, hides status bar)
+    if _G.MainLoop then _G.MainLoop.enter_game_mode() end
     self:spawn_piece()
     self.last_drop = tdeck.system.millis()
+end
+
+function Tetris:on_exit()
+    -- Exit game mode
+    if _G.MainLoop then _G.MainLoop.exit_game_mode() end
 end
 
 function Tetris:spawn_piece()
@@ -197,11 +204,16 @@ function Tetris:hard_drop()
 end
 
 function Tetris:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
     local w = display.width
     local h = display.height
 
-    display.fill_rect(0, 0, w, h, colors.BLACK)
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, w, h, colors.BLACK)
+    end
 
     -- Board position
     local board_x = (w - self.BOARD_W * self.CELL_SIZE) / 2
@@ -272,6 +284,8 @@ end
 function Tetris:handle_key(key)
     if self.game_over then
         if key.special == "ENTER" then
+            -- Clean up before restart
+            collectgarbage("collect")
             -- Restart
             for y = 1, self.BOARD_H do
                 for x = 1, self.BOARD_W do
@@ -285,20 +299,21 @@ function Tetris:handle_key(key)
             self.drop_interval = 500
             self:spawn_piece()
         elseif key.special == "ESCAPE" or key.character == "q" then
+            self:on_exit()
             return "pop"
         end
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
         return "continue"
     end
 
     if key.character == "p" then
         self.paused = not self.paused
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
         return "continue"
     end
 
     if self.paused then
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
         return "continue"
     end
 
@@ -321,21 +336,22 @@ function Tetris:handle_key(key)
     elseif key.character == " " then
         self:hard_drop()
     elseif key.special == "ESCAPE" or key.character == "q" then
+        self:on_exit()
         return "pop"
     end
 
-    tdeck.screen.invalidate()
+    ScreenManager.invalidate()
     return "continue"
 end
 
-function Tetris:on_refresh()
+function Tetris:update()
     if self.game_over or self.paused then return end
 
     local now = tdeck.system.millis()
     if now - self.last_drop >= self.drop_interval then
         self:drop()
         self.last_drop = now
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     end
 end
 

@@ -1,8 +1,8 @@
 /**
- * T-Deck Plus MeshCore TUI Firmware
+ * T-Deck Plus MeshCore Firmware
  *
- * Main entry point - initializes hardware and starts TUI.
- * Defensive initialization to prevent crashes.
+ * Main entry point - initializes hardware and starts Lua shell.
+ * UI is now fully controlled by Lua.
  */
 
 #include <Arduino.h>
@@ -12,11 +12,12 @@
 #include "hardware/keyboard.h"
 #include "hardware/radio.h"
 #include "mesh/meshcore.h"
-#include "tui/tui.h"
-#include "tui/screens/main_menu.h"
-#include "tui/screens/settings.h"
+#include "settings.h"
 #include "lua/lua_runtime.h"
-#include "lua/lua_screen.h"
+
+// External functions from system_bindings.cpp for Lua main loop
+extern bool hasLuaMainLoop();
+extern void callLuaMainLoop();
 
 // Track initialization status
 bool displayOk = false;
@@ -27,15 +28,14 @@ bool luaOk = false;
 bool littlefsOk = false;
 
 // Hardware instances - as pointers to control initialization order
-// Declared extern in headers for screen access
+// Declared extern in headers for Lua binding access
 Display* display = nullptr;
 Keyboard* keyboard = nullptr;
 Radio* radio = nullptr;
 MeshCore* mesh = nullptr;
-TUI* tui = nullptr;
 
-// Settings instance for loading saved preferences
-static SettingsScreen* settings = nullptr;
+// Settings instance
+static Settings* settings = nullptr;
 
 void setup() {
     // Enable power - MUST be first on T-Deck Plus
@@ -60,8 +60,8 @@ void setup() {
 
     Serial.println();
     Serial.println("=====================================");
-    Serial.println("  T-Deck Plus MeshCore TUI");
-    Serial.println("  Version 0.1.0");
+    Serial.println("  T-Deck Plus MeshCore");
+    Serial.println("  Version 0.2.0 (Lua Shell)");
     Serial.println("=====================================");
     Serial.println();
 
@@ -87,7 +87,7 @@ void setup() {
 
     // Load and apply saved settings
     Serial.println("Loading settings...");
-    settings = new SettingsScreen();
+    settings = new Settings();
     if (displayOk) {
         settings->applyToDisplay(*display);
         Serial.printf("Font size: %s\n", Display::getFontSizeName(display->getFontSize()));
@@ -138,7 +138,7 @@ void setup() {
         Serial.println("WARNING: LittleFS init failed");
     }
 
-    // Initialize Lua runtime (but don't run boot script yet - TUI not ready)
+    // Initialize Lua runtime
     Serial.println("Initializing Lua runtime...");
     if (LuaRuntime::instance().init()) {
         luaOk = true;
@@ -147,35 +147,87 @@ void setup() {
         Serial.println("WARNING: Lua init failed");
     }
 
-    // Initialize TUI (only if display and keyboard are OK)
-    if (displayOk && keyboardOk) {
-        Serial.println("Starting TUI...");
-        tui = new TUI(*display, *keyboard);
-
-        // Update TUI status bar with current hardware status
-        tui->updateRadio(radioOk, 0);
-        if (mesh && meshOk) {
-            char shortId[8];
-            mesh->getIdentity().getShortId(shortId);
-            tui->updateNodeId(shortId);
-        }
-
-        // Now run boot script - TUI is ready so Lua can push screens
-        if (luaOk) {
-            if (LuaRuntime::instance().executeFile("/scripts/boot.lua")) {
-                Serial.println("Boot script executed");
-            } else {
-                Serial.println("WARNING: Boot script failed - using C++ fallback");
-                tui->push(new MainMenuScreen());
-            }
+    // Run boot script (requires display and keyboard)
+    if (displayOk && keyboardOk && luaOk) {
+        Serial.println("Running boot script...");
+        if (LuaRuntime::instance().executeFile("/scripts/boot.lua")) {
+            Serial.println("Boot script executed - Lua shell active");
         } else {
-            // No Lua, use C++ main menu
-            tui->push(new MainMenuScreen());
-        }
+            Serial.println("ERROR: Boot script failed!");
+            // Show error on display with error message
+            if (display) {
+                display->fillRect(0, 0, display->getWidth(), display->getHeight(), 0x0000);
+                display->drawText(10, 20, "Boot script failed!", 0xF800);
 
-        Serial.println("TUI started");
+                // Get and display the error message
+                const char* error = LuaRuntime::instance().getLastError();
+                if (error && error[0] != '\0') {
+                    // Word-wrap the error message across multiple lines
+                    const int maxCharsPerLine = 38;  // Approximate chars that fit
+                    const int lineHeight = 16;
+                    int y = 45;
+                    int len = strlen(error);
+                    int pos = 0;
+
+                    while (pos < len && y < display->getHeight() - 40) {
+                        // Find line break point
+                        int lineLen = maxCharsPerLine;
+                        if (pos + lineLen > len) {
+                            lineLen = len - pos;
+                        } else {
+                            // Try to break at newline or space
+                            for (int i = pos; i < pos + lineLen && i < len; i++) {
+                                if (error[i] == '\n') {
+                                    lineLen = i - pos;
+                                    break;
+                                }
+                            }
+                            if (lineLen == maxCharsPerLine) {
+                                // No newline found, break at last space
+                                for (int i = pos + lineLen - 1; i > pos; i--) {
+                                    if (error[i] == ' ') {
+                                        lineLen = i - pos;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Copy line to buffer
+                        char lineBuf[64];
+                        int copyLen = (lineLen < 63) ? lineLen : 63;
+                        strncpy(lineBuf, error + pos, copyLen);
+                        lineBuf[copyLen] = '\0';
+
+                        // Skip newline character if present
+                        if (pos + lineLen < len && error[pos + lineLen] == '\n') {
+                            pos += lineLen + 1;
+                        } else {
+                            pos += lineLen;
+                            // Skip leading space on next line
+                            while (pos < len && error[pos] == ' ') pos++;
+                        }
+
+                        display->drawText(10, y, lineBuf, 0xFFFF);
+                        y += lineHeight;
+                    }
+                } else {
+                    display->drawText(10, 50, "Check /scripts/boot.lua", 0xFFFF);
+                }
+
+                display->flush();
+            }
+        }
     } else {
-        Serial.println("Cannot start TUI - display or keyboard not ready");
+        Serial.println("Cannot start Lua shell - hardware not ready");
+        if (display) {
+            display->fillRect(0, 0, display->getWidth(), display->getHeight(), 0x0000);
+            display->drawText(10, 50, "Hardware init failed", 0xF800);
+            display->drawText(10, 70, displayOk ? "Display: OK" : "Display: FAIL", 0xFFFF);
+            display->drawText(10, 90, keyboardOk ? "Keyboard: OK" : "Keyboard: FAIL", 0xFFFF);
+            display->drawText(10, 110, luaOk ? "Lua: OK" : "Lua: FAIL", 0xFFFF);
+            display->flush();
+        }
     }
 
     Serial.println();
@@ -190,30 +242,21 @@ void setup() {
 }
 
 void loop() {
-    static uint32_t lastHeartbeat = 0;
-    uint32_t now = millis();
-
-    // Heartbeat output every 5 seconds
-    if (now - lastHeartbeat >= 5000) {
-        lastHeartbeat = now;
-        Serial.printf("Running... uptime=%lu ms\n", now);
+    // Lua main loop handles everything
+    if (hasLuaMainLoop()) {
+        callLuaMainLoop();
+        return;
     }
 
-    // Update mesh networking
+    // Fallback: minimal loop if Lua not controlling
+    // Just keep mesh alive and yield
     if (mesh && meshOk) {
         mesh->update();
     }
 
-    // Update Lua runtime (process timers)
     if (luaOk) {
         LuaRuntime::instance().update();
     }
 
-    // Update TUI (handles input and rendering)
-    if (tui) {
-        tui->update();
-    }
-
-    // Small delay to prevent busy-waiting
     delay(10);
 }

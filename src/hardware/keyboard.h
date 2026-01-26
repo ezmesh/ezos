@@ -26,6 +26,12 @@ enum class SpecialKey : uint8_t {
     MIC         // Microphone key
 };
 
+// Keyboard input mode
+enum class KeyboardMode : uint8_t {
+    NORMAL = 0,  // Keyboard firmware processes keys, sends character codes
+    RAW = 1      // Keyboard sends raw matrix state, host processes keys
+};
+
 // Keyboard event structure
 struct KeyEvent {
     char character;         // ASCII character, or 0 if special key
@@ -111,6 +117,27 @@ public:
     bool isAltHeld() const { return _altHeld; }
     bool isFnHeld() const { return _fnHeld; }
 
+    // Keyboard mode (normal vs raw)
+    KeyboardMode getMode() const { return _mode; }
+    bool setMode(KeyboardMode mode);
+
+    // Raw mode functions - only valid when mode is RAW
+    // T-Deck keyboard is 5 columns × 7 rows
+    // Space is at [0][5], Mic is at [0][6]
+    static constexpr uint8_t MATRIX_COLS = 5;
+    static constexpr uint8_t MATRIX_ROWS = 7;
+
+    // Read raw matrix state (7 bytes, one per column, bits = rows)
+    // Returns true if successful, fills matrix array
+    bool readRawMatrix(uint8_t matrix[MATRIX_COLS]);
+
+    // Check if a specific key is pressed in raw mode (col 0-6, row 0-6)
+    bool isKeyPressed(uint8_t col, uint8_t row);
+
+    // Get the full matrix as a 64-bit value for easy Lua access
+    // Bits 0-6 = col 0, bits 7-13 = col 1, etc. (7 bits per column)
+    uint64_t getRawMatrixBits();
+
     // Trackball state
     bool hasTrackball() const { return _trackballFound; }
 
@@ -126,6 +153,27 @@ public:
     bool getAdaptiveScrolling() const { return _adaptiveScrolling; }
     void setAdaptiveScrolling(bool enabled) { _adaptiveScrolling = enabled; }
 
+    // Tick-based scrolling (accumulates movement and emits on fixed clock)
+    bool getTickBasedScrolling() const { return _tickBasedScrolling; }
+    void setTickBasedScrolling(bool enabled) { _tickBasedScrolling = enabled; }
+
+    uint16_t getScrollTickInterval() const { return _scrollTickInterval; }
+    void setScrollTickInterval(uint16_t intervalMs) {
+        if (intervalMs < 20) intervalMs = 20;
+        if (intervalMs > 500) intervalMs = 500;
+        _scrollTickInterval = intervalMs;
+    }
+
+    // Key repeat settings
+    bool getKeyRepeatEnabled() const { return _keyRepeatEnabled; }
+    void setKeyRepeatEnabled(bool enabled) { _keyRepeatEnabled = enabled; }
+
+    uint16_t getKeyRepeatDelay() const { return _keyRepeatDelay; }
+    void setKeyRepeatDelay(uint16_t delayMs) { _keyRepeatDelay = delayMs; }
+
+    uint16_t getKeyRepeatRate() const { return _keyRepeatRate; }
+    void setKeyRepeatRate(uint16_t rateMs) { _keyRepeatRate = rateMs; }
+
     // Keyboard backlight control (0-255, 0 = off)
     uint8_t getBacklight() const { return _backlightLevel; }
     void setBacklight(uint8_t level);
@@ -135,6 +183,12 @@ private:
     bool _initialized = false;
     bool _trackballFound = false;
     uint8_t _trackballAddr = 0;
+
+    // Keyboard mode
+    KeyboardMode _mode = KeyboardMode::NORMAL;
+
+    // Cached raw matrix state (updated on each read in raw mode)
+    uint8_t _rawMatrix[MATRIX_COLS] = {0};
 
     // Modifier key states
     bool _shiftHeld = false;
@@ -155,6 +209,22 @@ private:
     int8_t _lastScrollDir = 0;            // -1=up/left, 0=none, 1=down/right
     uint32_t _lastScrollTime = 0;         // Timestamp of last scroll event
     int8_t _adaptiveThreshold = 0;        // Current adaptive threshold (0 = use base)
+
+    // Tick-based scrolling state
+    bool _tickBasedScrolling = false;     // Emit events on fixed clock instead of immediately
+    uint16_t _scrollTickInterval = 100;   // Interval between scroll ticks (ms)
+    uint32_t _lastScrollTick = 0;         // Timestamp of last scroll tick
+    int8_t _pendingScrollX = 0;           // Accumulated X movement for tick
+    int8_t _pendingScrollY = 0;           // Accumulated Y movement for tick
+
+    // Key repeat state
+    bool _keyRepeatEnabled = true;        // Enable key repeat
+    uint16_t _keyRepeatDelay = 400;       // Initial delay before repeat starts (ms)
+    uint16_t _keyRepeatRate = 50;         // Interval between repeats (ms)
+    uint8_t _heldKeyCode = 0;             // Currently held key code (0 = none)
+    uint32_t _keyPressTime = 0;           // When the key was first pressed
+    uint32_t _lastRepeatTime = 0;         // When last repeat was generated
+    bool _repeatStarted = false;          // Has repeat started for current key
 
     // Convert raw keycode to KeyEvent
     KeyEvent translateKeycode(uint8_t code);

@@ -1,6 +1,8 @@
 -- Conversation View Screen for T-Deck OS
 -- View direct messages with a specific node
 
+local TextUtils = dofile("/scripts/ui/text_utils.lua")
+
 local ConversationView = {
     title = "",
     path_hash = 0,
@@ -54,13 +56,25 @@ function ConversationView:refresh_messages()
 end
 
 function ConversationView:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
 
-    display.draw_box(0, 0, display.cols, display.rows - 1,
-                    self.title, colors.CYAN, colors.WHITE)
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
+    end
+
+    -- Title bar
+    TitleBar.draw(display, self.title)
+
+    -- Content font
+    display.set_font_size("medium")
+    local fw = display.get_font_width()
+    local fh = display.get_font_height()
 
     if #self.messages == 0 then
-        display.draw_text_centered(6 * display.font_height, "No messages", colors.TEXT_DIM)
+        display.draw_text_centered(6 * fh, "No messages", colors.TEXT_DIM)
     else
         local y = 2
         local max_y = 2 + self.visible_lines
@@ -68,20 +82,17 @@ function ConversationView:render(display)
 
         while y < max_y and idx <= #self.messages do
             local msg = self.messages[idx]
-            local py = y * display.font_height
+            local py = y * fh
 
             -- Sender short ID
             local short_id = string.format("%02X", msg.from_hash % 256)
-            display.draw_text(display.font_width, py, short_id, colors.TEXT_DIM)
-            display.draw_text(4 * display.font_width, py, ":", colors.TEXT_DIM)
+            display.draw_text(fw, py, short_id, colors.TEXT_DIM)
+            display.draw_text(4 * fw, py, ":", colors.TEXT_DIM)
 
-            -- Message text (truncated)
-            local max_text = display.cols - 8
-            local text = msg.text
-            if #text > max_text then
-                text = string.sub(text, 1, max_text - 3) .. "..."
-            end
-            display.draw_text(6 * display.font_width, py, text, colors.TEXT)
+            -- Message text (truncated using pixel measurement)
+            local max_text_px = display.width - (8 * fw)
+            local text = TextUtils.truncate(msg.text, max_text_px, display)
+            display.draw_text(6 * fw, py, text, colors.TEXT)
 
             y = y + 1
             idx = idx + 1
@@ -89,18 +100,12 @@ function ConversationView:render(display)
 
         -- Scroll indicators
         if self.scroll_offset > 0 then
-            display.draw_text((display.cols - 1) * display.font_width,
-                            2 * display.font_height, "^", colors.CYAN)
+            display.draw_text((display.cols - 1) * fw, 2 * fh, "^", colors.CYAN)
         end
         if self.scroll_offset + self.visible_lines < #self.messages then
-            display.draw_text((display.cols - 1) * display.font_width,
-                            (max_y - 1) * display.font_height, "v", colors.CYAN)
+            display.draw_text((display.cols - 1) * fw, (max_y - 1) * fh, "v", colors.CYAN)
         end
     end
-
-    -- Help bar
-    display.draw_text(display.font_width, (display.rows - 3) * display.font_height,
-                    "[R]eply [Q]Back", colors.TEXT_DIM)
 end
 
 function ConversationView:handle_key(key)
@@ -120,20 +125,20 @@ end
 function ConversationView:scroll_up()
     if self.scroll_offset > 0 then
         self.scroll_offset = self.scroll_offset - 1
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     end
 end
 
 function ConversationView:scroll_down()
     if self.scroll_offset + self.visible_lines < #self.messages then
         self.scroll_offset = self.scroll_offset + 1
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     end
 end
 
 function ConversationView:reply()
-    local Compose = dofile("/scripts/ui/screens/compose.lua")
-    tdeck.screen.push(Compose:new())
+    local Compose = load_module("/scripts/ui/screens/compose.lua")
+    ScreenManager.push(Compose:new())
 end
 
 return ConversationView

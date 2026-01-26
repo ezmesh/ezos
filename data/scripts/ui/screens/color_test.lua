@@ -14,13 +14,25 @@ function ColorTest:new()
 end
 
 function ColorTest:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
 
-    display.draw_box(0, 0, display.cols, display.rows - 1,
-                    self.title, colors.CYAN, colors.WHITE)
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
+    end
 
-    local y = 2 * display.font_height
-    local x = 2 * display.font_width
+    -- Title bar
+    TitleBar.draw(display, self.title)
+
+    -- Content font
+    display.set_font_size("medium")
+    local fw = display.get_font_width()
+    local fh = display.get_font_height()
+
+    local y = 2 * fh
+    local x = 2 * fw
 
     local color_list = {
         {"GREEN", colors.GREEN},
@@ -37,17 +49,13 @@ function ColorTest:render(display)
 
     for _, c in ipairs(color_list) do
         -- Color swatch
-        display.fill_rect(x, y, 3 * display.font_width, display.font_height, c[2])
+        display.fill_rect(x, y, 3 * fw, fh, c[2])
 
         -- Color name
-        display.draw_text(x + 4 * display.font_width, y, c[1], c[2])
+        display.draw_text(x + 4 * fw, y, c[1], c[2])
 
-        y = y + display.font_height
+        y = y + fh
     end
-
-    -- Help text
-    display.draw_text(x, (display.rows - 2) * display.font_height,
-                    "ESC: Back", colors.TEXT_DIM)
 end
 
 function ColorTest:handle_key(key)

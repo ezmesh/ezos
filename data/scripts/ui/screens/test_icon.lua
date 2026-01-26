@@ -32,10 +32,22 @@ function TestIcon:on_enter()
 end
 
 function TestIcon:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
 
-    -- Header
-    display.draw_box(0, 0, display.cols, display.rows - 1, self.title, colors.CYAN, colors.WHITE)
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
+    end
+
+    -- Title bar
+    TitleBar.draw(display, self.title)
+
+    -- Content font
+    display.set_font_size("medium")
+    local fw = display.get_font_width()
+    local fh = display.get_font_height()
 
     local center_y = display.height / 2
 
@@ -55,14 +67,10 @@ function TestIcon:render(display)
     else
         display.draw_text_centered(center_y, "Loading...", colors.TEXT)
     end
-
-    -- Footer
-    local footer_y = (display.rows - 2) * display.font_height
-    display.draw_text_centered(footer_y, "[Q] Quit  [R] Reload", colors.TEXT_DIM)
 end
 
 function TestIcon:handle_key(key)
-    tdeck.screen.invalidate()
+    ScreenManager.invalidate()
 
     if key.character == "q" or key.special == "ESCAPE" then
         return "pop"

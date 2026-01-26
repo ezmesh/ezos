@@ -1,18 +1,22 @@
 -- Main Menu Screen for T-Deck OS
--- 3D Carousel interface with Crystal icons
-
-local Bitmap = dofile("/scripts/ui/bitmap.lua")
+-- Vertical scrollable list interface
 
 local MainMenu = {
     title = "MeshCore",
     selected = 1,
-    icons_loaded = false,
-    wallpaper = nil,
+    scroll_offset = 0,
+
+    -- Layout constants
+    VISIBLE_ROWS = 4,
+    ROW_HEIGHT = 46,
+    ICON_SIZE = 24,
+
     items = {
         {label = "Messages",  description = "View conversations", icon_path = "messages",  unread = 0, enabled = true},
         {label = "Channels",  description = "Group messaging",    icon_path = "channels",  unread = 0, enabled = true},
         {label = "Contacts",  description = "Known nodes",        icon_path = "contacts",  unread = 0, enabled = true},
         {label = "Node Info", description = "Device status",      icon_path = "info",      unread = 0, enabled = true},
+        {label = "Map",       description = "Offline maps",       icon_path = "map",       unread = 0, enabled = true},
         {label = "Settings",  description = "Configuration",      icon_path = "settings",  unread = 0, enabled = true},
         {label = "Files",     description = "File browser",       icon_path = "files",     unread = 0, enabled = true},
         {label = "Testing",   description = "Diagnostics",        icon_path = "testing",   unread = 0, enabled = true},
@@ -24,8 +28,7 @@ function MainMenu:new()
     local o = {
         title = self.title,
         selected = 1,
-        icons_loaded = false,
-        wallpaper = nil,
+        scroll_offset = 0,
         items = {}
     }
     for i, item in ipairs(self.items) do
@@ -34,183 +37,219 @@ function MainMenu:new()
             description = item.description,
             icon_path = item.icon_path,
             unread = item.unread,
-            enabled = item.enabled,
-            bitmap = nil
+            enabled = item.enabled
         }
     end
     setmetatable(o, {__index = MainMenu})
     return o
 end
 
-function MainMenu:load_icons()
-    if self.icons_loaded then return end
+function MainMenu:on_enter()
+    -- Ensure keyboard is in normal mode (safety reset in case a screen didn't clean up)
+    tdeck.keyboard.set_mode("normal")
 
-    for _, item in ipairs(self.items) do
-        local path = string.format("/icons/32x32/%s.rgb565", item.icon_path)
-        item.bitmap = Bitmap.load(path, 32)
+    -- Lazy-load Icons module if not already loaded
+    if not _G.Icons then
+        _G.Icons = dofile("/scripts/ui/icons.lua")
     end
 
-    self.icons_loaded = true
-end
+    -- Rebuild items array if it was cleared in on_leave
+    if #self.items == 0 then
+        for i, item in ipairs(MainMenu.items) do
+            self.items[i] = {
+                label = item.label,
+                description = item.description,
+                icon_path = item.icon_path,
+                unread = item.unread,
+                enabled = item.enabled
+            }
+        end
+    end
 
-function MainMenu:load_wallpaper()
-    if self.wallpaper then return end
-    -- Load small tile (16x16) for tiling - carbon fiber pattern
-    self.wallpaper = Bitmap.load("/wallpapers/carbon.rgb565", 16)
-end
-
-function MainMenu:on_enter()
-    self:load_icons()
-    self:load_wallpaper()
-
-    if tdeck.mesh.is_initialized() then
-        local channels = tdeck.mesh.get_channels()
+    -- Update channel unread count from Lua Channels service
+    if _G.Channels then
+        local channels = _G.Channels.get_all()
         local total_unread = 0
         for _, ch in ipairs(channels) do
             total_unread = total_unread + (ch.unread_count or 0)
         end
         self.items[2].unread = total_unread
+    end
+
+    -- Update node count from mesh
+    if tdeck.mesh.is_initialized() then
         self.items[3].unread = tdeck.mesh.get_node_count()
     end
 end
 
-function MainMenu:get_item(index)
-    local n = #self.items
-    while index < 1 do index = index + n end
-    while index > n do index = index - n end
-    return self.items[index]
+function MainMenu:on_leave()
+    -- Clear items array to free memory while another screen is active
+    -- They will be rebuilt from the template in on_enter
+    self.items = {}
+    -- Force garbage collection before loading new screen
+    collectgarbage("collect")
+end
+
+function MainMenu:adjust_scroll()
+    -- Keep selected item visible in the window
+    if self.selected <= self.scroll_offset then
+        self.scroll_offset = self.selected - 1
+    elseif self.selected > self.scroll_offset + self.VISIBLE_ROWS then
+        self.scroll_offset = self.selected - self.VISIBLE_ROWS
+    end
+
+    -- Clamp scroll offset
+    self.scroll_offset = math.max(0, self.scroll_offset)
+    self.scroll_offset = math.min(#self.items - self.VISIBLE_ROWS, self.scroll_offset)
 end
 
 function MainMenu:render(display)
-    local colors = display.colors
+    -- Use themed colors if available
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
     local w = display.width
     local h = display.height
 
-    -- Draw tiled wallpaper or black background
-    if self.wallpaper then
-        local tile_w = self.wallpaper.width
-        local tile_h = self.wallpaper.height
-        for ty = 0, h - 1, tile_h do
-            for tx = 0, w - 1, tile_w do
-                Bitmap.draw(self.wallpaper, tx, ty)
-            end
-        end
+    -- Draw themed wallpaper background
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
     else
         display.fill_rect(0, 0, w, h, colors.BLACK)
     end
 
-    local center_x = w / 2
-    local center_y = h / 2 - 25
+    -- Title bar
+    TitleBar.draw(display, self.title)
 
-    -- Carousel slots: position and size for each slot
-    local slots = {
-        {offset = -2, x = -90,  y = 12, size = 24},
-        {offset = -1, x = -45,  y = 6,  size = 28},
-        {offset = 0,  x = 0,    y = 0,  size = 32},
-        {offset = 1,  x = 45,   y = 6,  size = 28},
-        {offset = 2,  x = 90,   y = 12, size = 24},
-    }
+    -- List area starts after title
+    local list_start_y = _G.ThemeManager and _G.ThemeManager.LIST_START_Y or 31
+    local icon_margin = 12
+    local text_x = icon_margin + self.ICON_SIZE + 10
+    local scrollbar_width = 8  -- Reserve space for scrollbar
 
-    -- Draw back to front
-    local draw_order = {1, 5, 2, 4, 3}
+    -- Draw visible menu items
+    for i = 0, self.VISIBLE_ROWS - 1 do
+        local item_idx = self.scroll_offset + i + 1
+        if item_idx > #self.items then break end
 
-    for _, idx in ipairs(draw_order) do
-        local slot = slots[idx]
-        local item = self:get_item(self.selected + slot.offset)
-        local bitmap = item.bitmap
-        local icon_size = slot.size
+        local item = self.items[item_idx]
+        local y = list_start_y + i * self.ROW_HEIGHT
+        local is_selected = (item_idx == self.selected)
 
-        local icon_x = center_x + slot.x - icon_size / 2
-        local icon_y = center_y + slot.y - icon_size / 2
-
-        -- Selection highlight for center
-        local is_center = (slot.offset == 0)
-        if is_center then
-            display.fill_rect(icon_x - 6, icon_y - 6, icon_size + 12, icon_size + 12, colors.SELECTION)
+        -- Selection outline (rounded rect) - narrower to leave room for scrollbar
+        if is_selected then
+            display.draw_round_rect(4, y - 1, w - 12 - scrollbar_width, self.ROW_HEIGHT - 6, 6, colors.CYAN)
         end
 
-        -- Draw icon
-        if bitmap then
-            Bitmap.draw_transparent(bitmap, icon_x, icon_y)
+        -- Draw icon using Icons module
+        local icon_y = y + (self.ROW_HEIGHT - self.ICON_SIZE) / 2 - 4
+        local icon_color = is_selected and colors.CYAN or colors.WHITE
+        if item.icon_path and _G.Icons then
+            _G.Icons.draw(item.icon_path, display, icon_margin, icon_y, self.ICON_SIZE, icon_color)
         else
-            local color = is_center and colors.CYAN or colors.DARK_GRAY
-            display.fill_rect(icon_x, icon_y, icon_size, icon_size, color)
+            -- Fallback: colored square outline
+            display.draw_rect(icon_margin, icon_y, self.ICON_SIZE, self.ICON_SIZE, icon_color)
         end
 
-        -- Selection border
-        if is_center then
-            local bx, by = icon_x - 3, icon_y - 3
-            local bs = icon_size + 6
-            display.fill_rect(bx, by, bs, 2, colors.CYAN)
-            display.fill_rect(bx, by + bs - 2, bs, 2, colors.CYAN)
-            display.fill_rect(bx, by, 2, bs, colors.CYAN)
-            display.fill_rect(bx + bs - 2, by, 2, bs, colors.CYAN)
+        -- Label (main text) - use medium font
+        display.set_font_size("medium")
+        local label_color = is_selected and colors.CYAN or colors.WHITE
+        local label_y = y + 4
+        display.draw_text(text_x, label_y, item.label, label_color)
+
+        -- Unread badge next to label (use text_width for accurate positioning)
+        if item.unread and item.unread > 0 then
+            local badge = string.format("(%d)", item.unread)
+            local label_width = display.text_width(item.label)
+            local badge_x = text_x + label_width + 6
+            display.draw_text(badge_x, label_y, badge, colors.ORANGE)
         end
+
+        -- Description (secondary text) - use small font
+        display.set_font_size("small")
+        local desc_color = is_selected and colors.TEXT_DIM or colors.DARK_GRAY
+        local desc_y = y + 4 + 18  -- After medium font height
+        display.draw_text(text_x, desc_y, item.description, desc_color)
     end
 
-    -- Label and description
-    local current = self.items[self.selected]
-    local label_y = center_y + 50
-    local desc_y = label_y + 18
+    -- Reset to medium font
+    display.set_font_size("medium")
 
-    display.draw_text_centered(label_y, current.label, colors.WHITE)
-    display.draw_text_centered(desc_y, current.description, colors.TEXT_DIM)
+    -- Scrollbar (only show if there are more items than visible)
+    if #self.items > self.VISIBLE_ROWS then
+        local sb_x = w - scrollbar_width - 2
+        local sb_top = list_start_y
+        local sb_height = self.VISIBLE_ROWS * self.ROW_HEIGHT - 6
 
-    if current.unread and current.unread > 0 then
-        local badge = string.format("(%d)", current.unread)
-        local badge_x = center_x + #current.label * display.font_width / 2 + 4
-        display.draw_text(badge_x, label_y, badge, colors.ORANGE)
+        -- Track (background) with rounded corners
+        display.fill_round_rect(sb_x, sb_top, 4, sb_height, 2, colors.DARK_GRAY)
+
+        -- Thumb (current position) with rounded corners
+        local thumb_height = math.max(12, math.floor(sb_height * self.VISIBLE_ROWS / #self.items))
+        local scroll_range = #self.items - self.VISIBLE_ROWS
+        local thumb_range = sb_height - thumb_height
+        local thumb_y = sb_top + math.floor(self.scroll_offset * thumb_range / scroll_range)
+
+        display.fill_round_rect(sb_x, thumb_y, 4, thumb_height, 2, colors.CYAN)
     end
+end
 
-    -- Navigation dots
-    local dots_y = h - 40
-    local dot_spacing = 10
-    local dots_width = (#self.items - 1) * dot_spacing
-    local dot_start_x = center_x - dots_width / 2
-
-    for i = 1, #self.items do
-        local dot_x = dot_start_x + (i - 1) * dot_spacing
-        local is_current = (i == self.selected)
-        local dot_size = is_current and 6 or 4
-        local dot_color = is_current and colors.CYAN or colors.DARK_GRAY
-        display.fill_rect(dot_x - dot_size/2, dots_y, dot_size, dot_size, dot_color)
+-- Safe sound helper that won't break on errors
+local function play_sound(name)
+    if _G.SoundUtils and _G.SoundUtils[name] then
+        pcall(_G.SoundUtils[name])
     end
-
-    local help_y = h - 22
-    display.draw_text_centered(help_y, "[</>] Navigate  [Enter] Select", colors.TEXT_DIM)
 end
 
 function MainMenu:handle_key(key)
     if key.special == "ENTER" then
+        play_sound("click")
         self:activate_selected()
         return "continue"
     end
 
     if key.character == " " then
+        play_sound("click")
         self:activate_selected()
         return "continue"
     end
 
-    if key.special == "LEFT" or key.special == "UP" then
-        self.selected = self.selected - 1
-        if self.selected < 1 then
-            self.selected = #self.items
+    if key.special == "UP" then
+        if self.selected > 1 then
+            self.selected = self.selected - 1
+            self:adjust_scroll()
+            play_sound("navigate")
+            ScreenManager.invalidate()
         end
-        tdeck.screen.invalidate()
 
-    elseif key.special == "RIGHT" or key.special == "DOWN" then
-        self.selected = self.selected + 1
-        if self.selected > #self.items then
-            self.selected = 1
+    elseif key.special == "DOWN" then
+        if self.selected < #self.items then
+            self.selected = self.selected + 1
+            self:adjust_scroll()
+            play_sound("navigate")
+            ScreenManager.invalidate()
         end
-        tdeck.screen.invalidate()
+
+    elseif key.special == "LEFT" then
+        -- Page up
+        self.selected = math.max(1, self.selected - self.VISIBLE_ROWS)
+        self:adjust_scroll()
+        play_sound("navigate")
+        ScreenManager.invalidate()
+
+    elseif key.special == "RIGHT" then
+        -- Page down
+        self.selected = math.min(#self.items, self.selected + self.VISIBLE_ROWS)
+        self:adjust_scroll()
+        play_sound("navigate")
+        ScreenManager.invalidate()
 
     elseif key.character then
         local c = string.upper(key.character)
         for i, item in ipairs(self.items) do
             if string.upper(string.sub(item.label, 1, 1)) == c then
                 self.selected = i
-                tdeck.screen.invalidate()
+                self:adjust_scroll()
+                play_sound("navigate")
+                ScreenManager.invalidate()
                 break
             end
         end
@@ -223,48 +262,54 @@ function MainMenu:activate_selected()
     local item = self.items[self.selected]
     if not item or not item.enabled then return end
 
+    -- Force garbage collection before loading new screen
+    collectgarbage("collect")
+
     local label = item.label
 
     if label == "Messages" then
-        local Screen = dofile("/scripts/ui/screens/messages.lua")
-        tdeck.screen.push(Screen:new())
+        local Screen = load_module("/scripts/ui/screens/messages.lua")
+        ScreenManager.push(Screen:new())
     elseif label == "Channels" then
-        local Screen = dofile("/scripts/ui/screens/channels.lua")
-        tdeck.screen.push(Screen:new())
+        local Screen = load_module("/scripts/ui/screens/channels.lua")
+        ScreenManager.push(Screen:new())
     elseif label == "Contacts" then
-        local Screen = dofile("/scripts/ui/screens/contacts.lua")
-        tdeck.screen.push(Screen:new())
+        local Screen = load_module("/scripts/ui/screens/contacts.lua")
+        ScreenManager.push(Screen:new())
     elseif label == "Node Info" then
-        local Screen = dofile("/scripts/ui/screens/node_info.lua")
-        tdeck.screen.push(Screen:new())
+        local Screen = load_module("/scripts/ui/screens/node_info.lua")
+        ScreenManager.push(Screen:new())
+    elseif label == "Map" then
+        local Screen = load_module("/scripts/ui/screens/map_viewer.lua")
+        ScreenManager.push(Screen:new())
     elseif label == "Settings" then
-        local Screen = dofile("/scripts/ui/screens/settings.lua")
-        tdeck.screen.push(Screen:new())
+        local Screen = load_module("/scripts/ui/screens/settings.lua")
+        ScreenManager.push(Screen:new())
     elseif label == "Files" then
-        local Screen = dofile("/scripts/ui/screens/files.lua")
-        tdeck.screen.push(Screen:new("/"))
+        local Screen = load_module("/scripts/ui/screens/files.lua")
+        ScreenManager.push(Screen:new("/"))
     elseif label == "Testing" then
-        local Screen = dofile("/scripts/ui/screens/testing_menu.lua")
-        tdeck.screen.push(Screen:new())
+        local Screen = load_module("/scripts/ui/screens/testing_menu.lua")
+        ScreenManager.push(Screen:new())
     elseif label == "Games" then
-        local Screen = dofile("/scripts/ui/screens/games_menu.lua")
-        tdeck.screen.push(Screen:new())
+        local Screen = load_module("/scripts/ui/screens/games_menu.lua")
+        ScreenManager.push(Screen:new())
     end
 end
 
 function MainMenu:set_message_count(count)
     self.items[1].unread = count
-    tdeck.screen.invalidate()
+    ScreenManager.invalidate()
 end
 
 function MainMenu:set_channel_count(count)
     self.items[2].unread = count
-    tdeck.screen.invalidate()
+    ScreenManager.invalidate()
 end
 
 function MainMenu:set_contact_count(count)
     self.items[3].unread = count
-    tdeck.screen.invalidate()
+    ScreenManager.invalidate()
 end
 
 return MainMenu

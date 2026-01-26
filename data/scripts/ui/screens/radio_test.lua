@@ -57,23 +57,35 @@ function RadioTest:refresh_status()
 end
 
 function RadioTest:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
 
     -- Refresh each render
     self:refresh_status()
 
-    display.draw_box(0, 0, display.cols, display.rows - 1,
-                    self.title, colors.CYAN, colors.WHITE)
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
+    end
 
-    local y = 2 * display.font_height
-    local x = 2 * display.font_width
-    local val_x = 16 * display.font_width
+    -- Title bar
+    TitleBar.draw(display, self.title)
+
+    -- Content font
+    display.set_font_size("medium")
+    local fw = display.get_font_width()
+    local fh = display.get_font_height()
+
+    local y = 2 * fh
+    local x = 2 * fw
+    local val_x = 16 * fw
 
     -- Status
     display.draw_text(x, y, "Status:", colors.TEXT_DIM)
     local status_color = self.status == "OK" and colors.GREEN or colors.RED
     display.draw_text(val_x, y, self.status, status_color)
-    y = y + display.font_height * 2
+    y = y + fh * 2
 
     -- RSSI
     display.draw_text(x, y, "Last RSSI:", colors.TEXT_DIM)
@@ -84,22 +96,22 @@ function RadioTest:render(display)
     else rssi_color = colors.RED
     end
     display.draw_text(val_x, y, rssi_str, rssi_color)
-    y = y + display.font_height
+    y = y + fh
 
     -- SNR
     display.draw_text(x, y, "Last SNR:", colors.TEXT_DIM)
     local snr_str = string.format("%.1f dB", self.last_snr)
     display.draw_text(val_x, y, snr_str, colors.TEXT)
-    y = y + display.font_height * 2
+    y = y + fh * 2
 
     -- Packet counts
     display.draw_text(x, y, "TX Packets:", colors.TEXT_DIM)
     display.draw_text(val_x, y, tostring(self.tx_count), colors.TEXT)
-    y = y + display.font_height
+    y = y + fh
 
     display.draw_text(x, y, "RX Packets:", colors.TEXT_DIM)
     display.draw_text(val_x, y, tostring(self.rx_count), colors.TEXT)
-    y = y + display.font_height * 2
+    y = y + fh * 2
 
     -- Signal strength visualization
     display.draw_text(x, y, "Signal:", colors.TEXT_DIM)
@@ -112,10 +124,6 @@ function RadioTest:render(display)
 
     local bar_str = string.rep("|", bars) .. string.rep(".", 4 - bars)
     display.draw_text(val_x, y, bar_str, bars >= 3 and colors.GREEN or (bars >= 2 and colors.YELLOW or colors.RED))
-
-    -- Help text
-    display.draw_text(display.font_width, (display.rows - 3) * display.font_height,
-                    "[R]efresh [Q]Back", colors.TEXT_DIM)
 end
 
 function RadioTest:handle_key(key)
@@ -123,7 +131,7 @@ function RadioTest:handle_key(key)
         return "pop"
     elseif key.character == "r" then
         self:refresh_status()
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     end
 
     return "continue"

@@ -1,0 +1,250 @@
+-- Hotkey Configuration Screen for T-Deck OS
+-- Records a key combination for the app menu trigger
+
+local HotkeyConfig = {
+    title = "Menu Hotkey",
+    disable_app_menu = true,  -- Prevent menu interference during recording
+    recording = false,
+    countdown = 0,
+    countdown_start = 0,
+    RECORD_TIMEOUT = 5000,  -- 5 seconds to record
+    recorded_matrix = nil,
+    current_matrix = nil
+}
+
+function HotkeyConfig:new()
+    local o = {
+        title = self.title,
+        disable_app_menu = true,
+        recording = false,
+        countdown = 0,
+        countdown_start = 0,
+        RECORD_TIMEOUT = self.RECORD_TIMEOUT,
+        recorded_matrix = nil,
+        current_matrix = nil
+    }
+    setmetatable(o, {__index = HotkeyConfig})
+    return o
+end
+
+function HotkeyConfig:on_enter()
+    -- Switch to raw mode
+    tdeck.keyboard.set_mode("raw")
+
+    -- Load current hotkey setting
+    self:load_current()
+end
+
+function HotkeyConfig:on_exit()
+    self.recording = false
+    tdeck.keyboard.set_mode("normal")
+end
+
+function HotkeyConfig:load_current()
+    if tdeck.storage and tdeck.storage.get_pref then
+        local saved = tdeck.storage.get_pref("menuHotkey", nil)
+        if saved then
+            self.recorded_matrix = saved
+        end
+    end
+end
+
+function HotkeyConfig:save_hotkey(matrix_bits)
+    if tdeck.storage and tdeck.storage.set_pref then
+        if matrix_bits then
+            tdeck.storage.set_pref("menuHotkey", matrix_bits)
+        else
+            -- Clear/reset to default
+            tdeck.storage.set_pref("menuHotkey", nil)
+        end
+    end
+    self.recorded_matrix = matrix_bits
+
+    -- Reload the hotkey in StatusBar so it takes effect immediately
+    if _G.StatusBar and _G.StatusBar.reload_hotkey then
+        _G.StatusBar.reload_hotkey()
+    end
+end
+
+function HotkeyConfig:get_matrix_bits()
+    local matrix = tdeck.keyboard.read_raw_matrix()
+    if not matrix then return 0 end
+
+    -- Pack 5 columns x 7 rows into a single number
+    -- Each column is 7 bits, total 35 bits fits in a Lua number
+    local bits = 0
+    for col = 1, 5 do
+        local col_byte = matrix[col] or 0
+        bits = bits + (col_byte * (128 ^ (col - 1)))
+    end
+    return bits
+end
+
+function HotkeyConfig:count_keys(bits)
+    local count = 0
+    while bits > 0 do
+        if bits % 2 == 1 then
+            count = count + 1
+        end
+        bits = math.floor(bits / 2)
+    end
+    return count
+end
+
+function HotkeyConfig:format_matrix(bits)
+    if not bits or bits == 0 then
+        return "None"
+    end
+
+    -- Describe which keys are set
+    local keys = {}
+    local temp = bits
+    for col = 0, 4 do
+        local col_byte = math.floor(temp % 128)
+        temp = math.floor(temp / 128)
+        for row = 0, 6 do
+            if (col_byte & (1 << row)) ~= 0 then
+                table.insert(keys, string.format("C%dR%d", col, row))
+            end
+        end
+    end
+
+    if #keys == 0 then
+        return "None"
+    elseif #keys <= 3 then
+        return table.concat(keys, "+")
+    else
+        return #keys .. " keys"
+    end
+end
+
+function HotkeyConfig:render(display)
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local w = display.width
+    local h = display.height
+
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, w, h, colors.BLACK)
+    end
+
+    -- Title bar
+    TitleBar.draw(display, self.title)
+
+    local list_start_y = _G.ThemeManager and _G.ThemeManager.LIST_START_Y or 31
+    local y = list_start_y + 10
+
+    display.set_font_size("medium")
+
+    -- Current hotkey display
+    display.draw_text(10, y, "Current:", colors.TEXT_DIM)
+    local current_str = self:format_matrix(self.recorded_matrix)
+    if not self.recorded_matrix then
+        current_str = "Default (Sym key)"
+    end
+    display.draw_text(90, y, current_str, colors.CYAN)
+    y = y + 25
+
+    -- Separator
+    display.fill_rect(10, y, w - 20, 1, colors.BORDER)
+    y = y + 15
+
+    if self.recording then
+        -- Recording mode
+        local elapsed = tdeck.system.millis() - self.countdown_start
+        local remaining = math.ceil((self.RECORD_TIMEOUT - elapsed) / 1000)
+
+        if elapsed >= self.RECORD_TIMEOUT then
+            -- Time's up - save whatever is pressed
+            self.recording = false
+            if self.current_matrix and self.current_matrix > 0 then
+                self:save_hotkey(self.current_matrix)
+                if _G.SoundUtils and _G.SoundUtils.is_enabled() then
+                    _G.SoundUtils.confirm()
+                end
+            end
+        else
+            -- Show countdown
+            display.draw_text_centered(y, "RECORDING...", colors.ORANGE)
+            y = y + 25
+
+            display.set_font_size("large")
+            display.draw_text_centered(y, tostring(remaining), colors.WHITE)
+            y = y + 35
+
+            display.set_font_size("medium")
+            display.draw_text_centered(y, "Hold desired key(s)", colors.TEXT_DIM)
+            y = y + 25
+
+            -- Show currently pressed keys
+            self.current_matrix = self:get_matrix_bits()
+            local pressed_str = self:format_matrix(self.current_matrix)
+            display.draw_text_centered(y, "Pressed: " .. pressed_str, colors.GREEN)
+        end
+    else
+        -- Normal mode - show instructions
+        display.draw_text_centered(y, "Configure app menu hotkey", colors.TEXT)
+        y = y + 30
+
+        display.set_font_size("small")
+        display.draw_text_centered(y, "Press ENTER to record new hotkey", colors.TEXT_DIM)
+        y = y + 18
+        display.draw_text_centered(y, "You have 5 seconds to press", colors.TEXT_DIM)
+        y = y + 18
+        display.draw_text_centered(y, "and hold the desired key(s)", colors.TEXT_DIM)
+        y = y + 30
+
+        display.set_font_size("medium")
+        display.draw_text_centered(y, "Press R to reset to default", colors.TEXT_DIM)
+        y = y + 20
+        display.draw_text_centered(y, "Press ESC to exit", colors.TEXT_DIM)
+    end
+
+    -- Reset font
+    display.set_font_size("medium")
+end
+
+function HotkeyConfig:update()
+    if self.recording then
+        ScreenManager.invalidate()
+    end
+end
+
+function HotkeyConfig:handle_key(key)
+    -- In recording mode, we ignore key events (using raw matrix instead)
+    if self.recording then
+        -- Check if recording timed out
+        local elapsed = tdeck.system.millis() - self.countdown_start
+        if elapsed >= self.RECORD_TIMEOUT then
+            self.recording = false
+            ScreenManager.invalidate()
+        end
+        return "continue"
+    end
+
+    if key.special == "ENTER" then
+        -- Start recording
+        self.recording = true
+        self.countdown_start = tdeck.system.millis()
+        self.current_matrix = nil
+        if _G.SoundUtils and _G.SoundUtils.is_enabled() then
+            _G.SoundUtils.click()
+        end
+        ScreenManager.invalidate()
+    elseif key.character == "r" or key.character == "R" then
+        -- Reset to default
+        self:save_hotkey(nil)
+        if _G.SoundUtils and _G.SoundUtils.is_enabled() then
+            _G.SoundUtils.back()
+        end
+        ScreenManager.invalidate()
+    elseif key.special == "ESCAPE" or key.character == "q" then
+        return "pop"
+    end
+
+    return "continue"
+end
+
+return HotkeyConfig

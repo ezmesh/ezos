@@ -8,6 +8,7 @@
 #include <SD.h>
 #include <SPI.h>
 #include <Preferences.h>
+#include <ArduinoJson.h>
 
 // Storage state
 static bool sdInitialized = false;
@@ -50,6 +51,107 @@ static fs::FS* getFS(const char* path, const char** adjustedPath) {
 
     *adjustedPath = path;
     return &LittleFS;
+}
+
+// @lua tdeck.storage.read_bytes(path, offset, length) -> string
+// @brief Read bytes from file at specific offset (for random access)
+// @param path File path (prefix /sd/ for SD card)
+// @param offset Byte offset to start reading from
+// @param length Number of bytes to read
+// @return Binary data as string, or nil with error message
+LUA_FUNCTION(l_storage_read_bytes) {
+    LUA_CHECK_ARGC(L, 3);
+    const char* path = luaL_checkstring(L, 1);
+    lua_Integer offset = luaL_checkinteger(L, 2);
+    lua_Integer length = luaL_checkinteger(L, 3);
+
+    if (offset < 0 || length <= 0 || length > 65536) {
+        lua_pushnil(L);
+        lua_pushstring(L, "Invalid offset or length (max 64KB)");
+        return 2;
+    }
+
+    const char* adjustedPath;
+    fs::FS* fs = getFS(path, &adjustedPath);
+    if (!fs) {
+        lua_pushnil(L);
+        lua_pushstring(L, "SD card not available");
+        return 2;
+    }
+
+    File file = fs->open(adjustedPath, "r");
+    if (!file) {
+        lua_pushnil(L);
+        lua_pushstring(L, "File not found");
+        return 2;
+    }
+
+    size_t fileSize = file.size();
+    if ((size_t)offset >= fileSize) {
+        file.close();
+        lua_pushnil(L);
+        lua_pushstring(L, "Offset beyond file end");
+        return 2;
+    }
+
+    // Clamp length to available data
+    size_t availableBytes = fileSize - offset;
+    if ((size_t)length > availableBytes) {
+        length = availableBytes;
+    }
+
+    char* buffer = (char*)malloc(length);
+    if (!buffer) {
+        file.close();
+        lua_pushnil(L);
+        lua_pushstring(L, "Out of memory");
+        return 2;
+    }
+
+    file.seek(offset);
+    size_t bytesRead = file.readBytes(buffer, length);
+    file.close();
+
+    if (bytesRead != (size_t)length) {
+        free(buffer);
+        lua_pushnil(L);
+        lua_pushstring(L, "Read incomplete");
+        return 2;
+    }
+
+    lua_pushlstring(L, buffer, length);
+    free(buffer);
+    return 1;
+}
+
+// @lua tdeck.storage.file_size(path) -> integer
+// @brief Get file size in bytes
+// @param path File path (prefix /sd/ for SD card)
+// @return File size or nil with error message
+LUA_FUNCTION(l_storage_file_size) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* path = luaL_checkstring(L, 1);
+
+    const char* adjustedPath;
+    fs::FS* fs = getFS(path, &adjustedPath);
+    if (!fs) {
+        lua_pushnil(L);
+        lua_pushstring(L, "SD card not available");
+        return 2;
+    }
+
+    File file = fs->open(adjustedPath, "r");
+    if (!file) {
+        lua_pushnil(L);
+        lua_pushstring(L, "File not found");
+        return 2;
+    }
+
+    size_t size = file.size();
+    file.close();
+
+    lua_pushinteger(L, size);
+    return 1;
 }
 
 // @lua tdeck.storage.read_file(path) -> string
@@ -459,9 +561,150 @@ LUA_FUNCTION(l_storage_get_flash_info) {
     return 1;
 }
 
+// Helper: Convert Lua value to JSON
+static void luaToJson(lua_State* L, int idx, JsonVariant json);
+static void luaTableToJson(lua_State* L, int idx, JsonVariant json) {
+    // Check if array or object by looking at keys
+    bool isArray = true;
+    lua_Integer maxIdx = 0;
+
+    lua_pushnil(L);
+    while (lua_next(L, idx) != 0) {
+        if (lua_type(L, -2) != LUA_TNUMBER || !lua_isinteger(L, -2)) {
+            isArray = false;
+            lua_pop(L, 2);
+            break;
+        }
+        lua_Integer i = lua_tointeger(L, -2);
+        if (i > maxIdx) maxIdx = i;
+        lua_pop(L, 1);
+    }
+
+    if (isArray && maxIdx > 0) {
+        JsonArray arr = json.to<JsonArray>();
+        for (lua_Integer i = 1; i <= maxIdx; i++) {
+            lua_rawgeti(L, idx, i);
+            JsonVariant elem = arr.add<JsonVariant>();
+            luaToJson(L, lua_gettop(L), elem);
+            lua_pop(L, 1);
+        }
+    } else {
+        JsonObject obj = json.to<JsonObject>();
+        lua_pushnil(L);
+        while (lua_next(L, idx) != 0) {
+            const char* key = lua_tostring(L, -2);
+            if (key) {
+                JsonVariant val = obj[key].to<JsonVariant>();
+                luaToJson(L, lua_gettop(L), val);
+            }
+            lua_pop(L, 1);
+        }
+    }
+}
+
+static void luaToJson(lua_State* L, int idx, JsonVariant json) {
+    int absIdx = lua_absindex(L, idx);
+    switch (lua_type(L, absIdx)) {
+        case LUA_TNIL:
+            json.set(nullptr);
+            break;
+        case LUA_TBOOLEAN:
+            json.set(lua_toboolean(L, absIdx) != 0);
+            break;
+        case LUA_TNUMBER:
+            if (lua_isinteger(L, absIdx)) {
+                json.set(lua_tointeger(L, absIdx));
+            } else {
+                json.set(lua_tonumber(L, absIdx));
+            }
+            break;
+        case LUA_TSTRING:
+            json.set(lua_tostring(L, absIdx));
+            break;
+        case LUA_TTABLE:
+            luaTableToJson(L, absIdx, json);
+            break;
+        default:
+            json.set(nullptr);
+            break;
+    }
+}
+
+// Helper: Convert JSON to Lua value
+static void jsonToLua(lua_State* L, JsonVariantConst json) {
+    if (json.isNull()) {
+        lua_pushnil(L);
+    } else if (json.is<bool>()) {
+        lua_pushboolean(L, json.as<bool>());
+    } else if (json.is<long long>()) {
+        lua_pushinteger(L, json.as<long long>());
+    } else if (json.is<double>()) {
+        lua_pushnumber(L, json.as<double>());
+    } else if (json.is<const char*>()) {
+        lua_pushstring(L, json.as<const char*>());
+    } else if (json.is<JsonArrayConst>()) {
+        JsonArrayConst arr = json.as<JsonArrayConst>();
+        lua_createtable(L, arr.size(), 0);
+        int i = 1;
+        for (JsonVariantConst elem : arr) {
+            jsonToLua(L, elem);
+            lua_rawseti(L, -2, i++);
+        }
+    } else if (json.is<JsonObjectConst>()) {
+        JsonObjectConst obj = json.as<JsonObjectConst>();
+        lua_createtable(L, 0, obj.size());
+        for (JsonPairConst kv : obj) {
+            jsonToLua(L, kv.value());
+            lua_setfield(L, -2, kv.key().c_str());
+        }
+    } else {
+        lua_pushnil(L);
+    }
+}
+
+// @lua tdeck.storage.json_encode(value) -> string
+// @brief Encode Lua value to JSON string
+// @param value Lua table, string, number, boolean, or nil
+// @return JSON string or nil on error
+LUA_FUNCTION(l_storage_json_encode) {
+    LUA_CHECK_ARGC(L, 1);
+
+    JsonDocument doc;
+    JsonVariant root = doc.to<JsonVariant>();
+    luaToJson(L, 1, root);
+
+    String output;
+    serializeJson(doc, output);
+    lua_pushstring(L, output.c_str());
+    return 1;
+}
+
+// @lua tdeck.storage.json_decode(json_string) -> value
+// @brief Decode JSON string to Lua value
+// @param json_string JSON string
+// @return Lua value or nil on error
+LUA_FUNCTION(l_storage_json_decode) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* json = luaL_checkstring(L, 1);
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, json);
+
+    if (err) {
+        lua_pushnil(L);
+        lua_pushstring(L, err.c_str());
+        return 2;
+    }
+
+    jsonToLua(L, doc.as<JsonVariantConst>());
+    return 1;
+}
+
 // Function table for tdeck.storage
 static const luaL_Reg storage_funcs[] = {
     {"read_file",       l_storage_read_file},
+    {"read_bytes",      l_storage_read_bytes},
+    {"file_size",       l_storage_file_size},
     {"write_file",      l_storage_write_file},
     {"append_file",     l_storage_append_file},
     {"exists",          l_storage_exists},
@@ -477,6 +720,11 @@ static const luaL_Reg storage_funcs[] = {
     {"is_sd_available", l_storage_is_sd_available},
     {"get_sd_info",     l_storage_get_sd_info},
     {"get_flash_info",  l_storage_get_flash_info},
+    {"json_encode",     l_storage_json_encode},
+    {"json_decode",     l_storage_json_decode},
+    // Aliases for shorter names
+    {"read",            l_storage_read_file},
+    {"write",           l_storage_write_file},
     {nullptr, nullptr}
 };
 

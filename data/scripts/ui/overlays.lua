@@ -1,15 +1,16 @@
 -- overlays.lua - Generic overlay rendering system
--- Supports multiple overlays with z-ordering and enable/disable
+-- Supports multiple overlays with z-ordering, enable/disable, and input handling
 
 local Overlays = {
-    layers = {},  -- Array of {name, render_fn, z_order, enabled}
+    layers = {},  -- Array of {name, render_fn, z_order, enabled, handle_key_fn}
 }
 
 -- Register an overlay
 -- @param name Unique identifier for the overlay
 -- @param render_fn Function that takes (display) and renders the overlay
 -- @param z_order Higher values render on top (default: 0)
-function Overlays.register(name, render_fn, z_order)
+-- @param handle_key_fn Optional function that takes (key) and returns true if handled
+function Overlays.register(name, render_fn, z_order, handle_key_fn)
     z_order = z_order or 0
 
     -- Remove existing overlay with same name
@@ -19,7 +20,8 @@ function Overlays.register(name, render_fn, z_order)
         name = name,
         render = render_fn,
         z_order = z_order,
-        enabled = true
+        enabled = true,
+        handle_key = handle_key_fn
     })
 
     -- Sort by z_order (lowest first, so they render bottom-up)
@@ -102,6 +104,24 @@ function Overlays.render_all(display)
             end
         end
     end
+end
+
+-- Process key input through overlays (highest z-order first)
+-- Returns true if an overlay handled the key
+function Overlays.process_key(key)
+    -- Iterate in reverse (highest z-order first)
+    for i = #Overlays.layers, 1, -1 do
+        local layer = Overlays.layers[i]
+        if layer.enabled and layer.handle_key then
+            local ok, handled = pcall(layer.handle_key, key)
+            if ok and handled then
+                return true
+            elseif not ok then
+                tdeck.system.log("Overlay key error (" .. layer.name .. "): " .. tostring(handled))
+            end
+        end
+    end
+    return false
 end
 
 -- List all registered overlays (for debugging)

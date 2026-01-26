@@ -3,7 +3,6 @@
 
 #include "../lua_bindings.h"
 #include "../../hardware/display.h"
-#include "../../tui/theme.h"
 
 // External reference to the global display instance
 extern Display* display;
@@ -41,13 +40,15 @@ LUA_FUNCTION(l_display_set_brightness) {
 
 // @lua tdeck.display.set_font_size(size)
 // @brief Set font size
-// @param size Font size string: "small", "medium", or "large"
+// @param size Font size string: "tiny", "small", "medium", or "large"
 LUA_FUNCTION(l_display_set_font_size) {
     LUA_CHECK_ARGC(L, 1);
     const char* sizeStr = luaL_checkstring(L, 1);
 
     FontSize size = FontSize::MEDIUM;
-    if (strcmp(sizeStr, "small") == 0) {
+    if (strcmp(sizeStr, "tiny") == 0) {
+        size = FontSize::TINY;
+    } else if (strcmp(sizeStr, "small") == 0) {
         size = FontSize::SMALL;
     } else if (strcmp(sizeStr, "large") == 0) {
         size = FontSize::LARGE;
@@ -217,6 +218,135 @@ LUA_FUNCTION(l_display_draw_pixel) {
 
     if (display) {
         display->drawPixel(x, y, color);
+    }
+    return 0;
+}
+
+// @lua tdeck.display.draw_line(x1, y1, x2, y2, color)
+// @brief Draw a line between two points
+// @param x1 Start X position
+// @param y1 Start Y position
+// @param x2 End X position
+// @param y2 End Y position
+// @param color Line color (optional)
+LUA_FUNCTION(l_display_draw_line) {
+    LUA_CHECK_ARGC_RANGE(L, 4, 5);
+    int x1 = luaL_checkinteger(L, 1);
+    int y1 = luaL_checkinteger(L, 2);
+    int x2 = luaL_checkinteger(L, 3);
+    int y2 = luaL_checkinteger(L, 4);
+    uint16_t color = luaL_optintegerdefault(L, 5, Colors::FOREGROUND);
+
+    if (display) {
+        display->drawLine(x1, y1, x2, y2, color);
+    }
+    return 0;
+}
+
+// @lua tdeck.display.draw_circle(x, y, r, color)
+// @brief Draw circle outline
+// @param x Center X position
+// @param y Center Y position
+// @param r Radius
+// @param color Circle color (optional)
+LUA_FUNCTION(l_display_draw_circle) {
+    LUA_CHECK_ARGC_RANGE(L, 3, 4);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int r = luaL_checkinteger(L, 3);
+    uint16_t color = luaL_optintegerdefault(L, 4, Colors::FOREGROUND);
+
+    if (display) {
+        display->drawCircle(x, y, r, color);
+    }
+    return 0;
+}
+
+// @lua tdeck.display.fill_circle(x, y, r, color)
+// @brief Draw filled circle
+// @param x Center X position
+// @param y Center Y position
+// @param r Radius
+// @param color Fill color (optional)
+LUA_FUNCTION(l_display_fill_circle) {
+    LUA_CHECK_ARGC_RANGE(L, 3, 4);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int r = luaL_checkinteger(L, 3);
+    uint16_t color = luaL_optintegerdefault(L, 4, Colors::FOREGROUND);
+
+    if (display) {
+        display->fillCircle(x, y, r, color);
+    }
+    return 0;
+}
+
+// @lua tdeck.display.draw_triangle(x1, y1, x2, y2, x3, y3, color)
+// @brief Draw triangle outline
+LUA_FUNCTION(l_display_draw_triangle) {
+    LUA_CHECK_ARGC_RANGE(L, 6, 7);
+    int x1 = luaL_checkinteger(L, 1);
+    int y1 = luaL_checkinteger(L, 2);
+    int x2 = luaL_checkinteger(L, 3);
+    int y2 = luaL_checkinteger(L, 4);
+    int x3 = luaL_checkinteger(L, 5);
+    int y3 = luaL_checkinteger(L, 6);
+    uint16_t color = luaL_optintegerdefault(L, 7, Colors::FOREGROUND);
+
+    if (display) {
+        display->drawTriangle(x1, y1, x2, y2, x3, y3, color);
+    }
+    return 0;
+}
+
+// @lua tdeck.display.fill_triangle(x1, y1, x2, y2, x3, y3, color)
+// @brief Draw filled triangle
+LUA_FUNCTION(l_display_fill_triangle) {
+    LUA_CHECK_ARGC_RANGE(L, 6, 7);
+    int x1 = luaL_checkinteger(L, 1);
+    int y1 = luaL_checkinteger(L, 2);
+    int x2 = luaL_checkinteger(L, 3);
+    int y2 = luaL_checkinteger(L, 4);
+    int x3 = luaL_checkinteger(L, 5);
+    int y3 = luaL_checkinteger(L, 6);
+    uint16_t color = luaL_optintegerdefault(L, 7, Colors::FOREGROUND);
+
+    if (display) {
+        display->fillTriangle(x1, y1, x2, y2, x3, y3, color);
+    }
+    return 0;
+}
+
+// @lua tdeck.display.draw_round_rect(x, y, w, h, r, color)
+// @brief Draw rounded rectangle outline
+LUA_FUNCTION(l_display_draw_round_rect) {
+    LUA_CHECK_ARGC_RANGE(L, 5, 6);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int w = luaL_checkinteger(L, 3);
+    int h = luaL_checkinteger(L, 4);
+    int r = luaL_checkinteger(L, 5);
+    uint16_t color = luaL_optintegerdefault(L, 6, Colors::FOREGROUND);
+
+    if (display) {
+        display->drawRoundRect(x, y, w, h, r, color);
+    }
+    return 0;
+}
+
+// @lua tdeck.display.fill_round_rect(x, y, w, h, r, color)
+// @brief Draw filled rounded rectangle
+LUA_FUNCTION(l_display_fill_round_rect) {
+    LUA_CHECK_ARGC_RANGE(L, 5, 6);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int w = luaL_checkinteger(L, 3);
+    int h = luaL_checkinteger(L, 4);
+    int r = luaL_checkinteger(L, 5);
+    uint16_t color = luaL_optintegerdefault(L, 6, Colors::FOREGROUND);
+
+    if (display) {
+        display->fillRoundRect(x, y, w, h, r, color);
     }
     return 0;
 }
@@ -430,6 +560,167 @@ LUA_FUNCTION(l_display_draw_bitmap_transparent) {
     return 0;
 }
 
+// @lua tdeck.display.draw_indexed_bitmap(x, y, width, height, data, palette)
+// @brief Draw a 3-bit indexed bitmap using a color palette
+// @param x X position
+// @param y Y position
+// @param width Bitmap width in pixels
+// @param height Bitmap height in pixels
+// @param data Packed 3-bit pixel indices (8 pixels packed into 3 bytes)
+// @param palette Table of 8 RGB565 color values
+// @details
+// The data format packs 8 pixels (3 bits each = 24 bits) into 3 bytes:
+// Byte 0: [p0:2-0][p1:2-0][p2:1-0] (bits: p0=0-2, p1=3-5, p2_lo=6-7)
+// Byte 1: [p2:2][p3:2-0][p4:2-0][p5:0] (bits: p2_hi=0, p3=1-3, p4=4-6, p5_lo=7)
+// Byte 2: [p5:2-1][p6:2-0][p7:2-0] (bits: p5_hi=0-1, p6=2-4, p7=5-7)
+// This is optimized for map tiles converted from grayscale with dithering.
+// @example
+// local palette = {0x0000, 0x2104, 0x4208, 0x630C, 0x8410, 0xC618, 0xE71C, 0xFFFF}
+// display.draw_indexed_bitmap(0, 0, 256, 256, tile_data, palette)
+// @end
+LUA_FUNCTION(l_display_draw_indexed_bitmap) {
+    LUA_CHECK_ARGC(L, 6);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int width = luaL_checkinteger(L, 3);
+    int height = luaL_checkinteger(L, 4);
+
+    size_t dataLen;
+    const uint8_t* data = (const uint8_t*)luaL_checklstring(L, 5, &dataLen);
+
+    // Get palette table (8 RGB565 colors)
+    luaL_checktype(L, 6, LUA_TTABLE);
+    uint16_t palette[8];
+    for (int i = 0; i < 8; i++) {
+        lua_rawgeti(L, 6, i + 1);  // Lua arrays are 1-indexed
+        palette[i] = lua_tointeger(L, -1);
+        lua_pop(L, 1);
+    }
+
+    // Calculate expected data length: 8 pixels per 3 bytes
+    size_t totalPixels = width * height;
+    size_t expectedLen = (totalPixels * 3 + 7) / 8;  // 3 bits per pixel, round up to bytes
+    if (dataLen < expectedLen) {
+        return luaL_error(L, "indexed bitmap data too short: got %d, expected %d", dataLen, expectedLen);
+    }
+
+    if (!display || width <= 0 || height <= 0) {
+        return 0;
+    }
+
+    // Clip to screen bounds
+    int screenW = display->getWidth();
+    int screenH = display->getHeight();
+
+    int startX = (x < 0) ? -x : 0;
+    int startY = (y < 0) ? -y : 0;
+    int endX = (x + width > screenW) ? screenW - x : width;
+    int endY = (y + height > screenH) ? screenH - y : height;
+
+    if (startX >= endX || startY >= endY) {
+        return 0;  // Completely off-screen
+    }
+
+    // Decode and draw pixels
+    // The 3-bit packing format: 8 pixels in 3 bytes
+    for (int row = startY; row < endY; row++) {
+        for (int col = startX; col < endX; col++) {
+            int pixelIndex = row * width + col;
+            int groupIndex = pixelIndex / 8;
+            int pixelInGroup = pixelIndex % 8;
+
+            // Each group of 8 pixels is stored in 3 consecutive bytes
+            int byteOffset = groupIndex * 3;
+            if (byteOffset + 2 >= (int)dataLen) break;
+
+            uint8_t b0 = data[byteOffset];
+            uint8_t b1 = data[byteOffset + 1];
+            uint8_t b2 = data[byteOffset + 2];
+
+            // Extract 3-bit palette index based on pixel position in group
+            uint8_t paletteIndex = 0;
+            switch (pixelInGroup) {
+                case 0: paletteIndex = b0 & 0x07; break;
+                case 1: paletteIndex = (b0 >> 3) & 0x07; break;
+                case 2: paletteIndex = ((b0 >> 6) & 0x03) | ((b1 & 0x01) << 2); break;
+                case 3: paletteIndex = (b1 >> 1) & 0x07; break;
+                case 4: paletteIndex = (b1 >> 4) & 0x07; break;
+                case 5: paletteIndex = ((b1 >> 7) & 0x01) | ((b2 & 0x03) << 1); break;
+                case 6: paletteIndex = (b2 >> 2) & 0x07; break;
+                case 7: paletteIndex = (b2 >> 5) & 0x07; break;
+            }
+
+            // Clamp to valid palette range
+            paletteIndex = paletteIndex & 0x07;
+
+            display->drawPixel(x + col, y + row, palette[paletteIndex]);
+        }
+    }
+
+    return 0;
+}
+
+// @lua tdeck.display.draw_bitmap_1bit(x, y, width, height, data, scale, color)
+// @brief Draw a 1-bit bitmap with scaling and colorization
+// @param x X position
+// @param y Y position
+// @param width Bitmap width in pixels (original size)
+// @param height Bitmap height in pixels (original size)
+// @param data Packed 1-bit data (MSB first, row by row)
+// @param scale Scale factor (1, 2, 3, etc.) - optional, default 1
+// @param color RGB565 color for "on" pixels - optional, default WHITE
+// @example
+// -- 8x8 icon (8 bytes), scaled 3x, cyan color
+// display.draw_bitmap_1bit(10, 10, 8, 8, icon_data, 3, colors.CYAN)
+// @end
+LUA_FUNCTION(l_display_draw_bitmap_1bit) {
+    LUA_CHECK_ARGC_RANGE(L, 5, 7);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int width = luaL_checkinteger(L, 3);
+    int height = luaL_checkinteger(L, 4);
+
+    size_t dataLen;
+    const uint8_t* data = (const uint8_t*)luaL_checklstring(L, 5, &dataLen);
+    int scale = luaL_optinteger(L, 6, 1);
+    uint16_t color = luaL_optintegerdefault(L, 7, Colors::WHITE);
+
+    // Calculate expected data length (bits rounded up to bytes)
+    size_t expectedLen = (width * height + 7) / 8;
+    if (dataLen < expectedLen) {
+        return luaL_error(L, "bitmap data too short: got %d, expected %d", dataLen, expectedLen);
+    }
+
+    if (!display || width <= 0 || height <= 0 || scale <= 0) {
+        return 0;
+    }
+
+    // Draw the 1-bit bitmap with scaling
+    int bitIndex = 0;
+    for (int row = 0; row < height; row++) {
+        for (int col = 0; col < width; col++) {
+            // Get bit value (MSB first)
+            int byteIndex = bitIndex / 8;
+            int bitOffset = 7 - (bitIndex % 8);
+            bool pixel = (data[byteIndex] >> bitOffset) & 1;
+            bitIndex++;
+
+            if (pixel) {
+                // Draw scaled pixel
+                int px = x + col * scale;
+                int py = y + row * scale;
+                if (scale == 1) {
+                    display->drawPixel(px, py, color);
+                } else {
+                    display->fillRect(px, py, scale, scale, color);
+                }
+            }
+        }
+    }
+
+    return 0;
+}
+
 // Function table for tdeck.display
 static const luaL_Reg display_funcs[] = {
     {"clear",             l_display_clear},
@@ -444,6 +735,13 @@ static const luaL_Reg display_funcs[] = {
     {"fill_rect",         l_display_fill_rect},
     {"draw_rect",         l_display_draw_rect},
     {"draw_pixel",        l_display_draw_pixel},
+    {"draw_line",         l_display_draw_line},
+    {"draw_circle",       l_display_draw_circle},
+    {"fill_circle",       l_display_fill_circle},
+    {"draw_triangle",     l_display_draw_triangle},
+    {"fill_triangle",     l_display_fill_triangle},
+    {"draw_round_rect",   l_display_draw_round_rect},
+    {"fill_round_rect",   l_display_fill_round_rect},
     {"draw_progress",     l_display_draw_progress},
     {"draw_battery",      l_display_draw_battery},
     {"draw_signal",       l_display_draw_signal},
@@ -457,6 +755,8 @@ static const luaL_Reg display_funcs[] = {
     {"get_font_height",   l_display_get_font_height},
     {"draw_bitmap",       l_display_draw_bitmap},
     {"draw_bitmap_transparent", l_display_draw_bitmap_transparent},
+    {"draw_bitmap_1bit",  l_display_draw_bitmap_1bit},
+    {"draw_indexed_bitmap", l_display_draw_indexed_bitmap},
     {nullptr, nullptr}
 };
 

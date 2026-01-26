@@ -1,7 +1,0 @@
-# Icon: testing
-# Used for: Testing menu item - diagnostics
-
-Bug or wrench icon representing testing/diagnostics.
-- Stylized bug or debug symbol
-- Primary color: red/maroon (#EF5350 to #E53935 gradient)
-- Could be a beetle/ladybug shape or wrench

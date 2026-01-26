@@ -37,7 +37,14 @@ function Breakout:new()
 end
 
 function Breakout:on_enter()
+    -- Enter game mode (disables GC, slows mesh, hides status bar)
+    if _G.MainLoop then _G.MainLoop.enter_game_mode() end
     self:reset_level()
+end
+
+function Breakout:on_exit()
+    -- Exit game mode
+    if _G.MainLoop then _G.MainLoop.exit_game_mode() end
 end
 
 function Breakout:reset_level()
@@ -94,7 +101,7 @@ function Breakout:count_bricks()
     return count
 end
 
-function Breakout:update()
+function Breakout:update_physics()
     if self.game_over or self.won then return end
 
     local w = tdeck.display.width
@@ -207,11 +214,16 @@ function Breakout:update()
 end
 
 function Breakout:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
     local w = display.width
     local h = display.height
 
-    display.fill_rect(0, 0, w, h, colors.BLACK)
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, w, h, colors.BLACK)
+    end
 
     -- Draw bricks
     for _, brick in ipairs(self.bricks) do
@@ -252,15 +264,18 @@ function Breakout:handle_key(key)
 
     if self.game_over or self.won then
         if key.special == "ENTER" then
+            -- Clean up before restart
+            collectgarbage("collect")
             self.score = 0
             self.lives = 3
             self.game_over = false
             self.won = false
             self:reset_level()
         elseif key.special == "ESCAPE" or key.character == "q" then
+            self:on_exit()
             return "pop"
         end
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
         return "continue"
     end
 
@@ -271,21 +286,22 @@ function Breakout:handle_key(key)
     elseif key.character == " " then
         self:launch_ball()
     elseif key.special == "ESCAPE" or key.character == "q" then
+        self:on_exit()
         return "pop"
     end
 
-    tdeck.screen.invalidate()
+    ScreenManager.invalidate()
     return "continue"
 end
 
-function Breakout:on_refresh()
+function Breakout:update()
     if self.game_over or self.won then return end
 
     local now = tdeck.system.millis()
     if now - self.last_update >= 30 then  -- ~33 FPS
-        self:update()
+        self:update_physics()
         self.last_update = now
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     end
 end
 

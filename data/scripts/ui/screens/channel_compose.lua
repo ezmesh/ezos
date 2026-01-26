@@ -32,70 +32,84 @@ function ChannelCompose:update_cursor()
     if now - self.last_blink > self.blink_interval then
         self.cursor_visible = not self.cursor_visible
         self.last_blink = now
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     end
 end
 
 function ChannelCompose:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
 
     self:update_cursor()
 
-    display.draw_box(0, 0, display.cols, display.rows - 1,
-                    self.title, colors.CYAN, colors.WHITE)
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
+    end
+
+    -- Title bar
+    TitleBar.draw(display, self.title)
+
+    -- Content font
+    display.set_font_size("medium")
+    local fw = display.get_font_width()
+    local fh = display.get_font_height()
 
     -- Character count
     local count_str = string.format("%d/%d", #self.text, self.max_length)
     local count_x = display.cols - #count_str - 2
     local count_color = #self.text > self.max_length - 20 and colors.ORANGE or colors.TEXT_DIM
-    display.draw_text(count_x * display.font_width, display.font_height, count_str, count_color)
+    display.draw_text(count_x * fw, fh, count_str, count_color)
 
     -- Text area
     local text_area_y = 3
     local text_area_height = 8
+    local text_area_width_px = (display.cols - 3) * fw
 
     -- Background for text area
-    display.fill_rect(display.font_width, text_area_y * display.font_height,
-                     (display.cols - 2) * display.font_width,
-                     text_area_height * display.font_height,
-                     colors.DARK_GRAY)
+    display.fill_rect(fw, text_area_y * fh, (display.cols - 2) * fw, text_area_height * fh, colors.DARK_GRAY)
 
-    -- Render text with word wrap
-    local y = text_area_y
-    local x = 2
-    local max_x = display.cols - 2
+    -- Render text with word wrap using pixel-based measurement
+    local line_num = 0        -- Current line number (0-indexed)
+    local line_x_px = 0       -- Current x position in pixels on line
+    local cursor_x_px = 0     -- Cursor x position for drawing
 
     for i = 1, #self.text do
         local ch = string.sub(self.text, i, i)
+        local char_width = display.text_width(ch)
 
-        if ch == "\n" or x >= max_x then
-            y = y + 1
-            x = 2
+        if ch == "\n" or line_x_px + char_width > text_area_width_px then
+            line_num = line_num + 1
+            line_x_px = 0
             if ch == "\n" then
                 goto continue
             end
         end
 
-        if y < text_area_y + text_area_height then
-            display.draw_text(x * display.font_width, y * display.font_height, ch, colors.TEXT)
+        if line_num < text_area_height then
+            local py = (text_area_y + line_num) * fh
+            local px = 2 * fw + line_x_px
+            display.draw_text(px, py, ch, colors.TEXT)
         end
-        x = x + 1
+        line_x_px = line_x_px + char_width
 
         ::continue::
     end
 
-    -- Cursor
-    if self.cursor_visible and y < text_area_y + text_area_height then
-        display.draw_text(x * display.font_width, y * display.font_height, "_", colors.CYAN)
-    end
+    -- Track cursor position at end of text
+    cursor_x_px = line_x_px
 
-    -- Help bar
-    display.draw_text(display.font_width, (display.rows - 3) * display.font_height,
-                    "[Enter]Send [Esc]Cancel", colors.TEXT_DIM)
+    -- Cursor
+    if self.cursor_visible and line_num < text_area_height then
+        local cy = (text_area_y + line_num) * fh
+        local cx = 2 * fw + cursor_x_px
+        display.draw_text(cx, cy, "_", colors.CYAN)
+    end
 end
 
 function ChannelCompose:handle_key(key)
-    tdeck.screen.invalidate()
+    ScreenManager.invalidate()
 
     if key.special == "ENTER" then
         self:send()
@@ -121,10 +135,15 @@ function ChannelCompose:send()
         return
     end
 
-    if tdeck.mesh.send_channel_message(self.channel_name, self.text) then
-        tdeck.system.log("Sent to " .. self.channel_name .. ": " .. self.text)
+    local ChannelsService = _G.Channels
+    if ChannelsService then
+        if ChannelsService.send(self.channel_name, self.text) then
+            tdeck.system.log("Sent to " .. self.channel_name .. ": " .. self.text)
+        else
+            tdeck.system.log("Failed to send channel message")
+        end
     else
-        tdeck.system.log("Failed to send channel message")
+        tdeck.system.log("Channels service not available")
     end
 end
 

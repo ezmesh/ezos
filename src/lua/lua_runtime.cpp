@@ -13,17 +13,13 @@ extern "C" {
 void registerSystemModule(lua_State* L);
 void registerDisplayModule(lua_State* L);
 void registerKeyboardModule(lua_State* L);
-void registerScreenModule(lua_State* L);
 // Phase 3 modules
 void registerRadioModule(lua_State* L);
 void registerMeshModule(lua_State* L);
 void registerAudioModule(lua_State* L);
 // Phase 4 modules
 void registerStorageModule(lua_State* L);
-
-// Memory threshold for using PSRAM vs internal RAM
-// Allocations larger than this go to PSRAM for memory efficiency
-static constexpr size_t PSRAM_THRESHOLD = 4096;
+void registerCryptoModule(lua_State* L);
 
 LuaRuntime& LuaRuntime::instance() {
     static LuaRuntime runtime;
@@ -46,19 +42,17 @@ void* LuaRuntime::luaAlloc(void* ud, void* ptr, size_t osize, size_t nsize) {
         return nullptr;
     }
 
-    // Allocation or reallocation
+    // Allocation or reallocation - always prefer PSRAM
     void* newPtr = nullptr;
 
-    if (nsize >= PSRAM_THRESHOLD) {
-        // Large allocations go to PSRAM
-        if (ptr == nullptr) {
-            newPtr = heap_caps_malloc(nsize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        } else {
-            newPtr = heap_caps_realloc(ptr, nsize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        }
+    // Try PSRAM first
+    if (ptr == nullptr) {
+        newPtr = heap_caps_malloc(nsize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    } else {
+        newPtr = heap_caps_realloc(ptr, nsize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     }
 
-    // Fall back to internal RAM if PSRAM allocation failed or for small allocations
+    // Fall back to internal RAM only if PSRAM allocation failed
     if (newPtr == nullptr) {
         if (ptr == nullptr) {
             newPtr = heap_caps_malloc(nsize, MALLOC_CAP_8BIT);
@@ -149,7 +143,6 @@ void LuaRuntime::registerAllModules() {
     registerSystemModule(_state);
     registerDisplayModule(_state);
     registerKeyboardModule(_state);
-    registerScreenModule(_state);
 
     // Phase 3 modules
     registerRadioModule(_state);
@@ -158,6 +151,7 @@ void LuaRuntime::registerAllModules() {
 
     // Phase 4 modules
     registerStorageModule(_state);
+    registerCryptoModule(_state);
 
     Serial.println("[LuaRuntime] Modules registered");
 }

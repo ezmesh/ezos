@@ -1,7 +1,0 @@
-# Icon: files
-# Used for: Files menu item - file browser
-
-Folder icon representing file system/storage.
-- Classic folder shape with tab
-- Primary color: blue (#5C6BC0 to #3F51B5 gradient)
-- Simple recognizable folder silhouette

@@ -8,6 +8,7 @@
 #include <esp_heap_caps.h>
 #include <LittleFS.h>
 #include <SD.h>
+#include <sys/time.h>
 
 // Timer entry for scheduled callbacks
 struct TimerEntry {
@@ -22,6 +23,13 @@ static constexpr int MAX_TIMERS = 16;
 static TimerEntry timers[MAX_TIMERS];
 static int nextTimerId = 1;
 static lua_State* timerLuaState = nullptr;
+
+// Main loop callback for Lua-controlled main loop
+static int mainLoopCallbackRef = LUA_NOREF;
+static lua_State* mainLoopLuaState = nullptr;
+
+// Forward declarations
+void processLuaTimers();
 
 // @lua tdeck.system.millis() -> integer
 // @brief Returns milliseconds since boot
@@ -233,6 +241,140 @@ LUA_FUNCTION(l_system_uptime) {
     return 1;
 }
 
+// @lua tdeck.system.get_time() -> table|nil
+// @brief Get current wall clock time
+// @return Table with hour, minute, second, or nil if time not set
+// @example
+// local t = tdeck.system.get_time()
+// if t then print(t.hour .. ":" .. t.minute) end
+// @end
+LUA_FUNCTION(l_system_get_time) {
+    time_t now;
+    struct tm timeinfo;
+
+    time(&now);
+    localtime_r(&now, &timeinfo);
+
+    // Check if time is valid (year > 2020 means NTP or RTC is set)
+    if (timeinfo.tm_year < 120) {  // tm_year is years since 1900
+        lua_pushnil(L);
+        return 1;
+    }
+
+    lua_newtable(L);
+
+    lua_pushinteger(L, timeinfo.tm_hour);
+    lua_setfield(L, -2, "hour");
+
+    lua_pushinteger(L, timeinfo.tm_min);
+    lua_setfield(L, -2, "minute");
+
+    lua_pushinteger(L, timeinfo.tm_sec);
+    lua_setfield(L, -2, "second");
+
+    lua_pushinteger(L, timeinfo.tm_year + 1900);
+    lua_setfield(L, -2, "year");
+
+    lua_pushinteger(L, timeinfo.tm_mon + 1);
+    lua_setfield(L, -2, "month");
+
+    lua_pushinteger(L, timeinfo.tm_mday);
+    lua_setfield(L, -2, "day");
+
+    return 1;
+}
+
+// @lua tdeck.system.set_time(year, month, day, hour, minute, second) -> boolean
+// @brief Set system clock time
+// @param year Full year (e.g., 2024)
+// @param month Month (1-12)
+// @param day Day of month (1-31)
+// @param hour Hour (0-23)
+// @param minute Minute (0-59)
+// @param second Second (0-59)
+// @return true if time was set successfully
+LUA_FUNCTION(l_system_set_time) {
+    LUA_CHECK_ARGC(L, 6);
+    int year = luaL_checkinteger(L, 1);
+    int month = luaL_checkinteger(L, 2);
+    int day = luaL_checkinteger(L, 3);
+    int hour = luaL_checkinteger(L, 4);
+    int minute = luaL_checkinteger(L, 5);
+    int second = luaL_checkinteger(L, 6);
+
+    // Validate input ranges
+    if (year < 2020 || year > 2100 ||
+        month < 1 || month > 12 ||
+        day < 1 || day > 31 ||
+        hour < 0 || hour > 23 ||
+        minute < 0 || minute > 59 ||
+        second < 0 || second > 59) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    struct tm timeinfo = {};
+    timeinfo.tm_year = year - 1900;  // tm_year is years since 1900
+    timeinfo.tm_mon = month - 1;      // tm_mon is 0-11
+    timeinfo.tm_mday = day;
+    timeinfo.tm_hour = hour;
+    timeinfo.tm_min = minute;
+    timeinfo.tm_sec = second;
+
+    time_t t = mktime(&timeinfo);
+    struct timeval tv = { .tv_sec = t, .tv_usec = 0 };
+
+    int result = settimeofday(&tv, nullptr);
+    Serial.printf("[System] Time set to %04d-%02d-%02d %02d:%02d:%02d (result=%d)\n",
+                  year, month, day, hour, minute, second, result);
+
+    lua_pushboolean(L, result == 0);
+    return 1;
+}
+
+// @lua tdeck.system.set_time_unix(timestamp) -> boolean
+// @brief Set system clock from Unix timestamp
+// @param timestamp Unix timestamp (seconds since 1970-01-01)
+// @return true if time was set successfully
+LUA_FUNCTION(l_system_set_time_unix) {
+    LUA_CHECK_ARGC(L, 1);
+    lua_Integer timestamp = luaL_checkinteger(L, 1);
+
+    // Validate timestamp (must be after 2020 and before 2100)
+    if (timestamp < 1577836800 || timestamp > 4102444800) {  // 2020-01-01 to 2100-01-01
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    struct timeval tv = { .tv_sec = (time_t)timestamp, .tv_usec = 0 };
+    int result = settimeofday(&tv, nullptr);
+
+    Serial.printf("[System] Time set from Unix timestamp %lld (result=%d)\n",
+                  (long long)timestamp, result);
+
+    lua_pushboolean(L, result == 0);
+    return 1;
+}
+
+// @lua tdeck.system.get_time_unix() -> integer
+// @brief Get current Unix timestamp
+// @return Unix timestamp (seconds since 1970-01-01), or 0 if time not set
+LUA_FUNCTION(l_system_get_time_unix) {
+    time_t now;
+    time(&now);
+
+    // Check if time is valid (year > 2020)
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+    if (timeinfo.tm_year < 120) {  // tm_year is years since 1900
+        lua_pushinteger(L, 0);
+        return 1;
+    }
+
+    lua_pushinteger(L, (lua_Integer)now);
+    return 1;
+}
+
 // @lua tdeck.system.chip_model() -> string
 // @brief Get ESP32 chip model name
 // @return Chip model string
@@ -336,6 +478,55 @@ LUA_FUNCTION(l_system_is_sd_available) {
     return 1;
 }
 
+// @lua tdeck.system.yield(ms)
+// @brief Yield execution to allow C++ background tasks to run
+// @param ms Optional sleep time in milliseconds (default 1, max 100)
+// @note Call this regularly in Lua main loops to prevent watchdog timeouts
+LUA_FUNCTION(l_system_yield) {
+    int ms = luaL_optinteger(L, 1, 1);
+    if (ms < 0) ms = 0;
+    if (ms > 100) ms = 100;  // Cap to prevent long blocks
+
+    // Process timers while yielding
+    processLuaTimers();
+
+    // Small delay to yield to other tasks
+    if (ms > 0) {
+        delay(ms);
+    } else {
+        yield();  // Arduino yield for watchdog
+    }
+
+    return 0;
+}
+
+// @lua tdeck.system.set_main_loop(callback)
+// @brief Register a Lua function as the main loop handler
+// @param callback Function called each frame, or nil to disable
+// @note When set, C++ will call this instead of the TUI update
+LUA_FUNCTION(l_system_set_main_loop) {
+    // Release old callback if any
+    if (mainLoopCallbackRef != LUA_NOREF && mainLoopLuaState) {
+        luaL_unref(mainLoopLuaState, LUA_REGISTRYINDEX, mainLoopCallbackRef);
+        mainLoopCallbackRef = LUA_NOREF;
+        mainLoopLuaState = nullptr;
+    }
+
+    if (lua_isfunction(L, 1)) {
+        lua_pushvalue(L, 1);
+        mainLoopCallbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
+        mainLoopLuaState = L;
+        Serial.println("[Lua] Main loop callback registered");
+    } else if (lua_isnil(L, 1) || lua_gettop(L) == 0) {
+        // Already cleared above
+        Serial.println("[Lua] Main loop callback cleared");
+    } else {
+        return luaL_error(L, "Expected function or nil");
+    }
+
+    return 0;
+}
+
 // Function table for tdeck.system
 static const luaL_Reg system_funcs[] = {
     {"millis",             l_system_millis},
@@ -352,6 +543,10 @@ static const luaL_Reg system_funcs[] = {
     {"log",                l_system_log},
     {"restart",            l_system_restart},
     {"uptime",             l_system_uptime},
+    {"get_time",           l_system_get_time},
+    {"set_time",           l_system_set_time},
+    {"get_time_unix",      l_system_get_time_unix},
+    {"set_time_unix",      l_system_set_time_unix},
     {"chip_model",         l_system_chip_model},
     {"cpu_freq",           l_system_cpu_freq},
     // Phase 6: Hot reload and memory management
@@ -366,6 +561,8 @@ static const luaL_Reg system_funcs[] = {
     {"stop_usb_msc",       l_system_stop_usb_msc},
     {"is_usb_msc_active",  l_system_is_usb_msc_active},
     {"is_sd_available",    l_system_is_sd_available},
+    {"yield",              l_system_yield},
+    {"set_main_loop",      l_system_set_main_loop},
     {nullptr, nullptr}
 };
 
@@ -494,6 +691,27 @@ void registerSystemModule(lua_State* L) {
     lua_pop(L, 2);  // pop searchers and package
 
     Serial.println("[LuaRuntime] Registered tdeck.system");
+}
+
+// Check if Lua main loop is registered
+bool hasLuaMainLoop() {
+    return mainLoopCallbackRef != LUA_NOREF && mainLoopLuaState != nullptr;
+}
+
+// Call the Lua main loop callback (called from main.cpp loop())
+void callLuaMainLoop() {
+    if (mainLoopCallbackRef == LUA_NOREF || mainLoopLuaState == nullptr) {
+        return;
+    }
+
+    // Get callback from registry
+    lua_rawgeti(mainLoopLuaState, LUA_REGISTRYINDEX, mainLoopCallbackRef);
+
+    // Call with no arguments, no return values
+    if (lua_pcall(mainLoopLuaState, 0, 0, 0) != LUA_OK) {
+        Serial.printf("[Lua Main] Error: %s\n", lua_tostring(mainLoopLuaState, -1));
+        lua_pop(mainLoopLuaState, 1);
+    }
 }
 
 // Process pending timers (called from LuaRuntime::update())

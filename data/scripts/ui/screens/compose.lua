@@ -1,6 +1,8 @@
 -- Compose Screen for T-Deck OS
 -- Compose a broadcast message
 
+local TextUtils = dofile("/scripts/ui/text_utils.lua")
+
 local Compose = {
     title = "Compose",
     channel = "#Public",
@@ -36,75 +38,83 @@ function Compose:update_cursor()
     if now - self.last_blink > self.blink_interval then
         self.cursor_visible = not self.cursor_visible
         self.last_blink = now
-        tdeck.screen.invalidate()
+        ScreenManager.invalidate()
     end
 end
 
 function Compose:render(display)
-    local colors = display.colors
+    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
 
     self:update_cursor()
 
-    display.draw_box(0, 0, display.cols, display.rows - 1,
-                    self.title, colors.CYAN, colors.WHITE)
+    -- Fill background with theme wallpaper
+    if _G.ThemeManager then
+        _G.ThemeManager.draw_background(display)
+    else
+        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
+    end
+
+    -- Title bar
+    TitleBar.draw(display, self.title)
+
+    -- Content font
+    display.set_font_size("medium")
+    local fw = display.get_font_width()
+    local fh = display.get_font_height()
 
     -- Channel line
-    display.draw_text(display.font_width, 2 * display.font_height,
-                     "To:", colors.TEXT_DIM)
-    display.draw_text(5 * display.font_width, 2 * display.font_height,
-                     self.channel, colors.CYAN)
+    display.draw_text(fw, 2 * fh, "To:", colors.TEXT_DIM)
+    display.draw_text(5 * fw, 2 * fh, self.channel, colors.CYAN)
 
     -- Message label
-    display.draw_text(display.font_width, 4 * display.font_height,
-                     "Message:", colors.TEXT_DIM)
+    display.draw_text(fw, 4 * fh, "Message:", colors.TEXT_DIM)
 
     -- Character count
     local count_str = string.format("%d/%d", #self.text, self.max_length)
     local count_x = display.cols - 2 - #count_str
     local count_color = #self.text > self.max_length - 20 and colors.ORANGE or colors.TEXT_DIM
-    display.draw_text(count_x * display.font_width, 4 * display.font_height, count_str, count_color)
+    display.draw_text(count_x * fw, 4 * fh, count_str, count_color)
 
     -- Text area
     local text_area_y = 5
     local text_area_height = 6
-    local text_area_width = display.cols - 4
+    local text_area_width_chars = display.cols - 4
+    local text_area_width_px = text_area_width_chars * fw
 
     -- Draw text area background
-    display.fill_rect(display.font_width, text_area_y * display.font_height,
-                     text_area_width * display.font_width,
-                     text_area_height * display.font_height,
-                     colors.DARK_GRAY)
+    display.fill_rect(fw, text_area_y * fh, text_area_width_px, text_area_height * fh, colors.DARK_GRAY)
 
-    -- Render message with word wrap
-    local x = 0
-    local y = 0
-    local cursor_x, cursor_y = -1, -1
+    -- Render message with word wrap using pixel-based measurement
+    local line_x_px = 0  -- Current x position in pixels on current line
+    local y = 0          -- Current line number
+    local cursor_x_px, cursor_y = -1, -1
 
     for i = 0, #self.text do
         -- Track cursor position
         if i == self.cursor_pos then
-            cursor_x = x
+            cursor_x_px = line_x_px
             cursor_y = y
         end
 
         if i < #self.text then
             local c = string.sub(self.text, i + 1, i + 1)
+            local char_width = display.text_width(c)
 
-            -- Check for newline or wrap
-            if c == "\n" or x >= text_area_width then
+            -- Check for newline or wrap (using pixel width)
+            if c == "\n" or line_x_px + char_width > text_area_width_px then
                 y = y + 1
-                x = 0
+                line_x_px = 0
                 if c == "\n" then goto continue end
             end
 
             -- Only render visible lines
             if y >= self.scroll_offset and y < self.scroll_offset + text_area_height then
-                local render_y = (text_area_y + y - self.scroll_offset) * display.font_height
-                local render_x = (1 + x) * display.font_width
+                local render_y = (text_area_y + y - self.scroll_offset) * fh
+                local render_x = fw + line_x_px
                 display.draw_text(render_x, render_y, c, colors.TEXT)
             end
 
-            x = x + 1
+            line_x_px = line_x_px + char_width
         end
 
         ::continue::
@@ -112,24 +122,19 @@ function Compose:render(display)
 
     -- Draw cursor
     if self.cursor_visible and cursor_y >= self.scroll_offset and cursor_y < self.scroll_offset + text_area_height then
-        local cx = (1 + cursor_x) * display.font_width
-        local cy = (text_area_y + cursor_y - self.scroll_offset) * display.font_height
-        display.fill_rect(cx, cy, 2, display.font_height, colors.CYAN)
+        local cx = fw + cursor_x_px
+        local cy = (text_area_y + cursor_y - self.scroll_offset) * fh
+        display.fill_rect(cx, cy, 2, fh, colors.CYAN)
     end
 
     -- Scroll indicator
     if self.scroll_offset > 0 then
-        display.draw_text((display.cols - 2) * display.font_width,
-                         text_area_y * display.font_height, "^", colors.CYAN)
+        display.draw_text((display.cols - 2) * fw, text_area_y * fh, "^", colors.CYAN)
     end
-
-    -- Help bar
-    display.draw_text(display.font_width, (display.rows - 3) * display.font_height,
-                    "[Enter]Send [Esc]Cancel", colors.TEXT_DIM)
 end
 
 function Compose:handle_key(key)
-    tdeck.screen.invalidate()
+    ScreenManager.invalidate()
 
     if key.special == "ENTER" then
         if key.ctrl or key.shift then
@@ -191,19 +196,22 @@ function Compose:delete_char()
 end
 
 function Compose:update_scroll()
-    -- Calculate which line the cursor is on
-    local text_area_width = 36
+    -- Calculate which line the cursor is on using pixel-based measurement
+    local fw = tdeck.display.get_font_width()
+    local text_area_width_px = (tdeck.display.get_cols() - 4) * fw
     local cursor_line = 0
-    local x = 0
+    local line_x_px = 0
 
     for i = 1, self.cursor_pos do
         local c = string.sub(self.text, i, i)
-        if c == "\n" or x >= text_area_width then
+        local char_width = tdeck.display.text_width(c)
+
+        if c == "\n" or line_x_px + char_width > text_area_width_px then
             cursor_line = cursor_line + 1
-            x = 0
+            line_x_px = 0
             if c == "\n" then goto continue end
         end
-        x = x + 1
+        line_x_px = line_x_px + char_width
         ::continue::
     end
 
@@ -219,7 +227,8 @@ end
 function Compose:send()
     if #self.text == 0 then return end
 
-    if tdeck.mesh.send_channel_message(self.channel, self.text) then
+    -- Use Lua Channels service to send message
+    if _G.Channels and _G.Channels.send(self.channel, self.text) then
         tdeck.system.log("Sent to " .. self.channel .. ": " .. self.text)
     else
         tdeck.system.log("Failed to send message")
