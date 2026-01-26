@@ -116,7 +116,13 @@ function JoinChannel:render(display)
 
     if is_button_selected then
         display.fill_rect(fw, py, (cols - 2) * fw, fh, colors.SELECTION)
-        display.draw_text(fw, py, ">", colors.CYAN)
+        -- Draw chevron selection indicator
+        local chevron_y = py + math.floor((fh - 9) / 2)
+        if _G.Icons and _G.Icons.draw_chevron_right then
+            _G.Icons.draw_chevron_right(display, fw, chevron_y, colors.CYAN, colors.SELECTION)
+        else
+            display.draw_text(fw, py, ">", colors.CYAN)
+        end
     end
 
     local button_color = is_button_selected and colors.CYAN or colors.GREEN

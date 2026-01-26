@@ -9,6 +9,34 @@ local AppMenu = {
     active = false,
 }
 
+-- Draw 8-bit style left chevron with black background
+local function draw_chevron_left(display, x, y, color)
+    local size = 9
+    display.fill_rect(x, y, size, size, display.colors.BLACK)
+    -- Draw < shape (pointing left)
+    display.fill_rect(x + 5, y + 1, 1, 1, color)
+    display.fill_rect(x + 4, y + 2, 1, 1, color)
+    display.fill_rect(x + 3, y + 3, 1, 1, color)
+    display.fill_rect(x + 2, y + 4, 1, 1, color)
+    display.fill_rect(x + 3, y + 5, 1, 1, color)
+    display.fill_rect(x + 4, y + 6, 1, 1, color)
+    display.fill_rect(x + 5, y + 7, 1, 1, color)
+end
+
+-- Draw 8-bit style right chevron with black background
+local function draw_chevron_right(display, x, y, color)
+    local size = 9
+    display.fill_rect(x, y, size, size, display.colors.BLACK)
+    -- Draw > shape (pointing right)
+    display.fill_rect(x + 3, y + 1, 1, 1, color)
+    display.fill_rect(x + 4, y + 2, 1, 1, color)
+    display.fill_rect(x + 5, y + 3, 1, 1, color)
+    display.fill_rect(x + 6, y + 4, 1, 1, color)
+    display.fill_rect(x + 5, y + 5, 1, 1, color)
+    display.fill_rect(x + 4, y + 6, 1, 1, color)
+    display.fill_rect(x + 3, y + 7, 1, 1, color)
+end
+
 function AppMenu.init()
     -- Register as overlay with high z-order (above status bar)
     if _G.Overlays then
@@ -167,12 +195,13 @@ function AppMenu.render(display)
         end
     end
 
-    -- Scroll indicators
+    -- Scroll indicators (8-bit chevron icons with black background)
+    local chevron_y = y + math.floor((bar_h - 9) / 2)
     if AppMenu.scroll_offset > 0 then
-        display.draw_text(2, y + 4, "<", colors.CYAN)
+        draw_chevron_left(display, 1, chevron_y, colors.CYAN)
     end
     if positions.total_width - AppMenu.scroll_offset > w then
-        display.draw_text(w - 10, y + 4, ">", colors.CYAN)
+        draw_chevron_right(display, w - 10, chevron_y, colors.CYAN)
     end
 end
 

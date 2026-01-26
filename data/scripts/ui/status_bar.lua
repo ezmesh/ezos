@@ -240,14 +240,13 @@ function StatusBar._render_impl(display)
         end
     end
 
-    -- Center the time on the display
-    local time_width = display.text_width(time_str)
-    local time_x = math.floor((display.width - time_width) / 2)
-
-    display.draw_text(time_x, y, time_str, colors.TEXT)
+    -- Center the time on the display using draw_text_centered
+    display.draw_text_centered(y, time_str, colors.TEXT)
 
     -- Unread indicator next to time
     if StatusBar.has_unread then
+        local time_width = display.text_width(time_str)
+        local time_x = math.floor((display.width - time_width) / 2)
         display.draw_text(time_x + time_width + 2, y, "*", colors.YELLOW)
     end
 end

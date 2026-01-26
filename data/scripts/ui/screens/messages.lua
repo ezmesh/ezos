@@ -125,7 +125,13 @@ function Messages:render(display)
                                 (display.cols - 2) * display.font_width,
                                 fh * 2,
                                 colors.SELECTION)
-                display.draw_text(display.font_width, py, ">", colors.CYAN)
+                -- Draw chevron selection indicator (centered in double-height row)
+                local chevron_y = py + math.floor((fh * 2 - 9) / 2)
+                if _G.Icons and _G.Icons.draw_chevron_right then
+                    _G.Icons.draw_chevron_right(display, display.font_width, chevron_y, colors.CYAN, colors.SELECTION)
+                else
+                    display.draw_text(display.font_width, py, ">", colors.CYAN)
+                end
             end
 
             -- Name and time

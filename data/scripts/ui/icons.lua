@@ -84,4 +84,34 @@ function Icons.list()
     return names
 end
 
+-- Draw 8-bit style left chevron (9x9) with black background
+function Icons.draw_chevron_left(display, x, y, color, bg_color)
+    local size = 9
+    bg_color = bg_color or display.colors.BLACK
+    display.fill_rect(x, y, size, size, bg_color)
+    -- Draw < shape (pointing left)
+    display.fill_rect(x + 5, y + 1, 1, 1, color)
+    display.fill_rect(x + 4, y + 2, 1, 1, color)
+    display.fill_rect(x + 3, y + 3, 1, 1, color)
+    display.fill_rect(x + 2, y + 4, 1, 1, color)
+    display.fill_rect(x + 3, y + 5, 1, 1, color)
+    display.fill_rect(x + 4, y + 6, 1, 1, color)
+    display.fill_rect(x + 5, y + 7, 1, 1, color)
+end
+
+-- Draw 8-bit style right chevron (9x9) with black background
+function Icons.draw_chevron_right(display, x, y, color, bg_color)
+    local size = 9
+    bg_color = bg_color or display.colors.BLACK
+    display.fill_rect(x, y, size, size, bg_color)
+    -- Draw > shape (pointing right)
+    display.fill_rect(x + 3, y + 1, 1, 1, color)
+    display.fill_rect(x + 4, y + 2, 1, 1, color)
+    display.fill_rect(x + 5, y + 3, 1, 1, color)
+    display.fill_rect(x + 6, y + 4, 1, 1, color)
+    display.fill_rect(x + 5, y + 5, 1, 1, color)
+    display.fill_rect(x + 4, y + 6, 1, 1, color)
+    display.fill_rect(x + 3, y + 7, 1, 1, color)
+end
+
 return Icons
