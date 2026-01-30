@@ -333,6 +333,33 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
     return img.transpose(Image.FLIP_TOP_BOTTOM)
 
 
+def tile_pixel_to_lat_lon(zoom: int, tile_x: int, tile_y: int, pixel_x: float, pixel_y: float, extent: int = 4096) -> Tuple[float, float]:
+    """
+    Convert tile coordinates + pixel offset to lat/lon.
+
+    Args:
+        zoom: Tile zoom level
+        tile_x, tile_y: Tile coordinates
+        pixel_x, pixel_y: Position within tile (0 to extent-1)
+        extent: Tile extent (default 4096 for MVT)
+
+    Returns:
+        (latitude, longitude) in degrees
+    """
+    n = 2 ** zoom
+    # Convert pixel offset to fraction of tile (0 to 1)
+    frac_x = pixel_x / extent
+    frac_y = pixel_y / extent
+    # Full tile coordinates including fractional part
+    full_x = tile_x + frac_x
+    full_y = tile_y + frac_y
+    # Convert to lon/lat
+    lon = full_x / n * 360.0 - 180.0
+    lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * full_y / n)))
+    lat = math.degrees(lat_rad)
+    return (lat, lon)
+
+
 def extract_labels(tile_data: bytes, zoom: int, tile_x: int, tile_y: int) -> List[dict]:
     """
     Extract text labels from a vector tile.
@@ -344,7 +371,7 @@ def extract_labels(tile_data: bytes, zoom: int, tile_x: int, tile_y: int) -> Lis
         tile_y: Tile Y coordinate
 
     Returns:
-        List of label dicts with keys: zoom_min, zoom_max, pixel_x, pixel_y, label_type, text
+        List of label dicts with keys: zoom_min, zoom_max, lat, lon, label_type, text
     """
     labels = []
 
@@ -360,8 +387,6 @@ def extract_labels(tile_data: bytes, zoom: int, tile_x: int, tile_y: int) -> Lis
         if "extent" in layer:
             extent = layer["extent"]
             break
-
-    scale = TILE_SIZE / extent
 
     # Extract place labels (cities, towns, villages)
     for layer_name in ["place", "place_name", "place_label"]:
@@ -404,24 +429,18 @@ def extract_labels(tile_data: bytes, zoom: int, tile_x: int, tile_y: int) -> Lis
             # Get position (center point for the label)
             coords = geom.get("coordinates", [])
             if geom.get("type") == "Point" and len(coords) >= 2:
-                px = int(coords[0] * scale)
-                py = int(coords[1] * scale)
-                # Clamp to tile bounds
-                px = max(0, min(255, px))
-                py = max(0, min(255, py))
+                # Convert tile pixel to lat/lon
+                lat, lon = tile_pixel_to_lat_lon(zoom, tile_x, tile_y, coords[0], coords[1], extent)
 
                 zoom_min = LABEL_MIN_ZOOM.get(label_type, zoom)
 
                 labels.append({
                     "zoom_min": zoom_min,
                     "zoom_max": zoom_max,
-                    "tile_x": tile_x,
-                    "tile_y": tile_y,
-                    "pixel_x": px,
-                    "pixel_y": py,
+                    "lat": lat,
+                    "lon": lon,
                     "label_type": label_type,
                     "text": name[:50],  # Limit length
-                    "extraction_zoom": zoom,  # Tile coordinate level
                 })
 
     # Extract water labels
@@ -440,35 +459,29 @@ def extract_labels(tile_data: bytes, zoom: int, tile_x: int, tile_y: int) -> Lis
 
             # Get centroid of the geometry
             coords = geom.get("coordinates", [])
+            px, py = None, None
             if geom.get("type") == "Point" and len(coords) >= 2:
-                px = int(coords[0] * scale)
-                py = int(coords[1] * scale)
+                px, py = coords[0], coords[1]
             elif geom.get("type") in ("LineString", "MultiLineString"):
                 # Use midpoint of line
                 if isinstance(coords[0][0], (list, tuple)):
                     coords = coords[0]  # First line of multiline
                 if len(coords) >= 2:
                     mid_idx = len(coords) // 2
-                    px = int(coords[mid_idx][0] * scale)
-                    py = int(coords[mid_idx][1] * scale)
-                else:
-                    continue
-            else:
+                    px, py = coords[mid_idx][0], coords[mid_idx][1]
+
+            if px is None:
                 continue
 
-            px = max(0, min(255, px))
-            py = max(0, min(255, py))
+            lat, lon = tile_pixel_to_lat_lon(zoom, tile_x, tile_y, px, py, extent)
 
             labels.append({
                 "zoom_min": LABEL_MIN_ZOOM[LABEL_TYPE_WATER],
                 "zoom_max": 14,
-                "tile_x": tile_x,
-                "tile_y": tile_y,
-                "pixel_x": px,
-                "pixel_y": py,
+                "lat": lat,
+                "lon": lon,
                 "label_type": LABEL_TYPE_WATER,
                 "text": name[:50],
-                "extraction_zoom": zoom,  # Tile coordinate level
             })
 
     return labels
@@ -626,10 +639,10 @@ class Checkpoint:
         self.path = checkpoint_path
         self.save_interval = save_interval
         self.data: Dict[str, Any] = {
-            "version": 1,
+            "version": 2,  # v2: labels use lat/lon instead of tile coords
             "processed_tiles": [],  # List of "z/x/y" strings
-            "labels": [],  # List of label dicts
-            "seen_label_keys": [],  # List of (text, tile_x, tile_y) for dedup
+            "labels": [],  # List of label dicts with lat/lon
+            "seen_label_keys": [],  # List of (text, lat_e6, lon_e6) for dedup
             "stats": {
                 "processed": 0,
                 "missing": 0,
@@ -689,14 +702,17 @@ class Checkpoint:
         key = f"{z}/{x}/{y}"
         return key in self._processed_set
 
-    def add_label(self, label: dict, label_key: tuple):
-        """Add a label to checkpoint data."""
+    def add_label(self, label: dict):
+        """Add a label to checkpoint data (dedup key is computed from lat/lon)."""
         self.data["labels"].append(label)
-        self.data["seen_label_keys"].append(list(label_key))
+        # Store dedup key as (text, lat_e6, lon_e6)
+        lat_e6 = int(label["lat"] * 1_000_000)
+        lon_e6 = int(label["lon"] * 1_000_000)
+        self.data["seen_label_keys"].append([label["text"], lat_e6, lon_e6])
         self.data["stats"]["labels_extracted"] += 1
 
     def get_seen_labels(self) -> set:
-        """Get set of already-seen label keys."""
+        """Get set of already-seen label keys as (text, lat_e6, lon_e6)."""
         return set(tuple(k) for k in self.data.get("seen_label_keys", []))
 
     def prepare_for_resume(self):
@@ -833,24 +849,31 @@ def convert_pmtiles(
 
         # Initialize stats from checkpoint or fresh
         if resuming:
+            # Check checkpoint version compatibility
+            checkpoint_version = checkpoint.data.get("version", 1)
+            if checkpoint_version < 2:
+                print("Warning: Old checkpoint format (v1). Starting fresh.")
+                resuming = False
+                checkpoint = Checkpoint(checkpoint_path, save_interval=checkpoint_interval)
+                checkpoint.set_config(bounds, effective_zoom_range)
+                checkpoint.prepare_for_resume()
+
+        if resuming:
             processed = checkpoint.data["stats"]["processed"]
             missing = checkpoint.data["stats"]["missing"]
             failed = checkpoint.data["stats"]["failed"]
             labels_extracted = checkpoint.data["stats"]["labels_extracted"]
             seen_labels = checkpoint.get_seen_labels()
 
-            # Re-add labels from checkpoint to writer
+            # Re-add labels from checkpoint to writer (v2 format: lat/lon)
             for label in checkpoint.data.get("labels", []):
                 writer.add_label(
+                    label["lat"],
+                    label["lon"],
                     label["zoom_min"],
                     label["zoom_max"],
-                    label["tile_x"],
-                    label["tile_y"],
-                    label["pixel_x"],
-                    label["pixel_y"],
                     label["label_type"],
                     label["text"],
-                    extraction_zoom=label.get("extraction_zoom")  # May be None for old checkpoints
                 )
 
             print(f"Resumed: {processed:,} tiles already processed, {labels_extracted:,} labels")
@@ -917,26 +940,24 @@ def convert_pmtiles(
                             processed += 1
                             checkpoint.mark_tile_processed(z, x, y)
 
-                            # Process labels
+                            # Process labels (v4 format: lat/lon, dedupe by text+coords)
                             for label in result.get("labels", []):
-                                label_key = (label["text"], label["tile_x"], label["tile_y"])
+                                # Compute dedup key from coordinates
+                                lat_e6 = int(label["lat"] * 1_000_000)
+                                lon_e6 = int(label["lon"] * 1_000_000)
+                                label_key = (label["text"], lat_e6, lon_e6)
                                 if label_key not in seen_labels:
                                     seen_labels.add(label_key)
-                                    # extraction_zoom is the tile's zoom level (where tile_x/tile_y are valid)
-                                    extraction_zoom = label.get("extraction_zoom", z)
                                     writer.add_label(
+                                        label["lat"],
+                                        label["lon"],
                                         label["zoom_min"],
                                         label["zoom_max"],
-                                        label["tile_x"],
-                                        label["tile_y"],
-                                        label["pixel_x"],
-                                        label["pixel_y"],
                                         label["label_type"],
                                         label["text"],
-                                        extraction_zoom=extraction_zoom
                                     )
                                     labels_extracted += 1
-                                    checkpoint.add_label(label, label_key)
+                                    checkpoint.add_label(label)
 
                             # Periodic checkpoint save
                             if checkpoint.should_save():

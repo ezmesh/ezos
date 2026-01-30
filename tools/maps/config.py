@@ -66,7 +66,7 @@ PALETTE_RGB565 = [rgb_to_rgb565(*color) for color in PALETTE_RGB]
 TILE_SIZE = 256
 
 # TDMAP archive format version
-TDMAP_VERSION = 3  # v3 adds per-tile label index for lazy loading
+TDMAP_VERSION = 4  # v4: geographic labels with lat/lon, no tile index, deduped
 
 # Compression type for tile data
 COMPRESSION_RLE = 1

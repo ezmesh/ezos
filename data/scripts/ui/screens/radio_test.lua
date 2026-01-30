@@ -79,7 +79,7 @@ function RadioTest:render(display)
 
     local y = 2 * fh
     local x = 2 * fw
-    local val_x = 16 * fw
+    local val_x = 24 * fw
 
     -- Status
     display.draw_text(x, y, "Status:", colors.TEXT_SECONDARY)
@@ -87,7 +87,7 @@ function RadioTest:render(display)
     display.draw_text(val_x, y, self.status, status_color)
     y = y + fh * 2
 
-    -- RSSI
+    -- RSSIq
     display.draw_text(x, y, "Last RSSI:", colors.TEXT_SECONDARY)
     local rssi_str = string.format("%d dBm", self.last_rssi)
     local rssi_color

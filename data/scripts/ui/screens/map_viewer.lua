@@ -77,7 +77,7 @@ local MapViewer = {
     HEADER_SIZE = 33,  -- 6+1+1+2+1+4+4+4+1+1+4+4 = 33 bytes
     PALETTE_SIZE = 16,
     INDEX_ENTRY_SIZE = 11,
-    LABEL_HEADER_SIZE = 10,  -- Fixed part of label entry (before text)
+    LABEL_SIZE_V4 = 11,  -- Fixed part of v4 label entry (before text_len)
 
     -- Label type constants (match Python config.py)
     LABEL_TYPE_CITY = 0,
@@ -87,17 +87,10 @@ local MapViewer = {
     LABEL_TYPE_ROAD = 4,
     LABEL_TYPE_WATER = 5,
 
-    -- Label index (v3: per-tile index for lazy loading)
-    -- Note: zoom_min in index is actually extraction_zoom (tile coordinate level)
-    -- Each label has its own zoom_min for visibility filtering
-    label_index = nil,  -- Array of { zoom_min (=extraction_zoom), tile_x, tile_y, offset, count }
-    label_index_offset = 0,
-    label_index_count = 0,
-
-    -- Label cache (per-tile, keyed by "zoom/x/y")
-    label_cache = {},
-    label_cache_order = {},
-    MAX_LABEL_CACHE = 24,  -- Larger cache to reduce SD reads
+    -- Labels (v4: flat list with lat/lon, no tile index)
+    labels = nil,  -- Array of { lat, lon, zoom_min, zoom_max, label_type, text }
+    label_data_offset = 0,
+    label_count = 0,
 
     -- Show labels toggle
     show_labels = true,
@@ -152,11 +145,9 @@ function MapViewer:new(archive_path)
         last_center_y = 0,
         pan_dx = 0,
         pan_dy = 0,
-        label_index = nil,
-        label_index_offset = 0,
-        label_index_count = 0,
-        label_cache = {},
-        label_cache_order = {},
+        labels = nil,
+        label_data_offset = 0,
+        label_count = 0,
         show_labels = true,
     }
     setmetatable(o, {__index = MapViewer})
@@ -250,6 +241,12 @@ local function read_i8(data, offset)
     return v
 end
 
+local function read_i32(data, offset)
+    local v = read_u32(data, offset)
+    if v >= 0x80000000 then v = v - 0x100000000 end
+    return v
+end
+
 -- Async archive loading (runs in coroutine)
 function MapViewer:load_archive_async()
     local self_ref = self
@@ -307,17 +304,17 @@ function MapViewer:load_archive_async()
         local min_zoom = read_i8(header, 23)
         local max_zoom = read_i8(header, 24)
 
-        -- v2/v3 fields (labels)
-        local label_index_offset = 0
-        local label_index_count = 0
-        if version >= 2 then
-            label_index_offset = read_u32(header, 25)
-            label_index_count = read_u32(header, 29)
+        -- v4 fields (labels with lat/lon)
+        local label_data_offset = 0
+        local label_count = 0
+        if version >= 4 then
+            label_data_offset = read_u32(header, 25)
+            label_count = read_u32(header, 29)
         end
 
-        if version ~= 1 and version ~= 2 and version ~= 3 then
+        if version ~= 4 then
             if _G.StatusBar then _G.StatusBar.hide_loading() end
-            self_ref.error_msg = "Unsupported map version: " .. version
+            self_ref.error_msg = "Unsupported map version: " .. version .. " (need v4)"
             self_ref.loading = false
             ScreenManager.invalidate()
             return
@@ -341,8 +338,8 @@ function MapViewer:load_archive_async()
             max_zoom = max_zoom,
             palette = palette_array,
             tile_size = tile_size,
-            label_index_offset = label_index_offset,
-            label_index_count = label_index_count,
+            label_data_offset = label_data_offset,
+            label_count = label_count,
         }
 
         print(string.format("[Map] Loaded archive: v%d, %d tiles, zoom %d-%d, index@%d, data@%d, tile_size=%d",
@@ -374,18 +371,15 @@ function MapViewer:load_archive_async()
             self_ref.tile_index = nil
         end
 
-        -- Load label index if present (v3) or all labels (v2)
+        -- Load labels (v4: flat list with lat/lon coords)
         -- Skip label loading if count is too high (Wasmoon/simulator memory limit)
         local max_label_entries = 5000
-        print(string.format("[Map] Label info: version=%d count=%d offset=%d", version, label_index_count, label_index_offset))
-        if label_index_count > 0 and label_index_offset > 0 then
-            if label_index_count > max_label_entries then
-                print(string.format("[Map] Skipping labels: %d entries exceeds limit %d (memory constraint)", label_index_count, max_label_entries))
-            elseif version >= 3 then
-                self_ref:load_label_index_async(label_index_offset, label_index_count)
+        print(string.format("[Map] Label info: version=%d count=%d offset=%d", version, label_count, label_data_offset))
+        if label_count > 0 and label_data_offset > 0 then
+            if label_count > max_label_entries then
+                print(string.format("[Map] Skipping labels: %d entries exceeds limit %d (memory constraint)", label_count, max_label_entries))
             else
-                -- v2: load all labels (legacy, memory-intensive)
-                self_ref:load_labels_v2_async(label_index_offset, label_index_count)
+                self_ref:load_labels_v4_async(label_data_offset, label_count)
             end
         end
 
@@ -406,200 +400,54 @@ function MapViewer:load_archive_async()
     spawn(do_load)
 end
 
--- Load label index from archive asynchronously (v3 format)
--- Only loads the index (small), labels are loaded per-tile on demand
-function MapViewer:load_label_index_async(index_offset, index_count)
-    local self_ref = self
-
-    local function do_load_index()
-        -- Label index entry size: 11 bytes (zoom_min:1 + tile_x:2 + tile_y:2 + offset:4 + count:2)
-        local index_size = index_count * 11
-        local index_data = bytes_to_string(async_read_bytes(self_ref.archive_path, index_offset, index_size))
-        if not index_data then
-            return
-        end
-
-        self_ref.label_index = {}
-        local offset = 0
-
-        for i = 1, index_count do
-            if offset + 11 > #index_data then
-                break
-            end
-
-            local zoom_min = read_u8(index_data, offset)
-            local tile_x = read_u16(index_data, offset + 1)
-            local tile_y = read_u16(index_data, offset + 3)
-            local label_offset = read_u32(index_data, offset + 5)
-            local label_count = read_u16(index_data, offset + 9)
-
-            table.insert(self_ref.label_index, {
-                zoom_min = zoom_min,
-                tile_x = tile_x,
-                tile_y = tile_y,
-                offset = label_offset,
-                count = label_count,
-            })
-
-            offset = offset + 11
-        end
-
-        ScreenManager.invalidate()
-    end
-
-    spawn(do_load_index)
-end
-
--- Load labels for a specific tile (v3 format, lazy loading)
--- Index uses extraction_zoom (tile coordinate level), labels have zoom_min for visibility
-function MapViewer:load_labels_for_tile(extraction_zoom, tile_x, tile_y)
-    if not self.label_index then return nil end
-
-    local key = string.format("%d/%d/%d", extraction_zoom, tile_x, tile_y)
-
-    -- Check cache first
-    if self.label_cache[key] then
-        return self.label_cache[key]
-    end
-
-    -- Binary search for tile in label index (indexed by extraction_zoom)
-    local lo, hi = 1, #self.label_index
-    local target_key = extraction_zoom * 0x100000000 + tile_x * 0x10000 + tile_y
-    local index_entry = nil
-
-    while lo <= hi do
-        local mid = math.floor((lo + hi) / 2)
-        local entry = self.label_index[mid]
-        -- Note: entry.zoom_min is actually extraction_zoom in the new format
-        local entry_key = entry.zoom_min * 0x100000000 + entry.tile_x * 0x10000 + entry.tile_y
-
-        if entry_key == target_key then
-            index_entry = entry
-            break
-        elseif entry_key < target_key then
-            lo = mid + 1
-        else
-            hi = mid - 1
-        end
-    end
-
-    if not index_entry then
-        -- No labels for this tile, cache empty result
-        self.label_cache[key] = {}
-        return {}
-    end
-
-    -- Read labels synchronously (small read, fast)
-    -- New v3 format: pixel_x:1 + pixel_y:1 + zoom_min:1 + zoom_max:1 + label_type:1 + text_len:1 + text
-    local estimated_size = index_entry.count * 25  -- ~25 bytes avg per label
-    local label_data = bytes_to_string(tdeck.storage.read_bytes(self.archive_path, index_entry.offset, estimated_size))
-    if not label_data then
-        return {}
-    end
-
-    local labels = {}
-    local offset = 0
-
-    for i = 1, index_entry.count do
-        if offset + 6 > #label_data then
-            break
-        end
-
-        local pixel_x = read_u8(label_data, offset)
-        local pixel_y = read_u8(label_data, offset + 1)
-        local zoom_min = read_u8(label_data, offset + 2)  -- Visibility threshold
-        local zoom_max = read_u8(label_data, offset + 3)
-        local label_type = read_u8(label_data, offset + 4)
-        local text_len = read_u8(label_data, offset + 5)
-
-        if offset + 6 + text_len > #label_data then
-            break
-        end
-
-        local text = string.sub(label_data, offset + 7, offset + 6 + text_len)
-
-        table.insert(labels, {
-            zoom_min = zoom_min,
-            zoom_max = zoom_max,
-            tile_x = tile_x,
-            tile_y = tile_y,
-            pixel_x = pixel_x,
-            pixel_y = pixel_y,
-            label_type = label_type,
-            text = text,
-            extraction_zoom = extraction_zoom,
-        })
-
-        offset = offset + 6 + text_len
-    end
-
-    -- Add to cache
-    self.label_cache[key] = labels
-    table.insert(self.label_cache_order, key)
-
-    -- Evict oldest if cache full
-    while #self.label_cache_order > self.MAX_LABEL_CACHE do
-        local old_key = table.remove(self.label_cache_order, 1)
-        self.label_cache[old_key] = nil
-    end
-
-    return labels
-end
-
--- Load all labels from archive (v2 legacy format, memory-intensive)
-function MapViewer:load_labels_v2_async(labels_offset, labels_count)
+-- Load all labels from archive asynchronously (v4 format: lat/lon coords)
+function MapViewer:load_labels_v4_async(data_offset, count)
     local self_ref = self
 
     local function do_load_labels()
-        -- Estimate max label data size (rough: 30 bytes avg per label)
-        local estimated_size = labels_count * 30
-        local labels_data = bytes_to_string(async_read_bytes(self_ref.archive_path, labels_offset, estimated_size))
+        -- Estimate max label data size (~23 bytes avg per label)
+        local estimated_size = count * 23
+        local labels_data = bytes_to_string(async_read_bytes(self_ref.archive_path, data_offset, estimated_size))
         if not labels_data then
+            print("[Map] Failed to read label data")
             return
         end
 
-        -- For v2, we store labels in label_cache with a special key
-        self_ref.label_index = {{zoom_min = 0, tile_x = 0, tile_y = 0, count = labels_count}}
-        local all_labels = {}
+        self_ref.labels = {}
         local offset = 0
 
-        for i = 1, labels_count do
-            if offset + 10 > #labels_data then
+        for i = 1, count do
+            -- v4 format: lat_e6:4 + lon_e6:4 + zoom_min:1 + zoom_max:1 + label_type:1 + text_len:1 + text
+            if offset + 12 > #labels_data then
                 break
             end
 
-            local zoom_min = read_u8(labels_data, offset)
-            local zoom_max = read_u8(labels_data, offset + 1)
-            local tile_x = read_u16(labels_data, offset + 2)
-            local tile_y = read_u16(labels_data, offset + 4)
-            local pixel_x = read_u8(labels_data, offset + 6)
-            local pixel_y = read_u8(labels_data, offset + 7)
-            local label_type = read_u8(labels_data, offset + 8)
-            local text_len = read_u8(labels_data, offset + 9)
+            local lat_e6 = read_i32(labels_data, offset)
+            local lon_e6 = read_i32(labels_data, offset + 4)
+            local zoom_min = read_u8(labels_data, offset + 8)
+            local zoom_max = read_u8(labels_data, offset + 9)
+            local label_type = read_u8(labels_data, offset + 10)
+            local text_len = read_u8(labels_data, offset + 11)
 
-            if offset + 10 + text_len > #labels_data then
+            if offset + 12 + text_len > #labels_data then
                 break
             end
 
-            local text = string.sub(labels_data, offset + 11, offset + 10 + text_len)
+            local text = string.sub(labels_data, offset + 13, offset + 12 + text_len)
 
-            table.insert(all_labels, {
+            table.insert(self_ref.labels, {
+                lat = lat_e6 / 1000000,
+                lon = lon_e6 / 1000000,
                 zoom_min = zoom_min,
                 zoom_max = zoom_max,
-                tile_x = tile_x,
-                tile_y = tile_y,
-                pixel_x = pixel_x,
-                pixel_y = pixel_y,
                 label_type = label_type,
                 text = text,
             })
 
-            offset = offset + 10 + text_len
+            offset = offset + 12 + text_len
         end
 
-        -- Store as special "all" cache entry for v2 compatibility
-        self_ref.label_cache["v2_all"] = all_labels
-
+        print(string.format("[Map] Loaded %d labels", #self_ref.labels))
         ScreenManager.invalidate()
     end
 
@@ -607,100 +455,43 @@ function MapViewer:load_labels_v2_async(labels_offset, labels_count)
 end
 
 -- Get labels visible at current zoom and position
--- Optimized to check fewer zoom levels and exit early
+-- v4: Uses geographic coordinates, no tile-based indexing needed
 function MapViewer:get_visible_labels(start_tile_x, start_tile_y, tiles_x, tiles_y)
-    if not self.label_index or not self.show_labels then
+    if not self.labels or not self.show_labels then
         return {}
     end
 
     local visible = {}
     local zoom = self.zoom
 
-    -- v2 legacy: all labels in one cache entry
-    if self.label_cache["v2_all"] then
-        for _, label in ipairs(self.label_cache["v2_all"]) do
-            if zoom >= label.zoom_min and zoom <= label.zoom_max then
-                local zoom_diff = zoom - label.zoom_min
-                local scale = 2 ^ zoom_diff
-                local full_x = (label.tile_x + label.pixel_x / 256) * scale
-                local full_y = (label.tile_y + label.pixel_y / 256) * scale
-                local tile_x = math.floor(full_x)
-                local tile_y = math.floor(full_y)
+    -- Calculate view bounds in lat/lon
+    local end_tile_x = start_tile_x + tiles_x
+    local end_tile_y = start_tile_y + tiles_y
+    local min_lat, max_lon = self:tile_to_lat_lon(end_tile_x, end_tile_y, zoom)
+    local max_lat, min_lon = self:tile_to_lat_lon(start_tile_x, start_tile_y, zoom)
 
-                if tile_x >= start_tile_x and tile_x < start_tile_x + tiles_x and
-                   tile_y >= start_tile_y and tile_y < start_tile_y + tiles_y then
-                    local px = (full_x - tile_x) * 256
-                    local py = (full_y - tile_y) * 256
+    -- Iterate through all labels and filter by bounds + zoom
+    for _, label in ipairs(self.labels) do
+        -- Check zoom visibility
+        if zoom >= label.zoom_min and zoom <= label.zoom_max then
+            -- Check geographic bounds
+            if label.lat >= min_lat and label.lat <= max_lat and
+               label.lon >= min_lon and label.lon <= max_lon then
+                -- Convert lat/lon to tile coordinates for rendering
+                local tile_x, tile_y = self:lat_lon_to_tile(label.lat, label.lon, zoom)
+                local full_tile_x = math.floor(tile_x)
+                local full_tile_y = math.floor(tile_y)
+                local pixel_x = (tile_x - full_tile_x) * 256
+                local pixel_y = (tile_y - full_tile_y) * 256
 
-                    table.insert(visible, {
-                        tile_x = tile_x,
-                        tile_y = tile_y,
-                        pixel_x = px,
-                        pixel_y = py,
-                        label_type = label.label_type,
-                        text = label.text,
-                    })
-                end
-            end
-        end
-        return visible
-    end
-
-    -- v3: load labels per-tile lazily
-    -- Optimization: only check 2-3 most relevant zoom levels instead of all
-    local seen = {}
-    local min_data_zoom = self.archive.min_zoom
-    local max_data_zoom = self.archive.max_zoom
-
-    -- Priority order: current zoom first, then parents (most labels are at current or near zoom)
-    local zoom_levels = {}
-    for z = math.min(max_data_zoom, zoom), min_data_zoom, -1 do
-        table.insert(zoom_levels, z)
-        -- Limit to 4 zoom levels to reduce SD reads
-        if #zoom_levels >= 4 then break end
-    end
-
-    for _, check_zoom in ipairs(zoom_levels) do
-        local zoom_diff = zoom - check_zoom
-        local scale = 2 ^ zoom_diff
-
-        local src_start_x = math.floor(start_tile_x / scale)
-        local src_start_y = math.floor(start_tile_y / scale)
-        local src_end_x = math.floor((start_tile_x + tiles_x - 1) / scale)
-        local src_end_y = math.floor((start_tile_y + tiles_y - 1) / scale)
-
-        for src_x = src_start_x, src_end_x do
-            for src_y = src_start_y, src_end_y do
-                local labels = self:load_labels_for_tile(check_zoom, src_x, src_y)
-                if labels then
-                    for _, label in ipairs(labels) do
-                        if zoom >= label.zoom_min and zoom <= label.zoom_max then
-                            local full_x = (label.tile_x + label.pixel_x / 256) * scale
-                            local full_y = (label.tile_y + label.pixel_y / 256) * scale
-                            local tile_x = math.floor(full_x)
-                            local tile_y = math.floor(full_y)
-
-                            if tile_x >= start_tile_x and tile_x < start_tile_x + tiles_x and
-                               tile_y >= start_tile_y and tile_y < start_tile_y + tiles_y then
-                                local px = (full_x - tile_x) * 256
-                                local py = (full_y - tile_y) * 256
-
-                                local key = label.text
-                                if not seen[key] then
-                                    seen[key] = true
-                                    table.insert(visible, {
-                                        tile_x = tile_x,
-                                        tile_y = tile_y,
-                                        pixel_x = px,
-                                        pixel_y = py,
-                                        label_type = label.label_type,
-                                        text = label.text,
-                                    })
-                                end
-                            end
-                        end
-                    end
-                end
+                table.insert(visible, {
+                    tile_x = full_tile_x,
+                    tile_y = full_tile_y,
+                    pixel_x = pixel_x,
+                    pixel_y = pixel_y,
+                    label_type = label.label_type,
+                    text = label.text,
+                })
             end
         end
     end
@@ -737,8 +528,6 @@ function MapViewer:center_on(lat, lon)
     -- Clear tile cache but keep parent tiles for fallback
     self:prune_cache_for_zoom(self.zoom)
     self.pending_tiles = {}
-    self.label_cache = {}
-    self.label_cache_order = {}
     ScreenManager.invalidate()
 end
 
@@ -956,8 +745,7 @@ function MapViewer:on_leave()
     self.cache_counter = 0
     self.pending_tiles = {}
     self.missing_tiles = {}
-    self.label_cache = {}
-    self.label_cache_order = {}
+    -- Note: labels are kept (small memory footprint, expensive to reload)
     run_gc("collect", "map-cache-clear")
 end
 
@@ -1141,8 +929,8 @@ function MapViewer:render(display)
         end
     end
 
-    -- Draw labels (v3 uses label_index, v2 uses label_cache["v2_all"])
-    if self.show_labels and (self.label_index or self.label_cache["v2_all"]) then
+    -- Draw labels (v4: flat list with lat/lon)
+    if self.show_labels and self.labels then
         self:draw_labels(display, colors, start_tile_x, start_tile_y, tiles_x, tiles_y, pixel_offset_x, pixel_offset_y)
     end
 
@@ -1330,7 +1118,7 @@ function MapViewer:draw_overlay(display, colors)
     display.draw_text(40, 2, coord_text, colors.WHITE)
 
     -- Labels indicator
-    if self.label_index and #self.label_index > 0 then
+    if self.labels and #self.labels > 0 then
         local labels_text = self.show_labels and "L" or "l"
         display.draw_text(w - 20, 2, labels_text, self.show_labels and colors.ACCENT or colors.TEXT_MUTED)
     end
@@ -1468,7 +1256,7 @@ function MapViewer:get_menu_items()
     })
 
     -- Toggle labels (only show if labels are available)
-    if self.label_index and #self.label_index > 0 then
+    if self.labels and #self.labels > 0 then
         table.insert(items, {
             label = self.show_labels and "Hide Labels" or "Show Labels",
             action = function()
