@@ -34,7 +34,10 @@ public:
     // Load and execute a script from string
     bool executeString(const char* script, const char* name = "chunk");
 
-    // Load and execute a script file from LittleFS
+    // Load and execute a script from buffer with explicit size
+    bool executeBuffer(const char* buffer, size_t size, const char* name = "chunk");
+
+    // Load and execute an embedded script by path (e.g., "/scripts/boot.lua")
     bool executeFile(const char* path);
 
     // Call a global Lua function with no arguments
@@ -100,6 +103,7 @@ private:
 
     // Create the tdeck global table
     void createTdeckNamespace();
+
 };
 
 // Convenience macro to get the Lua state

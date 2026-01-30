@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TDMAP Viewer</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            background: #16213e;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        header h1 { font-size: 18px; font-weight: 500; }
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .controls label { font-size: 13px; color: #aaa; }
+        .controls input[type="file"] { font-size: 13px; }
+        .controls button {
+            background: #0f3460;
+            border: none;
+            color: #fff;
+            padding: 6px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .controls button:hover { background: #1a4a7a; }
+        .controls select, .controls input[type="number"] {
+            background: #0f3460;
+            border: 1px solid #2a4a6a;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .info {
+            font-size: 12px;
+            color: #888;
+            margin-left: auto;
+        }
+        #canvas-container {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+            cursor: grab;
+        }
+        #canvas-container:active { cursor: grabbing; }
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+        }
+        .status {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: monospace;
+        }
+        .legend {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+        .legend div { margin: 2px 0; display: flex; align-items: center; gap: 6px; }
+        .legend span.dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        #drop-zone {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 52, 96, 0.9);
+            font-size: 18px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        #drop-zone.active { opacity: 1; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>TDMAP Viewer</h1>
+        <div class="controls">
+            <input type="file" id="file-input" accept=".tdmap">
+            <label>Zoom:</label>
+            <select id="zoom-select"></select>
+            <label>Show Labels:</label>
+            <input type="checkbox" id="show-labels" checked>
+            <button id="center-btn">Center</button>
+        </div>
+        <div class="info" id="info"></div>
+    </header>
+    <div id="canvas-container">
+        <canvas id="canvas"></canvas>
+        <div class="status" id="status">Load a .tdmap file to begin</div>
+        <div class="legend">
+            <div><span class="dot" style="background:#4a4"></span> GPS Location</div>
+            <div><span class="dot" style="background:#44a"></span> Repeater Node</div>
+        </div>
+        <div id="drop-zone">Drop .tdmap file here</div>
+    </div>
+
+    <script>
+    // TDMAP format constants
+    const HEADER_SIZE = 33;
+    const PALETTE_SIZE = 16;
+    const INDEX_ENTRY_SIZE = 11;
+    const LABEL_INDEX_SIZE = 11;
+    const TILE_SIZE = 256;
+
+    // Default 8-color grayscale palette (RGB565)
+    const DEFAULT_PALETTE = [0x0000, 0x2104, 0x4208, 0x630C, 0x8410, 0xA514, 0xC618, 0xFFFF];
+
+    // Label types
+    const LABEL_TYPES = {
+        0: { name: 'City', color: '#fff', font: 'bold 14px sans-serif' },
+        1: { name: 'Town', color: '#eee', font: 'bold 12px sans-serif' },
+        2: { name: 'Village', color: '#ccc', font: '11px sans-serif' },
+        3: { name: 'Suburb', color: '#aaa', font: '10px sans-serif' },
+        4: { name: 'Road', color: '#888', font: '9px sans-serif' },
+        5: { name: 'Water', color: '#6af', font: 'italic 11px sans-serif' },
+    };
+
+    // State
+    let archive = null;
+    let tileCache = new Map();
+    let labelCache = new Map();
+    let viewX = 0, viewY = 0;
+    let currentZoom = 2;
+    let isDragging = false;
+    let lastMouse = { x: 0, y: 0 };
+
+    // DOM elements
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const container = document.getElementById('canvas-container');
+    const fileInput = document.getElementById('file-input');
+    const zoomSelect = document.getElementById('zoom-select');
+    const showLabelsCheck = document.getElementById('show-labels');
+    const statusEl = document.getElementById('status');
+    const infoEl = document.getElementById('info');
+    const dropZone = document.getElementById('drop-zone');
+
+    // RGB565 to CSS color
+    function rgb565ToCSS(color) {
+        const r = ((color >> 11) & 0x1F) << 3;
+        const g = ((color >> 5) & 0x3F) << 2;
+        const b = (color & 0x1F) << 3;
+        return `rgb(${r},${g},${b})`;
+    }
+
+    // Read little-endian values from DataView
+    function readU8(dv, offset) { return dv.getUint8(offset); }
+    function readU16(dv, offset) { return dv.getUint16(offset, true); }
+    function readU32(dv, offset) { return dv.getUint32(offset, true); }
+    function readI8(dv, offset) { return dv.getInt8(offset); }
+
+    // Parse TDMAP header
+    function parseHeader(buffer) {
+        const dv = new DataView(buffer);
+        const magic = String.fromCharCode(...new Uint8Array(buffer, 0, 6));
+        if (magic !== 'TDMAP\0') throw new Error('Invalid TDMAP file');
+
+        return {
+            version: readU8(dv, 6),
+            compression: readU8(dv, 7),
+            tileSize: readU16(dv, 8),
+            paletteCount: readU8(dv, 10),
+            tileCount: readU32(dv, 11),
+            indexOffset: readU32(dv, 15),
+            dataOffset: readU32(dv, 19),
+            minZoom: readI8(dv, 23),
+            maxZoom: readI8(dv, 24),
+            labelIndexOffset: readU32(dv, 25),
+            labelIndexCount: readU32(dv, 29),
+        };
+    }
+
+    // Parse palette (8 RGB565 colors)
+    function parsePalette(buffer, offset) {
+        const dv = new DataView(buffer);
+        const palette = [];
+        for (let i = 0; i < 8; i++) {
+            palette.push(readU16(dv, offset + i * 2));
+        }
+        return palette;
+    }
+
+    // Parse tile index
+    function parseTileIndex(buffer, offset, count) {
+        const dv = new DataView(buffer);
+        const tiles = [];
+        for (let i = 0; i < count; i++) {
+            const entryOffset = offset + i * INDEX_ENTRY_SIZE;
+            tiles.push({
+                zoom: readU8(dv, entryOffset),
+                x: readU16(dv, entryOffset + 1),
+                y: readU16(dv, entryOffset + 3),
+                offset: readU32(dv, entryOffset + 5),
+                size: readU16(dv, entryOffset + 9),
+            });
+        }
+        return tiles;
+    }
+
+    // Parse label index (v3)
+    function parseLabelIndex(buffer, offset, count) {
+        const dv = new DataView(buffer);
+        const labels = [];
+        for (let i = 0; i < count; i++) {
+            const entryOffset = offset + i * LABEL_INDEX_SIZE;
+            labels.push({
+                zoomMin: readU8(dv, entryOffset),
+                tileX: readU16(dv, entryOffset + 1),
+                tileY: readU16(dv, entryOffset + 3),
+                offset: readU32(dv, entryOffset + 5),
+                count: readU16(dv, entryOffset + 9),
+            });
+        }
+        return labels;
+    }
+
+    // RLE decompress tile data (escape byte is 0xFF)
+    function rleDecompress(data, expectedSize) {
+        const result = new Uint8Array(expectedSize);
+        let srcPos = 0, dstPos = 0;
+
+        while (srcPos < data.length && dstPos < expectedSize) {
+            const byte = data[srcPos];
+            if (byte === 0xFF && srcPos + 2 < data.length) {
+                // RLE sequence: [0xFF, count, value]
+                const count = data[srcPos + 1];
+                const value = data[srcPos + 2];
+                for (let i = 0; i < count && dstPos < expectedSize; i++) {
+                    result[dstPos++] = value;
+                }
+                srcPos += 3;
+            } else {
+                result[dstPos++] = byte;
+                srcPos++;
+            }
+        }
+        return result;
+    }
+
+    // Decode 3-bit packed pixels to 8-bit indices
+    function decode3BitPixels(data, width, height) {
+        const pixels = new Uint8Array(width * height);
+        let pixelIdx = 0;
+
+        for (let i = 0; i + 2 < data.length && pixelIdx < pixels.length; i += 3) {
+            const b0 = data[i], b1 = data[i + 1], b2 = data[i + 2];
+            if (pixelIdx < pixels.length) pixels[pixelIdx++] = b0 & 0x07;
+            if (pixelIdx < pixels.length) pixels[pixelIdx++] = (b0 >> 3) & 0x07;
+            if (pixelIdx < pixels.length) pixels[pixelIdx++] = ((b0 >> 6) & 0x03) | ((b1 & 0x01) << 2);
+            if (pixelIdx < pixels.length) pixels[pixelIdx++] = (b1 >> 1) & 0x07;
+            if (pixelIdx < pixels.length) pixels[pixelIdx++] = (b1 >> 4) & 0x07;
+            if (pixelIdx < pixels.length) pixels[pixelIdx++] = ((b1 >> 7) & 0x01) | ((b2 & 0x03) << 1);
+            if (pixelIdx < pixels.length) pixels[pixelIdx++] = (b2 >> 2) & 0x07;
+            if (pixelIdx < pixels.length) pixels[pixelIdx++] = (b2 >> 5) & 0x07;
+        }
+        return pixels;
+    }
+
+    // Render tile to ImageData
+    function renderTile(pixels, palette, width, height) {
+        const imageData = new ImageData(width, height);
+        for (let i = 0; i < pixels.length; i++) {
+            const color = palette[pixels[i] & 0x07];
+            const r = ((color >> 11) & 0x1F) << 3;
+            const g = ((color >> 5) & 0x3F) << 2;
+            const b = (color & 0x1F) << 3;
+            imageData.data[i * 4] = r;
+            imageData.data[i * 4 + 1] = g;
+            imageData.data[i * 4 + 2] = b;
+            imageData.data[i * 4 + 3] = 255;
+        }
+        return imageData;
+    }
+
+    // Load and cache a tile
+    function getTile(zoom, x, y) {
+        const key = `${zoom}/${x}/${y}`;
+        if (tileCache.has(key)) return tileCache.get(key);
+
+        // Binary search for tile in index
+        const tiles = archive.tiles;
+        const targetKey = zoom * 0x100000000 + x * 0x10000 + y;
+        let lo = 0, hi = tiles.length - 1;
+        let tile = null;
+
+        while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            const t = tiles[mid];
+            const tKey = t.zoom * 0x100000000 + t.x * 0x10000 + t.y;
+            if (tKey === targetKey) {
+                tile = t;
+                break;
+            } else if (tKey < targetKey) {
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+
+        if (!tile) {
+            tileCache.set(key, null);
+            return null;
+        }
+
+        // Read and decompress tile data
+        const compressedData = new Uint8Array(archive.buffer, tile.offset, tile.size);
+        const packedSize = Math.ceil(TILE_SIZE * TILE_SIZE * 3 / 8);
+        const decompressed = rleDecompress(compressedData, packedSize);
+        const pixels = decode3BitPixels(decompressed, TILE_SIZE, TILE_SIZE);
+        const imageData = renderTile(pixels, archive.palette, TILE_SIZE, TILE_SIZE);
+
+        // Create offscreen canvas for this tile
+        const tileCanvas = document.createElement('canvas');
+        tileCanvas.width = TILE_SIZE;
+        tileCanvas.height = TILE_SIZE;
+        const tileCtx = tileCanvas.getContext('2d');
+        tileCtx.putImageData(imageData, 0, 0);
+
+        tileCache.set(key, tileCanvas);
+        return tileCanvas;
+    }
+
+    // Load labels for a tile
+    function getLabelsForTile(zoom, tileX, tileY) {
+        const key = `${zoom}/${tileX}/${tileY}`;
+        if (labelCache.has(key)) return labelCache.get(key);
+
+        // Find label index entry for this tile
+        const idx = archive.labelIndex.find(l => l.zoomMin === zoom && l.tileX === tileX && l.tileY === tileY);
+        if (!idx || idx.count === 0) {
+            labelCache.set(key, []);
+            return [];
+        }
+
+        // Read labels
+        const labels = [];
+        const dv = new DataView(archive.buffer);
+        let offset = idx.offset;
+
+        for (let i = 0; i < idx.count; i++) {
+            const pixelX = readU8(dv, offset);
+            const pixelY = readU8(dv, offset + 1);
+            const zoomMax = readU8(dv, offset + 2);
+            const labelType = readU8(dv, offset + 3);
+            const textLen = readU8(dv, offset + 4);
+            const textBytes = new Uint8Array(archive.buffer, offset + 5, textLen);
+            const text = new TextDecoder().decode(textBytes);
+
+            labels.push({ pixelX, pixelY, zoomMax, labelType, text, tileX, tileY, zoomMin: zoom });
+            offset += 5 + textLen;
+        }
+
+        labelCache.set(key, labels);
+        return labels;
+    }
+
+    // Main render function
+    function render() {
+        if (!archive) return;
+
+        const width = canvas.width = container.clientWidth;
+        const height = canvas.height = container.clientHeight;
+
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, width, height);
+
+        const zoom = currentZoom;
+        const maxTile = Math.pow(2, zoom) - 1;
+
+        // Calculate visible tile range
+        const startTileX = Math.floor(viewX / TILE_SIZE);
+        const startTileY = Math.floor(viewY / TILE_SIZE);
+        const tilesX = Math.ceil(width / TILE_SIZE) + 1;
+        const tilesY = Math.ceil(height / TILE_SIZE) + 1;
+        const offsetX = viewX % TILE_SIZE;
+        const offsetY = viewY % TILE_SIZE;
+
+        // Draw tiles
+        let tilesDrawn = 0;
+        for (let ty = 0; ty < tilesY; ty++) {
+            for (let tx = 0; tx < tilesX; tx++) {
+                const tileX = startTileX + tx;
+                const tileY = startTileY + ty;
+                const screenX = tx * TILE_SIZE - offsetX;
+                const screenY = ty * TILE_SIZE - offsetY;
+
+                if (tileX < 0 || tileX > maxTile || tileY < 0 || tileY > maxTile) {
+                    ctx.fillStyle = '#2a2a4e';
+                    ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                    continue;
+                }
+
+                const tileCanvas = getTile(zoom, tileX, tileY);
+                if (tileCanvas) {
+                    ctx.drawImage(tileCanvas, screenX, screenY);
+                    tilesDrawn++;
+                } else {
+                    ctx.fillStyle = '#333';
+                    ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                    ctx.strokeStyle = '#444';
+                    ctx.beginPath();
+                    ctx.moveTo(screenX, screenY);
+                    ctx.lineTo(screenX + TILE_SIZE, screenY + TILE_SIZE);
+                    ctx.moveTo(screenX + TILE_SIZE, screenY);
+                    ctx.lineTo(screenX, screenY + TILE_SIZE);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // Draw labels
+        if (showLabelsCheck.checked && archive.labelIndex.length > 0) {
+            const drawnLabels = [];
+
+            for (let ty = 0; ty < tilesY; ty++) {
+                for (let tx = 0; tx < tilesX; tx++) {
+                    const tileX = startTileX + tx;
+                    const tileY = startTileY + ty;
+
+                    if (tileX < 0 || tileX > maxTile || tileY < 0 || tileY > maxTile) continue;
+
+                    const labels = getLabelsForTile(zoom, tileX, tileY);
+                    for (const label of labels) {
+                        if (zoom > label.zoomMax) continue;
+
+                        const screenX = (tileX - startTileX) * TILE_SIZE + label.pixelX - offsetX;
+                        const screenY = (tileY - startTileY) * TILE_SIZE + label.pixelY - offsetY;
+
+                        if (screenX < -100 || screenX > width + 50 || screenY < 0 || screenY > height) continue;
+
+                        const style = LABEL_TYPES[label.labelType] || LABEL_TYPES[2];
+                        ctx.font = style.font;
+                        const metrics = ctx.measureText(label.text);
+                        const labelWidth = metrics.width;
+                        const labelHeight = 14;
+
+                        // Simple occlusion check
+                        let overlaps = false;
+                        for (const dl of drawnLabels) {
+                            if (!(screenX + labelWidth < dl.x || screenX > dl.x + dl.w ||
+                                  screenY + labelHeight < dl.y || screenY > dl.y + dl.h)) {
+                                overlaps = true;
+                                break;
+                            }
+                        }
+                        if (overlaps) continue;
+
+                        // Draw label with shadow
+                        ctx.fillStyle = '#000';
+                        ctx.fillText(label.text, screenX + 1, screenY + 1);
+                        ctx.fillStyle = style.color;
+                        ctx.fillText(label.text, screenX, screenY);
+
+                        drawnLabels.push({ x: screenX, y: screenY - labelHeight, w: labelWidth, h: labelHeight });
+                    }
+                }
+            }
+        }
+
+        // Update status
+        const centerLat = tileToLat(viewY / TILE_SIZE + height / (2 * TILE_SIZE), zoom);
+        const centerLon = tileToLon(viewX / TILE_SIZE + width / (2 * TILE_SIZE), zoom);
+        statusEl.textContent = `Z${zoom} | ${centerLat.toFixed(4)}, ${centerLon.toFixed(4)} | ${tilesDrawn} tiles`;
+    }
+
+    // Coordinate conversions
+    function tileToLat(y, zoom) {
+        const n = Math.PI - 2 * Math.PI * y / Math.pow(2, zoom);
+        return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+    }
+
+    function tileToLon(x, zoom) {
+        return x / Math.pow(2, zoom) * 360 - 180;
+    }
+
+    function latLonToTile(lat, lon, zoom) {
+        const n = Math.pow(2, zoom);
+        const x = (lon + 180) / 360 * n;
+        const latRad = lat * Math.PI / 180;
+        const y = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+        return { x, y };
+    }
+
+    // Load TDMAP file
+    async function loadFile(file) {
+        statusEl.textContent = 'Loading...';
+        tileCache.clear();
+        labelCache.clear();
+
+        try {
+            const buffer = await file.arrayBuffer();
+            const header = parseHeader(buffer);
+
+            archive = {
+                buffer,
+                header,
+                palette: parsePalette(buffer, HEADER_SIZE),
+                tiles: parseTileIndex(buffer, header.indexOffset, header.tileCount),
+                labelIndex: header.labelIndexCount > 0
+                    ? parseLabelIndex(buffer, header.labelIndexOffset, header.labelIndexCount)
+                    : [],
+            };
+
+            // Update zoom selector
+            zoomSelect.innerHTML = '';
+            for (let z = header.minZoom; z <= header.maxZoom; z++) {
+                const opt = document.createElement('option');
+                opt.value = z;
+                opt.textContent = z;
+                zoomSelect.appendChild(opt);
+            }
+            currentZoom = Math.min(Math.max(currentZoom, header.minZoom), header.maxZoom);
+            zoomSelect.value = currentZoom;
+
+            // Center on middle of tile range
+            const midZoomTiles = archive.tiles.filter(t => t.zoom === currentZoom);
+            if (midZoomTiles.length > 0) {
+                const avgX = midZoomTiles.reduce((s, t) => s + t.x, 0) / midZoomTiles.length;
+                const avgY = midZoomTiles.reduce((s, t) => s + t.y, 0) / midZoomTiles.length;
+                viewX = avgX * TILE_SIZE - canvas.width / 2;
+                viewY = avgY * TILE_SIZE - canvas.height / 2;
+            }
+
+            infoEl.textContent = `v${header.version} | ${header.tileCount} tiles | ${archive.labelIndex.length} label groups | Z${header.minZoom}-${header.maxZoom}`;
+            render();
+        } catch (e) {
+            statusEl.textContent = 'Error: ' + e.message;
+            console.error(e);
+        }
+    }
+
+    // Event handlers
+    fileInput.addEventListener('change', e => {
+        if (e.target.files[0]) loadFile(e.target.files[0]);
+    });
+
+    zoomSelect.addEventListener('change', e => {
+        const newZoom = parseInt(e.target.value);
+        const centerX = viewX + canvas.width / 2;
+        const centerY = viewY + canvas.height / 2;
+        const scale = Math.pow(2, newZoom - currentZoom);
+        viewX = centerX * scale - canvas.width / 2;
+        viewY = centerY * scale - canvas.height / 2;
+        currentZoom = newZoom;
+        render();
+    });
+
+    showLabelsCheck.addEventListener('change', render);
+
+    document.getElementById('center-btn').addEventListener('click', () => {
+        if (!archive) return;
+        const tiles = archive.tiles.filter(t => t.zoom === currentZoom);
+        if (tiles.length > 0) {
+            const avgX = tiles.reduce((s, t) => s + t.x, 0) / tiles.length;
+            const avgY = tiles.reduce((s, t) => s + t.y, 0) / tiles.length;
+            viewX = avgX * TILE_SIZE - canvas.width / 2;
+            viewY = avgY * TILE_SIZE - canvas.height / 2;
+            render();
+        }
+    });
+
+    // Panning
+    container.addEventListener('mousedown', e => {
+        isDragging = true;
+        lastMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener('mousemove', e => {
+        if (!isDragging) return;
+        viewX -= e.clientX - lastMouse.x;
+        viewY -= e.clientY - lastMouse.y;
+        lastMouse = { x: e.clientX, y: e.clientY };
+        render();
+    });
+
+    window.addEventListener('mouseup', () => isDragging = false);
+
+    // Mouse wheel zoom
+    container.addEventListener('wheel', e => {
+        if (!archive) return;
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -1 : 1;
+        const newZoom = Math.max(archive.header.minZoom, Math.min(archive.header.maxZoom, currentZoom + delta));
+        if (newZoom === currentZoom) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const scale = Math.pow(2, newZoom - currentZoom);
+
+        viewX = (viewX + mouseX) * scale - mouseX;
+        viewY = (viewY + mouseY) * scale - mouseY;
+        currentZoom = newZoom;
+        zoomSelect.value = currentZoom;
+        render();
+    });
+
+    // Drag and drop
+    container.addEventListener('dragover', e => {
+        e.preventDefault();
+        dropZone.classList.add('active');
+    });
+
+    container.addEventListener('dragleave', () => {
+        dropZone.classList.remove('active');
+    });
+
+    container.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.classList.remove('active');
+        const file = e.dataTransfer.files[0];
+        if (file && file.name.endsWith('.tdmap')) {
+            loadFile(file);
+        }
+    });
+
+    // Resize
+    window.addEventListener('resize', () => {
+        if (archive) render();
+    });
+
+    // Initial render
+    render();
+    </script>
+</body>
+</html>

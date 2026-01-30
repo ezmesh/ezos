@@ -62,7 +62,29 @@ PALETTE_RGB565 = [rgb_to_rgb565(*color) for color in PALETTE_RGB]
 TILE_SIZE = 256
 
 # TDMAP archive format version
-TDMAP_VERSION = 1
+TDMAP_VERSION = 3  # v3 adds per-tile label index for lazy loading
 
 # Compression type for tile data
 COMPRESSION_RLE = 1
+
+# Label types (rendered with different font sizes in Lua)
+LABEL_TYPE_CITY = 0       # Large cities (population > 100k)
+LABEL_TYPE_TOWN = 1       # Towns (population > 10k)
+LABEL_TYPE_VILLAGE = 2    # Villages and smaller places
+LABEL_TYPE_SUBURB = 3     # Suburbs, neighborhoods
+LABEL_TYPE_ROAD = 4       # Road names
+LABEL_TYPE_WATER = 5      # Water body names
+LABEL_TYPE_PARK = 6       # Parks, forests
+LABEL_TYPE_POI = 7        # Points of interest
+
+# Minimum zoom level for each label type to appear
+LABEL_MIN_ZOOM = {
+    LABEL_TYPE_CITY: 6,
+    LABEL_TYPE_TOWN: 9,
+    LABEL_TYPE_VILLAGE: 11,
+    LABEL_TYPE_SUBURB: 13,
+    LABEL_TYPE_ROAD: 14,
+    LABEL_TYPE_WATER: 10,
+    LABEL_TYPE_PARK: 12,
+    LABEL_TYPE_POI: 14,
+}

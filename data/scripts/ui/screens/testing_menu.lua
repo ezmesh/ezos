@@ -1,20 +1,28 @@
--- Testing Menu Screen for T-Deck OS
+-- Diagnostics Menu Screen for T-Deck OS
 -- Diagnostic tests and demos
 
 local TestingMenu = {
-    title = "Testing",
+    title = "Diagnostics",
     selected = 1,
     items = {
+        {label = "GPS Test", description = "Location & time"},
+        {label = "Radio Test", description = "LoRa module"},
         {label = "Color Range", description = "Display colors"},
         {label = "Bitmap Test", description = "Image display"},
         {label = "Sound Test", description = "Audio output"},
-        {label = "Input Test", description = "Keyboard/trackball"},
+        {label = "Trackball", description = "Draw with trackball"},
         {label = "Key Matrix", description = "Raw keyboard map"},
         {label = "Key Repeat", description = "Test key repeat"},
-        {label = "Radio Test", description = "LoRa module"},
         {label = "System Info", description = "Device stats"}
     }
 }
+
+-- Safe sound helper
+local function play_sound(name)
+    if _G.SoundUtils and _G.SoundUtils[name] then
+        pcall(_G.SoundUtils[name])
+    end
+end
 
 function TestingMenu:new()
     local o = {
@@ -52,21 +60,21 @@ function TestingMenu:render(display)
         local is_selected = (i == self.selected)
 
         if is_selected then
-            display.fill_rect(fw, y, (display.cols - 2) * fw, fh, colors.SELECTION)
+            display.fill_rect(fw, y, (display.cols - 2) * fw, fh, colors.SURFACE_ALT)
             -- Draw chevron selection indicator
             local chevron_y = y + math.floor((fh - 9) / 2)
             if _G.Icons and _G.Icons.draw_chevron_right then
-                _G.Icons.draw_chevron_right(display, fw, chevron_y, colors.CYAN, colors.SELECTION)
+                _G.Icons.draw_chevron_right(display, fw, chevron_y, colors.ACCENT, colors.SURFACE_ALT)
             else
-                display.draw_text(fw, y, ">", colors.CYAN)
+                display.draw_text(fw, y, ">", colors.ACCENT)
             end
         end
 
-        local text_color = is_selected and colors.CYAN or colors.TEXT
+        local text_color = is_selected and colors.ACCENT or colors.TEXT
         display.draw_text(menu_x * fw, y, item.label, text_color)
 
         -- Description
-        local desc_color = is_selected and colors.CYAN or colors.TEXT_DIM
+        local desc_color = is_selected and colors.ACCENT or colors.TEXT_SECONDARY
         display.draw_text((menu_x + 14) * fw, y, item.description, desc_color)
     end
 end
@@ -77,14 +85,17 @@ function TestingMenu:handle_key(key)
         if self.selected < 1 then
             self.selected = #self.items
         end
+        play_sound("navigate")
         ScreenManager.invalidate()
     elseif key.special == "DOWN" then
         self.selected = self.selected + 1
         if self.selected > #self.items then
             self.selected = 1
         end
+        play_sound("navigate")
         ScreenManager.invalidate()
     elseif key.special == "ENTER" then
+        play_sound("click")
         self:activate_selected()
     elseif key.special == "ESCAPE" or key.character == "q" then
         return "pop"
@@ -96,34 +107,30 @@ end
 function TestingMenu:activate_selected()
     local item = self.items[self.selected]
 
-    -- Force garbage collection before loading new screen to free memory
-    collectgarbage("collect")
+    local screens = {
+        ["GPS Test"]    = "/scripts/ui/screens/gps_test.lua",
+        ["Radio Test"]  = "/scripts/ui/screens/radio_test.lua",
+        ["Color Range"] = "/scripts/ui/screens/color_test.lua",
+        ["Bitmap Test"] = "/scripts/ui/screens/test_icon.lua",
+        ["Sound Test"]  = "/scripts/ui/screens/sound_test.lua",
+        ["Trackball"]   = "/scripts/ui/screens/trackball_test.lua",
+        ["Key Matrix"]  = "/scripts/ui/screens/keyboard_matrix.lua",
+        ["Key Repeat"]  = "/scripts/ui/screens/key_repeat_test.lua",
+        ["System Info"] = "/scripts/ui/screens/system_info.lua",
+    }
 
-    if item.label == "Color Range" then
-        local ColorTest = load_module("/scripts/ui/screens/color_test.lua")
-        ScreenManager.push(ColorTest:new())
-    elseif item.label == "Bitmap Test" then
-        local TestIcon = load_module("/scripts/ui/screens/test_icon.lua")
-        ScreenManager.push(TestIcon:new())
-    elseif item.label == "Sound Test" then
-        local SoundTest = load_module("/scripts/ui/screens/sound_test.lua")
-        ScreenManager.push(SoundTest:new())
-    elseif item.label == "Input Test" then
-        local InputTest = load_module("/scripts/ui/screens/input_test.lua")
-        ScreenManager.push(InputTest:new())
-    elseif item.label == "Key Matrix" then
-        local KeyboardMatrix = load_module("/scripts/ui/screens/keyboard_matrix.lua")
-        ScreenManager.push(KeyboardMatrix:new())
-    elseif item.label == "Key Repeat" then
-        local KeyRepeatTest = load_module("/scripts/ui/screens/key_repeat_test.lua")
-        ScreenManager.push(KeyRepeatTest:new())
-    elseif item.label == "Radio Test" then
-        local RadioTest = load_module("/scripts/ui/screens/radio_test.lua")
-        ScreenManager.push(RadioTest:new())
-    elseif item.label == "System Info" then
-        local SystemInfo = load_module("/scripts/ui/screens/system_info.lua")
-        ScreenManager.push(SystemInfo:new())
-    end
+    local path = screens[item.label]
+    if not path then return end
+
+    load_module_async(path, function(Screen, err)
+        if err then
+            tdeck.system.log("[TestingMenu] Load error: " .. err)
+            return
+        end
+        if Screen then
+            ScreenManager.push(Screen:new())
+        end
+    end)
 end
 
 -- Menu items for app menu integration

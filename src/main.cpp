@@ -11,13 +11,11 @@
 #include "hardware/display.h"
 #include "hardware/keyboard.h"
 #include "hardware/radio.h"
+#include "hardware/gps.h"
 #include "mesh/meshcore.h"
 #include "settings.h"
 #include "lua/lua_runtime.h"
 
-// External functions from system_bindings.cpp for Lua main loop
-extern bool hasLuaMainLoop();
-extern void callLuaMainLoop();
 
 // Track initialization status
 bool displayOk = false;
@@ -26,6 +24,7 @@ bool radioOk = false;
 bool meshOk = false;
 bool luaOk = false;
 bool littlefsOk = false;
+bool gpsOk = false;
 
 // Hardware instances - as pointers to control initialization order
 // Declared extern in headers for Lua binding access
@@ -50,7 +49,7 @@ void setup() {
     delay(100);
 
     // Initialize serial for debugging
-    Serial.begin(115200);
+    Serial.begin(921600);
 
     // Wait for USB CDC (up to 3 seconds)
     uint32_t start = millis();
@@ -104,6 +103,15 @@ void setup() {
         Serial.println("Radio OK");
     } else {
         Serial.println("WARNING: Radio init failed");
+    }
+
+    // Initialize GPS (T-Deck Plus with u-blox module)
+    Serial.println("Initializing GPS...");
+    if (GPS::instance().init()) {
+        gpsOk = true;
+        Serial.println("GPS OK");
+    } else {
+        Serial.println("WARNING: GPS init failed");
     }
 
     // Initialize mesh networking (only if radio is OK)
@@ -231,10 +239,11 @@ void setup() {
     }
 
     Serial.println();
-    Serial.printf("Status: Display=%s Keyboard=%s Radio=%s Mesh=%s Lua=%s\n",
+    Serial.printf("Status: Display=%s Keyboard=%s Radio=%s GPS=%s Mesh=%s Lua=%s\n",
                   displayOk ? "OK" : "FAIL",
                   keyboardOk ? "OK" : "FAIL",
                   radioOk ? "OK" : "FAIL",
+                  gpsOk ? "OK" : "FAIL",
                   meshOk ? "OK" : "FAIL",
                   luaOk ? "OK" : "FAIL");
     Serial.println("Initialization complete!");
@@ -242,20 +251,24 @@ void setup() {
 }
 
 void loop() {
-    // Lua main loop handles everything
-    if (hasLuaMainLoop()) {
-        callLuaMainLoop();
-        return;
+    // Update GPS (reads serial data, auto-syncs time on first fix)
+    if (gpsOk) {
+        GPS::instance().update();
     }
 
-    // Fallback: minimal loop if Lua not controlling
-    // Just keep mesh alive and yield
-    if (mesh && meshOk) {
-        mesh->update();
-    }
-
+    // Process async I/O, timers, and GC
     if (luaOk) {
         LuaRuntime::instance().update();
+    }
+
+    // Call Lua main loop (if defined)
+    if (luaOk) {
+        LuaRuntime::instance().callGlobalFunction("main_loop");
+    }
+
+    // Keep mesh alive if Lua isn't doing it
+    if (mesh && meshOk && !luaOk) {
+        mesh->update();
     }
 
     delay(10);

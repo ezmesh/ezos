@@ -1,6 +1,9 @@
 #include "lua_runtime.h"
+#include "async.h"
+#include "embedded_lua_scripts.h"
 #include <esp_heap_caps.h>
 #include <LittleFS.h>
+#include <string>
 
 // Include Lua headers
 extern "C" {
@@ -20,6 +23,8 @@ void registerAudioModule(lua_State* L);
 // Phase 4 modules
 void registerStorageModule(lua_State* L);
 void registerCryptoModule(lua_State* L);
+// GPS module
+#include "bindings/gps_bindings.h"
 
 LuaRuntime& LuaRuntime::instance() {
     static LuaRuntime runtime;
@@ -111,11 +116,17 @@ bool LuaRuntime::init() {
     // Open standard libraries
     luaL_openlibs(_state);
 
+
     // Create the tdeck namespace
     createTdeckNamespace();
 
     // Register all hardware modules
     registerAllModules();
+
+    // Initialize async I/O system (worker task on Core 0)
+    if (!AsyncIO::instance().init(_state)) {
+        Serial.println("[LuaRuntime] Warning: AsyncIO init failed");
+    }
 
     Serial.printf("[LuaRuntime] Initialized, memory: %u bytes\n", _memoryUsed);
     return true;
@@ -136,6 +147,7 @@ void LuaRuntime::createTdeckNamespace() {
     lua_setglobal(_state, "tdeck");
 }
 
+
 void LuaRuntime::registerAllModules() {
     Serial.println("[LuaRuntime] Registering modules...");
 
@@ -152,6 +164,12 @@ void LuaRuntime::registerAllModules() {
     // Phase 4 modules
     registerStorageModule(_state);
     registerCryptoModule(_state);
+
+    // GPS module
+    gps_bindings::registerBindings(_state);
+
+    // Async I/O bindings (async_read, async_write, async_exists)
+    AsyncIO::registerBindings(_state);
 
     Serial.println("[LuaRuntime] Modules registered");
 }
@@ -194,37 +212,51 @@ bool LuaRuntime::executeFile(const char* path) {
         return false;
     }
 
-    // Open file from LittleFS
-    File file = LittleFS.open(path, "r");
-    if (!file) {
-        char err[128];
-        snprintf(err, sizeof(err), "Cannot open file: %s", path);
-        reportError(err);
+    // Try embedded scripts first (no fallback to filesystem for Lua scripts)
+    size_t size = 0;
+    const char* embedded = embedded_lua::get_script(path, &size);
+    if (embedded != nullptr) {
+        // Execute directly from embedded data (no allocation needed)
+        return executeBuffer(embedded, size, path);
+    }
+
+    // Script not found in embedded data
+    char err[128];
+    snprintf(err, sizeof(err), "Script not embedded: %s", path);
+    reportError(err);
+    return false;
+}
+
+bool LuaRuntime::executeBuffer(const char* buffer, size_t size, const char* name) {
+    if (_state == nullptr) {
+        reportError("Lua not initialized");
         return false;
     }
 
-    // Read entire file into buffer
-    size_t size = file.size();
-    char* buffer = static_cast<char*>(heap_caps_malloc(size + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (buffer == nullptr) {
-        buffer = static_cast<char*>(malloc(size + 1));
-    }
+    // Push error handler
+    lua_pushcfunction(_state, errorHandler);
+    int errfunc = lua_gettop(_state);
 
-    if (buffer == nullptr) {
-        file.close();
-        reportError("Out of memory loading script");
+    // Load the script from buffer
+    int status = luaL_loadbuffer(_state, buffer, size, name);
+    if (status != LUA_OK) {
+        const char* err = lua_tostring(_state, -1);
+        reportError(err ? err : "Load error");
+        lua_pop(_state, 2);  // error message and error handler
         return false;
     }
 
-    file.readBytes(buffer, size);
-    buffer[size] = '\0';
-    file.close();
+    // Execute with error handler
+    status = lua_pcall(_state, 0, LUA_MULTRET, errfunc);
+    if (status != LUA_OK) {
+        const char* err = lua_tostring(_state, -1);
+        reportError(err ? err : "Runtime error");
+        lua_pop(_state, 2);  // error message and error handler
+        return false;
+    }
 
-    // Execute the script
-    bool result = executeString(buffer, path);
-    free(buffer);
-
-    return result;
+    lua_remove(_state, errfunc);  // Remove error handler
+    return true;
 }
 
 bool LuaRuntime::callGlobalFunction(const char* name) {
@@ -356,6 +388,9 @@ void LuaRuntime::update() {
 
     // Process pending timers
     processLuaTimers();
+
+    // Process async I/O completions (resumes waiting coroutines)
+    AsyncIO::instance().update();
 
     // Incremental garbage collection step
     lua_gc(_state, LUA_GCSTEP, 10);
