@@ -270,19 +270,31 @@ async function initLua() {
     // async_read - synchronous for preloaded scripts, async for other files
     // In browser simulator, scripts are preloaded so we return from cache immediately
     // For other files, we also return synchronously from localStorage/IndexedDB cache
-    lua.global.set('async_read', (path) => {
-        // For scripts, use synchronous cache lookup
-        if (path.startsWith('/scripts/')) {
-            const content = getScriptSync(path);
-            if (!content) {
-                log(`Script not preloaded: ${path}`, 'error');
+    // IMPORTANT: Must always return a string or null, never undefined
+    const asyncRead = (path) => {
+        log(`async_read called: ${path}`, 'info');
+        try {
+            // For scripts, use synchronous cache lookup
+            if (path.startsWith('/scripts/')) {
+                const content = getScriptSync(path);
+                if (content === null || content === undefined) {
+                    log(`Script not preloaded: ${path}`, 'error');
+                    return null;
+                }
+                log(`async_read returning ${content.length} chars for ${path}`, 'info');
+                return content;
             }
-            return content;
+            // For other files, use storage module's sync read
+            // (In real device this would be async, but browser sim uses localStorage)
+            const result = storage.read(path);
+            log(`async_read (storage) returning for ${path}: ${result !== null ? 'found' : 'null'}`, 'info');
+            return result === undefined ? null : result;
+        } catch (e) {
+            log(`async_read error for ${path}: ${e.message}`, 'error');
+            return null;
         }
-        // For other files, use storage module's sync read
-        // (In real device this would be async, but browser sim uses localStorage)
-        return storage.read(path);
-    });
+    };
+    lua.global.set('async_read', asyncRead);
 
     lua.global.set('async_write', async (path, data) => {
         return await storage.write_file(path, data);

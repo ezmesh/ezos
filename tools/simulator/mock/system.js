@@ -19,6 +19,11 @@ export function createSystemModule(log) {
             return Math.floor((performance.now() - startTime) * 1000);
         },
 
+        // Get uptime in seconds (used by Logger)
+        uptime() {
+            return Math.floor((performance.now() - startTime) / 1000);
+        },
+
         // Delay (no-op in browser - use yield pattern instead)
         delay(ms) {
             // Cannot block in browser, this is a no-op
