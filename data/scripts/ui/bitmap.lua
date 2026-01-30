@@ -75,8 +75,7 @@ function Bitmap.load_with_callback(path, size, callback)
         end
     end
 
-    local co = coroutine.create(do_load)
-    coroutine.resume(co)
+    spawn(do_load)
 end
 
 -- Load bitmap with size from path pattern (e.g., /icons/24x24/actions/go-home.rgb565)

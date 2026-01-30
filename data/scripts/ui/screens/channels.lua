@@ -189,8 +189,9 @@ function Channels:open_channel()
     local ch = self.channels[self.selected]
     if ch.is_joined then
         local ch_name = ch.name
-        load_module_async("/scripts/ui/screens/channel_view.lua", function(ChannelView, err)
-            if ChannelView then
+        spawn(function()
+            local ok, ChannelView = pcall(load_module, "/scripts/ui/screens/channel_view.lua")
+            if ok and ChannelView then
                 ScreenManager.push(ChannelView:new(ch_name))
             end
         end)
@@ -200,8 +201,9 @@ function Channels:open_channel()
 end
 
 function Channels:join_new_channel()
-    load_module_async("/scripts/ui/screens/join_channel.lua", function(JoinChannel, err)
-        if JoinChannel then
+    spawn(function()
+        local ok, JoinChannel = pcall(load_module, "/scripts/ui/screens/join_channel.lua")
+        if ok and JoinChannel then
             ScreenManager.push(JoinChannel:new())
         end
     end)

@@ -1,7 +1,7 @@
 -- Texas Hold'em Poker for T-Deck OS
 -- Single player vs 3 computer opponents
 
-local Cards = dofile("/scripts/ui/cards.lua")
+local Cards = load_module("/scripts/ui/cards.lua")
 
 local Poker = {
     title = "Texas Hold'em",

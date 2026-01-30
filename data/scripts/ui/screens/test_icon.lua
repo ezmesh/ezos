@@ -1,7 +1,7 @@
 -- test_icon.lua - Test screen for bitmap display
 -- Loads and displays a bitmap image centered on screen
 
-local Bitmap = dofile("/scripts/ui/bitmap.lua")
+local Bitmap = load_module("/scripts/ui/bitmap.lua")
 
 local TestIcon = {
     title = "Bitmap Test",

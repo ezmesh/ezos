@@ -275,8 +275,7 @@ function MapViewer:load_archive_async()
     end
 
     -- Start coroutine
-    local co = coroutine.create(do_load)
-    coroutine.resume(co)
+    spawn(do_load)
 end
 
 -- Load label index from archive asynchronously (v3 format)
@@ -320,8 +319,7 @@ function MapViewer:load_label_index_async(index_offset, index_count)
         ScreenManager.invalidate()
     end
 
-    local co = coroutine.create(do_load_index)
-    coroutine.resume(co)
+    spawn(do_load_index)
 end
 
 -- Load labels for a specific tile (v3 format, lazy loading)
@@ -477,8 +475,7 @@ function MapViewer:load_labels_v2_async(labels_offset, labels_count)
         ScreenManager.invalidate()
     end
 
-    local co = coroutine.create(do_load_labels)
-    coroutine.resume(co)
+    spawn(do_load_labels)
 end
 
 -- Get labels visible at current zoom and position
@@ -706,9 +703,9 @@ function MapViewer:start_async_tile_load(key, zoom, x, y)
     end
 
     -- Start coroutine for async search and load
-    local co = coroutine.create(do_search_and_load)
-    local ok, err = coroutine.resume(co)
-    if not ok then
+    local co = spawn(do_search_and_load)
+    if coroutine.status(co) == "dead" then
+        -- Coroutine finished with error, clean up pending state
         self.pending_tiles[key] = nil
     end
 end
@@ -1224,8 +1221,9 @@ function MapViewer:get_menu_items()
     table.insert(items, {
         label = "Nodes",
         action = function()
-            load_module_async("/scripts/ui/screens/map_nodes.lua", function(MapNodes, err)
-                if MapNodes then
+            spawn(function()
+                local ok, MapNodes = pcall(load_module, "/scripts/ui/screens/map_nodes.lua")
+                if ok and MapNodes then
                     ScreenManager.push(MapNodes:new(function(lat, lon)
                         -- Callback when a node with location is selected
                         self_ref:center_on(lat, lon)

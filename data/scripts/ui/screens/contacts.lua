@@ -301,8 +301,9 @@ function Contacts:view_details()
     if #self.contacts == 0 then return end
 
     local contact = self.contacts[self.selected]
-    load_module_async("/scripts/ui/screens/node_details.lua", function(NodeDetails, err)
-        if NodeDetails then
+    spawn(function()
+        local ok, NodeDetails = pcall(load_module, "/scripts/ui/screens/node_details.lua")
+        if ok and NodeDetails then
             ScreenManager.push(NodeDetails:new(contact))
         end
     end)
@@ -322,8 +323,9 @@ function Contacts:send_message()
     local pub_key_hex = contact.pub_key_hex
     local name = contact.name
 
-    load_module_async("/scripts/ui/screens/dm_conversation.lua", function(DMConversation, err)
-        if DMConversation then
+    spawn(function()
+        local ok, DMConversation = pcall(load_module, "/scripts/ui/screens/dm_conversation.lua")
+        if ok and DMConversation then
             ScreenManager.push(DMConversation:new(pub_key_hex, name))
         end
     end)

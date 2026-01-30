@@ -154,7 +154,9 @@ end
 
 function SettingsCategory:on_enter()
     if not _G.Icons then
-        _G.Icons = dofile("/scripts/ui/icons.lua")
+        spawn(function()
+            _G.Icons = load_module("/scripts/ui/icons.lua")
+        end)
     end
     self:load_settings()
 end
@@ -493,20 +495,23 @@ function SettingsCategory:start_editing()
         tdeck.system.log("TODO: Text input for " .. setting.name)
     elseif setting.type == "button" then
         if setting.name == "usb" then
-            load_module_async("/scripts/ui/screens/usb_transfer.lua", function(USBTransfer, err)
-                if USBTransfer then
+            spawn(function()
+                local ok, USBTransfer = pcall(load_module, "/scripts/ui/screens/usb_transfer.lua")
+                if ok and USBTransfer then
                     ScreenManager.push(USBTransfer:new())
                 end
             end)
         elseif setting.name == "menu_hotkey" then
-            load_module_async("/scripts/ui/screens/hotkey_config.lua", function(HotkeyConfig, err)
-                if HotkeyConfig then
+            spawn(function()
+                local ok, HotkeyConfig = pcall(load_module, "/scripts/ui/screens/hotkey_config.lua")
+                if ok and HotkeyConfig then
                     ScreenManager.push(HotkeyConfig:new())
                 end
             end)
         elseif setting.name == "wallpaper_tint" then
-            load_module_async("/scripts/ui/screens/color_picker.lua", function(ColorPicker, err)
-                if not ColorPicker then return end
+            spawn(function()
+                local ok, ColorPicker = pcall(load_module, "/scripts/ui/screens/color_picker.lua")
+                if not ok or not ColorPicker then return end
                 local current_tint = _G.ThemeManager and _G.ThemeManager.get_wallpaper_tint()
                 local picker = ColorPicker:new({
                     title = "Wallpaper Tint",
@@ -526,8 +531,9 @@ function SettingsCategory:start_editing()
                 ScreenManager.push(picker)
             end)
         elseif setting.name == "time_sync" then
-            load_module_async("/scripts/ui/screens/set_clock.lua", function(SetClock, err)
-                if SetClock then
+            spawn(function()
+                local ok, SetClock = pcall(load_module, "/scripts/ui/screens/set_clock.lua")
+                if ok and SetClock then
                     ScreenManager.push(SetClock:new())
                 end
             end)

@@ -62,7 +62,9 @@ function MainMenu:on_enter()
 
     -- Lazy-load Icons module if not already loaded
     if not _G.Icons then
-        _G.Icons = dofile("/scripts/ui/icons.lua")
+        spawn(function()
+            _G.Icons = load_module("/scripts/ui/icons.lua")
+        end)
     end
 
     -- Rebuild items array if it was cleared in on_leave
@@ -330,12 +332,14 @@ function MainMenu:activate_selected()
     local screen_info = screens[label]
     if not screen_info then return end
 
-    -- Load module asynchronously (loading indicator shown automatically)
-    load_module_async(screen_info.path, function(Screen, err)
-        if err then
-            tdeck.system.log("[MainMenu] Load error: " .. err)
+    -- Load module in coroutine (loading indicator shown automatically)
+    spawn(function()
+        local ok, Screen = pcall(load_module, screen_info.path)
+        if not ok then
+            local err = Screen
+            tdeck.system.log("[MainMenu] Load error: " .. tostring(err))
             if _G.MessageBox then
-                _G.MessageBox.show({title = "Load failed", body = err})
+                _G.MessageBox.show({title = "Load failed", body = tostring(err)})
             end
             return
         end

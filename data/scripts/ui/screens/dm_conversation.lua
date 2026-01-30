@@ -1,7 +1,7 @@
 -- Direct Message Conversation Screen for T-Deck OS
 -- Chat bubbles UI with input field
 
-local TextUtils = dofile("/scripts/ui/text_utils.lua")
+local TextUtils = load_module("/scripts/ui/text_utils.lua")
 
 local DMConversation = {
     title = "",
@@ -680,8 +680,9 @@ function DMConversation:get_menu_items()
             end
 
             if node then
-                load_module_async("/scripts/ui/screens/node_details.lua", function(NodeDetails, err)
-                    if NodeDetails then
+                spawn(function()
+                    local ok, NodeDetails = pcall(load_module, "/scripts/ui/screens/node_details.lua")
+                    if ok and NodeDetails then
                         ScreenManager.push(NodeDetails:new(node))
                     end
                 end)

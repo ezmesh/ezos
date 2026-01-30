@@ -1,7 +1,7 @@
 -- Compose Screen for T-Deck OS
 -- Compose a broadcast message
 
-local TextUtils = dofile("/scripts/ui/text_utils.lua")
+local TextUtils = load_module("/scripts/ui/text_utils.lua")
 
 local Compose = {
     title = "Compose",

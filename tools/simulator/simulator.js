@@ -146,6 +146,10 @@ async function preloadScripts() {
         'ui/messagebox.lua',
         'ui/cards.lua',
         'ui/components.lua',
+        'ui/text_utils.lua',
+        'ui/splash.lua',
+        'ui/sound_utils.lua',
+        'services/channels.lua',
         'ui/screens/main_menu.lua',
         'ui/screens/app_menu.lua',
         'ui/screens/settings.lua',
@@ -253,39 +257,31 @@ async function initLua() {
     lua.global.set('audio', audio);
     lua.global.set('gps', gps);
 
-    // Synchronous script loader for Lua dofile (scripts must be preloaded)
+    // Synchronous script loader (scripts must be preloaded)
     lua.global.set('__get_script', (path) => {
         return getScriptSync(path);
     });
-
-    // Set up dofile in Lua that uses our synchronous cache
-    await lua.doString(`
-        function dofile(path)
-            local content = __get_script(path)
-            if not content then
-                error("Script not preloaded: " .. tostring(path))
-            end
-            local chunk, err = load(content, "@" .. path)
-            if not chunk then
-                error("Parse error in " .. path .. ": " .. tostring(err))
-            end
-            return chunk()
-        end
-    `);
 
     // Global print function
     lua.global.set('print', (...args) => {
         log(args.map(a => String(a)).join('\t'), 'log');
     });
 
-    // Async functions for file I/O (simplified for browser)
-    lua.global.set('async_read', async (path) => {
-        // For scripts, use our loader
+    // async_read - synchronous for preloaded scripts, async for other files
+    // In browser simulator, scripts are preloaded so we return from cache immediately
+    // For other files, we also return synchronously from localStorage/IndexedDB cache
+    lua.global.set('async_read', (path) => {
+        // For scripts, use synchronous cache lookup
         if (path.startsWith('/scripts/')) {
-            return await loadScript(path);
+            const content = getScriptSync(path);
+            if (!content) {
+                log(`Script not preloaded: ${path}`, 'error');
+            }
+            return content;
         }
-        // For other files, use storage module
-        return await storage.read_file(path);
+        // For other files, use storage module's sync read
+        // (In real device this would be async, but browser sim uses localStorage)
+        return storage.read(path);
     });
 
     lua.global.set('async_write', async (path, data) => {

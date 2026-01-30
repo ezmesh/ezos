@@ -1,7 +1,7 @@
 -- Error Screen for T-Deck OS
 -- Displays Lua errors with options to retry or restart
 
-local TextUtils = dofile("/scripts/ui/text_utils.lua")
+local TextUtils = load_module("/scripts/ui/text_utils.lua")
 
 local ErrorScreen = {
     title = "Error",

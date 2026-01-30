@@ -1,7 +1,7 @@
 -- Channel View Screen for T-Deck OS
 -- View messages in a channel
 
-local TextUtils = dofile("/scripts/ui/text_utils.lua")
+local TextUtils = load_module("/scripts/ui/text_utils.lua")
 
 local ChannelView = {
     title = "",
@@ -252,8 +252,9 @@ end
 
 function ChannelView:compose()
     local ch_name = self.channel_name
-    load_module_async("/scripts/ui/screens/channel_compose.lua", function(Compose, err)
-        if Compose then
+    spawn(function()
+        local ok, Compose = pcall(load_module, "/scripts/ui/screens/channel_compose.lua")
+        if ok and Compose then
             ScreenManager.push(Compose:new(ch_name))
         end
     end)

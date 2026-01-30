@@ -122,9 +122,10 @@ function TestingMenu:activate_selected()
     local path = screens[item.label]
     if not path then return end
 
-    load_module_async(path, function(Screen, err)
-        if err then
-            tdeck.system.log("[TestingMenu] Load error: " .. err)
+    spawn(function()
+        local ok, Screen = pcall(load_module, path)
+        if not ok then
+            tdeck.system.log("[TestingMenu] Load error: " .. tostring(Screen))
             return
         end
         if Screen then

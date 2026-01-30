@@ -1,7 +1,7 @@
 -- files.lua - Basic file explorer
 -- Browse files, run Lua scripts, edit text files
 
-local TextUtils = dofile("/scripts/ui/text_utils.lua")
+local TextUtils = load_module("/scripts/ui/text_utils.lua")
 
 local Files = {
     title = "Files",
@@ -155,8 +155,9 @@ function Files:open_entry()
 
         if self:is_text_file(entry.name) then
             -- Open in editor
-            load_module_async("/scripts/ui/screens/file_edit.lua", function(FileEdit, err)
-                if FileEdit then
+            spawn(function()
+                local ok, FileEdit = pcall(load_module, "/scripts/ui/screens/file_edit.lua")
+                if ok and FileEdit then
                     ScreenManager.push(FileEdit:new(path))
                 end
             end)
@@ -297,8 +298,9 @@ function Files:new_file()
     end
     new_path = new_path .. "new.lua"
 
-    load_module_async("/scripts/ui/screens/file_edit.lua", function(FileEdit, err)
-        if FileEdit then
+    spawn(function()
+        local ok, FileEdit = pcall(load_module, "/scripts/ui/screens/file_edit.lua")
+        if ok and FileEdit then
             ScreenManager.push(FileEdit:new(new_path))
         end
     end)
@@ -329,8 +331,9 @@ function Files:get_menu_items()
                 label = "Edit",
                 action = function()
                     local path = self_ref:get_full_path(entry)
-                    load_module_async("/scripts/ui/screens/file_edit.lua", function(FileEdit, err)
-                        if FileEdit then
+                    spawn(function()
+                        local ok, FileEdit = pcall(load_module, "/scripts/ui/screens/file_edit.lua")
+                        if ok and FileEdit then
                             ScreenManager.push(FileEdit:new(path))
                         end
                     end)
@@ -516,8 +519,9 @@ function Files:handle_key(key)
             local entry = self.entries[self.selected]
             if not entry.is_dir then
                 local path = self:get_full_path(entry)
-                load_module_async("/scripts/ui/screens/file_edit.lua", function(FileEdit, err)
-                    if FileEdit then
+                spawn(function()
+                    local ok, FileEdit = pcall(load_module, "/scripts/ui/screens/file_edit.lua")
+                    if ok and FileEdit then
                         ScreenManager.push(FileEdit:new(path))
                     end
                 end)
@@ -530,8 +534,9 @@ function Files:handle_key(key)
             new_path = new_path .. "/"
         end
         new_path = new_path .. "new.lua"
-        load_module_async("/scripts/ui/screens/file_edit.lua", function(FileEdit, err)
-            if FileEdit then
+        spawn(function()
+            local ok, FileEdit = pcall(load_module, "/scripts/ui/screens/file_edit.lua")
+            if ok and FileEdit then
                 ScreenManager.push(FileEdit:new(new_path))
             end
         end)

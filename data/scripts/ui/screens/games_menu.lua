@@ -47,7 +47,9 @@ end
 function GamesMenu:on_enter()
     -- Lazy-load Icons module if not already loaded
     if not _G.Icons then
-        _G.Icons = dofile("/scripts/ui/icons.lua")
+        spawn(function()
+            _G.Icons = load_module("/scripts/ui/icons.lua")
+        end)
     end
 end
 
@@ -194,9 +196,10 @@ function GamesMenu:launch_game()
     local path = games[item.label]
     if not path then return end
 
-    load_module_async(path, function(Game, err)
-        if err then
-            tdeck.system.log("[GamesMenu] Load error: " .. err)
+    spawn(function()
+        local ok, Game = pcall(load_module, path)
+        if not ok then
+            tdeck.system.log("[GamesMenu] Load error: " .. tostring(Game))
             return
         end
         if Game then

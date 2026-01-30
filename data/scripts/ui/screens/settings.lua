@@ -54,7 +54,9 @@ end
 function Settings:on_enter()
     -- Lazy-load Icons module if not already loaded
     if not _G.Icons then
-        _G.Icons = dofile("/scripts/ui/icons.lua")
+        spawn(function()
+            _G.Icons = load_module("/scripts/ui/icons.lua")
+        end)
     end
 end
 
@@ -201,9 +203,10 @@ function Settings:open_category()
     local cat_key = category.key
     local cat_label = category.label
 
-    load_module_async("/scripts/ui/screens/settings_category.lua", function(SettingsCategory, err)
-        if err then
-            tdeck.system.log("[Settings] Load error: " .. err)
+    spawn(function()
+        local ok, SettingsCategory = pcall(load_module, "/scripts/ui/screens/settings_category.lua")
+        if not ok then
+            tdeck.system.log("[Settings] Load error: " .. tostring(SettingsCategory))
             return
         end
         if SettingsCategory then
@@ -219,8 +222,9 @@ function Settings:get_menu_items()
     table.insert(items, {
         label = "USB Transfer",
         action = function()
-            load_module_async("/scripts/ui/screens/usb_transfer.lua", function(USBTransfer, err)
-                if USBTransfer then
+            spawn(function()
+                local ok, USBTransfer = pcall(load_module, "/scripts/ui/screens/usb_transfer.lua")
+                if ok and USBTransfer then
                     ScreenManager.push(USBTransfer:new())
                 end
             end)
@@ -230,8 +234,9 @@ function Settings:get_menu_items()
     table.insert(items, {
         label = "System Log",
         action = function()
-            load_module_async("/scripts/ui/screens/log_viewer.lua", function(LogViewer, err)
-                if LogViewer then
+            spawn(function()
+                local ok, LogViewer = pcall(load_module, "/scripts/ui/screens/log_viewer.lua")
+                if ok and LogViewer then
                     ScreenManager.push(LogViewer:new())
                 end
             end)

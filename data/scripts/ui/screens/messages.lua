@@ -252,8 +252,9 @@ function Messages:open_conversation()
     local pub_key_hex = conv.pub_key_hex
     local name = conv.name
 
-    load_module_async("/scripts/ui/screens/dm_conversation.lua", function(DMConversation, err)
-        if DMConversation then
+    spawn(function()
+        local ok, DMConversation = pcall(load_module, "/scripts/ui/screens/dm_conversation.lua")
+        if ok and DMConversation then
             ScreenManager.push(DMConversation:new(pub_key_hex, name))
         end
     end)
@@ -261,8 +262,9 @@ end
 
 function Messages:compose_new()
     -- Open contacts screen to select who to message
-    load_module_async("/scripts/ui/screens/contacts.lua", function(ContactsScreen, err)
-        if ContactsScreen then
+    spawn(function()
+        local ok, ContactsScreen = pcall(load_module, "/scripts/ui/screens/contacts.lua")
+        if ok and ContactsScreen then
             ScreenManager.push(ContactsScreen:new())
             if _G.MessageBox then
                 _G.MessageBox.show({title = "Select a contact", subtitle = "Press M to message"})
