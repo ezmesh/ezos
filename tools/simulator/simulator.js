@@ -116,6 +116,97 @@ async function loadScript(path) {
     }
 }
 
+// Get script from cache synchronously (for Lua dofile)
+function getScriptSync(path) {
+    let normalizedPath = path;
+    if (path.startsWith('/scripts/')) {
+        normalizedPath = path.substring(9);
+    }
+    return scriptCache.get(normalizedPath) || null;
+}
+
+// Preload all required scripts before boot
+async function preloadScripts() {
+    const scripts = [
+        'boot.lua',
+        'services/scheduler.lua',
+        'services/screen_manager.lua',
+        'services/main_loop.lua',
+        'services/theme.lua',
+        'services/logger.lua',
+        'services/contacts.lua',
+        'services/direct_messages.lua',
+        'services/status_services.lua',
+        'services/screen_timeout.lua',
+        'ui/overlays.lua',
+        'ui/status_bar.lua',
+        'ui/title_bar.lua',
+        'ui/icons.lua',
+        'ui/bitmap.lua',
+        'ui/messagebox.lua',
+        'ui/cards.lua',
+        'ui/components.lua',
+        'ui/screens/main_menu.lua',
+        'ui/screens/app_menu.lua',
+        'ui/screens/settings.lua',
+        'ui/screens/settings_category.lua',
+        'ui/screens/error_screen.lua',
+        'ui/screens/nodes.lua',
+        'ui/screens/node_info.lua',
+        'ui/screens/node_details.lua',
+        'ui/screens/messages.lua',
+        'ui/screens/channels.lua',
+        'ui/screens/channel_view.lua',
+        'ui/screens/channel_compose.lua',
+        'ui/screens/join_channel.lua',
+        'ui/screens/compose.lua',
+        'ui/screens/conversation_view.lua',
+        'ui/screens/dm_conversation.lua',
+        'ui/screens/contacts.lua',
+        'ui/screens/files.lua',
+        'ui/screens/file_edit.lua',
+        'ui/screens/system_info.lua',
+        'ui/screens/games_menu.lua',
+        'ui/screens/snake.lua',
+        'ui/screens/tetris.lua',
+        'ui/screens/breakout.lua',
+        'ui/screens/poker.lua',
+        'ui/screens/map_viewer.lua',
+        'ui/screens/map_nodes.lua',
+        'ui/screens/radio_test.lua',
+        'ui/screens/input_test.lua',
+        'ui/screens/sound_test.lua',
+        'ui/screens/color_test.lua',
+        'ui/screens/color_picker.lua',
+        'ui/screens/keyboard_matrix.lua',
+        'ui/screens/key_repeat_test.lua',
+        'ui/screens/trackball_test.lua',
+        'ui/screens/hotkey_config.lua',
+        'ui/screens/log_viewer.lua',
+        'ui/screens/usb_transfer.lua',
+        'ui/screens/storage.lua',
+        'ui/screens/set_clock.lua',
+        'ui/screens/packets.lua',
+        'ui/screens/test_icon.lua',
+    ];
+
+    log(`Preloading ${scripts.length} scripts...`, 'info');
+
+    let loaded = 0;
+    let failed = 0;
+
+    for (const script of scripts) {
+        const content = await loadScript(script);
+        if (content) {
+            loaded++;
+        } else {
+            failed++;
+        }
+    }
+
+    log(`Preloaded ${loaded} scripts (${failed} failed)`, 'info');
+}
+
 // Initialize Lua environment
 async function initLua() {
     setStatus('Loading Wasmoon...', 'loading');
@@ -162,20 +253,17 @@ async function initLua() {
     lua.global.set('audio', audio);
     lua.global.set('gps', gps);
 
-    // Custom dofile that loads from our virtual filesystem
-    // This is critical - it must return the module's return value
-    lua.global.set('__load_script', async (path) => {
-        const content = await loadScript(path);
-        return content;
+    // Synchronous script loader for Lua dofile (scripts must be preloaded)
+    lua.global.set('__get_script', (path) => {
+        return getScriptSync(path);
     });
 
-    // Set up dofile in Lua that uses our loader
+    // Set up dofile in Lua that uses our synchronous cache
     await lua.doString(`
-        local original_dofile = dofile
         function dofile(path)
-            local content = __load_script(path)
+            local content = __get_script(path)
             if not content then
-                error("Failed to load file: " .. tostring(path))
+                error("Script not preloaded: " .. tostring(path))
             end
             local chunk, err = load(content, "@" .. path)
             if not chunk then
@@ -251,14 +339,18 @@ async function initLua() {
 
 // Load and run boot.lua
 async function boot() {
-    setStatus('Loading boot.lua...', 'loading');
+    setStatus('Preloading scripts...', 'loading');
 
     try {
-        const bootScript = await loadScript('boot.lua');
+        // Preload all scripts first so dofile works synchronously
+        await preloadScripts();
+
+        const bootScript = getScriptSync('boot.lua');
         if (!bootScript) {
             throw new Error('Failed to load boot.lua');
         }
 
+        setStatus('Executing boot.lua...', 'loading');
         log('Executing boot.lua...', 'info');
         await lua.doString(bootScript);
 
