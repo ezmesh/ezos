@@ -11,19 +11,21 @@ local MainMenu = {
     ROW_HEIGHT = 46,
     ICON_SIZE = 24,
 
+    -- Shortcut key is optional: if set, that key jumps directly to and activates the item
+    -- If not set, first-letter matching is used for navigation only
     items = {
         {label = "Messages",  description = "View conversations", icon_path = "messages",  unread = 0, enabled = true},
-        {label = "Channels",  description = "Group messaging",    icon_path = "channels",  unread = 0, enabled = true},
-        {label = "Contacts",  description = "Saved contacts",      icon_path = "contacts",  unread = 0, enabled = true},
-        {label = "Nodes",     description = "All heard nodes",    icon_path = "contacts",  unread = 0, enabled = true},
-        {label = "Node Info", description = "Device status",      icon_path = "info",      unread = 0, enabled = true},
-        {label = "Map",       description = "Offline maps",       icon_path = "map",       unread = 0, enabled = true},
-        {label = "Packets",   description = "Live packet view",   icon_path = "packets",   unread = 0, enabled = true},
-        {label = "Settings",  description = "Configuration",      icon_path = "settings",  unread = 0, enabled = true},
-        {label = "Storage",   description = "Disk space info",    icon_path = "files",     unread = 0, enabled = true},
-        {label = "Files",     description = "File browser",       icon_path = "files",     unread = 0, enabled = false},
-        {label = "Diagnostics", description = "Testing tools",     icon_path = "testing",   unread = 0, enabled = true},
-        {label = "Games",     description = "Play games",         icon_path = "games",     unread = 0, enabled = true}
+        {label = "Channels",  description = "Group messaging",    icon_path = "channels",  unread = 0, enabled = true, shortcut = "C"},
+        {label = "Contacts",  description = "Saved contacts",      icon_path = "contacts",  unread = 0, enabled = true, shortcut = "T"},
+        {label = "Nodes",     description = "All heard nodes",    icon_path = "contacts",  unread = 0, enabled = true, shortcut = "N"},
+        {label = "Node Info", description = "Device status",      icon_path = "info",      unread = 0, enabled = true, shortcut = "I"},
+        {label = "Map",       description = "Offline maps",       icon_path = "map",       unread = 0, enabled = true, shortcut = "M"},
+        {label = "Packets",   description = "Live packet view",   icon_path = "packets",   unread = 0, enabled = true, shortcut = "P"},
+        {label = "Settings",  description = "Configuration",      icon_path = "settings",  unread = 0, enabled = true, shortcut = ","},
+        {label = "Storage",   description = "Disk space info",    icon_path = "files",     unread = 0, enabled = true, shortcut = "O"},
+        {label = "Files",     description = "File browser",       icon_path = "files",     unread = 0, enabled = false, shortcut = "F"},
+        {label = "Diagnostics", description = "Testing tools",     icon_path = "testing",   unread = 0, enabled = true, shortcut = "D"},
+        {label = "Games",     description = "Play games",         icon_path = "games",     unread = 0, enabled = true, shortcut = "G"}
     }
 }
 
@@ -40,7 +42,8 @@ function MainMenu:new()
             description = item.description,
             icon_path = item.icon_path,
             unread = item.unread,
-            enabled = item.enabled
+            enabled = item.enabled,
+            shortcut = item.shortcut
         }
     end
     setmetatable(o, {__index = MainMenu})
@@ -75,7 +78,8 @@ function MainMenu:on_enter()
                 description = item.description,
                 icon_path = item.icon_path,
                 unread = item.unread,
-                enabled = item.enabled
+                enabled = item.enabled,
+                shortcut = item.shortcut
             }
         end
     end
@@ -293,6 +297,20 @@ function MainMenu:handle_key(key)
 
     elseif key.character then
         local c = string.upper(key.character)
+
+        -- First check for explicit shortcuts (activates the item directly)
+        for i, item in ipairs(self.items) do
+            if item.shortcut and string.upper(item.shortcut) == c and item.enabled then
+                self.selected = i
+                self:adjust_scroll()
+                play_sound("click")
+                ScreenManager.invalidate()
+                self:activate_selected()
+                return "continue"
+            end
+        end
+
+        -- Fallback: first-letter navigation (just selects, doesn't activate)
         for i, item in ipairs(self.items) do
             if string.upper(string.sub(item.label, 1, 1)) == c then
                 self.selected = i

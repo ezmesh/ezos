@@ -84,6 +84,17 @@ export function createSystemModule(log) {
             return Math.floor(Date.now() / 1000);
         },
 
+        // Get Unix time (same as get_timestamp, used by contacts.lua)
+        get_time_unix() {
+            return Math.floor(Date.now() / 1000);
+        },
+
+        // Set Unix time (no-op in browser)
+        set_time_unix(timestamp) {
+            console.log(`[System] Time would be set to: ${new Date(timestamp * 1000).toISOString()}`);
+            return true;
+        },
+
         // Log message
         log(msg) {
             if (log) {
@@ -195,6 +206,107 @@ export function createSystemModule(log) {
 
         get_backlight() {
             return 255;
+        },
+
+        // Set timezone (POSIX string)
+        set_timezone(posix) {
+            console.log(`[System] Timezone set to: ${posix}`);
+            return true;
+        },
+
+        // Get timezone
+        get_timezone() {
+            return 'UTC0';
+        },
+
+        // Chip model (API uses chip_model, not get_chip_info)
+        chip_model() {
+            return 'ESP32-S3 (Simulated)';
+        },
+
+        // CPU frequency (API uses cpu_freq, not get_cpu_freq)
+        cpu_freq() {
+            return 240; // MHz
+        },
+
+        // Get total heap memory
+        get_total_heap() {
+            return 320000; // ~320KB mock value
+        },
+
+        // Get total PSRAM
+        get_total_psram() {
+            return 8 * 1024 * 1024; // 8MB
+        },
+
+        // Get Lua memory usage
+        get_lua_memory() {
+            return 50000; // 50KB mock value
+        },
+
+        // Check if low on memory
+        is_low_memory() {
+            return false;
+        },
+
+        // Force garbage collection (no-op in browser)
+        gc() {
+            // Wasmoon handles GC automatically
+        },
+
+        // Incremental garbage collection
+        gc_step(steps = 10) {
+            return 0;
+        },
+
+        // Check if SD card is available
+        is_sd_available() {
+            return true; // Simulate SD card available
+        },
+
+        // USB MSC mode (not supported in browser)
+        is_usb_msc_active() {
+            return false;
+        },
+
+        start_usb_msc() {
+            console.log('[System] USB MSC not supported in simulator');
+            return false;
+        },
+
+        stop_usb_msc() {
+            // No-op
+        },
+
+        // Get last error
+        get_last_error() {
+            return null;
+        },
+
+        // Reload scripts
+        reload_scripts() {
+            location.reload();
+            return true;
+        },
+
+        // Get firmware info
+        get_firmware_info() {
+            return {
+                partition_size: 4 * 1024 * 1024,
+                app_size: 2 * 1024 * 1024,
+                free_bytes: 2 * 1024 * 1024,
+            };
+        },
+
+        // Get battery voltage
+        get_battery_voltage() {
+            return 4.2; // Full charge voltage
+        },
+
+        // Set time (full parameters)
+        set_time(year, month, day, hour, minute, second) {
+            console.log(`[System] Time would be set to: ${year}-${month}-${day} ${hour}:${minute}:${second}`);
+            return true;
         },
     };
 

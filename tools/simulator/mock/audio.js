@@ -7,6 +7,10 @@ export function createAudioModule() {
     let audioCtx = null;
     let volume = 0.5;
     let enabled = true;
+    let currentOscillator = null;
+    let currentGain = null;
+    let currentFrequency = 440;
+    let isPlaying = false;
 
     // Lazily create audio context (must be after user interaction)
     function getAudioContext() {
@@ -82,14 +86,27 @@ export function createAudioModule() {
             setTimeout(() => module.play_tone(660, 100), 240);
         },
 
-        // Set volume (0.0 - 1.0)
+        // Set volume (0-100 from Lua, convert to 0.0-1.0)
         set_volume(vol) {
+            // Lua passes 0-100, convert to 0.0-1.0
+            if (vol > 1) {
+                vol = vol / 100;
+            }
             volume = Math.max(0, Math.min(1, vol));
         },
 
-        // Get volume
+        // Get volume (return 0-100 for Lua)
         get_volume() {
-            return volume;
+            return Math.round(volume * 100);
+        },
+
+        // Play PCM sample by name (mock - falls back to beep)
+        play_sample(name) {
+            if (!enabled) return false;
+            console.log(`[Audio] Would play sample: ${name}`);
+            // In browser, just play a short beep as placeholder
+            module.play_tone(800, 50);
+            return true;
         },
 
         // Enable/disable audio
@@ -113,6 +130,57 @@ export function createAudioModule() {
                 }
                 delay += note.duration + 20; // Small gap between notes
             }
+        },
+
+        // Check if audio is currently playing
+        is_playing() {
+            return isPlaying;
+        },
+
+        // Set frequency for continuous tone
+        set_frequency(freq) {
+            currentFrequency = freq;
+            if (currentOscillator) {
+                currentOscillator.frequency.value = freq;
+            }
+            return true;
+        },
+
+        // Start continuous tone at current frequency
+        start() {
+            if (!enabled || isPlaying) return;
+
+            try {
+                const ctx = getAudioContext();
+                currentOscillator = ctx.createOscillator();
+                currentGain = ctx.createGain();
+
+                currentOscillator.connect(currentGain);
+                currentGain.connect(ctx.destination);
+
+                currentOscillator.type = 'square';
+                currentOscillator.frequency.value = currentFrequency;
+                currentGain.gain.value = volume * 0.3;
+
+                currentOscillator.start();
+                isPlaying = true;
+            } catch (e) {
+                console.warn('[Audio] Failed to start continuous tone:', e);
+            }
+        },
+
+        // Stop continuous tone
+        stop() {
+            if (currentOscillator) {
+                try {
+                    currentOscillator.stop();
+                } catch (e) {
+                    // Ignore if already stopped
+                }
+                currentOscillator = null;
+                currentGain = null;
+            }
+            isPlaying = false;
         },
     };
 

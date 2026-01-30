@@ -31,6 +31,7 @@ import time
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple, Dict, Any
 
+import numpy as np
 from PIL import Image, ImageDraw
 
 # PMTiles reading
@@ -47,43 +48,44 @@ from config import (
     LABEL_TYPE_ROAD, LABEL_TYPE_WATER, LABEL_TYPE_PARK, LABEL_TYPE_POI,
     LABEL_MIN_ZOOM
 )
-from process import floyd_steinberg_dither, pack_3bit_pixels, rle_compress
+from process import pack_3bit_pixels, rle_compress
 from archive import TDMAPWriter, verify_archive
 
 
-# Rendering style configuration - grayscale values (0=black, 255=white)
-STYLE = {
-    # Background
-    "background": 255,
+# Feature indices for semantic tile encoding (3-bit, 0-7)
+# Tiles store "what is here", renderer decides colors
+class F:
+    """Feature indices - what each pixel represents"""
+    LAND = 0        # Background/land
+    WATER = 1       # Water bodies (lakes, sea)
+    PARK = 2        # Parks, forests, grass
+    BUILDING = 3    # Buildings
+    ROAD_MINOR = 4  # Residential, service, paths
+    ROAD_MAJOR = 5  # Primary, secondary, tertiary
+    ROAD_HIGHWAY = 6  # Motorway, trunk
+    RAILWAY = 7     # Railways, waterways (lines)
 
-    # Water features
-    "water": 230,
-    "waterway": 200,
-
-    # Land use
-    "landuse_park": 240,
-    "landuse_residential": 250,
-    "landuse_commercial": 245,
-    "landuse_industrial": 240,
-
-    # Buildings
-    "building": 200,
-
-    # Roads (grayscale, thinner = lighter)
-    "road_motorway": (40, 3),       # (color, width)
-    "road_trunk": (50, 2.5),
-    "road_primary": (60, 2),
-    "road_secondary": (80, 1.5),
-    "road_tertiary": (100, 1),
-    "road_residential": (120, 0.8),
-    "road_service": (140, 0.5),
-    "road_path": (160, 0.3),
-
-    # Railways
-    "railway": (80, 1),
-
-    # Boundaries
-    "boundary_admin": (100, 0.5),
+# Road rendering: (feature_index, line_width)
+ROAD_STYLE = {
+    "motorway": (F.ROAD_HIGHWAY, 3),
+    "motorway_link": (F.ROAD_HIGHWAY, 2),
+    "trunk": (F.ROAD_HIGHWAY, 2.5),
+    "trunk_link": (F.ROAD_HIGHWAY, 2),
+    "primary": (F.ROAD_MAJOR, 2),
+    "primary_link": (F.ROAD_MAJOR, 1.5),
+    "secondary": (F.ROAD_MAJOR, 1.5),
+    "secondary_link": (F.ROAD_MAJOR, 1),
+    "tertiary": (F.ROAD_MAJOR, 1),
+    "tertiary_link": (F.ROAD_MAJOR, 0.8),
+    "residential": (F.ROAD_MINOR, 0.8),
+    "living_street": (F.ROAD_MINOR, 0.8),
+    "unclassified": (F.ROAD_MINOR, 0.8),
+    "service": (F.ROAD_MINOR, 0.5),
+    "track": (F.ROAD_MINOR, 0.3),
+    "path": (F.ROAD_MINOR, 0.3),
+    "footway": (F.ROAD_MINOR, 0.3),
+    "cycleway": (F.ROAD_MINOR, 0.3),
+    "pedestrian": (F.ROAD_MINOR, 0.5),
 }
 
 
@@ -160,45 +162,27 @@ def get_road_style(props: dict) -> Optional[Tuple[int, float]]:
     """Get road rendering style based on properties."""
     # Try different property names used by various tilemaker configs
     road_class = props.get("class") or props.get("highway") or props.get("type", "")
-
-    style_map = {
-        "motorway": STYLE["road_motorway"],
-        "motorway_link": STYLE["road_motorway"],
-        "trunk": STYLE["road_trunk"],
-        "trunk_link": STYLE["road_trunk"],
-        "primary": STYLE["road_primary"],
-        "primary_link": STYLE["road_primary"],
-        "secondary": STYLE["road_secondary"],
-        "secondary_link": STYLE["road_secondary"],
-        "tertiary": STYLE["road_tertiary"],
-        "tertiary_link": STYLE["road_tertiary"],
-        "residential": STYLE["road_residential"],
-        "living_street": STYLE["road_residential"],
-        "unclassified": STYLE["road_residential"],
-        "service": STYLE["road_service"],
-        "track": STYLE["road_path"],
-        "path": STYLE["road_path"],
-        "footway": STYLE["road_path"],
-        "cycleway": STYLE["road_path"],
-        "pedestrian": STYLE["road_path"],
-    }
-
-    return style_map.get(road_class)
+    return ROAD_STYLE.get(road_class)
 
 
 def render_vector_tile(tile_data: bytes, zoom: int) -> Image.Image:
     """
-    Render a vector tile to a grayscale PIL Image.
+    Render a vector tile to an indexed PIL Image.
+
+    Each pixel value is a feature index (0-7) representing what's at that location.
+    The renderer maps indices to actual colors.
 
     Args:
         tile_data: Raw MVT data (possibly gzipped)
         zoom: Zoom level (affects rendering detail)
 
     Returns:
-        Grayscale PIL Image (256x256)
+        Indexed PIL Image (256x256) with values 0-7
     """
-    # Create white background
-    img = Image.new("L", (TILE_SIZE, TILE_SIZE), STYLE["background"])
+    # Create image with water/ocean as background
+    # Many vector tile formats (OpenMapTiles, Protomaps) don't include ocean polygons.
+    # Instead they provide land polygons and expect the renderer to use ocean as background.
+    img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
     draw = ImageDraw.Draw(img)
 
     # Decompress if needed
@@ -218,16 +202,25 @@ def render_vector_tile(tile_data: bytes, zoom: int) -> Image.Image:
 
     # Render layers in order (back to front)
 
-    # 1. Water polygons
+    # 1. Land/earth polygons (draw land over the ocean background)
+    for layer_name in ["land", "earth", "landcover"]:
+        layer = get_layer(decoded, layer_name)
+        if layer:
+            for feature in layer.get("features", []):
+                geom = feature.get("geometry", {})
+                if geom.get("type") in ("Polygon", "MultiPolygon"):
+                    render_polygon(draw, geom, extent, F.LAND)
+
+    # 2. Water polygons (lakes, rivers - these cut through land)
     for layer_name in ["water", "waterway", "ocean"]:
         layer = get_layer(decoded, layer_name)
         if layer:
             for feature in layer.get("features", []):
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, STYLE["water"])
+                    render_polygon(draw, geom, extent, F.WATER)
 
-    # 2. Land use
+    # 2. Land use (parks/forests)
     layer = get_layer(decoded, "landuse")
     if layer:
         for feature in layer.get("features", []):
@@ -235,35 +228,27 @@ def render_vector_tile(tile_data: bytes, zoom: int) -> Image.Image:
             geom = feature.get("geometry", {})
             landuse_class = props.get("class") or props.get("landuse", "")
 
-            color = STYLE["background"]
-            if landuse_class in ("park", "grass", "forest", "wood"):
-                color = STYLE["landuse_park"]
-            elif landuse_class in ("residential",):
-                color = STYLE["landuse_residential"]
-            elif landuse_class in ("commercial", "retail"):
-                color = STYLE["landuse_commercial"]
-            elif landuse_class in ("industrial",):
-                color = STYLE["landuse_industrial"]
-
-            if geom.get("type") in ("Polygon", "MultiPolygon"):
-                render_polygon(draw, geom, extent, color)
+            # Only render parks/forests as distinct feature, rest stays as land
+            if landuse_class in ("park", "grass", "forest", "wood", "meadow", "nature_reserve"):
+                if geom.get("type") in ("Polygon", "MultiPolygon"):
+                    render_polygon(draw, geom, extent, F.PARK)
 
     # 3. Buildings (only at higher zoom levels)
-    if zoom >= 14:
+    if zoom >= 13:
         layer = get_layer(decoded, "building")
         if layer:
             for feature in layer.get("features", []):
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, STYLE["building"])
+                    render_polygon(draw, geom, extent, F.BUILDING)
 
-    # 4. Waterways (lines)
+    # 4. Waterways (lines) - use RAILWAY index since it's for linear features
     layer = get_layer(decoded, "waterway")
     if layer:
         for feature in layer.get("features", []):
             geom = feature.get("geometry", {})
             if geom.get("type") in ("LineString", "MultiLineString"):
-                render_line(draw, geom, extent, STYLE["waterway"], 1)
+                render_line(draw, geom, extent, F.WATER, 1)
 
     # 5. Railways
     layer = get_layer(decoded, "transportation")
@@ -273,10 +258,9 @@ def render_vector_tile(tile_data: bytes, zoom: int) -> Image.Image:
             if props.get("class") == "rail":
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("LineString", "MultiLineString"):
-                    color, width = STYLE["railway"]
-                    render_line(draw, geom, extent, color, width)
+                    render_line(draw, geom, extent, F.RAILWAY, 1)
 
-    # 6. Roads (render by class, smaller roads first)
+    # 6. Roads (render by class, smaller roads first so bigger roads draw on top)
     layer = get_layer(decoded, "transportation")
     if layer:
         # Sort features by road importance (render less important first)
@@ -302,19 +286,10 @@ def render_vector_tile(tile_data: bytes, zoom: int) -> Image.Image:
 
             style = get_road_style(props)
             if style and geom.get("type") in ("LineString", "MultiLineString"):
-                color, width = style
+                feature_idx, width = style
                 # Scale width by zoom level
                 scaled_width = width * (zoom / 14.0)
-                render_line(draw, geom, extent, color, scaled_width)
-
-    # 7. Boundaries
-    layer = get_layer(decoded, "boundary")
-    if layer:
-        for feature in layer.get("features", []):
-            geom = feature.get("geometry", {})
-            if geom.get("type") in ("LineString", "MultiLineString"):
-                color, width = STYLE["boundary_admin"]
-                render_line(draw, geom, extent, color, width)
+                render_line(draw, geom, extent, feature_idx, scaled_width)
 
     # MVT coordinates use Y-up (geographic) convention within tiles,
     # but PIL uses Y-down (screen) convention, so flip vertically
@@ -574,23 +549,29 @@ def _process_tile_worker(args: Tuple[int, int, int]) -> Optional[Dict[str, Any]]
 
 def process_tile_image(img: Image.Image) -> bytes:
     """
-    Process a grayscale image through the TDMAP pipeline.
+    Process an indexed image through the TDMAP pipeline.
 
-    1. Floyd-Steinberg dithering to 8-color palette
-    2. Pack to 3 bits per pixel
-    3. RLE compress
+    Pixels are already feature indices (0-7), so no dithering needed.
+    1. Pack to 3 bits per pixel
+    2. RLE compress
     """
     # Ensure correct size and mode
     if img.size != (TILE_SIZE, TILE_SIZE):
-        img = img.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
+        img = img.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.NEAREST)
     if img.mode != "L":
         img = img.convert("L")
 
-    # Dither to 8-color palette
-    indices = floyd_steinberg_dither(img)
+    # Get pixel data as array
+    indices = np.array(img, dtype=np.uint8)
+
+    # Clamp to valid range 0-7 (in case of any artifacts)
+    indices = np.clip(indices, 0, 7)
+
+    # Convert to flat list for pack_3bit_pixels
+    indices_list = indices.flatten().tolist()
 
     # Pack to 3 bits per pixel
-    packed = pack_3bit_pixels(indices)
+    packed = pack_3bit_pixels(indices_list)
 
     # RLE compress
     compressed = rle_compress(packed)

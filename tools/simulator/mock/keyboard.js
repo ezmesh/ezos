@@ -51,10 +51,8 @@ export function createKeyboardModule(canvas, onKeyCallback) {
             e.preventDefault();
         }
 
-        // Build key object
+        // Build key object - use undefined instead of null (Wasmoon converts null to js_null)
         const keyObj = {
-            character: null,
-            special: null,
             shift: e.shiftKey,
             ctrl: e.ctrlKey,
             alt: e.altKey,
@@ -64,9 +62,11 @@ export function createKeyboardModule(canvas, onKeyCallback) {
         // Check if it's a special key
         if (specialKeyMap[e.key]) {
             keyObj.special = specialKeyMap[e.key];
+            // Don't set character at all (will be nil in Lua)
         } else if (e.key.length === 1) {
             // Regular character
             keyObj.character = e.key;
+            // Don't set special at all (will be nil in Lua)
         } else {
             // Unknown key, ignore
             return;
@@ -108,17 +108,34 @@ export function createKeyboardModule(canvas, onKeyCallback) {
         // Read next key from queue (non-blocking)
         read() {
             if (keyQueue.length === 0) {
-                return null;
+                return undefined; // undefined becomes nil in Lua
             }
-            return keyQueue.shift();
+            const key = keyQueue.shift();
+            // Ensure missing properties are undefined, not null (Wasmoon handles undefined better)
+            return {
+                character: key.character, // undefined if not set
+                special: key.special,     // undefined if not set
+                shift: key.shift,
+                ctrl: key.ctrl,
+                alt: key.alt,
+                valid: key.valid,
+            };
         },
 
         // Peek at next key without removing
         peek() {
             if (keyQueue.length === 0) {
-                return null;
+                return undefined; // undefined becomes nil in Lua
             }
-            return keyQueue[0];
+            const key = keyQueue[0];
+            return {
+                character: key.character,
+                special: key.special,
+                shift: key.shift,
+                ctrl: key.ctrl,
+                alt: key.alt,
+                valid: key.valid,
+            };
         },
 
         // Clear key queue
@@ -151,14 +168,40 @@ export function createKeyboardModule(canvas, onKeyCallback) {
             return keyQueue.length;
         },
 
-        // Inject a key programmatically (for testing)
+        // Inject a key programmatically (for virtual keyboard)
         inject(key) {
             keyQueue.push(key);
+            if (onKeyCallback) {
+                onKeyCallback(key);
+            }
+        },
+
+        // Inject a key by string (convenience method for virtual keyboard)
+        injectKey(keyStr, modifiers = {}) {
+            const keyObj = {
+                shift: modifiers.shift || false,
+                ctrl: modifiers.ctrl || false,
+                alt: modifiers.alt || false,
+                valid: true,
+            };
+
+            // Check if it's a special key
+            if (specialKeyMap[keyStr]) {
+                keyObj.special = specialKeyMap[keyStr];
+            } else if (keyStr.length === 1) {
+                keyObj.character = keyStr;
+            } else {
+                return; // Unknown key
+            }
+
+            keyQueue.push(keyObj);
+            if (onKeyCallback) {
+                onKeyCallback(keyObj);
+            }
         },
 
         // Set keyboard mode (normal, raw, etc.)
         set_mode(mode) {
-            console.log(`[Keyboard] Mode set to: ${mode}`);
             return true;
         },
 
@@ -194,6 +237,33 @@ export function createKeyboardModule(canvas, onKeyCallback) {
 
         get_backlight() {
             return 255;
+        },
+
+        // Trackball sensitivity
+        set_trackball_sensitivity(level) {
+            console.log(`[Keyboard] Trackball sensitivity set to: ${level}`);
+            return true;
+        },
+
+        get_trackball_sensitivity() {
+            return 1;
+        },
+
+        // Trackball mode (polling or interrupt)
+        set_trackball_mode(mode) {
+            console.log(`[Keyboard] Trackball mode set to: ${mode}`);
+            return true;
+        },
+
+        get_trackball_mode() {
+            return 'polling';
+        },
+
+        // Read raw keyboard matrix (7 rows x 7 cols = 49 bits = 7 bytes)
+        // Returns a table of 7 bytes representing the matrix state (one per column)
+        read_raw_matrix() {
+            // Return empty matrix (no keys pressed) - 7 bytes of zeros as table
+            return [0, 0, 0, 0, 0, 0, 0];
         },
     };
 

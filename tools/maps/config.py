@@ -33,17 +33,21 @@ REGIONS = {
     },
 }
 
-# 8-color grayscale palette optimized for monochrome map display
-# These are designed for Floyd-Steinberg dithering to produce readable maps
+# Semantic feature indices stored in tiles (0-7)
+# Tiles encode "what is here", renderer maps to colors
+# Index:  0=Land, 1=Water, 2=Park, 3=Building, 4=RoadMinor, 5=RoadMajor, 6=Highway, 7=Railway
+
+# Default RGB palette for TDMAP file header (light theme)
+# Renderers can override this with their own palettes
 PALETTE_RGB = [
-    (0, 0, 0),        # 0: Pure black - roads, text, borders
-    (40, 40, 40),     # 1: Near black - secondary roads
-    (80, 80, 80),     # 2: Dark gray - tertiary features
-    (120, 120, 120),  # 3: Medium dark - parks, water outlines
-    (160, 160, 160),  # 4: Medium gray - building fill
-    (200, 200, 200),  # 5: Light gray - land areas
-    (230, 230, 230),  # 6: Near white - water areas
-    (255, 255, 255),  # 7: Pure white - background
+    (255, 255, 255),  # 0: Land - white
+    (160, 208, 240),  # 1: Water - light blue
+    (200, 230, 200),  # 2: Park - light green
+    (208, 208, 208),  # 3: Building - light gray
+    (136, 136, 136),  # 4: Road minor - medium gray
+    (96, 96, 96),     # 5: Road major - dark gray
+    (64, 64, 64),     # 6: Highway - darker gray
+    (48, 48, 48),     # 7: Railway - near black
 ]
 
 

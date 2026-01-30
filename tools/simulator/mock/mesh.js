@@ -58,6 +58,11 @@ export function createMeshModule() {
             return initialized;
         },
 
+        // Update mesh (called periodically from main loop)
+        update() {
+            // No-op in simulator - would process radio packets on real device
+        },
+
         // Get this node's ID
         get_node_id() {
             return 'SIMULATOR01234567890ABCDEF12345678';
@@ -195,6 +200,24 @@ export function createMeshModule() {
             return true;
         },
 
+        // Register group packet callback
+        on_group_packet(callback) {
+            console.log('[Mesh] Group packet callback registered');
+            return true;
+        },
+
+        // Send group packet
+        send_group_packet(hash, data) {
+            console.log(`[Mesh] Sending group packet to hash ${hash}, ${data ? data.length : 0} bytes`);
+            return true;
+        },
+
+        // Register node discovered callback
+        on_node_discovered(callback) {
+            console.log('[Mesh] Node discovered callback registered');
+            return true;
+        },
+
         // Get our public key
         get_public_key() {
             return 'simulator_public_key_0123456789abcdef';
@@ -208,6 +231,83 @@ export function createMeshModule() {
         // Verify signature
         verify(data, signature, pubKey) {
             return true; // Always verify in simulator
+        },
+
+        // Set path check (skip packets where our hash is in path)
+        set_path_check(enabled) {
+            console.log(`[Mesh] Path check ${enabled ? 'enabled' : 'disabled'}`);
+            return true;
+        },
+
+        // Get path check state
+        get_path_check() {
+            return true;
+        },
+
+        // Register packet callback
+        on_packet(callback) {
+            console.log('[Mesh] Packet callback registered');
+            return true;
+        },
+
+        // Get our path hash
+        get_path_hash() {
+            return 0x42; // Mock hash
+        },
+
+        // Ed25519 sign (mock)
+        ed25519_sign(data) {
+            // Return mock 64-byte signature
+            return 'x'.repeat(64);
+        },
+
+        // Ed25519 verify (mock - always returns true in simulator)
+        ed25519_verify(data, signature, pubKey) {
+            return true;
+        },
+
+        // Calculate shared secret (X25519) - mock returns deterministic bytes
+        calc_shared_secret(pubKey) {
+            // Return 32 mock bytes based on pubKey for consistency
+            let result = '';
+            for (let i = 0; i < 32; i++) {
+                const byte = (pubKey.charCodeAt(i % pubKey.length) + i) & 0xFF;
+                result += String.fromCharCode(byte);
+            }
+            return result;
+        },
+
+        // Get public key as hex string
+        get_public_key_hex() {
+            return '0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF';
+        },
+
+        // Build a packet (mock)
+        build_packet(routeType, payloadType, payload, path) {
+            // Build header byte: route_type(2) | payload_type(4) | version(2)
+            const header = (routeType & 0x03) | ((payloadType & 0x0F) << 2);
+            // Return header + path + payload as binary string
+            return String.fromCharCode(header) + (path || '') + (payload || '');
+        },
+
+        // Queue packet for sending (mock - just logs)
+        queue_send(packetData) {
+            console.log(`[Mesh] Would send ${packetData ? packetData.length : 0} byte packet`);
+            return true;
+        },
+
+        // Remove a file (for storage)
+        remove(path) {
+            console.log(`[Storage] Would remove: ${path}`);
+            return true;
+        },
+
+        // Role constants (matching MeshCore protocol)
+        ROLE: {
+            CHAT: 1,        // Chat client
+            REPEATER: 2,    // Repeater/infrastructure
+            ROUTER: 3,      // Router
+            GATEWAY: 4,     // Gateway
         },
     };
 

@@ -5,11 +5,11 @@
 ## Table of Contents
 
 - [tdeck.audio](#audio)
+- [tdeck.crypto](#crypto)
 - [tdeck.display](#display)
 - [tdeck.keyboard](#keyboard)
 - [tdeck.mesh](#mesh)
 - [tdeck.radio](#radio)
-- [tdeck.screen](#screen)
 - [tdeck.storage](#storage)
 - [tdeck.system](#system)
 
@@ -31,6 +31,16 @@ Play a series of beeps (blocking)
 - `on_ms`: Beep duration in ms (default 100)
 - `off_ms`: Pause between beeps in ms (default 50)
 
+#### get_volume
+
+```lua
+tdeck.audio.get_volume() -> integer
+```
+
+Get current volume level
+
+**Returns:** Volume level 0-100
+
 #### is_playing
 
 ```lua
@@ -40,6 +50,19 @@ tdeck.audio.is_playing() -> boolean
 Check if audio is playing
 
 **Returns:** true if playing
+
+#### play_sample
+
+```lua
+tdeck.audio.play_sample(filename) -> boolean
+```
+
+Play a PCM sample file from LittleFS
+
+**Parameters:**
+- `filename`: Path to .pcm file (16-bit signed, 22050Hz mono)
+
+**Returns:** true if played successfully
 
 #### play_tone
 
@@ -68,6 +91,17 @@ Set playback frequency for continuous tones
 
 **Returns:** true if valid frequency
 
+#### set_volume
+
+```lua
+tdeck.audio.set_volume(level)
+```
+
+Set audio volume level
+
+**Parameters:**
+- `level`: Volume level 0-100
+
 #### start
 
 ```lua
@@ -83,6 +117,179 @@ tdeck.audio.stop()
 ```
 
 Stop audio playback
+
+## crypto
+
+### tdeck.crypto
+
+#### aes128_ecb_decrypt
+
+```lua
+tdeck.crypto.aes128_ecb_decrypt(key, ciphertext) -> string
+```
+
+Decrypt data with AES-128-ECB
+
+**Parameters:**
+- `key`: 16-byte key
+- `ciphertext`: Data to decrypt (must be multiple of 16 bytes)
+
+**Returns:** Decrypted data as binary string (with padding zeros)
+
+#### aes128_ecb_encrypt
+
+```lua
+tdeck.crypto.aes128_ecb_encrypt(key, plaintext) -> string
+```
+
+Encrypt data with AES-128-ECB
+
+**Parameters:**
+- `key`: 16-byte key
+- `plaintext`: Data to encrypt (will be zero-padded to block boundary)
+
+**Returns:** Encrypted data as binary string
+
+#### base64_decode
+
+```lua
+tdeck.crypto.base64_decode(encoded) -> string
+```
+
+Decode base64 string to binary data
+
+**Parameters:**
+- `encoded`: Base64 encoded string
+
+**Returns:** Binary string, or nil on error
+
+#### base64_encode
+
+```lua
+tdeck.crypto.base64_encode(data) -> string
+```
+
+Encode binary data to base64 string
+
+**Parameters:**
+- `data`: Binary string to encode
+
+**Returns:** Base64 encoded string
+
+#### bytes_to_hex
+
+```lua
+tdeck.crypto.bytes_to_hex(data) -> string
+```
+
+Convert binary data to hex string
+
+**Parameters:**
+- `data`: Binary string
+
+**Returns:** Hex string (lowercase)
+
+#### channel_hash
+
+```lua
+tdeck.crypto.channel_hash(key) -> integer
+```
+
+Compute channel hash from key (SHA256(key)[0])
+
+**Parameters:**
+- `key`: 16-byte channel key
+
+**Returns:** Single byte hash as integer (0-255)
+
+#### derive_channel_key
+
+```lua
+tdeck.crypto.derive_channel_key(input) -> string
+```
+
+Derive 16-byte channel key from password/name using SHA256
+
+**Parameters:**
+- `input`: Password or channel name string
+
+**Returns:** 16-byte key as binary string
+
+#### hex_to_bytes
+
+```lua
+tdeck.crypto.hex_to_bytes(hex) -> string
+```
+
+Convert hex string to binary data
+
+**Parameters:**
+- `hex`: Hex string (case-insensitive)
+
+**Returns:** Binary string, or nil on error
+
+#### hmac_sha256
+
+```lua
+tdeck.crypto.hmac_sha256(key, data) -> string
+```
+
+Compute HMAC-SHA256
+
+**Parameters:**
+- `key`: Binary string key
+- `data`: Binary string to authenticate
+
+**Returns:** 32-byte MAC as binary string
+
+#### public_channel_key
+
+```lua
+tdeck.crypto.public_channel_key() -> string
+```
+
+Get the well-known #Public channel key
+
+**Returns:** 16-byte key as binary string
+
+#### random_bytes
+
+```lua
+tdeck.crypto.random_bytes(count) -> string
+```
+
+Generate cryptographically secure random bytes
+
+**Parameters:**
+- `count`: Number of bytes to generate
+
+**Returns:** Random bytes as binary string
+
+#### sha256
+
+```lua
+tdeck.crypto.sha256(data) -> string
+```
+
+Compute SHA-256 hash
+
+**Parameters:**
+- `data`: Binary string to hash
+
+**Returns:** 32-byte hash as binary string
+
+#### sha512
+
+```lua
+tdeck.crypto.sha512(data) -> string
+```
+
+Compute SHA-512 hash
+
+**Parameters:**
+- `data`: Binary string to hash
+
+**Returns:** 64-byte hash as binary string
 
 ## display
 
@@ -123,6 +330,23 @@ Draw a bitmap image from raw RGB565 data
 - `width`: Bitmap width in pixels
 - `height`: Bitmap height in pixels
 - `data`: Raw RGB565 pixel data (2 bytes per pixel, big-endian)
+
+#### draw_bitmap_1bit
+
+```lua
+tdeck.display.draw_bitmap_1bit(x, y, width, height, data, scale, color)
+```
+
+Draw a 1-bit bitmap with scaling and colorization
+
+**Parameters:**
+- `x`: X position
+- `y`: Y position
+- `width`: Bitmap width in pixels (original size)
+- `height`: Bitmap height in pixels (original size)
+- `data`: Packed 1-bit data (MSB first, row by row)
+- `scale`: Scale factor (1, 2, 3, etc.) - optional, default 1
+- `color`: RGB565 color for "on" pixels - optional, default WHITE
 
 #### draw_bitmap_transparent
 
@@ -171,6 +395,20 @@ Draw a single character
 - `char`: Character to draw (first char of string)
 - `color`: Character color (optional)
 
+#### draw_circle
+
+```lua
+tdeck.display.draw_circle(x, y, r, color)
+```
+
+Draw circle outline
+
+**Parameters:**
+- `x`: Center X position
+- `y`: Center Y position
+- `r`: Radius
+- `color`: Circle color (optional)
+
 #### draw_hline
 
 ```lua
@@ -185,6 +423,37 @@ Draw horizontal line with optional connectors
 - `w`: Width in character cells
 - `left_connect`: Connect to left border (optional)
 - `right_connect`: Connect to right border (optional)
+- `color`: Line color (optional)
+
+#### draw_indexed_bitmap
+
+```lua
+tdeck.display.draw_indexed_bitmap(x, y, width, height, data, palette)
+```
+
+Draw a 3-bit indexed bitmap using a color palette
+
+**Parameters:**
+- `x`: X position
+- `y`: Y position
+- `width`: Bitmap width in pixels
+- `height`: Bitmap height in pixels
+- `data`: Packed 3-bit pixel indices (8 pixels packed into 3 bytes)
+- `palette`: Table of 8 RGB565 color values
+
+#### draw_line
+
+```lua
+tdeck.display.draw_line(x1, y1, x2, y2, color)
+```
+
+Draw a line between two points
+
+**Parameters:**
+- `x1`: Start X position
+- `y1`: Start Y position
+- `x2`: End X position
+- `y2`: End Y position
 - `color`: Line color (optional)
 
 #### draw_pixel
@@ -232,6 +501,14 @@ Draw rectangle outline
 - `h`: Height in pixels
 - `color`: Outline color (optional)
 
+#### draw_round_rect
+
+```lua
+tdeck.display.draw_round_rect(x, y, w, h, r, color)
+```
+
+Draw rounded rectangle outline
+
 #### draw_signal
 
 ```lua
@@ -272,6 +549,28 @@ Draw horizontally centered text
 - `text`: Text string to draw
 - `color`: Text color (optional, defaults to TEXT)
 
+#### draw_triangle
+
+```lua
+tdeck.display.draw_triangle(x1, y1, x2, y2, x3, y3, color)
+```
+
+Draw triangle outline
+
+#### fill_circle
+
+```lua
+tdeck.display.fill_circle(x, y, r, color)
+```
+
+Draw filled circle
+
+**Parameters:**
+- `x`: Center X position
+- `y`: Center Y position
+- `r`: Radius
+- `color`: Fill color (optional)
+
 #### fill_rect
 
 ```lua
@@ -286,6 +585,22 @@ Fill a rectangle with color
 - `w`: Width in pixels
 - `h`: Height in pixels
 - `color`: Fill color (optional)
+
+#### fill_round_rect
+
+```lua
+tdeck.display.fill_round_rect(x, y, w, h, r, color)
+```
+
+Draw filled rounded rectangle
+
+#### fill_triangle
+
+```lua
+tdeck.display.fill_triangle(x1, y1, x2, y2, x3, y3, color)
+```
+
+Draw filled triangle
 
 #### flush
 
@@ -390,7 +705,7 @@ tdeck.display.set_font_size(size)
 Set font size
 
 **Parameters:**
-- `size`: Font size string: "small", "medium", or "large"
+- `size`: Font size string: "tiny", "small", "medium", or "large"
 
 #### text_width
 
@@ -438,6 +753,66 @@ tdeck.keyboard.get_backlight() -> integer
 Get current keyboard backlight level
 
 **Returns:** Backlight level (0-255, 0 = off)
+
+#### get_mode
+
+```lua
+tdeck.keyboard.get_mode() -> string
+```
+
+Get current keyboard input mode
+
+**Returns:** "normal" or "raw"
+
+#### get_raw_matrix_bits
+
+```lua
+tdeck.keyboard.get_raw_matrix_bits() -> integer
+```
+
+Get full matrix state as 64-bit integer (raw mode)
+
+**Returns:** 49-bit value (7 cols × 7 rows), bits 0-6 = col 0, bits 7-13 = col 1, etc.
+
+#### get_repeat_delay
+
+```lua
+tdeck.keyboard.get_repeat_delay() -> integer
+```
+
+Get initial delay before key repeat starts
+
+**Returns:** Delay in milliseconds
+
+#### get_repeat_enabled
+
+```lua
+tdeck.keyboard.get_repeat_enabled() -> boolean
+```
+
+Check if key repeat is enabled
+
+**Returns:** true if key repeat is enabled
+
+#### get_repeat_rate
+
+```lua
+tdeck.keyboard.get_repeat_rate() -> integer
+```
+
+Get key repeat rate (interval between repeats)
+
+**Returns:** Rate in milliseconds
+
+#### get_trackball_mode
+
+```lua
+tdeck.keyboard.get_trackball_mode() -> string
+```
+
+Get current trackball input mode
+
+**Returns:** "polling" or "interrupt"
 
 #### get_trackball_sensitivity
 
@@ -489,6 +864,20 @@ Check if Fn is currently held
 
 **Returns:** true if Fn is held
 
+#### is_key_pressed
+
+```lua
+tdeck.keyboard.is_key_pressed(col, row) -> boolean
+```
+
+Check if a specific matrix key is pressed (raw mode)
+
+**Parameters:**
+- `col`: Column index (0-4)
+- `row`: Row index (0-6)
+
+**Returns:** true if key is pressed
+
 #### is_shift_held
 
 ```lua
@@ -522,6 +911,26 @@ Read key with optional timeout (blocking)
 
 **Returns:** Key event table or nil on timeout
 
+#### read_raw_code
+
+```lua
+tdeck.keyboard.read_raw_code() -> integer|nil
+```
+
+Read raw key code byte directly from I2C (no translation)
+
+**Returns:** Raw byte (0x00-0xFF) or nil if no key available
+
+#### read_raw_matrix
+
+```lua
+tdeck.keyboard.read_raw_matrix() -> table|nil
+```
+
+Read raw key matrix state (only works in raw mode)
+
+**Returns:** Table of 7 bytes (one per column, 7 bits = rows), or nil on error
+
 #### set_adaptive_scrolling
 
 ```lua
@@ -544,6 +953,63 @@ Set keyboard backlight brightness
 **Parameters:**
 - `level`: Brightness level (0-255, 0 = off)
 
+#### set_mode
+
+```lua
+tdeck.keyboard.set_mode(mode) -> boolean
+```
+
+Set keyboard input mode
+
+**Parameters:**
+- `mode`: "normal" or "raw"
+
+**Returns:** true if mode was set successfully
+
+#### set_repeat_delay
+
+```lua
+tdeck.keyboard.set_repeat_delay(delay_ms)
+```
+
+Set initial delay before key repeat starts
+
+**Parameters:**
+- `delay_ms`: Delay in milliseconds (typically 200-800)
+
+#### set_repeat_enabled
+
+```lua
+tdeck.keyboard.set_repeat_enabled(enabled)
+```
+
+Enable or disable key repeat
+
+**Parameters:**
+- `enabled`: true to enable, false to disable
+
+#### set_repeat_rate
+
+```lua
+tdeck.keyboard.set_repeat_rate(rate_ms)
+```
+
+Set key repeat rate (interval between repeats)
+
+**Parameters:**
+- `rate_ms`: Rate in milliseconds (typically 20-100)
+
+#### set_trackball_mode
+
+```lua
+tdeck.keyboard.set_trackball_mode(mode)
+```
+
+Set trackball input mode
+
+**Parameters:**
+- `mode`: "polling" or "interrupt"
+
 #### set_trackball_sensitivity
 
 ```lua
@@ -559,28 +1025,89 @@ Set trackball sensitivity level
 
 ### tdeck.mesh
 
-#### get_channel_messages
+#### build_packet
 
 ```lua
-tdeck.mesh.get_channel_messages(channel) -> table
+tdeck.mesh.build_packet(route_type, payload_type, payload, path) -> string|nil
 ```
 
-Get messages for a channel
+Build a raw mesh packet for transmission
 
 **Parameters:**
-- `channel`: Optional channel filter
+- `route_type`: Route type constant (FLOOD=1, DIRECT=2)
+- `payload_type`: Payload type constant (ADVERT=4, GRP_TXT=5, etc.)
+- `payload`: Binary string payload
+- `path`: Optional binary string of path hashes (default: empty)
 
-**Returns:** Array of message tables
+**Returns:** Serialized packet as binary string, or nil on error
 
-#### get_channels
+#### calc_shared_secret
 
 ```lua
-tdeck.mesh.get_channels() -> table
+tdeck.mesh.calc_shared_secret(other_pub_key) -> string|nil
 ```
 
-Get list of known channels
+Calculate ECDH shared secret with another node
 
-**Returns:** Array of channel tables with name, is_joined, is_encrypted
+**Parameters:**
+- `other_pub_key`: 32-byte Ed25519 public key of the other party
+
+**Returns:** 32-byte shared secret as binary string, or nil on error
+
+#### clear_packet_queue
+
+```lua
+tdeck.mesh.clear_packet_queue()
+```
+
+Clear all packets from the queue
+
+#### clear_tx_queue
+
+```lua
+tdeck.mesh.clear_tx_queue()
+```
+
+Clear all packets from transmit queue
+
+#### ed25519_sign
+
+```lua
+tdeck.mesh.ed25519_sign(data) -> signature
+```
+
+Sign data with this node's private key
+
+**Parameters:**
+- `data`: Binary string to sign
+
+**Returns:** 64-byte Ed25519 signature as binary string, or nil on error
+
+#### ed25519_verify
+
+```lua
+tdeck.mesh.ed25519_verify(data, signature, pub_key) -> boolean
+```
+
+Verify an Ed25519 signature
+
+**Parameters:**
+- `data`: Binary string that was signed
+- `signature`: 64-byte Ed25519 signature
+- `pub_key`: 32-byte Ed25519 public key
+
+**Returns:** true if signature is valid
+
+#### enable_packet_queue
+
+```lua
+tdeck.mesh.enable_packet_queue(enabled)
+```
+
+Enable or disable packet queuing for polling
+
+**Parameters:**
+- `enabled`: Boolean to enable/disable
 
 #### get_node_count
 
@@ -620,7 +1147,47 @@ tdeck.mesh.get_nodes() -> table
 
 Get list of discovered mesh nodes
 
-**Returns:** Array of node tables with path_hash, name, rssi, snr, last_seen, hops
+**Returns:** Array of node tables with path_hash, name, rssi, snr, last_seen, hops, pub_key_hex
+
+#### get_path_check
+
+```lua
+tdeck.mesh.get_path_check() -> boolean
+```
+
+Get current path check setting
+
+**Returns:** true if path check is enabled
+
+#### get_path_hash
+
+```lua
+tdeck.mesh.get_path_hash() -> integer
+```
+
+Get this node's path hash (first byte of public key)
+
+**Returns:** Path hash as integer (0-255)
+
+#### get_public_key
+
+```lua
+tdeck.mesh.get_public_key() -> string
+```
+
+Get this node's public key as binary string
+
+**Returns:** 32-byte Ed25519 public key
+
+#### get_public_key_hex
+
+```lua
+tdeck.mesh.get_public_key_hex() -> string
+```
+
+Get this node's public key as hex string
+
+**Returns:** 64-character hex string
 
 #### get_rx_count
 
@@ -652,18 +1219,45 @@ Get total packets transmitted
 
 **Returns:** Transmit count
 
-#### is_in_channel
+#### get_tx_queue_capacity
 
 ```lua
-tdeck.mesh.is_in_channel(name) -> boolean
+tdeck.mesh.get_tx_queue_capacity() -> integer
 ```
 
-Check if joined to channel
+Get maximum transmit queue capacity
 
-**Parameters:**
-- `name`: Channel name
+**Returns:** Max queue size
 
-**Returns:** true if member of channel
+#### get_tx_queue_size
+
+```lua
+tdeck.mesh.get_tx_queue_size() -> integer
+```
+
+Get number of packets waiting in transmit queue
+
+**Returns:** Queue size
+
+#### get_tx_throttle
+
+```lua
+tdeck.mesh.get_tx_throttle() -> integer
+```
+
+Get current throttle interval
+
+**Returns:** Milliseconds between transmissions
+
+#### has_packets
+
+```lua
+tdeck.mesh.has_packets() -> boolean
+```
+
+Check if packets are available in the queue
+
+**Returns:** true if one or more packets are queued
 
 #### is_initialized
 
@@ -675,54 +1269,41 @@ Check if mesh networking is initialized
 
 **Returns:** true if mesh is ready
 
-#### join_channel
+#### is_tx_queue_full
 
 ```lua
-tdeck.mesh.join_channel(name, password) -> boolean
+tdeck.mesh.is_tx_queue_full() -> boolean
 ```
 
-Join or create a channel
+Check if transmit queue is full
 
-**Parameters:**
-- `name`: Channel name
-- `password`: Optional password for encryption
+**Returns:** true if queue is full
 
-**Returns:** true if successful
-
-#### leave_channel
+#### make_header
 
 ```lua
-tdeck.mesh.leave_channel(name) -> boolean
+tdeck.mesh.make_header(route_type, payload_type, version) -> integer
 ```
 
-Leave a channel
+Create a packet header byte from components
 
 **Parameters:**
-- `name`: Channel name to leave
+- `route_type`: Route type constant
+- `payload_type`: Payload type constant
+- `version`: Optional version (default: 0)
 
-**Returns:** true if successful
+**Returns:** Header byte as integer
 
-#### mark_channel_read
+#### on_group_packet
 
 ```lua
-tdeck.mesh.mark_channel_read(channel)
+tdeck.mesh.on_group_packet(callback)
 ```
 
-Mark channel messages as read
+Set callback for raw group packets (before C++ decryption)
 
 **Parameters:**
-- `channel`: Channel name
-
-#### on_channel_message
-
-```lua
-tdeck.mesh.on_channel_message(callback)
-```
-
-Set callback for incoming channel messages
-
-**Parameters:**
-- `callback`: Function(message_table) called on new message
+- `callback`: Function(packet_table) called with {channel_hash, data, sender_hash, rssi, snr}
 
 #### on_node_discovered
 
@@ -735,6 +1316,74 @@ Set callback for node discovery
 **Parameters:**
 - `callback`: Function(node_table) called when node discovered
 
+#### on_packet
+
+```lua
+tdeck.mesh.on_packet(callback)
+```
+
+Set callback for ALL incoming packets (called before C++ handling)
+
+**Parameters:**
+- `callback`: Function(packet_table) returning handled, rebroadcast booleans
+
+#### packet_count
+
+```lua
+tdeck.mesh.packet_count() -> integer
+```
+
+Get number of packets in queue
+
+**Returns:** Number of queued packets
+
+#### parse_header
+
+```lua
+tdeck.mesh.parse_header(header_byte) -> route_type, payload_type, version
+```
+
+Parse a packet header byte into components
+
+**Parameters:**
+- `header_byte`: Single byte header value
+
+**Returns:** route_type, payload_type, version as integers
+
+#### pop_packet
+
+```lua
+tdeck.mesh.pop_packet() -> table|nil
+```
+
+Get and remove the next packet from queue
+
+**Returns:** Packet table or nil if queue is empty
+
+#### queue_send
+
+```lua
+tdeck.mesh.queue_send(data) -> boolean
+```
+
+Queue packet for transmission (throttled, non-blocking)
+
+**Parameters:**
+- `data`: Binary string of serialized packet
+
+**Returns:** true if queued successfully, false if queue full or error
+
+#### schedule_rebroadcast
+
+```lua
+tdeck.mesh.schedule_rebroadcast(data)
+```
+
+Schedule raw packet data for rebroadcast
+
+**Parameters:**
+- `data`: Binary string of raw packet bytes
+
 #### send_announce
 
 ```lua
@@ -745,17 +1394,30 @@ Broadcast node announcement
 
 **Returns:** true if sent successfully
 
-#### send_channel_message
+#### send_group_packet
 
 ```lua
-tdeck.mesh.send_channel_message(channel, text) -> boolean
+tdeck.mesh.send_group_packet(channel_hash, encrypted_data) -> boolean
 ```
 
-Send message to a channel
+Send raw encrypted group packet
 
 **Parameters:**
-- `channel`: Channel name
-- `text`: Message text
+- `channel_hash`: Single byte channel identifier
+- `encrypted_data`: Pre-encrypted payload (MAC + ciphertext)
+
+**Returns:** true if sent successfully
+
+#### send_raw
+
+```lua
+tdeck.mesh.send_raw(data) -> boolean
+```
+
+Send raw packet data directly via radio (bypasses queue, immediate)
+
+**Parameters:**
+- `data`: Binary string of serialized packet
 
 **Returns:** true if sent successfully
 
@@ -771,6 +1433,36 @@ Set this node's display name
 - `name`: New node name
 
 **Returns:** true if successful
+
+#### set_path_check
+
+```lua
+tdeck.mesh.set_path_check(enabled)
+```
+
+Enable or disable path check for flood routing
+
+**Parameters:**
+- `enabled`: Boolean - when true, packets with our hash in path are skipped
+
+#### set_tx_throttle
+
+```lua
+tdeck.mesh.set_tx_throttle(ms)
+```
+
+Set minimum interval between transmissions
+
+**Parameters:**
+- `ms`: Milliseconds between transmissions (default 100)
+
+#### update
+
+```lua
+tdeck.mesh.update()
+```
+
+Process incoming mesh packets
 
 ## radio
 
@@ -987,124 +1679,6 @@ Wake radio from sleep
 
 **Returns:** Result string
 
-## screen
-
-### tdeck.screen
-
-#### get_status
-
-```lua
-tdeck.screen.get_status() -> table
-```
-
-Get current status bar info
-
-**Returns:** Table with battery, radio_ok, signal_bars, node_count, has_unread, node_id
-
-#### invalidate
-
-```lua
-tdeck.screen.invalidate()
-```
-
-Mark screen for redraw
-
-#### is_empty
-
-```lua
-tdeck.screen.is_empty() -> boolean
-```
-
-Check if screen stack is empty
-
-**Returns:** true if no screens on stack
-
-#### pop
-
-```lua
-tdeck.screen.pop()
-```
-
-Pop current screen and return to previous
-
-#### push
-
-```lua
-tdeck.screen.push(screen)
-```
-
-Push a new screen onto the stack
-
-**Parameters:**
-- `screen`: Screen table with render/handle_key methods
-
-#### replace
-
-```lua
-tdeck.screen.replace(screen)
-```
-
-Replace current screen without stack growth
-
-**Parameters:**
-- `screen`: Screen table with render/handle_key methods
-
-#### set_battery
-
-```lua
-tdeck.screen.set_battery(percent)
-```
-
-Update status bar battery indicator
-
-**Parameters:**
-- `percent`: Battery percentage (0-100)
-
-#### set_node_count
-
-```lua
-tdeck.screen.set_node_count(count)
-```
-
-Update status bar node count
-
-**Parameters:**
-- `count`: Number of known mesh nodes
-
-#### set_node_id
-
-```lua
-tdeck.screen.set_node_id(short_id)
-```
-
-Update status bar node ID display
-
-**Parameters:**
-- `short_id`: Short node ID string
-
-#### set_radio
-
-```lua
-tdeck.screen.set_radio(ok, bars)
-```
-
-Update status bar radio indicator
-
-**Parameters:**
-- `ok`: true if radio is working
-- `bars`: Signal strength (0-4 bars)
-
-#### set_unread
-
-```lua
-tdeck.screen.set_unread(has_unread)
-```
-
-Update status bar unread indicator
-
-**Parameters:**
-- `has_unread`: true if there are unread messages
-
 ## storage
 
 ### tdeck.storage
@@ -1145,6 +1719,19 @@ Check if file or directory exists
 - `path`: Path to check
 
 **Returns:** true if exists
+
+#### file_size
+
+```lua
+tdeck.storage.file_size(path) -> integer
+```
+
+Get file size in bytes
+
+**Parameters:**
+- `path`: File path (prefix /sd/ for SD card)
+
+**Returns:** File size or nil with error message
 
 #### get_flash_info
 
@@ -1190,6 +1777,32 @@ Check if SD card is mounted
 
 **Returns:** true if SD card available
 
+#### json_decode
+
+```lua
+tdeck.storage.json_decode(json_string) -> value
+```
+
+Decode JSON string to Lua value
+
+**Parameters:**
+- `json_string`: JSON string
+
+**Returns:** Lua value or nil on error
+
+#### json_encode
+
+```lua
+tdeck.storage.json_encode(value) -> string
+```
+
+Encode Lua value to JSON string
+
+**Parameters:**
+- `value`: Lua table, string, number, boolean, or nil
+
+**Returns:** JSON string or nil on error
+
 #### list_dir
 
 ```lua
@@ -1215,6 +1828,21 @@ Create directory
 - `path`: Directory path
 
 **Returns:** true if created
+
+#### read_bytes
+
+```lua
+tdeck.storage.read_bytes(path, offset, length) -> string
+```
+
+Read bytes from file at specific offset (for random access)
+
+**Parameters:**
+- `path`: File path (prefix /sd/ for SD card)
+- `offset`: Byte offset to start reading from
+- `length`: Number of bytes to read
+
+**Returns:** Binary data as string, or nil with error message
 
 #### read_file
 
@@ -1397,6 +2025,16 @@ Get battery voltage
 
 **Returns:** Estimated battery voltage in volts
 
+#### get_firmware_info
+
+```lua
+tdeck.system.get_firmware_info() -> table
+```
+
+Get firmware partition info
+
+**Returns:** Table with partition_size, app_size, free_bytes
+
 #### get_free_heap
 
 ```lua
@@ -1436,6 +2074,36 @@ tdeck.system.get_lua_memory() -> integer
 Get memory used by Lua runtime
 
 **Returns:** Memory usage in bytes
+
+#### get_time
+
+```lua
+tdeck.system.get_time() -> table|nil
+```
+
+Get current wall clock time
+
+**Returns:** Table with hour, minute, second, or nil if time not set
+
+#### get_time_unix
+
+```lua
+tdeck.system.get_time_unix() -> integer
+```
+
+Get current Unix timestamp
+
+**Returns:** Unix timestamp (seconds since 1970-01-01), or 0 if time not set
+
+#### get_timezone
+
+```lua
+tdeck.system.get_timezone() -> integer
+```
+
+Get current timezone UTC offset in hours
+
+**Returns:** UTC offset in hours
 
 #### get_total_heap
 
@@ -1540,6 +2208,37 @@ Schedule a repeating callback
 
 **Returns:** Timer ID for cancellation
 
+#### set_time
+
+```lua
+tdeck.system.set_time(year, month, day, hour, minute, second) -> boolean
+```
+
+Set system clock time
+
+**Parameters:**
+- `year`: Full year (e.g., 2024)
+- `month`: Month (1-12)
+- `day`: Day of month (1-31)
+- `hour`: Hour (0-23)
+- `minute`: Minute (0-59)
+- `second`: Second (0-59)
+
+**Returns:** true if time was set successfully
+
+#### set_time_unix
+
+```lua
+tdeck.system.set_time_unix(timestamp) -> boolean
+```
+
+Set system clock from Unix timestamp
+
+**Parameters:**
+- `timestamp`: Unix timestamp (seconds since 1970-01-01)
+
+**Returns:** true if time was set successfully
+
 #### set_timer
 
 ```lua
@@ -1553,6 +2252,19 @@ Schedule a one-shot callback
 - `callback`: Function to call
 
 **Returns:** Timer ID for cancellation
+
+#### set_timezone
+
+```lua
+tdeck.system.set_timezone(tz_string) -> boolean
+```
+
+Set timezone using POSIX TZ string
+
+**Parameters:**
+- `tz_string`: POSIX timezone string (e.g., "CET-1CEST,M3.5.0,M10.5.0/3")
+
+**Returns:** true if timezone was set successfully
 
 #### start_usb_msc
 
@@ -1581,3 +2293,14 @@ tdeck.system.uptime() -> integer
 Get device uptime
 
 **Returns:** Seconds since boot
+
+#### yield
+
+```lua
+tdeck.system.yield(ms)
+```
+
+Yield execution to allow C++ background tasks to run
+
+**Parameters:**
+- `ms`: Optional sleep time in milliseconds (default 1, max 100)

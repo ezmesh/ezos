@@ -3,6 +3,11 @@
  * Maps tdeck.display functions to HTML5 Canvas
  */
 
+import { FONTS, getFont, renderText, measureText, loadFonts } from '../fonts.js';
+
+// Export loadFonts for initialization
+export { loadFonts };
+
 // Convert RGB565 to CSS color
 function rgb565ToCSS(color) {
     const r = ((color >> 11) & 0x1F) << 3;
@@ -20,8 +25,16 @@ export function createDisplayModule(ctx, canvas) {
     const WIDTH = 320;
     const HEIGHT = 240;
 
-    let currentFont = '16px monospace';
+    // Current font state
+    let currentFontName = 'medium';
+    let currentFont = FONTS.medium || { fallback: true, charWidth: 8, charHeight: 16, yAdvance: 16 };
     let fontSize = 16;
+
+    // Disable antialiasing for crisp pixel-perfect rendering
+    ctx.imageSmoothingEnabled = false;
+    ctx.webkitImageSmoothingEnabled = false;
+    ctx.mozImageSmoothingEnabled = false;
+    ctx.msImageSmoothingEnabled = false;
 
     // Pre-defined colors (RGB565 values)
     const colors = {
@@ -40,12 +53,18 @@ export function createDisplayModule(ctx, canvas) {
     };
 
     const module = {
-        // Screen dimensions
+        // Screen dimensions (uppercase for direct access)
         WIDTH,
         HEIGHT,
+        // Screen dimensions (lowercase for Lua compatibility)
+        width: WIDTH,
+        height: HEIGHT,
 
-        // Colors
+        // Colors (spread for direct access like tdeck.display.WHITE)
         ...colors,
+
+        // Colors as nested table (for tdeck.display.colors.WHITE)
+        colors,
 
         // Create RGB565 color from components
         rgb(r, g, b) {
@@ -65,45 +84,109 @@ export function createDisplayModule(ctx, canvas) {
 
         // Fill rectangle
         fill_rect(x, y, w, h, color) {
+            if (color === undefined) {
+                console.warn('[Display] fill_rect called with undefined color at', x, y, w, h);
+            }
             ctx.fillStyle = rgb565ToCSS(color);
-            ctx.fillRect(x, y, w, h);
+            ctx.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h));
         },
 
         // Draw rectangle outline
         draw_rect(x, y, w, h, color) {
-            ctx.strokeStyle = rgb565ToCSS(color);
-            ctx.lineWidth = 1;
-            ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+            // Use fill for crisp 1px borders without antialiasing
+            const c = rgb565ToCSS(color);
+            ctx.fillStyle = c;
+            x = Math.floor(x); y = Math.floor(y);
+            w = Math.floor(w); h = Math.floor(h);
+            ctx.fillRect(x, y, w, 1);           // Top
+            ctx.fillRect(x, y + h - 1, w, 1);   // Bottom
+            ctx.fillRect(x, y, 1, h);           // Left
+            ctx.fillRect(x + w - 1, y, 1, h);   // Right
         },
 
-        // Draw text
+        // Draw text using bitmap font
         draw_text(x, y, text, color = 0xFFFF) {
-            ctx.fillStyle = rgb565ToCSS(color);
-            ctx.font = currentFont;
-            ctx.textBaseline = 'top';
-            ctx.fillText(String(text), x, y);
+            const colorCSS = rgb565ToCSS(color);
+            renderText(ctx, currentFont, String(text), Math.floor(x), Math.floor(y), colorCSS);
         },
 
-        // Draw centered text
-        draw_text_centered(x, y, text, color = 0xFFFF) {
-            ctx.fillStyle = rgb565ToCSS(color);
-            ctx.font = currentFont;
-            ctx.textBaseline = 'top';
-            ctx.textAlign = 'center';
-            ctx.fillText(String(text), x, y);
-            ctx.textAlign = 'left';
+        // Draw horizontally centered text
+        // Lua API: draw_text_centered(y, text, color) - x is calculated to center on screen
+        draw_text_centered(y, text, color = 0xFFFF) {
+            const textStr = String(text);
+            const textWidth = measureText(ctx, currentFont, textStr);
+            const x = Math.floor((WIDTH - textWidth) / 2);
+            const colorCSS = rgb565ToCSS(color);
+            renderText(ctx, currentFont, textStr, x, Math.floor(y), colorCSS);
         },
 
         // Get text width in pixels
         text_width(text) {
-            ctx.font = currentFont;
-            return Math.ceil(ctx.measureText(String(text)).width);
+            return Math.ceil(measureText(ctx, currentFont, String(text)));
         },
 
-        // Set font size
+        // Set font size (can be number or string like "tiny", "small", "medium", "large")
         set_font_size(size) {
-            fontSize = size;
-            currentFont = `${size}px monospace`;
+            const fallbackFont = { fallback: true, charWidth: 8, charHeight: 16, yAdvance: 16 };
+            if (typeof size === 'string') {
+                const sizeLower = size.toLowerCase();
+                if (sizeLower === 'tiny') {
+                    currentFontName = 'tiny';
+                    currentFont = FONTS.tiny || fallbackFont;
+                    fontSize = 10;
+                } else if (sizeLower === 'small') {
+                    currentFontName = 'small';
+                    currentFont = FONTS.small || fallbackFont;
+                    fontSize = 12;
+                } else if (sizeLower === 'medium') {
+                    currentFontName = 'medium';
+                    currentFont = FONTS.medium || fallbackFont;
+                    fontSize = 16;
+                } else if (sizeLower === 'large') {
+                    currentFontName = 'large';
+                    currentFont = FONTS.large || fallbackFont;
+                    fontSize = 24;
+                } else {
+                    // Try to parse as number
+                    const numSize = parseInt(size, 10);
+                    if (numSize <= 10) {
+                        currentFontName = 'tiny';
+                        currentFont = FONTS.tiny || fallbackFont;
+                        fontSize = 10;
+                    } else if (numSize <= 12) {
+                        currentFontName = 'small';
+                        currentFont = FONTS.small || fallbackFont;
+                        fontSize = 12;
+                    } else if (numSize <= 18) {
+                        currentFontName = 'medium';
+                        currentFont = FONTS.medium || fallbackFont;
+                        fontSize = 16;
+                    } else {
+                        currentFontName = 'large';
+                        currentFont = FONTS.large || fallbackFont;
+                        fontSize = 24;
+                    }
+                }
+            } else {
+                const numSize = Number(size) || 16;
+                if (numSize <= 10) {
+                    currentFontName = 'tiny';
+                    currentFont = FONTS.tiny || fallbackFont;
+                    fontSize = 10;
+                } else if (numSize <= 12) {
+                    currentFontName = 'small';
+                    currentFont = FONTS.small || fallbackFont;
+                    fontSize = 12;
+                } else if (numSize <= 18) {
+                    currentFontName = 'medium';
+                    currentFont = FONTS.medium || fallbackFont;
+                    fontSize = 16;
+                } else {
+                    currentFontName = 'large';
+                    currentFont = FONTS.large || fallbackFont;
+                    fontSize = 24;
+                }
+            }
         },
 
         // Get current font size
@@ -111,82 +194,201 @@ export function createDisplayModule(ctx, canvas) {
             return fontSize;
         },
 
+        // Get font width (for monospace, character width)
+        get_font_width() {
+            return currentFont?.charWidth || 8;
+        },
+
+        // Get font height
+        get_font_height() {
+            return currentFont?.yAdvance || fontSize;
+        },
+
+        // Get number of text columns that fit on screen
+        get_cols() {
+            return Math.floor(WIDTH / (currentFont?.charWidth || 8));
+        },
+
+        // Get number of text rows that fit on screen
+        get_rows() {
+            return Math.floor(HEIGHT / (currentFont?.yAdvance || fontSize));
+        },
+
         // Draw line
         draw_line(x1, y1, x2, y2, color) {
-            ctx.strokeStyle = rgb565ToCSS(color);
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(x1 + 0.5, y1 + 0.5);
-            ctx.lineTo(x2 + 0.5, y2 + 0.5);
-            ctx.stroke();
+            // Bresenham's line algorithm for crisp pixel lines
+            x1 = Math.floor(x1); y1 = Math.floor(y1);
+            x2 = Math.floor(x2); y2 = Math.floor(y2);
+            ctx.fillStyle = rgb565ToCSS(color);
+            const dx = Math.abs(x2 - x1);
+            const dy = Math.abs(y2 - y1);
+            const sx = x1 < x2 ? 1 : -1;
+            const sy = y1 < y2 ? 1 : -1;
+            let err = dx - dy;
+            while (true) {
+                ctx.fillRect(x1, y1, 1, 1);
+                if (x1 === x2 && y1 === y2) break;
+                const e2 = 2 * err;
+                if (e2 > -dy) { err -= dy; x1 += sx; }
+                if (e2 < dx) { err += dx; y1 += sy; }
+            }
         },
 
         // Draw horizontal line
         draw_hline(x, y, w, color) {
             ctx.fillStyle = rgb565ToCSS(color);
-            ctx.fillRect(x, y, w, 1);
+            ctx.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), 1);
         },
 
         // Draw vertical line
         draw_vline(x, y, h, color) {
             ctx.fillStyle = rgb565ToCSS(color);
-            ctx.fillRect(x, y, 1, h);
+            ctx.fillRect(Math.floor(x), Math.floor(y), 1, Math.floor(h));
         },
 
         // Draw single pixel
         draw_pixel(x, y, color) {
             ctx.fillStyle = rgb565ToCSS(color);
-            ctx.fillRect(x, y, 1, 1);
+            ctx.fillRect(Math.floor(x), Math.floor(y), 1, 1);
         },
 
         // Draw circle outline
         draw_circle(cx, cy, r, color) {
-            ctx.strokeStyle = rgb565ToCSS(color);
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.arc(cx, cy, r, 0, Math.PI * 2);
-            ctx.stroke();
+            // Midpoint circle algorithm for crisp pixel circles
+            cx = Math.floor(cx); cy = Math.floor(cy); r = Math.floor(r);
+            ctx.fillStyle = rgb565ToCSS(color);
+            let x = r, y = 0, err = 0;
+            while (x >= y) {
+                ctx.fillRect(cx + x, cy + y, 1, 1);
+                ctx.fillRect(cx + y, cy + x, 1, 1);
+                ctx.fillRect(cx - y, cy + x, 1, 1);
+                ctx.fillRect(cx - x, cy + y, 1, 1);
+                ctx.fillRect(cx - x, cy - y, 1, 1);
+                ctx.fillRect(cx - y, cy - x, 1, 1);
+                ctx.fillRect(cx + y, cy - x, 1, 1);
+                ctx.fillRect(cx + x, cy - y, 1, 1);
+                y++;
+                err += 1 + 2 * y;
+                if (2 * (err - x) + 1 > 0) { x--; err += 1 - 2 * x; }
+            }
         },
 
         // Fill circle
         fill_circle(cx, cy, r, color) {
+            // Filled circle using horizontal spans
+            cx = Math.floor(cx); cy = Math.floor(cy); r = Math.floor(r);
             ctx.fillStyle = rgb565ToCSS(color);
-            ctx.beginPath();
-            ctx.arc(cx, cy, r, 0, Math.PI * 2);
-            ctx.fill();
+            let x = r, y = 0, err = 0;
+            while (x >= y) {
+                ctx.fillRect(cx - x, cy + y, 2 * x + 1, 1);
+                ctx.fillRect(cx - x, cy - y, 2 * x + 1, 1);
+                ctx.fillRect(cx - y, cy + x, 2 * y + 1, 1);
+                ctx.fillRect(cx - y, cy - x, 2 * y + 1, 1);
+                y++;
+                err += 1 + 2 * y;
+                if (2 * (err - x) + 1 > 0) { x--; err += 1 - 2 * x; }
+            }
         },
 
         // Draw rounded rectangle
         draw_rounded_rect(x, y, w, h, r, color) {
-            ctx.strokeStyle = rgb565ToCSS(color);
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, r);
-            ctx.stroke();
+            x = Math.floor(x); y = Math.floor(y);
+            w = Math.floor(w); h = Math.floor(h); r = Math.floor(r);
+            ctx.fillStyle = rgb565ToCSS(color);
+            // Horizontal lines
+            ctx.fillRect(x + r, y, w - 2 * r, 1);
+            ctx.fillRect(x + r, y + h - 1, w - 2 * r, 1);
+            // Vertical lines
+            ctx.fillRect(x, y + r, 1, h - 2 * r);
+            ctx.fillRect(x + w - 1, y + r, 1, h - 2 * r);
+            // Corner arcs using midpoint circle algorithm
+            const drawCornerArc = (cx, cy, quadrant) => {
+                let px = r, py = 0, err = 0;
+                while (px >= py) {
+                    const points = [
+                        [cx + px, cy - py], [cx + py, cy - px],  // Q0: top-right
+                        [cx - py, cy - px], [cx - px, cy - py],  // Q1: top-left
+                        [cx - px, cy + py], [cx - py, cy + px],  // Q2: bottom-left
+                        [cx + py, cy + px], [cx + px, cy + py],  // Q3: bottom-right
+                    ];
+                    const start = quadrant * 2;
+                    ctx.fillRect(points[start][0], points[start][1], 1, 1);
+                    ctx.fillRect(points[start + 1][0], points[start + 1][1], 1, 1);
+                    py++;
+                    err += 1 + 2 * py;
+                    if (2 * (err - px) + 1 > 0) { px--; err += 1 - 2 * px; }
+                }
+            };
+            drawCornerArc(x + w - 1 - r, y + r, 0);         // Top-right
+            drawCornerArc(x + r, y + r, 1);                 // Top-left
+            drawCornerArc(x + r, y + h - 1 - r, 2);         // Bottom-left
+            drawCornerArc(x + w - 1 - r, y + h - 1 - r, 3); // Bottom-right
         },
 
         // Fill rounded rectangle
         fill_rounded_rect(x, y, w, h, r, color) {
+            x = Math.floor(x); y = Math.floor(y);
+            w = Math.floor(w); h = Math.floor(h); r = Math.floor(r);
+            // Clamp radius to half the minimum dimension
+            r = Math.min(r, Math.floor(w / 2), Math.floor(h / 2));
+            if (r <= 0) {
+                ctx.fillStyle = rgb565ToCSS(color);
+                ctx.fillRect(x, y, w, h);
+                return;
+            }
             ctx.fillStyle = rgb565ToCSS(color);
-            ctx.beginPath();
-            ctx.roundRect(x, y, w, h, r);
-            ctx.fill();
+            // Main body rectangles (non-overlapping)
+            ctx.fillRect(x + r, y, w - 2 * r, h);         // Center column
+            ctx.fillRect(x, y + r, r, h - 2 * r);         // Left side
+            ctx.fillRect(x + w - r, y + r, r, h - 2 * r); // Right side
+            // Fill corner quadrants using midpoint circle algorithm
+            // Each quadrant only fills its respective corner area
+            const fillQuadrant = (cx, cy, quadrant) => {
+                // quadrant: 0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right
+                let px = r, py = 0, err = 0;
+                while (px >= py) {
+                    // Draw horizontal spans for the quadrant
+                    if (quadrant === 0) {
+                        // Top-left: draw from cx-px to cx, at cy-py and cy-px
+                        ctx.fillRect(cx - px, cy - py, px + 1, 1);
+                        ctx.fillRect(cx - py, cy - px, py + 1, 1);
+                    } else if (quadrant === 1) {
+                        // Top-right: draw from cx to cx+px, at cy-py and cy-px
+                        ctx.fillRect(cx, cy - py, px + 1, 1);
+                        ctx.fillRect(cx, cy - px, py + 1, 1);
+                    } else if (quadrant === 2) {
+                        // Bottom-left: draw from cx-px to cx, at cy+py and cy+px
+                        ctx.fillRect(cx - px, cy + py, px + 1, 1);
+                        ctx.fillRect(cx - py, cy + px, py + 1, 1);
+                    } else {
+                        // Bottom-right: draw from cx to cx+px, at cy+py and cy+px
+                        ctx.fillRect(cx, cy + py, px + 1, 1);
+                        ctx.fillRect(cx, cy + px, py + 1, 1);
+                    }
+                    py++;
+                    err += 1 + 2 * py;
+                    if (2 * (err - px) + 1 > 0) { px--; err += 1 - 2 * px; }
+                }
+            };
+            fillQuadrant(x + r - 1, y + r - 1, 0);             // Top-left
+            fillQuadrant(x + w - r, y + r - 1, 1);             // Top-right
+            fillQuadrant(x + r - 1, y + h - r, 2);             // Bottom-left
+            fillQuadrant(x + w - r, y + h - r, 3);             // Bottom-right
         },
 
         // Draw triangle outline
         draw_triangle(x1, y1, x2, y2, x3, y3, color) {
-            ctx.strokeStyle = rgb565ToCSS(color);
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(x1 + 0.5, y1 + 0.5);
-            ctx.lineTo(x2 + 0.5, y2 + 0.5);
-            ctx.lineTo(x3 + 0.5, y3 + 0.5);
-            ctx.closePath();
-            ctx.stroke();
+            // Draw three lines using the line function
+            module.draw_line(x1, y1, x2, y2, color);
+            module.draw_line(x2, y2, x3, y3, color);
+            module.draw_line(x3, y3, x1, y1, color);
         },
 
         // Fill triangle
         fill_triangle(x1, y1, x2, y2, x3, y3, color) {
+            x1 = Math.floor(x1); y1 = Math.floor(y1);
+            x2 = Math.floor(x2); y2 = Math.floor(y2);
+            x3 = Math.floor(x3); y3 = Math.floor(y3);
             ctx.fillStyle = rgb565ToCSS(color);
             ctx.beginPath();
             ctx.moveTo(x1, y1);
@@ -194,6 +396,68 @@ export function createDisplayModule(ctx, canvas) {
             ctx.lineTo(x3, y3);
             ctx.closePath();
             ctx.fill();
+        },
+
+        // Draw 1-bit bitmap (monochrome icons) with optional scaling
+        // Lua API: draw_bitmap_1bit(x, y, width, height, data, scale, color)
+        // scale defaults to 1, color defaults to WHITE (0xFFFF)
+        // data can be a string (from C++) or Lua table of bytes (from simulator)
+        draw_bitmap_1bit(x, y, w, h, data, scale = 1, color = 0xFFFF) {
+            if (!data) return;
+
+            // Determine how to access bytes based on data type
+            let getByteAt;
+            let dataLen;
+
+            if (typeof data === 'string') {
+                // JavaScript string - use charCodeAt (works for C++ native strings)
+                getByteAt = (idx) => data.charCodeAt(idx);
+                dataLen = data.length;
+            } else if (data instanceof Uint8Array || Array.isArray(data)) {
+                // Typed array or JS array
+                getByteAt = (idx) => data[idx];
+                dataLen = data.length;
+            } else if (typeof data === 'object' && data !== null) {
+                // Lua table from Wasmoon (1-indexed object with numeric keys)
+                // Count numeric keys to get length
+                const numericKeys = Object.keys(data).filter(k => !isNaN(k) && k > 0);
+                dataLen = numericKeys.length;
+                if (dataLen === 0) return;
+                // Lua tables are 1-indexed
+                getByteAt = (idx) => data[idx + 1] || 0;
+            } else {
+                return;
+            }
+
+            if (dataLen === 0) return;
+
+            x = Math.floor(x); y = Math.floor(y);
+            scale = Math.floor(scale) || 1;
+            ctx.fillStyle = rgb565ToCSS(color);
+
+            // Each bit represents a pixel, 8 pixels per byte
+            let byteIdx = 0;
+            let bitIdx = 7;  // MSB first
+
+            for (let py = 0; py < h; py++) {
+                for (let px = 0; px < w; px++) {
+                    if (byteIdx >= dataLen) return;
+
+                    const byte = getByteAt(byteIdx);
+                    const bit = (byte >> bitIdx) & 1;
+
+                    if (bit) {
+                        // Draw scaled pixel (scale x scale rectangle)
+                        ctx.fillRect(x + px * scale, y + py * scale, scale, scale);
+                    }
+
+                    bitIdx--;
+                    if (bitIdx < 0) {
+                        bitIdx = 7;
+                        byteIdx++;
+                    }
+                }
+            }
         },
 
         // Draw bitmap (RGB565 data)
@@ -223,44 +487,97 @@ export function createDisplayModule(ctx, canvas) {
         },
 
         // Draw indexed bitmap (3-bit palette)
+        // Matches the packing format from Python process.py:
+        //   b0 = p[0] | (p[1] << 3) | ((p[2] & 0x03) << 6)
+        //   b1 = ((p[2] >> 2) & 0x01) | (p[3] << 1) | (p[4] << 4) | ((p[5] & 0x01) << 7)
+        //   b2 = ((p[5] >> 1) & 0x03) | (p[6] << 2) | (p[7] << 5)
         draw_indexed_bitmap(x, y, w, h, data, palette) {
-            if (!data || data.length === 0) return;
+            if (!data || data.length === 0) {
+                console.warn(`[Display] draw_indexed_bitmap: no data`);
+                return;
+            }
+
+            const isString = typeof data.charCodeAt === 'function';
+
+            // Detect indexing mode for Wasmoon userdata (1-indexed vs 0-indexed)
+            // Check if data[0] is undefined but data[1] exists, indicating 1-indexed
+            let dataOffset = 0;
+            if (!isString) {
+                if (data[0] === undefined && data[1] !== undefined) {
+                    dataOffset = 1;  // 1-indexed (Wasmoon Lua tables)
+                }
+            }
+
+            // Helper function to get byte value at index
+            // Handles strings, arrays, and Lua userdata objects (from Wasmoon)
+            const getByte = isString
+                ? (idx) => data.charCodeAt(idx)
+                : (idx) => {
+                    const val = data[idx + dataOffset];
+                    return (val !== undefined ? val : 0) & 0xFF;
+                };
+
+            // Detect palette indexing mode (palette indices are 0-7 for 3-bit)
+            let paletteOffset = 0;
+            if (palette && palette[0] === undefined && palette[1] !== undefined) {
+                paletteOffset = 1;  // 1-indexed palette
+            }
+
+            // Helper to get palette color
+            const getColor = (idx) => {
+                if (!palette) return 0;
+                const color = palette[idx + paletteOffset];
+                return color !== undefined ? color : 0;
+            };
 
             const imageData = ctx.createImageData(w, h);
             const pixels = imageData.data;
 
-            // Decode 3-bit indexed data
-            let bitPos = 0;
-            for (let i = 0; i < w * h; i++) {
-                const byteIdx = Math.floor(bitPos / 8);
-                const bitOffset = bitPos % 8;
+            // Decode 3-bit indexed data - 8 pixels packed into 3 bytes (LSB-first)
+            // Unpacking (reverse of Python packing):
+            //   p0 = (b0 >> 0) & 0x07
+            //   p1 = (b0 >> 3) & 0x07
+            //   p2 = ((b0 >> 6) & 0x03) | ((b1 & 0x01) << 2)
+            //   p3 = (b1 >> 1) & 0x07
+            //   p4 = (b1 >> 4) & 0x07
+            //   p5 = ((b1 >> 7) & 0x01) | ((b2 & 0x03) << 1)
+            //   p6 = (b2 >> 2) & 0x07
+            //   p7 = (b2 >> 5) & 0x07
+            const totalPixels = w * h;
+            let pixelIdx = 0;
+            let byteIdx = 0;
 
-                if (byteIdx >= data.length) break;
+            while (pixelIdx < totalPixels) {
+                const b0 = getByte(byteIdx);
+                const b1 = getByte(byteIdx + 1);
+                const b2 = getByte(byteIdx + 2);
+                byteIdx += 3;
 
-                let colorIdx;
-                if (bitOffset <= 5) {
-                    colorIdx = (data.charCodeAt(byteIdx) >> (5 - bitOffset)) & 0x07;
-                } else {
-                    const bitsFromFirstByte = 8 - bitOffset;
-                    const bitsFromSecondByte = 3 - bitsFromFirstByte;
-                    colorIdx = ((data.charCodeAt(byteIdx) & ((1 << bitsFromFirstByte) - 1)) << bitsFromSecondByte);
-                    if (byteIdx + 1 < data.length) {
-                        colorIdx |= (data.charCodeAt(byteIdx + 1) >> (8 - bitsFromSecondByte));
-                    }
+                // Unpack 8 pixels from 3 bytes
+                const p = [
+                    (b0 >> 0) & 0x07,
+                    (b0 >> 3) & 0x07,
+                    ((b0 >> 6) & 0x03) | ((b1 & 0x01) << 2),
+                    (b1 >> 1) & 0x07,
+                    (b1 >> 4) & 0x07,
+                    ((b1 >> 7) & 0x01) | ((b2 & 0x03) << 1),
+                    (b2 >> 2) & 0x07,
+                    (b2 >> 5) & 0x07,
+                ];
+
+                // Write pixels to image data
+                for (let j = 0; j < 8 && pixelIdx < totalPixels; j++, pixelIdx++) {
+                    const colorIdx = p[j];
+                    const color = getColor(colorIdx);
+                    const r = ((color >> 11) & 0x1F) << 3;
+                    const g = ((color >> 5) & 0x3F) << 2;
+                    const b = (color & 0x1F) << 3;
+
+                    pixels[pixelIdx * 4] = r;
+                    pixels[pixelIdx * 4 + 1] = g;
+                    pixels[pixelIdx * 4 + 2] = b;
+                    pixels[pixelIdx * 4 + 3] = 255;
                 }
-
-                bitPos += 3;
-
-                // Get color from palette
-                const color = palette && palette[colorIdx] !== undefined ? palette[colorIdx] : 0;
-                const r = ((color >> 11) & 0x1F) << 3;
-                const g = ((color >> 5) & 0x3F) << 2;
-                const b = (color & 0x1F) << 3;
-
-                pixels[i * 4] = r;
-                pixels[i * 4 + 1] = g;
-                pixels[i * 4 + 2] = b;
-                pixels[i * 4 + 3] = 255;
             }
 
             ctx.putImageData(imageData, x, y);
@@ -285,7 +602,64 @@ export function createDisplayModule(ctx, canvas) {
             const [r, g, b] = imageData.data;
             return rgbToRgb565(r, g, b);
         },
+
+        // Get screen width
+        get_width() {
+            return WIDTH;
+        },
+
+        // Get screen height
+        get_height() {
+            return HEIGHT;
+        },
+
+        // Set brightness (no-op in browser)
+        set_brightness(level) {
+            // Silent in simulator - brightness changes don't affect canvas
+            return true;
+        },
+
+        // Get brightness
+        get_brightness() {
+            return 200;
+        },
+
+        // Draw bitmap with transparency
+        draw_bitmap_transparent(x, y, w, h, data, transparentColor) {
+            if (!data || data.length === 0) return;
+
+            const imageData = ctx.createImageData(w, h);
+            const pixels = imageData.data;
+
+            for (let i = 0; i < w * h && i * 2 + 1 < data.length; i++) {
+                // RGB565 is little-endian
+                const lo = data.charCodeAt(i * 2);
+                const hi = data.charCodeAt(i * 2 + 1);
+                const color = (hi << 8) | lo;
+
+                // Skip transparent pixels
+                if (color === transparentColor) {
+                    pixels[i * 4 + 3] = 0; // Alpha = 0
+                    continue;
+                }
+
+                const r = ((color >> 11) & 0x1F) << 3;
+                const g = ((color >> 5) & 0x3F) << 2;
+                const b = (color & 0x1F) << 3;
+
+                pixels[i * 4] = r;
+                pixels[i * 4 + 1] = g;
+                pixels[i * 4 + 2] = b;
+                pixels[i * 4 + 3] = 255;
+            }
+
+            ctx.putImageData(imageData, x, y);
+        },
     };
+
+    // Aliases for Lua compatibility (some code uses draw_round_rect instead of draw_rounded_rect)
+    module.draw_round_rect = module.draw_rounded_rect;
+    module.fill_round_rect = module.fill_rounded_rect;
 
     return module;
 }

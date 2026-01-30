@@ -90,6 +90,19 @@ Icons.data = {
               "\x00\x1E\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",   -- rows 20-23
 }
 
+-- Convert a Lua binary string to a byte array table (for Wasmoon compatibility)
+-- Wasmoon may have issues with strings containing null bytes when passed to JS
+local function string_to_bytes(str)
+    local bytes = {}
+    for i = 1, #str do
+        bytes[i] = string.byte(str, i)
+    end
+    return bytes
+end
+
+-- Cache of converted byte arrays for icons
+Icons._byte_cache = {}
+
 -- Draw an icon by name
 -- @param name Icon name (e.g., "messages")
 -- @param display Display object
@@ -99,6 +112,7 @@ Icons.data = {
 -- @param color Optional color (defaults to ACCENT)
 function Icons.draw(name, display, x, y, size, color)
     local icon_data = Icons.data[name]
+
     if not icon_data then
         -- Fallback: draw a rectangle
         display.draw_rect(x, y, size or 24, size or 24, color or display.colors.ACCENT)
@@ -116,7 +130,17 @@ function Icons.draw(name, display, x, y, size, color)
     local actual_size = Icons.SIZE * scale
     local offset = math.floor((size - actual_size) / 2)
 
-    display.draw_bitmap_1bit(x + offset, y + offset, Icons.SIZE, Icons.SIZE, icon_data, scale, color)
+    -- In simulator mode, convert to byte array for better Wasmoon compatibility
+    -- Wasmoon has issues with Lua strings containing null bytes
+    if __SIMULATOR__ then
+        -- Use cached byte array if available
+        if not Icons._byte_cache[name] then
+            Icons._byte_cache[name] = string_to_bytes(icon_data)
+        end
+        display.draw_bitmap_1bit(x + offset, y + offset, Icons.SIZE, Icons.SIZE, Icons._byte_cache[name], scale, color)
+    else
+        display.draw_bitmap_1bit(x + offset, y + offset, Icons.SIZE, Icons.SIZE, icon_data, scale, color)
+    end
 end
 
 -- Get list of available icon names
@@ -171,7 +195,17 @@ function Icons.draw_small(name, display, x, y, color)
     local icon_data = Icons.small[name]
     if not icon_data then return end
     color = color or display.colors.ACCENT
-    display.draw_bitmap_1bit(x, y, Icons.SMALL_SIZE, Icons.SMALL_SIZE, icon_data, 1, color)
+
+    -- In simulator mode, convert to byte array for Wasmoon compatibility
+    if __SIMULATOR__ then
+        local cache_key = "small_" .. name
+        if not Icons._byte_cache[cache_key] then
+            Icons._byte_cache[cache_key] = string_to_bytes(icon_data)
+        end
+        display.draw_bitmap_1bit(x, y, Icons.SMALL_SIZE, Icons.SMALL_SIZE, Icons._byte_cache[cache_key], 1, color)
+    else
+        display.draw_bitmap_1bit(x, y, Icons.SMALL_SIZE, Icons.SMALL_SIZE, icon_data, 1, color)
+    end
 end
 
 return Icons

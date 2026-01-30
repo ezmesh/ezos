@@ -75,8 +75,18 @@ export function createRadioModule() {
             return -75 + Math.floor(Math.random() * 20);
         },
 
+        // Alias for get_rssi (used by status_services.lua)
+        get_last_rssi() {
+            return -75 + Math.floor(Math.random() * 20);
+        },
+
         // Get last packet SNR
         get_snr() {
+            return 5 + Math.random() * 5;
+        },
+
+        // Alias for get_snr
+        get_last_snr() {
             return 5 + Math.random() * 5;
         },
 
@@ -106,6 +116,41 @@ export function createRadioModule() {
         // Get radio status string
         get_status() {
             return initialized ? 'OK' : 'NOT_INITIALIZED';
+        },
+
+        // Check if radio is busy
+        is_busy() {
+            return false;
+        },
+
+        // Check if in receive mode
+        is_receiving() {
+            return true; // Simulating continuous receive
+        },
+
+        // Check if currently transmitting
+        is_transmitting() {
+            return false;
+        },
+
+        // Set coding rate
+        set_coding_rate(cr) {
+            config.coding_rate = cr;
+            console.log(`[Radio] Coding rate set to ${cr}`);
+            return 'ok';
+        },
+
+        // Set sync word
+        set_sync_word(sw) {
+            config.sync_word = sw;
+            console.log(`[Radio] Sync word set to 0x${sw.toString(16)}`);
+            return 'ok';
+        },
+
+        // Receive packet (returns data, rssi, snr)
+        receive() {
+            // No packets to receive in simulator
+            return null;
         },
     };
 

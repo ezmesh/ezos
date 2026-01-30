@@ -154,6 +154,81 @@
             color: #00ff88;
             font-size: 14px;
         }
+
+        /* Virtual Keyboard Styles */
+        .keyboard {
+            background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
+            border-radius: 12px;
+            padding: 8px;
+            margin-top: 10px;
+            user-select: none;
+            width: 320px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+
+        .keyboard-row {
+            display: flex;
+            justify-content: center;
+            gap: 3px;
+            margin-bottom: 3px;
+        }
+
+        .keyboard-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .key {
+            background: linear-gradient(180deg, #3a3a3a, #252525);
+            border: 1px solid #1a1a1a;
+            border-radius: 5px;
+            min-width: 26px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 12px;
+            font-weight: 500;
+            color: #ddd;
+            text-shadow: 0 -1px 0 rgba(0,0,0,0.5);
+            box-shadow: 0 2px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+            transition: all 0.08s ease;
+        }
+
+        .key:hover {
+            background: linear-gradient(180deg, #454545, #303030);
+            color: #fff;
+        }
+
+        .key:active, .key.pressed {
+            background: linear-gradient(180deg, #252525, #1a1a1a);
+            box-shadow: 0 1px 1px rgba(0,0,0,0.3), inset 0 1px 2px rgba(0,0,0,0.3);
+            transform: translateY(1px);
+        }
+
+        .key.special {
+            background: linear-gradient(180deg, #2a2a2a, #1a1a1a);
+            font-size: 10px;
+            color: #888;
+        }
+
+        .key.special:hover {
+            background: linear-gradient(180deg, #353535, #252525);
+            color: #aaa;
+        }
+
+        .key.space {
+            flex: 1;
+            max-width: 140px;
+        }
+
+        .key .sub {
+            font-size: 8px;
+            color: #666;
+            margin-left: 2px;
+            vertical-align: super;
+        }
     </style>
 </head>
 <body>
@@ -168,10 +243,57 @@
                 <button id="btn-pause" disabled>Pause</button>
             </div>
             <div class="keyboard-hint">
-                Click canvas to focus. Use keyboard for input.<br>
+                Click canvas or keyboard below. Physical keyboard also works.<br>
                 <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> Arrow keys |
                 <kbd>Enter</kbd> Select |
                 <kbd>Esc</kbd> Back
+            </div>
+
+            <!-- Virtual T-Deck Keyboard -->
+            <div class="keyboard" id="virtual-keyboard">
+                <div class="keyboard-row">
+                    <div class="key" data-key="q">Q<span class="sub">1</span></div>
+                    <div class="key" data-key="w">W<span class="sub">2</span></div>
+                    <div class="key" data-key="e">E<span class="sub">3</span></div>
+                    <div class="key" data-key="r">R<span class="sub">4</span></div>
+                    <div class="key" data-key="t">T<span class="sub">5</span></div>
+                    <div class="key" data-key="y">Y<span class="sub">6</span></div>
+                    <div class="key" data-key="u">U<span class="sub">7</span></div>
+                    <div class="key" data-key="i">I<span class="sub">8</span></div>
+                    <div class="key" data-key="o">O<span class="sub">9</span></div>
+                    <div class="key" data-key="p">P<span class="sub">0</span></div>
+                </div>
+                <div class="keyboard-row">
+                    <div class="key" data-key="a">A<span class="sub">#</span></div>
+                    <div class="key" data-key="s">S<span class="sub">-</span></div>
+                    <div class="key" data-key="d">D<span class="sub">(</span></div>
+                    <div class="key" data-key="f">F<span class="sub">)</span></div>
+                    <div class="key" data-key="g">G<span class="sub">_</span></div>
+                    <div class="key" data-key="h">H<span class="sub">:</span></div>
+                    <div class="key" data-key="j">J<span class="sub">;</span></div>
+                    <div class="key" data-key="k">K<span class="sub">'</span></div>
+                    <div class="key" data-key="l">L<span class="sub">"</span></div>
+                    <div class="key special" data-key="Backspace">⌫</div>
+                </div>
+                <div class="keyboard-row">
+                    <div class="key special" data-key="Alt" data-modifier="alt">alt</div>
+                    <div class="key" data-key="z">Z<span class="sub">+</span></div>
+                    <div class="key" data-key="x">X<span class="sub">×</span></div>
+                    <div class="key" data-key="c">C<span class="sub">=</span></div>
+                    <div class="key" data-key="v">V<span class="sub">/</span></div>
+                    <div class="key" data-key="b">B<span class="sub">!</span></div>
+                    <div class="key" data-key="n">N<span class="sub">?</span></div>
+                    <div class="key" data-key="m">M<span class="sub">,</span></div>
+                    <div class="key" data-key="$">$</div>
+                </div>
+                <div class="keyboard-row">
+                    <div class="key special" data-key="Shift" data-modifier="shift">⇧</div>
+                    <div class="key special" data-key="mic">🎤</div>
+                    <div class="key special" data-key="Tab" data-modifier="sym">sym</div>
+                    <div class="key space" data-key=" ">―</div>
+                    <div class="key special" data-key="Shift" data-modifier="shift">⇧</div>
+                    <div class="key special" data-key="Enter">↵</div>
+                </div>
             </div>
         </div>
 
@@ -187,6 +309,8 @@
         </div>
     </div>
 
+    <!-- Wasmoon Lua interpreter (loaded as UMD, exposes global 'wasmoon') -->
+    <script src="./node_modules/wasmoon/dist/index.js"></script>
     <script type="module" src="./simulator.js"></script>
 </body>
 </html>

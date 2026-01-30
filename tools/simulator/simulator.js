@@ -1,15 +1,16 @@
 /**
  * T-Deck OS Browser Simulator
- * Runs Lua scripts using Wasmoon with mocked tdeck.* API
+ * Runs Lua scripts using Wasmoon (Lua 5.4 via WebAssembly)
  */
 
-import { LuaFactory } from 'https://cdn.jsdelivr.net/npm/wasmoon@1.16.0/+esm';
+// Wasmoon is loaded via script tag in index.html (UMD build exposes window.wasmoon)
+const { LuaFactory } = window.wasmoon;
 
 // Import mock modules
-import { createDisplayModule } from './mock/display.js';
+import { createDisplayModule, loadFonts } from './mock/display.js';
 import { createKeyboardModule } from './mock/keyboard.js';
 import { createSystemModule } from './mock/system.js';
-import { createStorageModule } from './mock/storage.js';
+import { createStorageModule, preloadBinaryFiles } from './mock/storage.js';
 import { createMeshModule } from './mock/mesh.js';
 import { createRadioModule } from './mock/radio.js';
 import { createAudioModule } from './mock/audio.js';
@@ -31,6 +32,9 @@ let running = false;
 let paused = false;
 let frameCount = 0;
 let lastFrameTime = 0;
+let hasError = false;
+let lastError = null;
+let keyboardModule = null;  // Reference to keyboard module for virtual keyboard
 
 // Console logging
 function log(msg, type = 'log') {
@@ -62,12 +66,11 @@ const scriptCache = new Map();
 let scriptBasePath = null;
 
 async function detectBasePath() {
-    // Try different possible paths based on where the server is run from
     const possiblePaths = [
-        './data/scripts/',           // Server run from project root
-        '../data/scripts/',          // Server run from tools/
-        '../../data/scripts/',       // Server run from tools/simulator/
-        '/data/scripts/',            // Absolute path from root
+        './data/scripts/',
+        '../data/scripts/',
+        '../../data/scripts/',
+        '/data/scripts/',
     ];
 
     for (const basePath of possiblePaths) {
@@ -86,12 +89,10 @@ async function detectBasePath() {
 }
 
 async function loadScript(path) {
-    // Detect base path on first call
     if (!scriptBasePath) {
         scriptBasePath = await detectBasePath();
     }
 
-    // Normalize path - remove /scripts/ prefix if present
     let normalizedPath = path;
     if (path.startsWith('/scripts/')) {
         normalizedPath = path.substring(9);
@@ -102,13 +103,14 @@ async function loadScript(path) {
     }
 
     try {
-        const response = await fetch(`${scriptBasePath}${normalizedPath}`);
+        // Add cache-busting parameter to avoid browser caching issues during development
+        const cacheBuster = `?t=${Date.now()}`;
+        const response = await fetch(`${scriptBasePath}${normalizedPath}${cacheBuster}`);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
         const content = await response.text();
         scriptCache.set(normalizedPath, content);
-        log(`Loaded: ${normalizedPath}`, 'info');
         return content;
     } catch (e) {
         log(`Failed to load: ${path} - ${e.message}`, 'error');
@@ -116,7 +118,6 @@ async function loadScript(path) {
     }
 }
 
-// Get script from cache synchronously (for Lua dofile)
 function getScriptSync(path) {
     let normalizedPath = path;
     if (path.startsWith('/scripts/')) {
@@ -138,6 +139,7 @@ async function preloadScripts() {
         'services/direct_messages.lua',
         'services/status_services.lua',
         'services/screen_timeout.lua',
+        'services/channels.lua',
         'ui/overlays.lua',
         'ui/status_bar.lua',
         'ui/title_bar.lua',
@@ -149,7 +151,6 @@ async function preloadScripts() {
         'ui/text_utils.lua',
         'ui/splash.lua',
         'ui/sound_utils.lua',
-        'services/channels.lua',
         'ui/screens/main_menu.lua',
         'ui/screens/app_menu.lua',
         'ui/screens/settings.lua',
@@ -192,6 +193,7 @@ async function preloadScripts() {
         'ui/screens/set_clock.lua',
         'ui/screens/packets.lua',
         'ui/screens/test_icon.lua',
+        'ui/screens/testing_menu.lua',
     ];
 
     log(`Preloading ${scripts.length} scripts...`, 'info');
@@ -213,10 +215,26 @@ async function preloadScripts() {
 
 // Initialize Lua environment
 async function initLua() {
-    setStatus('Loading Wasmoon...', 'loading');
+    setStatus('Loading fonts...', 'loading');
 
+    // Load bitmap fonts from C++ headers
+    await loadFonts();
+    log('Bitmap fonts loaded', 'info');
+
+    setStatus('Loading binary files...', 'loading');
+
+    // Preload binary files (maps, etc.)
+    await preloadBinaryFiles();
+    log('Binary files loaded', 'info');
+
+    setStatus('Loading Wasmoon (Lua 5.4)...', 'loading');
+
+    // Create Lua factory and instance
     const factory = new LuaFactory();
-    lua = await factory.createEngine();
+    lua = await factory.createEngine({
+        // Disable automatic Promise handling - we'll handle it manually
+        injectObjects: true,
+    });
 
     setStatus('Setting up API...', 'loading');
 
@@ -225,106 +243,143 @@ async function initLua() {
     const keyboard = createKeyboardModule(canvas, (key) => {
         lastKeyEl.textContent = key.character || key.special || '-';
     });
+    keyboardModule = keyboard;  // Store reference for virtual keyboard
     const system = createSystemModule(log);
     const storage = createStorageModule();
     const mesh = createMeshModule();
     const radio = createRadioModule();
     const audio = createAudioModule();
     const gps = createGpsModule();
-    const crypto = createCryptoModule();
+    const cryptoMod = createCryptoModule();
 
-    // Create tdeck namespace with all modules
-    // Wasmoon works best when setting entire objects at once
-    lua.global.set('tdeck', {
-        display: display,
-        keyboard: keyboard,
-        system: system,
-        storage: storage,
-        mesh: mesh,
-        radio: radio,
-        audio: audio,
-        gps: gps,
-        crypto: crypto,
-    });
+    // Set up modules as top-level globals first
+    lua.global.set('_display', display);
+    lua.global.set('_keyboard', keyboard);
+    lua.global.set('_system', system);
+    lua.global.set('_storage', storage);
+    lua.global.set('_mesh', mesh);
+    lua.global.set('_radio', radio);
+    lua.global.set('_audio', audio);
+    lua.global.set('_gps', gps);
+    lua.global.set('_crypto', cryptoMod);
 
-    // Global aliases for convenience (some scripts use both patterns)
-    lua.global.set('display', display);
-    lua.global.set('keyboard', keyboard);
-    lua.global.set('system', system);
-    lua.global.set('storage', storage);
-    lua.global.set('mesh', mesh);
-    lua.global.set('radio', radio);
-    lua.global.set('audio', audio);
-    lua.global.set('gps', gps);
+    // Create the tdeck namespace in Lua to avoid JS object nesting issues
+    await lua.doString(`
+        tdeck = {
+            display = _display,
+            keyboard = _keyboard,
+            system = _system,
+            storage = _storage,
+            mesh = _mesh,
+            radio = _radio,
+            audio = _audio,
+            gps = _gps,
+            crypto = _crypto,
+        }
+        -- Also set global aliases
+        display = _display
+        keyboard = _keyboard
+        system = _system
+        storage = _storage
+        mesh = _mesh
+        radio = _radio
+        audio = _audio
+        gps = _gps
+        -- Clean up temp globals
+        _display = nil
+        _keyboard = nil
+        _system = nil
+        _storage = nil
+        _mesh = nil
+        _radio = nil
+        _audio = nil
+        _gps = nil
+        _crypto = nil
+    `);
 
-    // Synchronous script loader (scripts must be preloaded)
-    lua.global.set('__get_script', (path) => {
-        return getScriptSync(path);
-    });
-
-    // Global print function
-    lua.global.set('print', (...args) => {
-        log(args.map(a => String(a)).join('\t'), 'log');
-    });
-
-    // async_read - synchronous for preloaded scripts, async for other files
-    // In browser simulator, scripts are preloaded so we return from cache immediately
-    // For other files, we also return synchronously from localStorage/IndexedDB cache
-    // IMPORTANT: Must always return a string or null, never undefined
-    // Flag to indicate we're in the simulator (enables synchronous mode)
+    // Simulator flag
     lua.global.set('__SIMULATOR__', true);
 
-    const asyncRead = (path) => {
-        try {
-            // For scripts, use synchronous cache lookup
-            if (path.startsWith('/scripts/')) {
-                const content = getScriptSync(path);
-                if (content === null || content === undefined) {
-                    log(`Script not preloaded: ${path}`, 'error');
-                    return null;
-                }
-                return content;
+    // async_read function
+    lua.global.set('async_read', (path) => {
+        if (path.startsWith('/scripts/')) {
+            const content = getScriptSync(path);
+            if (!content) {
+                log(`Script not preloaded: ${path}`, 'error');
+                return null;
             }
-            // For other files, use storage module's sync read
-            // (In real device this would be async, but browser sim uses localStorage)
-            const result = storage.read(path);
-            return result === undefined ? null : result;
+            return content;
+        }
+        return storage.read(path);
+    });
+
+    // Other async functions (synchronous in simulator)
+    lua.global.set('async_write', (path, data) => storage.write(path, data));
+    lua.global.set('async_exists', (path) => storage.exists(path));
+    lua.global.set('async_read_bytes', (path, offset, len) => {
+        // Use storage.read_bytes which handles both binary files and localStorage
+        try {
+            const result = storage.read_bytes(path, offset, len);
+            // Ensure we return undefined (not null) for Lua nil conversion
+            if (result === null || result === undefined) {
+                return undefined;
+            }
+            return result;
         } catch (e) {
-            log(`async_read error for ${path}: ${e.message}`, 'error');
-            return null;
+            console.error(`[Storage] async_read_bytes error: ${e.message}`);
+            return undefined;
         }
-    };
-    lua.global.set('async_read', asyncRead);
-
-    lua.global.set('async_write', async (path, data) => {
-        return await storage.write_file(path, data);
     });
 
-    lua.global.set('async_exists', async (path) => {
-        return await storage.exists(path);
-    });
+    // RLE decompression for map tiles
+    // Format: 0xFF <count> <value> = repeat value count times, otherwise literal byte
+    // Returns array of byte values (to avoid null-byte truncation in Wasmoon)
+    lua.global.set('async_rle_read', (path, offset, len) => {
+        const compressed = storage.read_bytes(path, offset, len);
+        if (!compressed) return undefined;  // undefined -> nil in Lua
 
-    lua.global.set('async_read_bytes', async (path, offset, len) => {
-        const content = await storage.read_file(path);
-        if (content) {
-            return content.substring(offset, offset + len);
+        // compressed is now an array of byte values
+
+        // First pass: calculate output size
+        let outputSize = 0;
+        let i = 0;
+        while (i < compressed.length) {
+            if (compressed[i] === 0xFF && i + 2 < compressed.length) {
+                outputSize += compressed[i + 1];
+                i += 3;
+            } else {
+                outputSize++;
+                i++;
+            }
         }
-        return null;
-    });
 
-    lua.global.set('async_append', async (path, data) => {
-        return await storage.append_file(path, data);
-    });
+        // Second pass: decompress into array
+        const output = [];
+        i = 0;
+        while (i < compressed.length) {
+            if (compressed[i] === 0xFF && i + 2 < compressed.length) {
+                const count = compressed[i + 1];
+                const value = compressed[i + 2];
+                for (let j = 0; j < count; j++) {
+                    output.push(value);
+                }
+                i += 3;
+            } else {
+                output.push(compressed[i]);
+                i++;
+            }
+        }
 
-    lua.global.set('async_json_read', async (path) => {
-        return await storage.read_file(path);
+        return output;
     });
-
-    lua.global.set('async_json_write', async (path, data) => {
-        return await storage.write_file(path, data);
+    lua.global.set('async_append', (path, data) => {
+        const existing = storage.read(path) || '';
+        return storage.write(path, existing + data);
     });
+    lua.global.set('async_json_read', (path) => storage.read(path));
+    lua.global.set('async_json_write', (path, data) => storage.write(path, data));
 
-    // JSON helper functions
+    // JSON helpers
     lua.global.set('json_encode', (value) => {
         try {
             return JSON.stringify(value);
@@ -341,7 +396,12 @@ async function initLua() {
         }
     });
 
-    log('Lua environment initialized', 'info');
+    // Global print
+    lua.global.set('print', (...args) => {
+        log(args.map(a => String(a)).join('\t'), 'log');
+    });
+
+    log('Lua environment initialized (Wasmoon)', 'info');
     return true;
 }
 
@@ -350,7 +410,6 @@ async function boot() {
     setStatus('Preloading scripts...', 'loading');
 
     try {
-        // Preload all scripts first so dofile works synchronously
         await preloadScripts();
 
         const bootScript = getScriptSync('boot.lua');
@@ -373,19 +432,81 @@ async function boot() {
         log(`Boot failed: ${e.message}`, 'error');
         console.error(e);
         setStatus(`Error: ${e.message}`, 'error');
+        hasError = true;
+        lastError = e.message;
+        showErrorScreen(e.message);
     }
 }
 
+// Display error screen on canvas
+function showErrorScreen(errorMessage) {
+    ctx.fillStyle = '#1a0000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Red border
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+
+    // Title
+    ctx.fillStyle = '#ff4444';
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('RUNTIME ERROR', canvas.width / 2, 30);
+
+    // Error message with word wrap
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'left';
+
+    const maxWidth = canvas.width - 20;
+    const lineHeight = 16;
+    let y = 60;
+
+    // Simple word wrap
+    const words = errorMessage.split(/\s+/);
+    let line = '';
+    for (const word of words) {
+        const testLine = line + (line ? ' ' : '') + word;
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && line) {
+            ctx.fillText(line, 10, y);
+            line = word;
+            y += lineHeight;
+            if (y > canvas.height - 40) break;
+        } else {
+            line = testLine;
+        }
+    }
+    if (line && y <= canvas.height - 40) {
+        ctx.fillText(line, 10, y);
+    }
+
+    // Footer
+    ctx.fillStyle = '#888888';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Press Restart to reload', canvas.width / 2, canvas.height - 15);
+    ctx.textAlign = 'left';
+}
+
 // Main loop - calls Lua main_loop() each frame
-function mainLoop(timestamp) {
+async function mainLoop(timestamp) {
     if (!running) return;
+
+    // Stop loop if we had an error
+    if (hasError) {
+        showErrorScreen(lastError);
+        setStatus(`Error: ${lastError.substring(0, 50)}...`, 'error');
+        return;
+    }
 
     if (paused) {
         requestAnimationFrame(mainLoop);
         return;
     }
 
-    // Throttle to ~30fps for performance
+    // Throttle to ~30fps
     if (timestamp - lastFrameTime < 33) {
         requestAnimationFrame(mainLoop);
         return;
@@ -396,7 +517,7 @@ function mainLoop(timestamp) {
         // Call the global main_loop function if it exists
         const mainLoopFn = lua.global.get('main_loop');
         if (typeof mainLoopFn === 'function') {
-            mainLoopFn();
+            await mainLoopFn();
         }
 
         frameCount++;
@@ -404,7 +525,11 @@ function mainLoop(timestamp) {
     } catch (e) {
         log(`Runtime error: ${e.message}`, 'error');
         console.error(e);
-        // Continue running despite errors
+        hasError = true;
+        lastError = e.message;
+        showErrorScreen(e.message);
+        setStatus(`Error: ${e.message.substring(0, 50)}...`, 'error');
+        return;  // Stop the loop
     }
 
     requestAnimationFrame(mainLoop);
@@ -415,20 +540,16 @@ btnRestart.addEventListener('click', async () => {
     running = false;
     paused = false;
     frameCount = 0;
+    hasError = false;
+    lastError = null;
     btnPause.textContent = 'Pause';
     btnPause.disabled = true;
 
-    // Clear canvas
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Clear console
     consoleEl.innerHTML = '';
-
-    // Clear script cache to force reload
     scriptCache.clear();
 
-    // Reinitialize
     log('Restarting simulator...', 'info');
     await initLua();
     await boot();
@@ -440,23 +561,41 @@ btnPause.addEventListener('click', () => {
     setStatus(paused ? 'Paused' : 'Running', paused ? 'loading' : 'running');
 });
 
-// Focus canvas on click
 canvas.addEventListener('click', () => {
     canvas.focus();
 });
 
-// Make canvas focusable
 canvas.tabIndex = 0;
+
+// Virtual keyboard handling
+const virtualKeyboard = document.getElementById('virtual-keyboard');
+if (virtualKeyboard) {
+    virtualKeyboard.addEventListener('click', (e) => {
+        const keyEl = e.target.closest('.key');
+        if (!keyEl || !keyboardModule) return;
+
+        const keyStr = keyEl.dataset.key;
+        if (!keyStr) return;
+
+        // Visual feedback
+        keyEl.classList.add('pressed');
+        setTimeout(() => keyEl.classList.remove('pressed'), 100);
+
+        // Inject the key
+        keyboardModule.injectKey(keyStr);
+
+        // Keep canvas focused
+        canvas.focus();
+    });
+}
 
 // Initialize on page load
 async function init() {
-    log('T-Deck OS Simulator starting...', 'info');
+    log('T-Deck OS Simulator starting (Wasmoon - Lua 5.4)...', 'info');
 
-    // Clear canvas to black
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Show loading message on canvas
     ctx.fillStyle = '#00d4ff';
     ctx.font = '16px monospace';
     ctx.textAlign = 'center';

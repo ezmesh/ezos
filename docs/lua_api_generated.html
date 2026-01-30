@@ -31,11 +31,11 @@
 <div class="toc">
 <strong>Modules:</strong><br>
 <a href="#audio">tdeck.audio</a>
+<a href="#crypto">tdeck.crypto</a>
 <a href="#display">tdeck.display</a>
 <a href="#keyboard">tdeck.keyboard</a>
 <a href="#mesh">tdeck.mesh</a>
 <a href="#radio">tdeck.radio</a>
-<a href="#screen">tdeck.screen</a>
 <a href="#storage">tdeck.storage</a>
 <a href="#system">tdeck.system</a>
 </div>
@@ -51,9 +51,22 @@
 </ul></div>
 </div>
 <div class="func">
+<div class="sig">tdeck.audio.get_volume() -&gt; integer</div>
+<div class="desc">Get current volume level</div>
+<div><strong>Returns:</strong> Volume level 0-100</div>
+</div>
+<div class="func">
 <div class="sig">tdeck.audio.is_playing() -&gt; boolean</div>
 <div class="desc">Check if audio is playing</div>
 <div><strong>Returns:</strong> true if playing</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.audio.play_sample(filename) -&gt; boolean</div>
+<div class="desc">Play a PCM sample file from LittleFS</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>filename</code>: Path to .pcm file (16-bit signed, 22050Hz mono)</li>
+</ul></div>
+<div><strong>Returns:</strong> true if played successfully</div>
 </div>
 <div class="func">
 <div class="sig">tdeck.audio.play_tone(frequency, duration_ms) -&gt; boolean</div>
@@ -73,12 +86,124 @@
 <div><strong>Returns:</strong> true if valid frequency</div>
 </div>
 <div class="func">
+<div class="sig">tdeck.audio.set_volume(level)</div>
+<div class="desc">Set audio volume level</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>level</code>: Volume level 0-100</li>
+</ul></div>
+</div>
+<div class="func">
 <div class="sig">tdeck.audio.start()</div>
 <div class="desc">Start continuous tone at current frequency</div>
 </div>
 <div class="func">
 <div class="sig">tdeck.audio.stop()</div>
 <div class="desc">Stop audio playback</div>
+</div>
+<h2 id="crypto">tdeck.crypto</h2>
+<div class="func">
+<div class="sig">tdeck.crypto.aes128_ecb_decrypt(key, ciphertext) -&gt; string</div>
+<div class="desc">Decrypt data with AES-128-ECB</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>key</code>: 16-byte key</li>
+<li><code>ciphertext</code>: Data to decrypt (must be multiple of 16 bytes)</li>
+</ul></div>
+<div><strong>Returns:</strong> Decrypted data as binary string (with padding zeros)</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.crypto.aes128_ecb_encrypt(key, plaintext) -&gt; string</div>
+<div class="desc">Encrypt data with AES-128-ECB</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>key</code>: 16-byte key</li>
+<li><code>plaintext</code>: Data to encrypt (will be zero-padded to block boundary)</li>
+</ul></div>
+<div><strong>Returns:</strong> Encrypted data as binary string</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.crypto.base64_decode(encoded) -&gt; string</div>
+<div class="desc">Decode base64 string to binary data</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>encoded</code>: Base64 encoded string</li>
+</ul></div>
+<div><strong>Returns:</strong> Binary string, or nil on error</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.crypto.base64_encode(data) -&gt; string</div>
+<div class="desc">Encode binary data to base64 string</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>data</code>: Binary string to encode</li>
+</ul></div>
+<div><strong>Returns:</strong> Base64 encoded string</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.crypto.bytes_to_hex(data) -&gt; string</div>
+<div class="desc">Convert binary data to hex string</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>data</code>: Binary string</li>
+</ul></div>
+<div><strong>Returns:</strong> Hex string (lowercase)</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.crypto.channel_hash(key) -&gt; integer</div>
+<div class="desc">Compute channel hash from key (SHA256(key)[0])</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>key</code>: 16-byte channel key</li>
+</ul></div>
+<div><strong>Returns:</strong> Single byte hash as integer (0-255)</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.crypto.derive_channel_key(input) -&gt; string</div>
+<div class="desc">Derive 16-byte channel key from password/name using SHA256</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>input</code>: Password or channel name string</li>
+</ul></div>
+<div><strong>Returns:</strong> 16-byte key as binary string</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.crypto.hex_to_bytes(hex) -&gt; string</div>
+<div class="desc">Convert hex string to binary data</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>hex</code>: Hex string (case-insensitive)</li>
+</ul></div>
+<div><strong>Returns:</strong> Binary string, or nil on error</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.crypto.hmac_sha256(key, data) -&gt; string</div>
+<div class="desc">Compute HMAC-SHA256</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>key</code>: Binary string key</li>
+<li><code>data</code>: Binary string to authenticate</li>
+</ul></div>
+<div><strong>Returns:</strong> 32-byte MAC as binary string</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.crypto.public_channel_key() -&gt; string</div>
+<div class="desc">Get the well-known #Public channel key</div>
+<div><strong>Returns:</strong> 16-byte key as binary string</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.crypto.random_bytes(count) -&gt; string</div>
+<div class="desc">Generate cryptographically secure random bytes</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>count</code>: Number of bytes to generate</li>
+</ul></div>
+<div><strong>Returns:</strong> Random bytes as binary string</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.crypto.sha256(data) -&gt; string</div>
+<div class="desc">Compute SHA-256 hash</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>data</code>: Binary string to hash</li>
+</ul></div>
+<div><strong>Returns:</strong> 32-byte hash as binary string</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.crypto.sha512(data) -&gt; string</div>
+<div class="desc">Compute SHA-512 hash</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>data</code>: Binary string to hash</li>
+</ul></div>
+<div><strong>Returns:</strong> 64-byte hash as binary string</div>
 </div>
 <h2 id="display">tdeck.display</h2>
 <div class="func">
@@ -103,6 +228,19 @@
 <li><code>width</code>: Bitmap width in pixels</li>
 <li><code>height</code>: Bitmap height in pixels</li>
 <li><code>data</code>: Raw RGB565 pixel data (2 bytes per pixel, big-endian)</li>
+</ul></div>
+</div>
+<div class="func">
+<div class="sig">tdeck.display.draw_bitmap_1bit(x, y, width, height, data, scale, color)</div>
+<div class="desc">Draw a 1-bit bitmap with scaling and colorization</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>x</code>: X position</li>
+<li><code>y</code>: Y position</li>
+<li><code>width</code>: Bitmap width in pixels (original size)</li>
+<li><code>height</code>: Bitmap height in pixels (original size)</li>
+<li><code>data</code>: Packed 1-bit data (MSB first, row by row)</li>
+<li><code>scale</code>: Scale factor (1, 2, 3, etc.) - optional, default 1</li>
+<li><code>color</code>: RGB565 color for &quot;on&quot; pixels - optional, default WHITE</li>
 </ul></div>
 </div>
 <div class="func">
@@ -141,6 +279,16 @@
 </ul></div>
 </div>
 <div class="func">
+<div class="sig">tdeck.display.draw_circle(x, y, r, color)</div>
+<div class="desc">Draw circle outline</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>x</code>: Center X position</li>
+<li><code>y</code>: Center Y position</li>
+<li><code>r</code>: Radius</li>
+<li><code>color</code>: Circle color (optional)</li>
+</ul></div>
+</div>
+<div class="func">
 <div class="sig">tdeck.display.draw_hline(x, y, w, left_connect, right_connect, color)</div>
 <div class="desc">Draw horizontal line with optional connectors</div>
 <div class="params"><strong>Parameters:</strong><ul>
@@ -149,6 +297,29 @@
 <li><code>w</code>: Width in character cells</li>
 <li><code>left_connect</code>: Connect to left border (optional)</li>
 <li><code>right_connect</code>: Connect to right border (optional)</li>
+<li><code>color</code>: Line color (optional)</li>
+</ul></div>
+</div>
+<div class="func">
+<div class="sig">tdeck.display.draw_indexed_bitmap(x, y, width, height, data, palette)</div>
+<div class="desc">Draw a 3-bit indexed bitmap using a color palette</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>x</code>: X position</li>
+<li><code>y</code>: Y position</li>
+<li><code>width</code>: Bitmap width in pixels</li>
+<li><code>height</code>: Bitmap height in pixels</li>
+<li><code>data</code>: Packed 3-bit pixel indices (8 pixels packed into 3 bytes)</li>
+<li><code>palette</code>: Table of 8 RGB565 color values</li>
+</ul></div>
+</div>
+<div class="func">
+<div class="sig">tdeck.display.draw_line(x1, y1, x2, y2, color)</div>
+<div class="desc">Draw a line between two points</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>x1</code>: Start X position</li>
+<li><code>y1</code>: Start Y position</li>
+<li><code>x2</code>: End X position</li>
+<li><code>y2</code>: End Y position</li>
 <li><code>color</code>: Line color (optional)</li>
 </ul></div>
 </div>
@@ -186,6 +357,10 @@
 </ul></div>
 </div>
 <div class="func">
+<div class="sig">tdeck.display.draw_round_rect(x, y, w, h, r, color)</div>
+<div class="desc">Draw rounded rectangle outline</div>
+</div>
+<div class="func">
 <div class="sig">tdeck.display.draw_signal(x, y, bars)</div>
 <div class="desc">Draw signal strength indicator</div>
 <div class="params"><strong>Parameters:</strong><ul>
@@ -214,6 +389,20 @@
 </ul></div>
 </div>
 <div class="func">
+<div class="sig">tdeck.display.draw_triangle(x1, y1, x2, y2, x3, y3, color)</div>
+<div class="desc">Draw triangle outline</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.display.fill_circle(x, y, r, color)</div>
+<div class="desc">Draw filled circle</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>x</code>: Center X position</li>
+<li><code>y</code>: Center Y position</li>
+<li><code>r</code>: Radius</li>
+<li><code>color</code>: Fill color (optional)</li>
+</ul></div>
+</div>
+<div class="func">
 <div class="sig">tdeck.display.fill_rect(x, y, w, h, color)</div>
 <div class="desc">Fill a rectangle with color</div>
 <div class="params"><strong>Parameters:</strong><ul>
@@ -223,6 +412,14 @@
 <li><code>h</code>: Height in pixels</li>
 <li><code>color</code>: Fill color (optional)</li>
 </ul></div>
+</div>
+<div class="func">
+<div class="sig">tdeck.display.fill_round_rect(x, y, w, h, r, color)</div>
+<div class="desc">Draw filled rounded rectangle</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.display.fill_triangle(x1, y1, x2, y2, x3, y3, color)</div>
+<div class="desc">Draw filled triangle</div>
 </div>
 <div class="func">
 <div class="sig">tdeck.display.flush()</div>
@@ -279,7 +476,7 @@
 <div class="sig">tdeck.display.set_font_size(size)</div>
 <div class="desc">Set font size</div>
 <div class="params"><strong>Parameters:</strong><ul>
-<li><code>size</code>: Font size string: &quot;small&quot;, &quot;medium&quot;, or &quot;large&quot;</li>
+<li><code>size</code>: Font size string: &quot;tiny&quot;, &quot;small&quot;, &quot;medium&quot;, or &quot;large&quot;</li>
 </ul></div>
 </div>
 <div class="func">
@@ -307,6 +504,36 @@
 <div><strong>Returns:</strong> Backlight level (0-255, 0 = off)</div>
 </div>
 <div class="func">
+<div class="sig">tdeck.keyboard.get_mode() -&gt; string</div>
+<div class="desc">Get current keyboard input mode</div>
+<div><strong>Returns:</strong> &quot;normal&quot; or &quot;raw&quot;</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.keyboard.get_raw_matrix_bits() -&gt; integer</div>
+<div class="desc">Get full matrix state as 64-bit integer (raw mode)</div>
+<div><strong>Returns:</strong> 49-bit value (7 cols × 7 rows), bits 0-6 = col 0, bits 7-13 = col 1, etc.</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.keyboard.get_repeat_delay() -&gt; integer</div>
+<div class="desc">Get initial delay before key repeat starts</div>
+<div><strong>Returns:</strong> Delay in milliseconds</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.keyboard.get_repeat_enabled() -&gt; boolean</div>
+<div class="desc">Check if key repeat is enabled</div>
+<div><strong>Returns:</strong> true if key repeat is enabled</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.keyboard.get_repeat_rate() -&gt; integer</div>
+<div class="desc">Get key repeat rate (interval between repeats)</div>
+<div><strong>Returns:</strong> Rate in milliseconds</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.keyboard.get_trackball_mode() -&gt; string</div>
+<div class="desc">Get current trackball input mode</div>
+<div><strong>Returns:</strong> &quot;polling&quot; or &quot;interrupt&quot;</div>
+</div>
+<div class="func">
 <div class="sig">tdeck.keyboard.get_trackball_sensitivity() -&gt; integer</div>
 <div class="desc">Get trackball sensitivity level</div>
 <div><strong>Returns:</strong> Sensitivity value</div>
@@ -332,6 +559,15 @@
 <div><strong>Returns:</strong> true if Fn is held</div>
 </div>
 <div class="func">
+<div class="sig">tdeck.keyboard.is_key_pressed(col, row) -&gt; boolean</div>
+<div class="desc">Check if a specific matrix key is pressed (raw mode)</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>col</code>: Column index (0-4)</li>
+<li><code>row</code>: Row index (0-6)</li>
+</ul></div>
+<div><strong>Returns:</strong> true if key is pressed</div>
+</div>
+<div class="func">
 <div class="sig">tdeck.keyboard.is_shift_held() -&gt; boolean</div>
 <div class="desc">Check if Shift is currently held</div>
 <div><strong>Returns:</strong> true if Shift is held</div>
@@ -350,6 +586,16 @@
 <div><strong>Returns:</strong> Key event table or nil on timeout</div>
 </div>
 <div class="func">
+<div class="sig">tdeck.keyboard.read_raw_code() -&gt; integer|nil</div>
+<div class="desc">Read raw key code byte directly from I2C (no translation)</div>
+<div><strong>Returns:</strong> Raw byte (0x00-0xFF) or nil if no key available</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.keyboard.read_raw_matrix() -&gt; table|nil</div>
+<div class="desc">Read raw key matrix state (only works in raw mode)</div>
+<div><strong>Returns:</strong> Table of 7 bytes (one per column, 7 bits = rows), or nil on error</div>
+</div>
+<div class="func">
 <div class="sig">tdeck.keyboard.set_adaptive_scrolling(enabled)</div>
 <div class="desc">Enable or disable adaptive scrolling</div>
 <div class="params"><strong>Parameters:</strong><ul>
@@ -364,6 +610,42 @@
 </ul></div>
 </div>
 <div class="func">
+<div class="sig">tdeck.keyboard.set_mode(mode) -&gt; boolean</div>
+<div class="desc">Set keyboard input mode</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>mode</code>: &quot;normal&quot; or &quot;raw&quot;</li>
+</ul></div>
+<div><strong>Returns:</strong> true if mode was set successfully</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.keyboard.set_repeat_delay(delay_ms)</div>
+<div class="desc">Set initial delay before key repeat starts</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>delay_ms</code>: Delay in milliseconds (typically 200-800)</li>
+</ul></div>
+</div>
+<div class="func">
+<div class="sig">tdeck.keyboard.set_repeat_enabled(enabled)</div>
+<div class="desc">Enable or disable key repeat</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>enabled</code>: true to enable, false to disable</li>
+</ul></div>
+</div>
+<div class="func">
+<div class="sig">tdeck.keyboard.set_repeat_rate(rate_ms)</div>
+<div class="desc">Set key repeat rate (interval between repeats)</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>rate_ms</code>: Rate in milliseconds (typically 20-100)</li>
+</ul></div>
+</div>
+<div class="func">
+<div class="sig">tdeck.keyboard.set_trackball_mode(mode)</div>
+<div class="desc">Set trackball input mode</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>mode</code>: &quot;polling&quot; or &quot;interrupt&quot;</li>
+</ul></div>
+</div>
+<div class="func">
 <div class="sig">tdeck.keyboard.set_trackball_sensitivity(value)</div>
 <div class="desc">Set trackball sensitivity level</div>
 <div class="params"><strong>Parameters:</strong><ul>
@@ -372,17 +654,56 @@
 </div>
 <h2 id="mesh">tdeck.mesh</h2>
 <div class="func">
-<div class="sig">tdeck.mesh.get_channel_messages(channel) -&gt; table</div>
-<div class="desc">Get messages for a channel</div>
+<div class="sig">tdeck.mesh.build_packet(route_type, payload_type, payload, path) -&gt; string|nil</div>
+<div class="desc">Build a raw mesh packet for transmission</div>
 <div class="params"><strong>Parameters:</strong><ul>
-<li><code>channel</code>: Optional channel filter</li>
+<li><code>route_type</code>: Route type constant (FLOOD=1, DIRECT=2)</li>
+<li><code>payload_type</code>: Payload type constant (ADVERT=4, GRP_TXT=5, etc.)</li>
+<li><code>payload</code>: Binary string payload</li>
+<li><code>path</code>: Optional binary string of path hashes (default: empty)</li>
 </ul></div>
-<div><strong>Returns:</strong> Array of message tables</div>
+<div><strong>Returns:</strong> Serialized packet as binary string, or nil on error</div>
 </div>
 <div class="func">
-<div class="sig">tdeck.mesh.get_channels() -&gt; table</div>
-<div class="desc">Get list of known channels</div>
-<div><strong>Returns:</strong> Array of channel tables with name, is_joined, is_encrypted</div>
+<div class="sig">tdeck.mesh.calc_shared_secret(other_pub_key) -&gt; string|nil</div>
+<div class="desc">Calculate ECDH shared secret with another node</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>other_pub_key</code>: 32-byte Ed25519 public key of the other party</li>
+</ul></div>
+<div><strong>Returns:</strong> 32-byte shared secret as binary string, or nil on error</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.clear_packet_queue()</div>
+<div class="desc">Clear all packets from the queue</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.clear_tx_queue()</div>
+<div class="desc">Clear all packets from transmit queue</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.ed25519_sign(data) -&gt; signature</div>
+<div class="desc">Sign data with this node&#x27;s private key</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>data</code>: Binary string to sign</li>
+</ul></div>
+<div><strong>Returns:</strong> 64-byte Ed25519 signature as binary string, or nil on error</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.ed25519_verify(data, signature, pub_key) -&gt; boolean</div>
+<div class="desc">Verify an Ed25519 signature</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>data</code>: Binary string that was signed</li>
+<li><code>signature</code>: 64-byte Ed25519 signature</li>
+<li><code>pub_key</code>: 32-byte Ed25519 public key</li>
+</ul></div>
+<div><strong>Returns:</strong> true if signature is valid</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.enable_packet_queue(enabled)</div>
+<div class="desc">Enable or disable packet queuing for polling</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>enabled</code>: Boolean to enable/disable</li>
+</ul></div>
 </div>
 <div class="func">
 <div class="sig">tdeck.mesh.get_node_count() -&gt; integer</div>
@@ -402,7 +723,27 @@
 <div class="func">
 <div class="sig">tdeck.mesh.get_nodes() -&gt; table</div>
 <div class="desc">Get list of discovered mesh nodes</div>
-<div><strong>Returns:</strong> Array of node tables with path_hash, name, rssi, snr, last_seen, hops</div>
+<div><strong>Returns:</strong> Array of node tables with path_hash, name, rssi, snr, last_seen, hops, pub_key_hex</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.get_path_check() -&gt; boolean</div>
+<div class="desc">Get current path check setting</div>
+<div><strong>Returns:</strong> true if path check is enabled</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.get_path_hash() -&gt; integer</div>
+<div class="desc">Get this node&#x27;s path hash (first byte of public key)</div>
+<div><strong>Returns:</strong> Path hash as integer (0-255)</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.get_public_key() -&gt; string</div>
+<div class="desc">Get this node&#x27;s public key as binary string</div>
+<div><strong>Returns:</strong> 32-byte Ed25519 public key</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.get_public_key_hex() -&gt; string</div>
+<div class="desc">Get this node&#x27;s public key as hex string</div>
+<div><strong>Returns:</strong> 64-character hex string</div>
 </div>
 <div class="func">
 <div class="sig">tdeck.mesh.get_rx_count() -&gt; integer</div>
@@ -420,12 +761,24 @@
 <div><strong>Returns:</strong> Transmit count</div>
 </div>
 <div class="func">
-<div class="sig">tdeck.mesh.is_in_channel(name) -&gt; boolean</div>
-<div class="desc">Check if joined to channel</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>name</code>: Channel name</li>
-</ul></div>
-<div><strong>Returns:</strong> true if member of channel</div>
+<div class="sig">tdeck.mesh.get_tx_queue_capacity() -&gt; integer</div>
+<div class="desc">Get maximum transmit queue capacity</div>
+<div><strong>Returns:</strong> Max queue size</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.get_tx_queue_size() -&gt; integer</div>
+<div class="desc">Get number of packets waiting in transmit queue</div>
+<div><strong>Returns:</strong> Queue size</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.get_tx_throttle() -&gt; integer</div>
+<div class="desc">Get current throttle interval</div>
+<div><strong>Returns:</strong> Milliseconds between transmissions</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.has_packets() -&gt; boolean</div>
+<div class="desc">Check if packets are available in the queue</div>
+<div><strong>Returns:</strong> true if one or more packets are queued</div>
 </div>
 <div class="func">
 <div class="sig">tdeck.mesh.is_initialized() -&gt; boolean</div>
@@ -433,34 +786,25 @@
 <div><strong>Returns:</strong> true if mesh is ready</div>
 </div>
 <div class="func">
-<div class="sig">tdeck.mesh.join_channel(name, password) -&gt; boolean</div>
-<div class="desc">Join or create a channel</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>name</code>: Channel name</li>
-<li><code>password</code>: Optional password for encryption</li>
-</ul></div>
-<div><strong>Returns:</strong> true if successful</div>
+<div class="sig">tdeck.mesh.is_tx_queue_full() -&gt; boolean</div>
+<div class="desc">Check if transmit queue is full</div>
+<div><strong>Returns:</strong> true if queue is full</div>
 </div>
 <div class="func">
-<div class="sig">tdeck.mesh.leave_channel(name) -&gt; boolean</div>
-<div class="desc">Leave a channel</div>
+<div class="sig">tdeck.mesh.make_header(route_type, payload_type, version) -&gt; integer</div>
+<div class="desc">Create a packet header byte from components</div>
 <div class="params"><strong>Parameters:</strong><ul>
-<li><code>name</code>: Channel name to leave</li>
+<li><code>route_type</code>: Route type constant</li>
+<li><code>payload_type</code>: Payload type constant</li>
+<li><code>version</code>: Optional version (default: 0)</li>
 </ul></div>
-<div><strong>Returns:</strong> true if successful</div>
+<div><strong>Returns:</strong> Header byte as integer</div>
 </div>
 <div class="func">
-<div class="sig">tdeck.mesh.mark_channel_read(channel)</div>
-<div class="desc">Mark channel messages as read</div>
+<div class="sig">tdeck.mesh.on_group_packet(callback)</div>
+<div class="desc">Set callback for raw group packets (before C++ decryption)</div>
 <div class="params"><strong>Parameters:</strong><ul>
-<li><code>channel</code>: Channel name</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.on_channel_message(callback)</div>
-<div class="desc">Set callback for incoming channel messages</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>callback</code>: Function(message_table) called on new message</li>
+<li><code>callback</code>: Function(packet_table) called with {channel_hash, data, sender_hash, rssi, snr}</li>
 </ul></div>
 </div>
 <div class="func">
@@ -471,16 +815,64 @@
 </ul></div>
 </div>
 <div class="func">
+<div class="sig">tdeck.mesh.on_packet(callback)</div>
+<div class="desc">Set callback for ALL incoming packets (called before C++ handling)</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>callback</code>: Function(packet_table) returning handled, rebroadcast booleans</li>
+</ul></div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.packet_count() -&gt; integer</div>
+<div class="desc">Get number of packets in queue</div>
+<div><strong>Returns:</strong> Number of queued packets</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.parse_header(header_byte) -&gt; route_type, payload_type, version</div>
+<div class="desc">Parse a packet header byte into components</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>header_byte</code>: Single byte header value</li>
+</ul></div>
+<div><strong>Returns:</strong> route_type, payload_type, version as integers</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.pop_packet() -&gt; table|nil</div>
+<div class="desc">Get and remove the next packet from queue</div>
+<div><strong>Returns:</strong> Packet table or nil if queue is empty</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.queue_send(data) -&gt; boolean</div>
+<div class="desc">Queue packet for transmission (throttled, non-blocking)</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>data</code>: Binary string of serialized packet</li>
+</ul></div>
+<div><strong>Returns:</strong> true if queued successfully, false if queue full or error</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.schedule_rebroadcast(data)</div>
+<div class="desc">Schedule raw packet data for rebroadcast</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>data</code>: Binary string of raw packet bytes</li>
+</ul></div>
+</div>
+<div class="func">
 <div class="sig">tdeck.mesh.send_announce() -&gt; boolean</div>
 <div class="desc">Broadcast node announcement</div>
 <div><strong>Returns:</strong> true if sent successfully</div>
 </div>
 <div class="func">
-<div class="sig">tdeck.mesh.send_channel_message(channel, text) -&gt; boolean</div>
-<div class="desc">Send message to a channel</div>
+<div class="sig">tdeck.mesh.send_group_packet(channel_hash, encrypted_data) -&gt; boolean</div>
+<div class="desc">Send raw encrypted group packet</div>
 <div class="params"><strong>Parameters:</strong><ul>
-<li><code>channel</code>: Channel name</li>
-<li><code>text</code>: Message text</li>
+<li><code>channel_hash</code>: Single byte channel identifier</li>
+<li><code>encrypted_data</code>: Pre-encrypted payload (MAC + ciphertext)</li>
+</ul></div>
+<div><strong>Returns:</strong> true if sent successfully</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.send_raw(data) -&gt; boolean</div>
+<div class="desc">Send raw packet data directly via radio (bypasses queue, immediate)</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>data</code>: Binary string of serialized packet</li>
 </ul></div>
 <div><strong>Returns:</strong> true if sent successfully</div>
 </div>
@@ -491,6 +883,24 @@
 <li><code>name</code>: New node name</li>
 </ul></div>
 <div><strong>Returns:</strong> true if successful</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.set_path_check(enabled)</div>
+<div class="desc">Enable or disable path check for flood routing</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>enabled</code>: Boolean - when true, packets with our hash in path are skipped</li>
+</ul></div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.set_tx_throttle(ms)</div>
+<div class="desc">Set minimum interval between transmissions</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>ms</code>: Milliseconds between transmissions (default 100)</li>
+</ul></div>
+</div>
+<div class="func">
+<div class="sig">tdeck.mesh.update()</div>
+<div class="desc">Process incoming mesh packets</div>
 </div>
 <h2 id="radio">tdeck.radio</h2>
 <div class="func">
@@ -609,75 +1019,6 @@
 <div class="desc">Wake radio from sleep</div>
 <div><strong>Returns:</strong> Result string</div>
 </div>
-<h2 id="screen">tdeck.screen</h2>
-<div class="func">
-<div class="sig">tdeck.screen.get_status() -&gt; table</div>
-<div class="desc">Get current status bar info</div>
-<div><strong>Returns:</strong> Table with battery, radio_ok, signal_bars, node_count, has_unread, node_id</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.screen.invalidate()</div>
-<div class="desc">Mark screen for redraw</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.screen.is_empty() -&gt; boolean</div>
-<div class="desc">Check if screen stack is empty</div>
-<div><strong>Returns:</strong> true if no screens on stack</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.screen.pop()</div>
-<div class="desc">Pop current screen and return to previous</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.screen.push(screen)</div>
-<div class="desc">Push a new screen onto the stack</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>screen</code>: Screen table with render/handle_key methods</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.screen.replace(screen)</div>
-<div class="desc">Replace current screen without stack growth</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>screen</code>: Screen table with render/handle_key methods</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.screen.set_battery(percent)</div>
-<div class="desc">Update status bar battery indicator</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>percent</code>: Battery percentage (0-100)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.screen.set_node_count(count)</div>
-<div class="desc">Update status bar node count</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>count</code>: Number of known mesh nodes</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.screen.set_node_id(short_id)</div>
-<div class="desc">Update status bar node ID display</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>short_id</code>: Short node ID string</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.screen.set_radio(ok, bars)</div>
-<div class="desc">Update status bar radio indicator</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>ok</code>: true if radio is working</li>
-<li><code>bars</code>: Signal strength (0-4 bars)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.screen.set_unread(has_unread)</div>
-<div class="desc">Update status bar unread indicator</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>has_unread</code>: true if there are unread messages</li>
-</ul></div>
-</div>
 <h2 id="storage">tdeck.storage</h2>
 <div class="func">
 <div class="sig">tdeck.storage.append_file(path, content) -&gt; boolean</div>
@@ -700,6 +1041,14 @@
 <li><code>path</code>: Path to check</li>
 </ul></div>
 <div><strong>Returns:</strong> true if exists</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.storage.file_size(path) -&gt; integer</div>
+<div class="desc">Get file size in bytes</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>path</code>: File path (prefix /sd/ for SD card)</li>
+</ul></div>
+<div><strong>Returns:</strong> File size or nil with error message</div>
 </div>
 <div class="func">
 <div class="sig">tdeck.storage.get_flash_info() -&gt; table</div>
@@ -726,6 +1075,22 @@
 <div><strong>Returns:</strong> true if SD card available</div>
 </div>
 <div class="func">
+<div class="sig">tdeck.storage.json_decode(json_string) -&gt; value</div>
+<div class="desc">Decode JSON string to Lua value</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>json_string</code>: JSON string</li>
+</ul></div>
+<div><strong>Returns:</strong> Lua value or nil on error</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.storage.json_encode(value) -&gt; string</div>
+<div class="desc">Encode Lua value to JSON string</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>value</code>: Lua table, string, number, boolean, or nil</li>
+</ul></div>
+<div><strong>Returns:</strong> JSON string or nil on error</div>
+</div>
+<div class="func">
 <div class="sig">tdeck.storage.list_dir(path) -&gt; table</div>
 <div class="desc">List directory contents</div>
 <div class="params"><strong>Parameters:</strong><ul>
@@ -740,6 +1105,16 @@
 <li><code>path</code>: Directory path</li>
 </ul></div>
 <div><strong>Returns:</strong> true if created</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.storage.read_bytes(path, offset, length) -&gt; string</div>
+<div class="desc">Read bytes from file at specific offset (for random access)</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>path</code>: File path (prefix /sd/ for SD card)</li>
+<li><code>offset</code>: Byte offset to start reading from</li>
+<li><code>length</code>: Number of bytes to read</li>
+</ul></div>
+<div><strong>Returns:</strong> Binary data as string, or nil with error message</div>
 </div>
 <div class="func">
 <div class="sig">tdeck.storage.read_file(path) -&gt; string</div>
@@ -848,6 +1223,11 @@
 <div><strong>Returns:</strong> Estimated battery voltage in volts</div>
 </div>
 <div class="func">
+<div class="sig">tdeck.system.get_firmware_info() -&gt; table</div>
+<div class="desc">Get firmware partition info</div>
+<div><strong>Returns:</strong> Table with partition_size, app_size, free_bytes</div>
+</div>
+<div class="func">
 <div class="sig">tdeck.system.get_free_heap() -&gt; integer</div>
 <div class="desc">Get free internal RAM</div>
 <div><strong>Returns:</strong> Free heap memory in bytes</div>
@@ -866,6 +1246,21 @@
 <div class="sig">tdeck.system.get_lua_memory() -&gt; integer</div>
 <div class="desc">Get memory used by Lua runtime</div>
 <div><strong>Returns:</strong> Memory usage in bytes</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.system.get_time() -&gt; table|nil</div>
+<div class="desc">Get current wall clock time</div>
+<div><strong>Returns:</strong> Table with hour, minute, second, or nil if time not set</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.system.get_time_unix() -&gt; integer</div>
+<div class="desc">Get current Unix timestamp</div>
+<div><strong>Returns:</strong> Unix timestamp (seconds since 1970-01-01), or 0 if time not set</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.system.get_timezone() -&gt; integer</div>
+<div class="desc">Get current timezone UTC offset in hours</div>
+<div><strong>Returns:</strong> UTC offset in hours</div>
 </div>
 <div class="func">
 <div class="sig">tdeck.system.get_total_heap() -&gt; integer</div>
@@ -923,6 +1318,27 @@
 <div><strong>Returns:</strong> Timer ID for cancellation</div>
 </div>
 <div class="func">
+<div class="sig">tdeck.system.set_time(year, month, day, hour, minute, second) -&gt; boolean</div>
+<div class="desc">Set system clock time</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>year</code>: Full year (e.g., 2024)</li>
+<li><code>month</code>: Month (1-12)</li>
+<li><code>day</code>: Day of month (1-31)</li>
+<li><code>hour</code>: Hour (0-23)</li>
+<li><code>minute</code>: Minute (0-59)</li>
+<li><code>second</code>: Second (0-59)</li>
+</ul></div>
+<div><strong>Returns:</strong> true if time was set successfully</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.system.set_time_unix(timestamp) -&gt; boolean</div>
+<div class="desc">Set system clock from Unix timestamp</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>timestamp</code>: Unix timestamp (seconds since 1970-01-01)</li>
+</ul></div>
+<div><strong>Returns:</strong> true if time was set successfully</div>
+</div>
+<div class="func">
 <div class="sig">tdeck.system.set_timer(ms, callback) -&gt; integer</div>
 <div class="desc">Schedule a one-shot callback</div>
 <div class="params"><strong>Parameters:</strong><ul>
@@ -930,6 +1346,14 @@
 <li><code>callback</code>: Function to call</li>
 </ul></div>
 <div><strong>Returns:</strong> Timer ID for cancellation</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.system.set_timezone(tz_string) -&gt; boolean</div>
+<div class="desc">Set timezone using POSIX TZ string</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>tz_string</code>: POSIX timezone string (e.g., &quot;CET-1CEST,M3.5.0,M10.5.0/3&quot;)</li>
+</ul></div>
+<div><strong>Returns:</strong> true if timezone was set successfully</div>
 </div>
 <div class="func">
 <div class="sig">tdeck.system.start_usb_msc() -&gt; boolean</div>
@@ -944,6 +1368,13 @@
 <div class="sig">tdeck.system.uptime() -&gt; integer</div>
 <div class="desc">Get device uptime</div>
 <div><strong>Returns:</strong> Seconds since boot</div>
+</div>
+<div class="func">
+<div class="sig">tdeck.system.yield(ms)</div>
+<div class="desc">Yield execution to allow C++ background tasks to run</div>
+<div class="params"><strong>Parameters:</strong><ul>
+<li><code>ms</code>: Optional sleep time in milliseconds (default 1, max 100)</li>
+</ul></div>
 </div>
 
 <hr>

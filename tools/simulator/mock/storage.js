@@ -1,102 +1,65 @@
 /**
  * Storage mock module
- * Uses IndexedDB for files and localStorage for preferences
+ * Uses localStorage for files and preferences
+ * Binary files (like maps) are preloaded into memory during initialization
  */
 
-// IndexedDB setup
-const DB_NAME = 'tdeck-simulator';
-const DB_VERSION = 1;
-const STORE_NAME = 'files';
+// Map of SD card paths to server paths
+const SD_FILE_MAPPINGS = {
+    '/sd/maps/world.tdmap': '../../tools/maps/world.tdmap',
+};
 
-let db = null;
+// Binary file cache (path -> Uint8Array)
+const binaryFileCache = new Map();
 
-async function initDB() {
-    if (db) return db;
+// Debug: expose cache for inspection
+export function getBinaryCacheStatus() {
+    const entries = [];
+    for (const [path, data] of binaryFileCache.entries()) {
+        entries.push({ path, size: data.length });
+    }
+    return entries;
+}
 
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
+// Check if a path has a server mapping
+function getServerPath(path) {
+    return SD_FILE_MAPPINGS[path] || null;
+}
 
-        request.onerror = () => reject(request.error);
-
-        request.onsuccess = () => {
-            db = request.result;
-            resolve(db);
-        };
-
-        request.onupgradeneeded = (event) => {
-            const database = event.target.result;
-            if (!database.objectStoreNames.contains(STORE_NAME)) {
-                database.createObjectStore(STORE_NAME);
+// Preload binary files into memory
+export async function preloadBinaryFiles() {
+    for (const [sdPath, serverPath] of Object.entries(SD_FILE_MAPPINGS)) {
+        console.log(`[Storage] Loading ${sdPath} from ${serverPath}...`);
+        try {
+            const response = await fetch(serverPath);
+            if (!response.ok) {
+                console.warn(`[Storage] Failed to fetch ${serverPath}: ${response.status}`);
+                continue;
             }
-        };
-    });
-}
-
-// Initialize DB on module load
-initDB().catch(console.error);
-
-async function idbGet(key) {
-    await initDB();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.get(key);
-
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => resolve(request.result);
-    });
-}
-
-async function idbSet(key, value) {
-    await initDB();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.put(value, key);
-
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => resolve();
-    });
-}
-
-async function idbDelete(key) {
-    await initDB();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.delete(key);
-
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => resolve();
-    });
-}
-
-async function idbKeys() {
-    await initDB();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAllKeys();
-
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => resolve(request.result);
-    });
+            const buffer = await response.arrayBuffer();
+            const data = new Uint8Array(buffer);
+            binaryFileCache.set(sdPath, data);
+            console.log(`[Storage] Loaded ${sdPath}: ${(data.length / 1024 / 1024).toFixed(1)} MB`);
+        } catch (e) {
+            console.warn(`[Storage] Error loading ${serverPath}:`, e.message);
+        }
+    }
 }
 
 export function createStorageModule() {
     const module = {
-        // Read entire file (sync version for Lua compatibility)
+        // Read entire file
         read(path) {
-            // For simulator, return from localStorage or null
             try {
                 const cached = localStorage.getItem(`tdeck_file_${path}`);
-                return cached;
+                // Return undefined instead of null (Wasmoon handles undefined better)
+                return cached === null ? undefined : cached;
             } catch (e) {
-                return null;
+                return undefined;
             }
         },
 
-        // Write entire file (sync version for Lua compatibility)
+        // Write entire file
         write(path, content) {
             try {
                 localStorage.setItem(`tdeck_file_${path}`, content);
@@ -106,129 +69,59 @@ export function createStorageModule() {
             }
         },
 
-        // Read bytes from file (sync version)
+        // Read bytes from file (returns array of byte values to avoid null-termination issues)
+        // Wasmoon truncates strings at null bytes, so we return an array instead
+        // Note: Returns undefined instead of null so Wasmoon converts to Lua nil properly
         read_bytes(path, offset, len) {
+            // Check binary file cache first
+            const binaryData = binaryFileCache.get(path);
+            if (binaryData) {
+                // Return slice as array of byte values (avoids null-termination issue)
+                const end = Math.min(offset + len, binaryData.length);
+                const slice = binaryData.slice(offset, end);
+                return Array.from(slice);
+            }
+            // Fall back to localStorage (returns string, convert to byte array)
             const content = module.read(path);
             if (content) {
-                return content.substring(offset, offset + len);
-            }
-            return null;
-        },
-
-        // Read entire file (async version)
-        async read_file(path) {
-            try {
-                // Check IndexedDB first
-                const cached = await idbGet(path);
-                if (cached !== undefined) {
-                    return cached;
+                const str = content.substring(offset, offset + len);
+                const result = [];
+                for (let i = 0; i < str.length; i++) {
+                    result.push(str.charCodeAt(i));
                 }
-
-                // Try fetching from data directory
-                if (path.startsWith('/sd/')) {
-                    const relativePath = path.substring(4);
-                    const response = await fetch(`../../data/${relativePath}`);
-                    if (response.ok) {
-                        return await response.text();
-                    }
-                }
-
-                return null;
-            } catch (e) {
-                console.error('read_file error:', e);
-                return null;
+                return result;
             }
-        },
-
-        // Write file
-        async write_file(path, content) {
-            try {
-                await idbSet(path, content);
-                return true;
-            } catch (e) {
-                console.error('write_file error:', e);
-                return false;
-            }
-        },
-
-        // Append to file
-        async append_file(path, content) {
-            try {
-                const existing = await idbGet(path) || '';
-                await idbSet(path, existing + content);
-                return true;
-            } catch (e) {
-                console.error('append_file error:', e);
-                return false;
-            }
+            return undefined;
         },
 
         // Check if file exists
-        async exists(path) {
+        exists(path) {
+            // Check binary file cache first
+            if (binaryFileCache.has(path)) {
+                return true;
+            }
             try {
-                const cached = await idbGet(path);
-                if (cached !== undefined) return true;
-
-                // Try fetching from data directory
-                if (path.startsWith('/sd/')) {
-                    const relativePath = path.substring(4);
-                    const response = await fetch(`../../data/${relativePath}`, { method: 'HEAD' });
-                    return response.ok;
-                }
-
-                return false;
+                const cached = localStorage.getItem(`tdeck_file_${path}`);
+                return cached !== null;
             } catch (e) {
                 return false;
             }
         },
 
-        // Delete file
-        async delete_file(path) {
+        // Remove a file
+        remove(path) {
             try {
-                await idbDelete(path);
+                localStorage.removeItem(`tdeck_file_${path}`);
                 return true;
             } catch (e) {
-                console.error('delete_file error:', e);
                 return false;
             }
         },
 
-        // List directory contents
-        async list_dir(path) {
-            try {
-                const allKeys = await idbKeys();
-                const prefix = path.endsWith('/') ? path : path + '/';
-                const files = [];
-
-                for (const key of allKeys) {
-                    if (key.startsWith(prefix)) {
-                        const relativePath = key.substring(prefix.length);
-                        const parts = relativePath.split('/');
-                        if (parts.length === 1) {
-                            files.push({
-                                name: parts[0],
-                                is_dir: false,
-                                size: 0,
-                            });
-                        } else {
-                            // Directory
-                            const dirName = parts[0];
-                            if (!files.find(f => f.name === dirName)) {
-                                files.push({
-                                    name: dirName,
-                                    is_dir: true,
-                                    size: 0,
-                                });
-                            }
-                        }
-                    }
-                }
-
-                return files;
-            } catch (e) {
-                console.error('list_dir error:', e);
-                return [];
-            }
+        // List directory contents (returns empty array in simulator)
+        list_dir(path) {
+            // In browser simulator, return empty array
+            return [];
         },
 
         // Create directory (no-op in browser)
@@ -236,42 +129,55 @@ export function createStorageModule() {
             return true;
         },
 
-        // Remove directory
-        async rmdir(path) {
-            try {
-                const allKeys = await idbKeys();
-                const prefix = path.endsWith('/') ? path : path + '/';
+        // Remove directory (no-op in browser)
+        rmdir(path) {
+            return true;
+        },
 
-                for (const key of allKeys) {
-                    if (key.startsWith(prefix)) {
-                        await idbDelete(key);
-                    }
+        // Check if SD card is available (always true in simulator)
+        is_sd_available() {
+            return true;
+        },
+
+        // Rename/move a file
+        rename(oldPath, newPath) {
+            try {
+                const content = localStorage.getItem(`tdeck_file_${oldPath}`);
+                if (content !== null) {
+                    localStorage.setItem(`tdeck_file_${newPath}`, content);
+                    localStorage.removeItem(`tdeck_file_${oldPath}`);
+                    return true;
                 }
-                return true;
+                return false;
             } catch (e) {
-                console.error('rmdir error:', e);
                 return false;
             }
         },
 
         // Get file size
-        async file_size(path) {
+        file_size(path) {
+            // Check binary file cache first
+            const binaryData = binaryFileCache.get(path);
+            if (binaryData) {
+                return binaryData.length;
+            }
             try {
-                const content = await idbGet(path);
-                if (content !== undefined) {
-                    return typeof content === 'string' ? content.length : 0;
-                }
-                return 0;
+                const content = localStorage.getItem(`tdeck_file_${path}`);
+                return content ? content.length : 0;
             } catch (e) {
                 return 0;
             }
         },
 
         // Preferences using localStorage
-        get_pref(key, defaultValue = null) {
+        get_pref(key, defaultValue) {
             try {
                 const value = localStorage.getItem(`tdeck_pref_${key}`);
-                if (value === null) return defaultValue;
+                if (value === null) {
+                    // Return undefined (becomes nil in Lua) if no default, otherwise return default
+                    // But if defaultValue is null (from Lua nil), return undefined
+                    return defaultValue === null ? undefined : defaultValue;
+                }
                 // Try to parse as JSON for booleans/numbers
                 try {
                     return JSON.parse(value);
@@ -279,7 +185,7 @@ export function createStorageModule() {
                     return value;
                 }
             } catch (e) {
-                return defaultValue;
+                return defaultValue === null ? undefined : defaultValue;
             }
         },
 
@@ -295,6 +201,26 @@ export function createStorageModule() {
         delete_pref(key) {
             try {
                 localStorage.removeItem(`tdeck_pref_${key}`);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        },
+
+        // Alias for API compatibility
+        remove_pref(key) {
+            return module.delete_pref(key);
+        },
+
+        // Clear all preferences
+        clear_prefs() {
+            try {
+                const keys = Object.keys(localStorage);
+                for (const key of keys) {
+                    if (key.startsWith('tdeck_pref_')) {
+                        localStorage.removeItem(key);
+                    }
+                }
                 return true;
             } catch (e) {
                 return false;
@@ -330,17 +256,17 @@ export function createStorageModule() {
         // Flash/SD info (mock)
         get_flash_info() {
             return {
-                total: 4 * 1024 * 1024,
-                used: 1 * 1024 * 1024,
-                free: 3 * 1024 * 1024,
+                total_bytes: 4 * 1024 * 1024,
+                used_bytes: 1 * 1024 * 1024,
+                free_bytes: 3 * 1024 * 1024,
             };
         },
 
         get_sd_info() {
             return {
-                total: 16 * 1024 * 1024 * 1024,
-                used: 6 * 1024 * 1024 * 1024,
-                free: 10 * 1024 * 1024 * 1024,
+                total_bytes: 16 * 1024 * 1024 * 1024,
+                used_bytes: 6 * 1024 * 1024 * 1024,
+                free_bytes: 10 * 1024 * 1024 * 1024,
             };
         },
     };

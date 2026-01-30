@@ -49,11 +49,21 @@ local MapViewer = {
     -- Error state
     error_msg = nil,
 
-    -- Color inversion setting
-    invert_colors = true,
-
     -- Pan speed (tile units per keypress, lower = slower)
     pan_speed = 0.1,
+
+    -- Feature indices (must match generator)
+    F_LAND = 0,
+    F_WATER = 1,
+    F_PARK = 2,
+    F_BUILDING = 3,
+    F_ROAD_MINOR = 4,
+    F_ROAD_MAJOR = 5,
+    F_ROAD_HIGHWAY = 6,
+    F_RAILWAY = 7,
+
+    -- Theme setting ("light" or "dark")
+    theme = "light",
 
     -- TDMAP format constants
     HEADER_SIZE = 33,  -- 6+1+1+2+1+4+4+4+1+1+4+4 = 33 bytes
@@ -85,10 +95,34 @@ local MapViewer = {
     show_labels = true,
 }
 
--- Invert an RGB565 color value (0xFFFF - color is equivalent to XOR with 0xFFFF)
-local function invert_rgb565(color)
-    return 0xFFFF - color
+-- Semantic color palettes (RGB565 values)
+-- Tiles store feature indices, we map to colors here
+local function rgb565(r, g, b)
+    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
 end
+
+local PALETTES = {
+    light = {
+        [0] = rgb565(255, 255, 255),  -- Land - white
+        [1] = rgb565(160, 208, 240),  -- Water - light blue
+        [2] = rgb565(200, 230, 200),  -- Park - light green
+        [3] = rgb565(208, 208, 208),  -- Building - light gray
+        [4] = rgb565(136, 136, 136),  -- Road minor - medium gray
+        [5] = rgb565(96, 96, 96),     -- Road major - dark gray
+        [6] = rgb565(64, 64, 64),     -- Highway - darker gray
+        [7] = rgb565(48, 48, 48),     -- Railway - near black
+    },
+    dark = {
+        [0] = rgb565(26, 26, 46),     -- Land - dark blue-gray
+        [1] = rgb565(10, 32, 64),     -- Water - dark blue
+        [2] = rgb565(26, 42, 26),     -- Park - dark green
+        [3] = rgb565(42, 42, 62),     -- Building - medium dark
+        [4] = rgb565(80, 80, 96),     -- Road minor - medium gray
+        [5] = rgb565(112, 112, 128),  -- Road major - lighter gray
+        [6] = rgb565(144, 144, 160),  -- Highway - light gray
+        [7] = rgb565(96, 96, 112),    -- Railway - medium
+    },
+}
 
 function MapViewer:new(archive_path)
     local o = {
@@ -103,8 +137,8 @@ function MapViewer:new(archive_path)
         pending_tiles = {},
         missing_tiles = {},
         error_msg = nil,
-        invert_colors = true,
         pan_speed = 0.1,
+        theme = "light",
         loading = false,
         label_index = nil,
         label_index_offset = 0,
@@ -117,9 +151,71 @@ function MapViewer:new(archive_path)
     return o
 end
 
+-- Convert byte array (table) to binary string
+-- Needed because Wasmoon truncates strings at null bytes
+local function bytes_to_string(bytes)
+    if type(bytes) == "string" then
+        return bytes  -- Already a string (native platform)
+    end
+    if type(bytes) ~= "table" then
+        -- Handle userdata with array-like access (Wasmoon JS arrays)
+        if type(bytes) == "userdata" then
+            local len = bytes.length or #bytes
+            if len and len > 0 then
+                local chunks = {}
+                local chunk_size = 4096
+                -- Wasmoon converts JS arrays to 1-indexed Lua access
+                -- Detect by checking if [0] is nil but [1] has a value
+                local start_idx = 0
+                if bytes[0] == nil and bytes[1] ~= nil then
+                    start_idx = 1  -- 1-indexed (Wasmoon)
+                end
+                for i = start_idx, start_idx + len - 1, chunk_size do
+                    local chunk_end = math.min(i + chunk_size - 1, start_idx + len - 1)
+                    local chunk_bytes = {}
+                    for j = i, chunk_end do
+                        local b = bytes[j]
+                        -- IMPORTANT: Use type check since 0 is a valid byte value
+                        -- but Wasmoon might convert JS 0 to something falsy
+                        if type(b) == "number" then
+                            chunk_bytes[#chunk_bytes + 1] = b
+                        elseif b == nil then
+                            -- Skip nil values (missing array elements)
+                        else
+                            -- Unexpected type - try to convert or skip
+                            local num = tonumber(b)
+                            if num then
+                                chunk_bytes[#chunk_bytes + 1] = num
+                            end
+                        end
+                    end
+                    if #chunk_bytes > 0 then
+                        chunks[#chunks + 1] = string.char(table.unpack(chunk_bytes))
+                    end
+                end
+                return table.concat(chunks)
+            end
+        end
+        return nil
+    end
+    -- Convert table of byte values to string using string.char
+    -- Process in chunks to avoid stack overflow with large arrays
+    local chunks = {}
+    local chunk_size = 4096
+    for i = 1, #bytes, chunk_size do
+        local chunk_end = math.min(i + chunk_size - 1, #bytes)
+        local chunk_bytes = {}
+        for j = i, chunk_end do
+            chunk_bytes[#chunk_bytes + 1] = bytes[j]
+        end
+        chunks[#chunks + 1] = string.char(table.unpack(chunk_bytes))
+    end
+    return table.concat(chunks)
+end
+
 -- Parse little-endian integers from binary string
 local function read_u8(data, offset)
-    return string.byte(data, offset + 1)
+    return string.byte(data, offset + 1) or 0
 end
 
 local function read_u16(data, offset)
@@ -157,7 +253,7 @@ function MapViewer:load_archive_async()
         end
 
         -- Read header asynchronously (32 bytes)
-        local header = async_read_bytes(self_ref.archive_path, 0, self_ref.HEADER_SIZE)
+        local header = bytes_to_string(async_read_bytes(self_ref.archive_path, 0, self_ref.HEADER_SIZE))
         if not header then
             if _G.StatusBar then _G.StatusBar.hide_loading() end
             self_ref.error_msg = "Failed to read map header"
@@ -166,10 +262,24 @@ function MapViewer:load_archive_async()
             return
         end
 
-        -- Verify magic
-        local magic = string.sub(header, 1, 6)
-        if magic ~= "TDMAP\0" then
+        -- Debug: show header info
+        print("[Map] Header length: " .. #header)
+        local hex = ""
+        for i = 1, math.min(15, #header) do
+            hex = hex .. string.format("%02X ", string.byte(header, i))
+        end
+        print("[Map] Header bytes: " .. hex)
+
+        -- Verify magic (compare first 5 chars without null - more reliable across platforms)
+        local magic = string.sub(header, 1, 5)
+        if magic ~= "TDMAP" then
             if _G.StatusBar then _G.StatusBar.hide_loading() end
+            -- Debug: show what we actually got
+            local hex = ""
+            for i = 1, math.min(10, #header) do
+                hex = hex .. string.format("%02X ", string.byte(header, i))
+            end
+            print("[Map] Magic check failed. Got: " .. hex)
             self_ref.error_msg = "Invalid map file format"
             self_ref.loading = false
             ScreenManager.invalidate()
@@ -201,23 +311,12 @@ function MapViewer:load_archive_async()
             return
         end
 
-        -- Read palette asynchronously (8 RGB565 colors = 16 bytes)
-        local palette_data = async_read_bytes(self_ref.archive_path, self_ref.HEADER_SIZE, self_ref.PALETTE_SIZE)
-        if not palette_data then
-            if _G.StatusBar then _G.StatusBar.hide_loading() end
-            self_ref.error_msg = "Failed to read palette"
-            self_ref.loading = false
-            ScreenManager.invalidate()
-            return
-        end
-
-        local palette = {}
+        -- Use semantic palette based on theme (ignore palette in file)
+        local palette = PALETTES[self_ref.theme] or PALETTES.light
+        -- Convert to 1-indexed array for draw_indexed_bitmap
+        local palette_array = {}
         for i = 0, 7 do
-            local color = read_u16(palette_data, i * 2)
-            if self_ref.invert_colors then
-                color = invert_rgb565(color)
-            end
-            palette[i + 1] = color
+            palette_array[i + 1] = palette[i]
         end
 
         self_ref.archive = {
@@ -228,17 +327,17 @@ function MapViewer:load_archive_async()
             data_offset = data_offset,
             min_zoom = min_zoom,
             max_zoom = max_zoom,
-            palette = palette,
+            palette = palette_array,
             tile_size = tile_size,
             label_index_offset = label_index_offset,
             label_index_count = label_index_count,
         }
 
-        print(string.format("[Map] Loaded archive: v%d, %d tiles, zoom %d-%d, index@%d, data@%d",
-            version, tile_count, min_zoom, max_zoom, index_offset, data_offset))
+        print(string.format("[Map] Loaded archive: v%d, %d tiles, zoom %d-%d, index@%d, data@%d, tile_size=%d",
+            version, tile_count, min_zoom, max_zoom, index_offset, data_offset, tile_size))
 
         -- Debug: read first index entry to verify format
-        local first_entry = tdeck.storage.read_bytes(self_ref.archive_path, index_offset, self_ref.INDEX_ENTRY_SIZE)
+        local first_entry = bytes_to_string(tdeck.storage.read_bytes(self_ref.archive_path, index_offset, self_ref.INDEX_ENTRY_SIZE))
         if first_entry and #first_entry == self_ref.INDEX_ENTRY_SIZE then
             local fz = read_u8(first_entry, 0)
             local fx = read_u16(first_entry, 1)
@@ -286,7 +385,7 @@ function MapViewer:load_label_index_async(index_offset, index_count)
     local function do_load_index()
         -- Label index entry size: 11 bytes (zoom_min:1 + tile_x:2 + tile_y:2 + offset:4 + count:2)
         local index_size = index_count * 11
-        local index_data = async_read_bytes(self_ref.archive_path, index_offset, index_size)
+        local index_data = bytes_to_string(async_read_bytes(self_ref.archive_path, index_offset, index_size))
         if not index_data then
             return
         end
@@ -364,7 +463,7 @@ function MapViewer:load_labels_for_tile(extraction_zoom, tile_x, tile_y)
     -- Read labels synchronously (small read, fast)
     -- New v3 format: pixel_x:1 + pixel_y:1 + zoom_min:1 + zoom_max:1 + label_type:1 + text_len:1 + text
     local estimated_size = index_entry.count * 25  -- ~25 bytes avg per label
-    local label_data = tdeck.storage.read_bytes(self.archive_path, index_entry.offset, estimated_size)
+    local label_data = bytes_to_string(tdeck.storage.read_bytes(self.archive_path, index_entry.offset, estimated_size))
     if not label_data then
         return {}
     end
@@ -425,7 +524,7 @@ function MapViewer:load_labels_v2_async(labels_offset, labels_count)
     local function do_load_labels()
         -- Estimate max label data size (rough: 30 bytes avg per label)
         local estimated_size = labels_count * 30
-        local labels_data = async_read_bytes(self_ref.archive_path, labels_offset, estimated_size)
+        local labels_data = bytes_to_string(async_read_bytes(self_ref.archive_path, labels_offset, estimated_size))
         if not labels_data then
             return
         end
@@ -645,7 +744,7 @@ function MapViewer:start_async_tile_load(key, zoom, x, y)
 
             -- Read index entry asynchronously
             local entry_offset = self_ref.archive.index_offset + mid * self_ref.INDEX_ENTRY_SIZE
-            local entry_data = async_read_bytes(self_ref.archive_path, entry_offset, self_ref.INDEX_ENTRY_SIZE)
+            local entry_data = bytes_to_string(async_read_bytes(self_ref.archive_path, entry_offset, self_ref.INDEX_ENTRY_SIZE))
             if not entry_data then
                 -- Read failed, abort
                 print(string.format("[Map] Read failed for index entry at offset %d", entry_offset))
@@ -682,13 +781,21 @@ function MapViewer:start_async_tile_load(key, zoom, x, y)
         end
 
         -- Read and decompress tile data asynchronously
+        -- Note: In simulator, async_rle_read returns JS array (userdata in Lua)
+        -- In native, it returns a Lua string. Either works with draw_indexed_bitmap.
         local tile_data = async_rle_read(self_ref.archive_path, entry.offset, entry.size)
         if not tile_data then
             print(string.format("[Map] RLE read failed for tile z=%d x=%d y=%d at offset=%d size=%d", zoom, x, y, entry.offset, entry.size))
             return
         end
 
+        -- Get length (works for both strings and userdata with .length property)
+        local tile_len = (type(tile_data) == "string") and #tile_data or (tile_data.length or 0)
+
         -- Add to cache
+        if self_ref._search_count <= 5 then
+            print(string.format("[Map] Tile loaded: %s, data len=%d, type=%s", key, tile_len, type(tile_data)))
+        end
         self_ref.tile_cache[key] = tile_data
         table.insert(self_ref.cache_order, key)
 
@@ -757,17 +864,24 @@ function MapViewer:on_enter()
     tdeck.keyboard.set_mode("normal")
 
     -- Load preferences
-    local old_invert = self.invert_colors
+    local old_theme = self.theme
     if tdeck.storage and tdeck.storage.get_pref then
-        self.invert_colors = tdeck.storage.get_pref("mapInvertColors", true)
+        self.theme = tdeck.storage.get_pref("mapTheme", "light")
         -- Pan speed: 1-5 setting maps to 0.05-0.25 tile units
         local speed_setting = tdeck.storage.get_pref("mapPanSpeed", 2)
         self.pan_speed = speed_setting * 0.05
     end
 
-    -- Reload archive if invert setting changed (to update palette)
-    if self.archive and old_invert ~= self.invert_colors then
-        self.archive = nil
+    -- Reload archive if theme changed (to update palette)
+    if self.archive and old_theme ~= self.theme then
+        -- Update palette without reloading entire archive
+        local palette = PALETTES[self.theme] or PALETTES.light
+        local palette_array = {}
+        for i = 0, 7 do
+            palette_array[i + 1] = palette[i]
+        end
+        self.archive.palette = palette_array
+        -- Clear tile cache since colors changed
         self.tile_cache = {}
         self.cache_order = {}
         self.pending_tiles = {}
@@ -904,9 +1018,11 @@ function MapViewer:render(display)
 
                 if tile_data then
                     -- Draw tile using indexed bitmap function
+                    -- Use actual tile size from archive (data size), not display size
+                    local data_size = self.archive.tile_size or tile_w
                     display.draw_indexed_bitmap(
                         screen_x, screen_y,
-                        tile_w, tile_h,
+                        data_size, data_size,
                         tile_data,
                         self.archive.palette
                     )
@@ -1056,7 +1172,8 @@ function MapViewer:draw_markers(display, colors, start_tile_x, start_tile_y, pix
     -- Draw mesh node markers (blue dots for repeaters with location)
     if tdeck.mesh and tdeck.mesh.is_initialized and tdeck.mesh.is_initialized() then
         local nodes = tdeck.mesh.get_nodes() or {}
-        local ROLE = tdeck.mesh.ROLE
+        -- Use mesh ROLE constants with fallback for simulator compatibility
+        local ROLE = tdeck.mesh.ROLE or { CHAT = 1, REPEATER = 2, ROUTER = 3, GATEWAY = 4 }
         for _, node in ipairs(nodes) do
             -- Only draw repeaters/routers with valid location
             if node.has_location and node.lat and node.lon then
