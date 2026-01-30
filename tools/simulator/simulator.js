@@ -271,8 +271,10 @@ async function initLua() {
     // In browser simulator, scripts are preloaded so we return from cache immediately
     // For other files, we also return synchronously from localStorage/IndexedDB cache
     // IMPORTANT: Must always return a string or null, never undefined
+    // Flag to indicate we're in the simulator (enables synchronous mode)
+    lua.global.set('__SIMULATOR__', true);
+
     const asyncRead = (path) => {
-        log(`async_read called: ${path}`, 'info');
         try {
             // For scripts, use synchronous cache lookup
             if (path.startsWith('/scripts/')) {
@@ -281,13 +283,11 @@ async function initLua() {
                     log(`Script not preloaded: ${path}`, 'error');
                     return null;
                 }
-                log(`async_read returning ${content.length} chars for ${path}`, 'info');
                 return content;
             }
             // For other files, use storage module's sync read
             // (In real device this would be async, but browser sim uses localStorage)
             const result = storage.read(path);
-            log(`async_read (storage) returning for ${path}: ${result !== null ? 'found' : 'null'}`, 'info');
             return result === undefined ? null : result;
         } catch (e) {
             log(`async_read error for ${path}: ${e.message}`, 'error');

@@ -79,12 +79,23 @@ end
 
 -- Spawn a coroutine and immediately resume it
 -- Use this to run async code (like load_module) from event handlers
+-- In simulator mode, just call the function directly (no coroutines needed)
 -- @param fn Function to run in the coroutine
--- @return The coroutine object
+-- @return The coroutine object (or nil in simulator mode)
 function _G.spawn(fn)
-    local co = coroutine.create(fn)
-    coroutine.resume(co)
-    return co
+    if _G.__SIMULATOR__ then
+        -- Simulator: run synchronously, wrap in pcall for error handling
+        local ok, err = pcall(fn)
+        if not ok then
+            tdeck.system.log("[spawn] Error: " .. tostring(err))
+        end
+        return nil
+    else
+        -- Real hardware: use coroutine for async I/O
+        local co = coroutine.create(fn)
+        coroutine.resume(co)
+        return co
+    end
 end
 
 -- Override dofile to prevent accidental use - use load_module instead
@@ -332,13 +343,20 @@ local function boot_sequence()
     tdeck.system.log("[Boot] Boot complete, free=" .. mem() .. "KB")
 end
 
--- Start boot sequence in a coroutine so load_module can yield for async I/O
--- The C++ AsyncIO system will resume this coroutine when files are loaded
-local boot_co = coroutine.create(boot_sequence)
-local ok, err = coroutine.resume(boot_co)
-if not ok then
-    -- Boot failed - try to show error
-    tdeck.system.log("[Boot] FATAL: " .. tostring(err))
-    -- Can't use show_error here since it needs load_module
-    -- Just log the error - C++ will handle display
+-- Start boot sequence
+-- In simulator mode (__SIMULATOR__ flag), run directly without coroutines
+-- On real hardware, use coroutine so load_module can yield for async I/O
+if _G.__SIMULATOR__ then
+    -- Simulator: run synchronously (async_read is actually sync)
+    local ok, err = pcall(boot_sequence)
+    if not ok then
+        tdeck.system.log("[Boot] FATAL: " .. tostring(err))
+    end
+else
+    -- Real hardware: use coroutine for async I/O
+    local boot_co = coroutine.create(boot_sequence)
+    local ok, err = coroutine.resume(boot_co)
+    if not ok then
+        tdeck.system.log("[Boot] FATAL: " .. tostring(err))
+    end
 end

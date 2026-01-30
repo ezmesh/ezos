@@ -704,7 +704,9 @@ function MapViewer:start_async_tile_load(key, zoom, x, y)
 
     -- Start coroutine for async search and load
     local co = spawn(do_search_and_load)
-    if coroutine.status(co) == "dead" then
+    -- In simulator mode, spawn returns nil (runs synchronously)
+    -- On real hardware, check if coroutine finished with error
+    if co and coroutine.status(co) == "dead" then
         -- Coroutine finished with error, clean up pending state
         self.pending_tiles[key] = nil
     end
