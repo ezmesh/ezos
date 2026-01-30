@@ -273,6 +273,13 @@ local function boot_sequence()
     MessageBox.init()
     tdeck.system.log("[Boot] MessageBox loaded, free=" .. mem() .. "KB")
 
+    -- Load Toast overlay
+    tdeck.system.log("[Boot] Loading Toast...")
+    local Toast = load_module("/scripts/ui/toast.lua")
+    _G.Toast = Toast
+    Toast.init()
+    tdeck.system.log("[Boot] Toast loaded, free=" .. mem() .. "KB")
+
     -- Set initial status values
     StatusBar.set_radio(tdeck.radio.is_initialized(), 0)
     if tdeck.mesh.is_initialized() then

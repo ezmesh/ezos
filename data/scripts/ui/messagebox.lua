@@ -167,8 +167,8 @@ function MessageBox.render(display)
     local box_x = math.floor((w - box_w) / 2)
     local box_y = math.floor((h - box_h) / 2)
 
-    -- Dim layer behind the dialog (horizontal lines, 50%)
-    display.fill_rect_hlines(0, 0, w, h, colors.BLACK, 2)
+    -- Dim layer behind the dialog (vertical scanlines, 50%)
+    display.fill_rect_vlines(0, 0, w, h, colors.BLACK, 2)
 
     -- Box background with border
     display.fill_rect(box_x, box_y, box_w, box_h, colors.BLACK)

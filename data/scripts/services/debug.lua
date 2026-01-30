@@ -170,8 +170,8 @@ function Debug.toast(message, duration)
     message = message or "Debug toast"
     duration = duration or 2000
 
-    if ScreenManager and ScreenManager.show_toast then
-        ScreenManager.show_toast(message, duration)
+    if _G.Toast and _G.Toast.show then
+        _G.Toast.show(message, duration)
         return true
     end
     return false
