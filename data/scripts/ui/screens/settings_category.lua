@@ -505,55 +505,31 @@ function SettingsCategory:start_editing()
         tdeck.system.log("TODO: Text input for " .. setting.name)
     elseif setting.type == "button" then
         if setting.name == "usb" then
-            spawn(function()
-                local ok, USBTransfer = pcall(load_module, "/scripts/ui/screens/usb_transfer.lua")
-                if ok and USBTransfer then
-                    ScreenManager.push(USBTransfer:new())
-                end
-            end)
+            spawn_screen("/scripts/ui/screens/usb_transfer.lua")
         elseif setting.name == "menu_hotkey" then
-            spawn(function()
-                local ok, HotkeyConfig = pcall(load_module, "/scripts/ui/screens/hotkey_config.lua")
-                if ok and HotkeyConfig then
-                    ScreenManager.push(HotkeyConfig:new("menu", "Menu Hotkey", "menuHotkey"))
-                end
-            end)
+            spawn_screen("/scripts/ui/screens/hotkey_config.lua", "menu", "Menu Hotkey", "menuHotkey")
         elseif setting.name == "screenshot_hotkey" then
-            spawn(function()
-                local ok, HotkeyConfig = pcall(load_module, "/scripts/ui/screens/hotkey_config.lua")
-                if ok and HotkeyConfig then
-                    ScreenManager.push(HotkeyConfig:new("screenshot", "Screenshot Key", "screenshotHotkey"))
-                end
-            end)
+            spawn_screen("/scripts/ui/screens/hotkey_config.lua", "screenshot", "Screenshot Key", "screenshotHotkey")
         elseif setting.name == "wallpaper_tint" then
+            -- Color picker needs complex options, use spawn directly
             spawn(function()
                 local ok, ColorPicker = pcall(load_module, "/scripts/ui/screens/color_picker.lua")
                 if not ok or not ColorPicker then return end
                 local current_tint = _G.ThemeManager and _G.ThemeManager.get_wallpaper_tint()
-                local picker = ColorPicker:new({
+                ScreenManager.push(ColorPicker:new({
                     title = "Wallpaper Tint",
                     color = current_tint or 0x1082,
                     allow_auto = true,
                     is_auto = (current_tint == nil),
                     on_select = function(color, is_auto)
                         if _G.ThemeManager then
-                            if is_auto then
-                                _G.ThemeManager.set_wallpaper_tint(nil)
-                            else
-                                _G.ThemeManager.set_wallpaper_tint(color)
-                            end
+                            _G.ThemeManager.set_wallpaper_tint(is_auto and nil or color)
                         end
                     end
-                })
-                ScreenManager.push(picker)
+                }))
             end)
         elseif setting.name == "time_sync" then
-            spawn(function()
-                local ok, SetClock = pcall(load_module, "/scripts/ui/screens/set_clock.lua")
-                if ok and SetClock then
-                    ScreenManager.push(SetClock:new())
-                end
-            end)
+            spawn_screen("/scripts/ui/screens/set_clock.lua")
         end
     else
         self.editing = true

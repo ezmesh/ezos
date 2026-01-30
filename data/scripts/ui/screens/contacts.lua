@@ -299,14 +299,7 @@ end
 
 function Contacts:view_details()
     if #self.contacts == 0 then return end
-
-    local contact = self.contacts[self.selected]
-    spawn(function()
-        local ok, NodeDetails = pcall(load_module, "/scripts/ui/screens/node_details.lua")
-        if ok and NodeDetails then
-            ScreenManager.push(NodeDetails:new(contact))
-        end
-    end)
+    spawn_screen("/scripts/ui/screens/node_details.lua", self.contacts[self.selected])
 end
 
 function Contacts:send_message()
@@ -320,15 +313,7 @@ function Contacts:send_message()
         return
     end
 
-    local pub_key_hex = contact.pub_key_hex
-    local name = contact.name
-
-    spawn(function()
-        local ok, DMConversation = pcall(load_module, "/scripts/ui/screens/dm_conversation.lua")
-        if ok and DMConversation then
-            ScreenManager.push(DMConversation:new(pub_key_hex, name))
-        end
-    end)
+    spawn_screen("/scripts/ui/screens/dm_conversation.lua", contact.pub_key_hex, contact.name)
 end
 
 function Contacts:ping()

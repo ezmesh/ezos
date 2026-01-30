@@ -199,18 +199,9 @@ function GamesMenu:launch_game()
     }
 
     local path = games[item.label]
-    if not path then return end
-
-    spawn(function()
-        local ok, Game = pcall(load_module, path)
-        if not ok then
-            tdeck.system.log("[GamesMenu] Load error: " .. tostring(Game))
-            return
-        end
-        if Game then
-            ScreenManager.push(Game:new())
-        end
-    end)
+    if path then
+        spawn_screen(path)
+    end
 end
 
 -- Menu items for app menu integration

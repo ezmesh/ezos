@@ -680,12 +680,7 @@ function DMConversation:get_menu_items()
             end
 
             if node then
-                spawn(function()
-                    local ok, NodeDetails = pcall(load_module, "/scripts/ui/screens/node_details.lua")
-                    if ok and NodeDetails then
-                        ScreenManager.push(NodeDetails:new(node))
-                    end
-                end)
+                spawn_screen("/scripts/ui/screens/node_details.lua", node)
             else
                 if _G.MessageBox then
                     _G.MessageBox.show({

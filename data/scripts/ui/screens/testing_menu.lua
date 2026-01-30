@@ -202,18 +202,9 @@ function TestingMenu:activate_selected()
     }
 
     local path = screens[item.label]
-    if not path then return end
-
-    spawn(function()
-        local ok, Screen = pcall(load_module, path)
-        if not ok then
-            tdeck.system.log("[TestingMenu] Load error: " .. tostring(Screen))
-            return
-        end
-        if Screen then
-            ScreenManager.push(Screen:new())
-        end
-    end)
+    if path then
+        spawn_screen(path)
+    end
 end
 
 -- Menu items for app menu integration

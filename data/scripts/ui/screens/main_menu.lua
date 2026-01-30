@@ -322,46 +322,31 @@ function MainMenu:activate_selected()
     local item = self.items[self.selected]
     if not item or not item.enabled then return end
 
-    local label = item.label
-
-    -- Map labels to screen paths and constructors
+    -- Map labels to screen paths
     local screens = {
-        ["Messages"]  = {path = "/scripts/ui/screens/messages.lua"},
-        ["Channels"]  = {path = "/scripts/ui/screens/channels.lua"},
-        ["Contacts"]  = {path = "/scripts/ui/screens/contacts.lua"},
-        ["Nodes"]     = {path = "/scripts/ui/screens/nodes.lua"},
-        ["Node Info"] = {path = "/scripts/ui/screens/node_info.lua"},
-        ["Map"]       = {path = "/scripts/ui/screens/map_viewer.lua"},
-        ["Packets"]   = {path = "/scripts/ui/screens/packets.lua"},
-        ["Settings"]  = {path = "/scripts/ui/screens/settings.lua"},
-        ["Storage"]   = {path = "/scripts/ui/screens/storage.lua"},
-        ["Files"]     = {path = "/scripts/ui/screens/files.lua", arg = "/"},
-        ["Diagnostics"] = {path = "/scripts/ui/screens/testing_menu.lua"},
-        ["Games"]     = {path = "/scripts/ui/screens/games_menu.lua"},
+        ["Messages"]    = "/scripts/ui/screens/messages.lua",
+        ["Channels"]    = "/scripts/ui/screens/channels.lua",
+        ["Contacts"]    = "/scripts/ui/screens/contacts.lua",
+        ["Nodes"]       = "/scripts/ui/screens/nodes.lua",
+        ["Node Info"]   = "/scripts/ui/screens/node_info.lua",
+        ["Map"]         = "/scripts/ui/screens/map_viewer.lua",
+        ["Packets"]     = "/scripts/ui/screens/packets.lua",
+        ["Settings"]    = "/scripts/ui/screens/settings.lua",
+        ["Storage"]     = "/scripts/ui/screens/storage.lua",
+        ["Files"]       = "/scripts/ui/screens/files.lua",
+        ["Diagnostics"] = "/scripts/ui/screens/testing_menu.lua",
+        ["Games"]       = "/scripts/ui/screens/games_menu.lua",
     }
 
-    local screen_info = screens[label]
-    if not screen_info then return end
+    local path = screens[item.label]
+    if not path then return end
 
-    -- Load module in coroutine (loading indicator shown automatically)
-    spawn(function()
-        local ok, Screen = pcall(load_module, screen_info.path)
-        if not ok then
-            local err = Screen
-            tdeck.system.log("[MainMenu] Load error: " .. tostring(err))
-            if _G.MessageBox then
-                _G.MessageBox.show({title = "Load failed", body = tostring(err)})
-            end
-            return
-        end
-        if Screen then
-            if screen_info.arg then
-                ScreenManager.push(Screen:new(screen_info.arg))
-            else
-                ScreenManager.push(Screen:new())
-            end
-        end
-    end)
+    -- Files screen needs initial path argument
+    if item.label == "Files" then
+        spawn_screen(path, "/")
+    else
+        spawn_screen(path)
+    end
 end
 
 function MainMenu:set_message_count(count)

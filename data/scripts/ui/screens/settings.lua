@@ -195,51 +195,25 @@ end
 function Settings:open_category()
     local category = self.categories[self.selected]
     if not category then return end
-
-    local cat_key = category.key
-    local cat_label = category.label
-
-    spawn(function()
-        local ok, SettingsCategory = pcall(load_module, "/scripts/ui/screens/settings_category.lua")
-        if not ok then
-            tdeck.system.log("[Settings] Load error: " .. tostring(SettingsCategory))
-            return
-        end
-        if SettingsCategory then
-            ScreenManager.push(SettingsCategory:new(cat_key, cat_label))
-        end
-    end)
+    spawn_screen("/scripts/ui/screens/settings_category.lua", category.key, category.label)
 end
 
 -- Menu items for app menu integration
 function Settings:get_menu_items()
-    local items = {}
-
-    table.insert(items, {
-        label = "USB Transfer",
-        action = function()
-            spawn(function()
-                local ok, USBTransfer = pcall(load_module, "/scripts/ui/screens/usb_transfer.lua")
-                if ok and USBTransfer then
-                    ScreenManager.push(USBTransfer:new())
-                end
-            end)
-        end
-    })
-
-    table.insert(items, {
-        label = "System Log",
-        action = function()
-            spawn(function()
-                local ok, LogViewer = pcall(load_module, "/scripts/ui/screens/log_viewer.lua")
-                if ok and LogViewer then
-                    ScreenManager.push(LogViewer:new())
-                end
-            end)
-        end
-    })
-
-    return items
+    return {
+        {
+            label = "USB Transfer",
+            action = function()
+                spawn_screen("/scripts/ui/screens/usb_transfer.lua")
+            end
+        },
+        {
+            label = "System Log",
+            action = function()
+                spawn_screen("/scripts/ui/screens/log_viewer.lua")
+            end
+        }
+    }
 end
 
 return Settings

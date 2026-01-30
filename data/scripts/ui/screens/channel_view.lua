@@ -251,13 +251,7 @@ function ChannelView:scroll_down()
 end
 
 function ChannelView:compose()
-    local ch_name = self.channel_name
-    spawn(function()
-        local ok, Compose = pcall(load_module, "/scripts/ui/screens/channel_compose.lua")
-        if ok and Compose then
-            ScreenManager.push(Compose:new(ch_name))
-        end
-    end)
+    spawn_screen("/scripts/ui/screens/channel_compose.lua", self.channel_name)
 end
 
 return ChannelView

@@ -353,15 +353,7 @@ function Nodes:send_message()
         return
     end
 
-    local pub_key_hex = node.pub_key_hex
-    local name = node.name
-
-    spawn(function()
-        local ok, DMConversation = pcall(load_module, "/scripts/ui/screens/dm_conversation.lua")
-        if ok and DMConversation then
-            ScreenManager.push(DMConversation:new(pub_key_hex, name))
-        end
-    end)
+    spawn_screen("/scripts/ui/screens/dm_conversation.lua", node.pub_key_hex, node.name)
 end
 
 function Nodes:select_next()
@@ -390,14 +382,7 @@ end
 
 function Nodes:view_details()
     if #self.nodes == 0 then return end
-
-    local node = self.nodes[self.selected]
-    spawn(function()
-        local ok, NodeDetails = pcall(load_module, "/scripts/ui/screens/node_details.lua")
-        if ok and NodeDetails then
-            ScreenManager.push(NodeDetails:new(node))
-        end
-    end)
+    spawn_screen("/scripts/ui/screens/node_details.lua", self.nodes[self.selected])
 end
 
 -- Menu items for app menu
@@ -433,17 +418,11 @@ function Nodes:get_menu_items()
         -- Send Message option for selected node
         local selected_node = self.nodes[self.selected]
         if selected_node and selected_node.pub_key_hex then
+            local pk, nm = selected_node.pub_key_hex, selected_node.name
             table.insert(items, {
                 label = "Send Message",
                 action = function()
-                    local pub_key_hex = selected_node.pub_key_hex
-                    local name = selected_node.name
-                    spawn(function()
-                        local ok, DMConversation = pcall(load_module, "/scripts/ui/screens/dm_conversation.lua")
-                        if ok and DMConversation then
-                            ScreenManager.push(DMConversation:new(pub_key_hex, name))
-                        end
-                    end)
+                    spawn_screen("/scripts/ui/screens/dm_conversation.lua", pk, nm)
                 end
             })
         end

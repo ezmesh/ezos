@@ -385,21 +385,20 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
         }
 
         .quick-ref-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 4px;
-            max-height: 400px;
-            overflow-y: auto;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2px 12px;
         }
 
         .quick-ref-item {
             font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-            font-size: 12px;
-            padding: 6px 10px;
-            border-radius: 4px;
+            font-size: 11px;
+            padding: 2px 4px;
+            border-radius: 3px;
             color: var(--text-secondary);
             text-decoration: none;
             transition: all 0.15s;
+            white-space: nowrap;
         }
 
         .quick-ref-item:hover {

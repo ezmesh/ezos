@@ -91,15 +91,7 @@ function NodeDetails:send_message()
         return
     end
 
-    local pub_key_hex = self.node.pub_key_hex
-    local name = self.node.name
-
-    spawn(function()
-        local ok, DMConversation = pcall(load_module, "/scripts/ui/screens/dm_conversation.lua")
-        if ok and DMConversation then
-            ScreenManager.push(DMConversation:new(pub_key_hex, name))
-        end
-    end)
+    spawn_screen("/scripts/ui/screens/dm_conversation.lua", self.node.pub_key_hex, self.node.name)
 end
 
 -- Menu items for app menu integration

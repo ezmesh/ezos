@@ -137,12 +137,7 @@ function ConversationView:scroll_down()
 end
 
 function ConversationView:reply()
-    spawn(function()
-        local ok, Compose = pcall(load_module, "/scripts/ui/screens/compose.lua")
-        if ok and Compose then
-            ScreenManager.push(Compose:new())
-        end
-    end)
+    spawn_screen("/scripts/ui/screens/compose.lua")
 end
 
 return ConversationView

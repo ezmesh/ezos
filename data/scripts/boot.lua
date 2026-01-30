@@ -103,6 +103,53 @@ function _G.spawn(fn)
     end
 end
 
+-- Spawn and push a screen to the ScreenManager
+-- Handles async module loading, error handling, and ScreenManager.push
+-- @param path Path to the screen module file
+-- @param ... Arguments passed to the screen's :new() constructor
+-- @return The coroutine object (or nil in simulator mode)
+-- @example spawn_screen("/scripts/ui/screens/settings.lua")
+-- @example spawn_screen("/scripts/ui/screens/node_details.lua", node)
+function _G.spawn_screen(path, ...)
+    local args = {...}
+    return spawn(function()
+        local ok, Screen = pcall(load_module, path)
+        if not ok then
+            tdeck.system.log("[spawn_screen] Load error: " .. tostring(Screen))
+            return
+        end
+        if Screen and _G.ScreenManager then
+            _G.ScreenManager.push(Screen:new(table.unpack(args)))
+        end
+    end)
+end
+
+-- Spawn and run a module's method
+-- Handles async module loading and method invocation
+-- @param path Path to the module file
+-- @param method Method name to call (default "main")
+-- @param ... Arguments passed to the method
+-- @return The coroutine object (or nil in simulator mode)
+-- @example spawn_module("/scripts/services/sync.lua", "start")
+-- @example spawn_module("/scripts/tools/export.lua", "run", filename)
+function _G.spawn_module(path, method, ...)
+    method = method or "main"
+    local args = {...}
+    return spawn(function()
+        local ok, Module = pcall(load_module, path)
+        if not ok then
+            tdeck.system.log("[spawn_module] Load error: " .. tostring(Module))
+            return
+        end
+        if Module and Module[method] then
+            Module[method](table.unpack(args))
+        elseif Module and type(Module) == "function" then
+            -- Module returned a function directly
+            Module(table.unpack(args))
+        end
+    end)
+end
+
 -- Override dofile to prevent accidental use - use load_module instead
 function _G.dofile(path)
     error("dofile() is deprecated. Use load_module() instead (must be called from a coroutine). Path: " .. tostring(path))

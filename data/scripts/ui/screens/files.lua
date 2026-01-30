@@ -155,12 +155,7 @@ function Files:open_entry()
 
         if self:is_text_file(entry.name) then
             -- Open in editor
-            spawn(function()
-                local ok, FileEdit = pcall(load_module, "/scripts/ui/screens/file_edit.lua")
-                if ok and FileEdit then
-                    ScreenManager.push(FileEdit:new(path))
-                end
-            end)
+            spawn_screen("/scripts/ui/screens/file_edit.lua", path)
         else
             self:show_message("Cannot open: " .. entry.name)
         end
@@ -298,12 +293,7 @@ function Files:new_file()
     end
     new_path = new_path .. "new.lua"
 
-    spawn(function()
-        local ok, FileEdit = pcall(load_module, "/scripts/ui/screens/file_edit.lua")
-        if ok and FileEdit then
-            ScreenManager.push(FileEdit:new(new_path))
-        end
-    end)
+    spawn_screen("/scripts/ui/screens/file_edit.lua", new_path)
 end
 
 -- Menu items for app menu integration
@@ -331,12 +321,7 @@ function Files:get_menu_items()
                 label = "Edit",
                 action = function()
                     local path = self_ref:get_full_path(entry)
-                    spawn(function()
-                        local ok, FileEdit = pcall(load_module, "/scripts/ui/screens/file_edit.lua")
-                        if ok and FileEdit then
-                            ScreenManager.push(FileEdit:new(path))
-                        end
-                    end)
+                    spawn_screen("/scripts/ui/screens/file_edit.lua", path)
                 end
             })
         end
@@ -519,12 +504,7 @@ function Files:handle_key(key)
             local entry = self.entries[self.selected]
             if not entry.is_dir then
                 local path = self:get_full_path(entry)
-                spawn(function()
-                    local ok, FileEdit = pcall(load_module, "/scripts/ui/screens/file_edit.lua")
-                    if ok and FileEdit then
-                        ScreenManager.push(FileEdit:new(path))
-                    end
-                end)
+                spawn_screen("/scripts/ui/screens/file_edit.lua", path)
             end
         end
     elseif key.character == "n" or key.character == "N" then
@@ -534,12 +514,7 @@ function Files:handle_key(key)
             new_path = new_path .. "/"
         end
         new_path = new_path .. "new.lua"
-        spawn(function()
-            local ok, FileEdit = pcall(load_module, "/scripts/ui/screens/file_edit.lua")
-            if ok and FileEdit then
-                ScreenManager.push(FileEdit:new(new_path))
-            end
-        end)
+        spawn_screen("/scripts/ui/screens/file_edit.lua", new_path)
     elseif key.character == "g" or key.character == "G" then
         -- Go to root
         self:load_directory("/")

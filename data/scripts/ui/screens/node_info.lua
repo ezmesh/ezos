@@ -187,12 +187,7 @@ function NodeInfo:get_menu_items()
     table.insert(items, {
         label = "Log",
         action = function()
-            spawn(function()
-                local ok, LogViewer = pcall(load_module, "/scripts/ui/screens/log_viewer.lua")
-                if ok and LogViewer then
-                    ScreenManager.push(LogViewer:new())
-                end
-            end)
+            spawn_screen("/scripts/ui/screens/log_viewer.lua")
         end
     })
 
