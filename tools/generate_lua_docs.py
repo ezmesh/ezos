@@ -385,9 +385,9 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
         }
 
         .quick-ref-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 2px 12px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2px 8px;
         }
 
         .quick-ref-item {
@@ -399,6 +399,8 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
             text-decoration: none;
             transition: all 0.15s;
             white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .quick-ref-item:hover {
@@ -598,6 +600,10 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
         @media (max-width: 640px) {
             .header-content { flex-direction: column; gap: 16px; }
             .toc-grid { grid-template-columns: 1fr; }
+            .quick-ref-list { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 400px) {
             .quick-ref-list { grid-template-columns: 1fr; }
         }
     </style>
@@ -627,10 +633,11 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
     <div class="quick-ref-list">
 ''']
 
-    # Quick reference sorted list
+    # Quick reference sorted list with tooltips
     for func in all_funcs:
         anchor = f"{func.module}-{func.name}".lower()
-        html_parts.append(f'        <a class="quick-ref-item" href="#{anchor}">{html.escape(func.fqn)}</a>\n')
+        tooltip = html.escape(func.brief) if func.brief else ""
+        html_parts.append(f'        <a class="quick-ref-item" href="#{anchor}" title="{tooltip}">{html.escape(func.fqn)}</a>\n')
 
     html_parts.append('''    </div>
 </div>

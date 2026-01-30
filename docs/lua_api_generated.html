@@ -148,9 +148,9 @@
         }
 
         .quick-ref-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 2px 12px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2px 8px;
         }
 
         .quick-ref-item {
@@ -162,6 +162,8 @@
             text-decoration: none;
             transition: all 0.15s;
             white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .quick-ref-item:hover {
@@ -361,6 +363,10 @@
         @media (max-width: 640px) {
             .header-content { flex-direction: column; gap: 16px; }
             .toc-grid { grid-template-columns: 1fr; }
+            .quick-ref-list { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 400px) {
             .quick-ref-list { grid-template-columns: 1fr; }
         }
     </style>
@@ -388,210 +394,210 @@
 <div class="quick-ref">
     <div class="quick-ref-title">Quick Reference <span>204 methods</span></div>
     <div class="quick-ref-list">
-        <a class="quick-ref-item" href="#audio-beep">tdeck.audio.beep</a>
-        <a class="quick-ref-item" href="#audio-get_volume">tdeck.audio.get_volume</a>
-        <a class="quick-ref-item" href="#audio-is_playing">tdeck.audio.is_playing</a>
-        <a class="quick-ref-item" href="#audio-play_sample">tdeck.audio.play_sample</a>
-        <a class="quick-ref-item" href="#audio-play_tone">tdeck.audio.play_tone</a>
-        <a class="quick-ref-item" href="#audio-set_frequency">tdeck.audio.set_frequency</a>
-        <a class="quick-ref-item" href="#audio-set_volume">tdeck.audio.set_volume</a>
-        <a class="quick-ref-item" href="#audio-start">tdeck.audio.start</a>
-        <a class="quick-ref-item" href="#audio-stop">tdeck.audio.stop</a>
-        <a class="quick-ref-item" href="#bus-has_subscribers">tdeck.bus.has_subscribers</a>
-        <a class="quick-ref-item" href="#bus-pending_count">tdeck.bus.pending_count</a>
-        <a class="quick-ref-item" href="#bus-post">tdeck.bus.post</a>
-        <a class="quick-ref-item" href="#bus-subscribe">tdeck.bus.subscribe</a>
-        <a class="quick-ref-item" href="#bus-unsubscribe">tdeck.bus.unsubscribe</a>
-        <a class="quick-ref-item" href="#crypto-aes128_ecb_decrypt">tdeck.crypto.aes128_ecb_decrypt</a>
-        <a class="quick-ref-item" href="#crypto-aes128_ecb_encrypt">tdeck.crypto.aes128_ecb_encrypt</a>
-        <a class="quick-ref-item" href="#crypto-base64_decode">tdeck.crypto.base64_decode</a>
-        <a class="quick-ref-item" href="#crypto-base64_encode">tdeck.crypto.base64_encode</a>
-        <a class="quick-ref-item" href="#crypto-bytes_to_hex">tdeck.crypto.bytes_to_hex</a>
-        <a class="quick-ref-item" href="#crypto-channel_hash">tdeck.crypto.channel_hash</a>
-        <a class="quick-ref-item" href="#crypto-derive_channel_key">tdeck.crypto.derive_channel_key</a>
-        <a class="quick-ref-item" href="#crypto-hex_to_bytes">tdeck.crypto.hex_to_bytes</a>
-        <a class="quick-ref-item" href="#crypto-hmac_sha256">tdeck.crypto.hmac_sha256</a>
-        <a class="quick-ref-item" href="#crypto-public_channel_key">tdeck.crypto.public_channel_key</a>
-        <a class="quick-ref-item" href="#crypto-random_bytes">tdeck.crypto.random_bytes</a>
-        <a class="quick-ref-item" href="#crypto-sha256">tdeck.crypto.sha256</a>
-        <a class="quick-ref-item" href="#crypto-sha512">tdeck.crypto.sha512</a>
-        <a class="quick-ref-item" href="#display-clear">tdeck.display.clear</a>
-        <a class="quick-ref-item" href="#display-draw_battery">tdeck.display.draw_battery</a>
-        <a class="quick-ref-item" href="#display-draw_bitmap">tdeck.display.draw_bitmap</a>
-        <a class="quick-ref-item" href="#display-draw_bitmap_1bit">tdeck.display.draw_bitmap_1bit</a>
-        <a class="quick-ref-item" href="#display-draw_bitmap_transparent">tdeck.display.draw_bitmap_transparent</a>
-        <a class="quick-ref-item" href="#display-draw_box">tdeck.display.draw_box</a>
-        <a class="quick-ref-item" href="#display-draw_char">tdeck.display.draw_char</a>
-        <a class="quick-ref-item" href="#display-draw_circle">tdeck.display.draw_circle</a>
-        <a class="quick-ref-item" href="#display-draw_hline">tdeck.display.draw_hline</a>
-        <a class="quick-ref-item" href="#display-draw_indexed_bitmap">tdeck.display.draw_indexed_bitmap</a>
-        <a class="quick-ref-item" href="#display-draw_indexed_bitmap_scaled">tdeck.display.draw_indexed_bitmap_scaled</a>
-        <a class="quick-ref-item" href="#display-draw_line">tdeck.display.draw_line</a>
-        <a class="quick-ref-item" href="#display-draw_pixel">tdeck.display.draw_pixel</a>
-        <a class="quick-ref-item" href="#display-draw_progress">tdeck.display.draw_progress</a>
-        <a class="quick-ref-item" href="#display-draw_rect">tdeck.display.draw_rect</a>
-        <a class="quick-ref-item" href="#display-draw_round_rect">tdeck.display.draw_round_rect</a>
-        <a class="quick-ref-item" href="#display-draw_signal">tdeck.display.draw_signal</a>
-        <a class="quick-ref-item" href="#display-draw_text">tdeck.display.draw_text</a>
-        <a class="quick-ref-item" href="#display-draw_text_centered">tdeck.display.draw_text_centered</a>
-        <a class="quick-ref-item" href="#display-draw_triangle">tdeck.display.draw_triangle</a>
-        <a class="quick-ref-item" href="#display-fill_circle">tdeck.display.fill_circle</a>
-        <a class="quick-ref-item" href="#display-fill_rect">tdeck.display.fill_rect</a>
-        <a class="quick-ref-item" href="#display-fill_round_rect">tdeck.display.fill_round_rect</a>
-        <a class="quick-ref-item" href="#display-fill_triangle">tdeck.display.fill_triangle</a>
-        <a class="quick-ref-item" href="#display-flush">tdeck.display.flush</a>
-        <a class="quick-ref-item" href="#display-get_cols">tdeck.display.get_cols</a>
-        <a class="quick-ref-item" href="#display-get_font_height">tdeck.display.get_font_height</a>
-        <a class="quick-ref-item" href="#display-get_font_width">tdeck.display.get_font_width</a>
-        <a class="quick-ref-item" href="#display-get_height">tdeck.display.get_height</a>
-        <a class="quick-ref-item" href="#display-get_rows">tdeck.display.get_rows</a>
-        <a class="quick-ref-item" href="#display-get_width">tdeck.display.get_width</a>
-        <a class="quick-ref-item" href="#display-rgb">tdeck.display.rgb</a>
-        <a class="quick-ref-item" href="#display-save_screenshot">tdeck.display.save_screenshot</a>
-        <a class="quick-ref-item" href="#display-set_brightness">tdeck.display.set_brightness</a>
-        <a class="quick-ref-item" href="#display-set_font_size">tdeck.display.set_font_size</a>
-        <a class="quick-ref-item" href="#display-text_width">tdeck.display.text_width</a>
-        <a class="quick-ref-item" href="#keyboard-available">tdeck.keyboard.available</a>
-        <a class="quick-ref-item" href="#keyboard-get_backlight">tdeck.keyboard.get_backlight</a>
-        <a class="quick-ref-item" href="#keyboard-get_mode">tdeck.keyboard.get_mode</a>
-        <a class="quick-ref-item" href="#keyboard-get_raw_matrix_bits">tdeck.keyboard.get_raw_matrix_bits</a>
-        <a class="quick-ref-item" href="#keyboard-get_repeat_delay">tdeck.keyboard.get_repeat_delay</a>
-        <a class="quick-ref-item" href="#keyboard-get_repeat_enabled">tdeck.keyboard.get_repeat_enabled</a>
-        <a class="quick-ref-item" href="#keyboard-get_repeat_rate">tdeck.keyboard.get_repeat_rate</a>
-        <a class="quick-ref-item" href="#keyboard-get_trackball_mode">tdeck.keyboard.get_trackball_mode</a>
-        <a class="quick-ref-item" href="#keyboard-get_trackball_sensitivity">tdeck.keyboard.get_trackball_sensitivity</a>
-        <a class="quick-ref-item" href="#keyboard-has_trackball">tdeck.keyboard.has_trackball</a>
-        <a class="quick-ref-item" href="#keyboard-is_alt_held">tdeck.keyboard.is_alt_held</a>
-        <a class="quick-ref-item" href="#keyboard-is_ctrl_held">tdeck.keyboard.is_ctrl_held</a>
-        <a class="quick-ref-item" href="#keyboard-is_fn_held">tdeck.keyboard.is_fn_held</a>
-        <a class="quick-ref-item" href="#keyboard-is_key_pressed">tdeck.keyboard.is_key_pressed</a>
-        <a class="quick-ref-item" href="#keyboard-is_shift_held">tdeck.keyboard.is_shift_held</a>
-        <a class="quick-ref-item" href="#keyboard-read">tdeck.keyboard.read</a>
-        <a class="quick-ref-item" href="#keyboard-read_blocking">tdeck.keyboard.read_blocking</a>
-        <a class="quick-ref-item" href="#keyboard-read_raw_code">tdeck.keyboard.read_raw_code</a>
-        <a class="quick-ref-item" href="#keyboard-read_raw_matrix">tdeck.keyboard.read_raw_matrix</a>
-        <a class="quick-ref-item" href="#keyboard-set_backlight">tdeck.keyboard.set_backlight</a>
-        <a class="quick-ref-item" href="#keyboard-set_mode">tdeck.keyboard.set_mode</a>
-        <a class="quick-ref-item" href="#keyboard-set_repeat_delay">tdeck.keyboard.set_repeat_delay</a>
-        <a class="quick-ref-item" href="#keyboard-set_repeat_enabled">tdeck.keyboard.set_repeat_enabled</a>
-        <a class="quick-ref-item" href="#keyboard-set_repeat_rate">tdeck.keyboard.set_repeat_rate</a>
-        <a class="quick-ref-item" href="#keyboard-set_trackball_mode">tdeck.keyboard.set_trackball_mode</a>
-        <a class="quick-ref-item" href="#keyboard-set_trackball_sensitivity">tdeck.keyboard.set_trackball_sensitivity</a>
-        <a class="quick-ref-item" href="#mesh-build_packet">tdeck.mesh.build_packet</a>
-        <a class="quick-ref-item" href="#mesh-calc_shared_secret">tdeck.mesh.calc_shared_secret</a>
-        <a class="quick-ref-item" href="#mesh-clear_packet_queue">tdeck.mesh.clear_packet_queue</a>
-        <a class="quick-ref-item" href="#mesh-clear_tx_queue">tdeck.mesh.clear_tx_queue</a>
-        <a class="quick-ref-item" href="#mesh-ed25519_sign">tdeck.mesh.ed25519_sign</a>
-        <a class="quick-ref-item" href="#mesh-ed25519_verify">tdeck.mesh.ed25519_verify</a>
-        <a class="quick-ref-item" href="#mesh-enable_packet_queue">tdeck.mesh.enable_packet_queue</a>
-        <a class="quick-ref-item" href="#mesh-get_announce_interval">tdeck.mesh.get_announce_interval</a>
-        <a class="quick-ref-item" href="#mesh-get_node_count">tdeck.mesh.get_node_count</a>
-        <a class="quick-ref-item" href="#mesh-get_node_id">tdeck.mesh.get_node_id</a>
-        <a class="quick-ref-item" href="#mesh-get_node_name">tdeck.mesh.get_node_name</a>
-        <a class="quick-ref-item" href="#mesh-get_nodes">tdeck.mesh.get_nodes</a>
-        <a class="quick-ref-item" href="#mesh-get_path_check">tdeck.mesh.get_path_check</a>
-        <a class="quick-ref-item" href="#mesh-get_path_hash">tdeck.mesh.get_path_hash</a>
-        <a class="quick-ref-item" href="#mesh-get_public_key">tdeck.mesh.get_public_key</a>
-        <a class="quick-ref-item" href="#mesh-get_public_key_hex">tdeck.mesh.get_public_key_hex</a>
-        <a class="quick-ref-item" href="#mesh-get_rx_count">tdeck.mesh.get_rx_count</a>
-        <a class="quick-ref-item" href="#mesh-get_short_id">tdeck.mesh.get_short_id</a>
-        <a class="quick-ref-item" href="#mesh-get_tx_count">tdeck.mesh.get_tx_count</a>
-        <a class="quick-ref-item" href="#mesh-get_tx_queue_capacity">tdeck.mesh.get_tx_queue_capacity</a>
-        <a class="quick-ref-item" href="#mesh-get_tx_queue_size">tdeck.mesh.get_tx_queue_size</a>
-        <a class="quick-ref-item" href="#mesh-get_tx_throttle">tdeck.mesh.get_tx_throttle</a>
-        <a class="quick-ref-item" href="#mesh-has_packets">tdeck.mesh.has_packets</a>
-        <a class="quick-ref-item" href="#mesh-is_initialized">tdeck.mesh.is_initialized</a>
-        <a class="quick-ref-item" href="#mesh-is_tx_queue_full">tdeck.mesh.is_tx_queue_full</a>
-        <a class="quick-ref-item" href="#mesh-make_header">tdeck.mesh.make_header</a>
-        <a class="quick-ref-item" href="#mesh-on_group_packet">tdeck.mesh.on_group_packet</a>
-        <a class="quick-ref-item" href="#mesh-on_node_discovered">tdeck.mesh.on_node_discovered</a>
-        <a class="quick-ref-item" href="#mesh-on_packet">tdeck.mesh.on_packet</a>
-        <a class="quick-ref-item" href="#mesh-packet_count">tdeck.mesh.packet_count</a>
-        <a class="quick-ref-item" href="#mesh-parse_header">tdeck.mesh.parse_header</a>
-        <a class="quick-ref-item" href="#mesh-pop_packet">tdeck.mesh.pop_packet</a>
-        <a class="quick-ref-item" href="#mesh-queue_send">tdeck.mesh.queue_send</a>
-        <a class="quick-ref-item" href="#mesh-schedule_rebroadcast">tdeck.mesh.schedule_rebroadcast</a>
-        <a class="quick-ref-item" href="#mesh-send_announce">tdeck.mesh.send_announce</a>
-        <a class="quick-ref-item" href="#mesh-send_group_packet">tdeck.mesh.send_group_packet</a>
-        <a class="quick-ref-item" href="#mesh-send_raw">tdeck.mesh.send_raw</a>
-        <a class="quick-ref-item" href="#mesh-set_announce_interval">tdeck.mesh.set_announce_interval</a>
-        <a class="quick-ref-item" href="#mesh-set_node_name">tdeck.mesh.set_node_name</a>
-        <a class="quick-ref-item" href="#mesh-set_path_check">tdeck.mesh.set_path_check</a>
-        <a class="quick-ref-item" href="#mesh-set_tx_throttle">tdeck.mesh.set_tx_throttle</a>
-        <a class="quick-ref-item" href="#mesh-update">tdeck.mesh.update</a>
-        <a class="quick-ref-item" href="#radio-available">tdeck.radio.available</a>
-        <a class="quick-ref-item" href="#radio-get_config">tdeck.radio.get_config</a>
-        <a class="quick-ref-item" href="#radio-get_last_rssi">tdeck.radio.get_last_rssi</a>
-        <a class="quick-ref-item" href="#radio-get_last_snr">tdeck.radio.get_last_snr</a>
-        <a class="quick-ref-item" href="#radio-is_busy">tdeck.radio.is_busy</a>
-        <a class="quick-ref-item" href="#radio-is_initialized">tdeck.radio.is_initialized</a>
-        <a class="quick-ref-item" href="#radio-is_receiving">tdeck.radio.is_receiving</a>
-        <a class="quick-ref-item" href="#radio-is_transmitting">tdeck.radio.is_transmitting</a>
-        <a class="quick-ref-item" href="#radio-receive">tdeck.radio.receive</a>
-        <a class="quick-ref-item" href="#radio-send">tdeck.radio.send</a>
-        <a class="quick-ref-item" href="#radio-set_bandwidth">tdeck.radio.set_bandwidth</a>
-        <a class="quick-ref-item" href="#radio-set_coding_rate">tdeck.radio.set_coding_rate</a>
-        <a class="quick-ref-item" href="#radio-set_frequency">tdeck.radio.set_frequency</a>
-        <a class="quick-ref-item" href="#radio-set_spreading_factor">tdeck.radio.set_spreading_factor</a>
-        <a class="quick-ref-item" href="#radio-set_sync_word">tdeck.radio.set_sync_word</a>
-        <a class="quick-ref-item" href="#radio-set_tx_power">tdeck.radio.set_tx_power</a>
-        <a class="quick-ref-item" href="#radio-sleep">tdeck.radio.sleep</a>
-        <a class="quick-ref-item" href="#radio-start_receive">tdeck.radio.start_receive</a>
-        <a class="quick-ref-item" href="#radio-wake">tdeck.radio.wake</a>
-        <a class="quick-ref-item" href="#storage-append_file">tdeck.storage.append_file</a>
-        <a class="quick-ref-item" href="#storage-clear_prefs">tdeck.storage.clear_prefs</a>
-        <a class="quick-ref-item" href="#storage-exists">tdeck.storage.exists</a>
-        <a class="quick-ref-item" href="#storage-file_size">tdeck.storage.file_size</a>
-        <a class="quick-ref-item" href="#storage-get_flash_info">tdeck.storage.get_flash_info</a>
-        <a class="quick-ref-item" href="#storage-get_pref">tdeck.storage.get_pref</a>
-        <a class="quick-ref-item" href="#storage-get_sd_info">tdeck.storage.get_sd_info</a>
-        <a class="quick-ref-item" href="#storage-is_sd_available">tdeck.storage.is_sd_available</a>
-        <a class="quick-ref-item" href="#storage-json_decode">tdeck.storage.json_decode</a>
-        <a class="quick-ref-item" href="#storage-json_encode">tdeck.storage.json_encode</a>
-        <a class="quick-ref-item" href="#storage-list_dir">tdeck.storage.list_dir</a>
-        <a class="quick-ref-item" href="#storage-mkdir">tdeck.storage.mkdir</a>
-        <a class="quick-ref-item" href="#storage-read_bytes">tdeck.storage.read_bytes</a>
-        <a class="quick-ref-item" href="#storage-read_file">tdeck.storage.read_file</a>
-        <a class="quick-ref-item" href="#storage-remove">tdeck.storage.remove</a>
-        <a class="quick-ref-item" href="#storage-remove_pref">tdeck.storage.remove_pref</a>
-        <a class="quick-ref-item" href="#storage-rename">tdeck.storage.rename</a>
-        <a class="quick-ref-item" href="#storage-rmdir">tdeck.storage.rmdir</a>
-        <a class="quick-ref-item" href="#storage-set_pref">tdeck.storage.set_pref</a>
-        <a class="quick-ref-item" href="#storage-write_file">tdeck.storage.write_file</a>
-        <a class="quick-ref-item" href="#system-cancel_timer">tdeck.system.cancel_timer</a>
-        <a class="quick-ref-item" href="#system-chip_model">tdeck.system.chip_model</a>
-        <a class="quick-ref-item" href="#system-cpu_freq">tdeck.system.cpu_freq</a>
-        <a class="quick-ref-item" href="#system-delay">tdeck.system.delay</a>
-        <a class="quick-ref-item" href="#system-gc">tdeck.system.gc</a>
-        <a class="quick-ref-item" href="#system-gc_step">tdeck.system.gc_step</a>
-        <a class="quick-ref-item" href="#system-get_battery_percent">tdeck.system.get_battery_percent</a>
-        <a class="quick-ref-item" href="#system-get_battery_voltage">tdeck.system.get_battery_voltage</a>
-        <a class="quick-ref-item" href="#system-get_firmware_info">tdeck.system.get_firmware_info</a>
-        <a class="quick-ref-item" href="#system-get_free_heap">tdeck.system.get_free_heap</a>
-        <a class="quick-ref-item" href="#system-get_free_psram">tdeck.system.get_free_psram</a>
-        <a class="quick-ref-item" href="#system-get_last_error">tdeck.system.get_last_error</a>
-        <a class="quick-ref-item" href="#system-get_lua_memory">tdeck.system.get_lua_memory</a>
-        <a class="quick-ref-item" href="#system-get_time">tdeck.system.get_time</a>
-        <a class="quick-ref-item" href="#system-get_time_unix">tdeck.system.get_time_unix</a>
-        <a class="quick-ref-item" href="#system-get_timezone">tdeck.system.get_timezone</a>
-        <a class="quick-ref-item" href="#system-get_total_heap">tdeck.system.get_total_heap</a>
-        <a class="quick-ref-item" href="#system-get_total_psram">tdeck.system.get_total_psram</a>
-        <a class="quick-ref-item" href="#system-is_low_memory">tdeck.system.is_low_memory</a>
-        <a class="quick-ref-item" href="#system-is_sd_available">tdeck.system.is_sd_available</a>
-        <a class="quick-ref-item" href="#system-is_usb_msc_active">tdeck.system.is_usb_msc_active</a>
-        <a class="quick-ref-item" href="#system-log">tdeck.system.log</a>
-        <a class="quick-ref-item" href="#system-millis">tdeck.system.millis</a>
-        <a class="quick-ref-item" href="#system-reload_scripts">tdeck.system.reload_scripts</a>
-        <a class="quick-ref-item" href="#system-restart">tdeck.system.restart</a>
-        <a class="quick-ref-item" href="#system-set_interval">tdeck.system.set_interval</a>
-        <a class="quick-ref-item" href="#system-set_time">tdeck.system.set_time</a>
-        <a class="quick-ref-item" href="#system-set_time_unix">tdeck.system.set_time_unix</a>
-        <a class="quick-ref-item" href="#system-set_timer">tdeck.system.set_timer</a>
-        <a class="quick-ref-item" href="#system-set_timezone">tdeck.system.set_timezone</a>
-        <a class="quick-ref-item" href="#system-start_usb_msc">tdeck.system.start_usb_msc</a>
-        <a class="quick-ref-item" href="#system-stop_usb_msc">tdeck.system.stop_usb_msc</a>
-        <a class="quick-ref-item" href="#system-uptime">tdeck.system.uptime</a>
-        <a class="quick-ref-item" href="#system-yield">tdeck.system.yield</a>
+        <a class="quick-ref-item" href="#audio-beep" title="Play a series of beeps (blocking)">tdeck.audio.beep</a>
+        <a class="quick-ref-item" href="#audio-get_volume" title="Get current volume level">tdeck.audio.get_volume</a>
+        <a class="quick-ref-item" href="#audio-is_playing" title="Check if audio is playing">tdeck.audio.is_playing</a>
+        <a class="quick-ref-item" href="#audio-play_sample" title="Play a PCM sample file from LittleFS">tdeck.audio.play_sample</a>
+        <a class="quick-ref-item" href="#audio-play_tone" title="Play a tone for specified duration">tdeck.audio.play_tone</a>
+        <a class="quick-ref-item" href="#audio-set_frequency" title="Set playback frequency for continuous tones">tdeck.audio.set_frequency</a>
+        <a class="quick-ref-item" href="#audio-set_volume" title="Set audio volume level">tdeck.audio.set_volume</a>
+        <a class="quick-ref-item" href="#audio-start" title="Start continuous tone at current frequency">tdeck.audio.start</a>
+        <a class="quick-ref-item" href="#audio-stop" title="Stop audio playback">tdeck.audio.stop</a>
+        <a class="quick-ref-item" href="#bus-has_subscribers" title="Check if a topic has any active subscribers">tdeck.bus.has_subscribers</a>
+        <a class="quick-ref-item" href="#bus-pending_count" title="Get number of messages waiting in queue">tdeck.bus.pending_count</a>
+        <a class="quick-ref-item" href="#bus-post" title="Post a message to a topic">tdeck.bus.post</a>
+        <a class="quick-ref-item" href="#bus-subscribe" title="Subscribe to a topic with a callback function">tdeck.bus.subscribe</a>
+        <a class="quick-ref-item" href="#bus-unsubscribe" title="Unsubscribe from a topic">tdeck.bus.unsubscribe</a>
+        <a class="quick-ref-item" href="#crypto-aes128_ecb_decrypt" title="Decrypt data with AES-128-ECB">tdeck.crypto.aes128_ecb_decrypt</a>
+        <a class="quick-ref-item" href="#crypto-aes128_ecb_encrypt" title="Encrypt data with AES-128-ECB">tdeck.crypto.aes128_ecb_encrypt</a>
+        <a class="quick-ref-item" href="#crypto-base64_decode" title="Decode base64 string to binary data">tdeck.crypto.base64_decode</a>
+        <a class="quick-ref-item" href="#crypto-base64_encode" title="Encode binary data to base64 string">tdeck.crypto.base64_encode</a>
+        <a class="quick-ref-item" href="#crypto-bytes_to_hex" title="Convert binary data to hex string">tdeck.crypto.bytes_to_hex</a>
+        <a class="quick-ref-item" href="#crypto-channel_hash" title="Compute channel hash from key (SHA256(key)[0])">tdeck.crypto.channel_hash</a>
+        <a class="quick-ref-item" href="#crypto-derive_channel_key" title="Derive 16-byte channel key from password/name using SHA256">tdeck.crypto.derive_channel_key</a>
+        <a class="quick-ref-item" href="#crypto-hex_to_bytes" title="Convert hex string to binary data">tdeck.crypto.hex_to_bytes</a>
+        <a class="quick-ref-item" href="#crypto-hmac_sha256" title="Compute HMAC-SHA256">tdeck.crypto.hmac_sha256</a>
+        <a class="quick-ref-item" href="#crypto-public_channel_key" title="Get the well-known #Public channel key">tdeck.crypto.public_channel_key</a>
+        <a class="quick-ref-item" href="#crypto-random_bytes" title="Generate cryptographically secure random bytes">tdeck.crypto.random_bytes</a>
+        <a class="quick-ref-item" href="#crypto-sha256" title="Compute SHA-256 hash">tdeck.crypto.sha256</a>
+        <a class="quick-ref-item" href="#crypto-sha512" title="Compute SHA-512 hash">tdeck.crypto.sha512</a>
+        <a class="quick-ref-item" href="#display-clear" title="Clear display buffer to black">tdeck.display.clear</a>
+        <a class="quick-ref-item" href="#display-draw_battery" title="Draw battery indicator icon">tdeck.display.draw_battery</a>
+        <a class="quick-ref-item" href="#display-draw_bitmap" title="Draw a bitmap image from raw RGB565 data">tdeck.display.draw_bitmap</a>
+        <a class="quick-ref-item" href="#display-draw_bitmap_1bit" title="Draw a 1-bit bitmap with scaling and colorization">tdeck.display.draw_bitmap_1bit</a>
+        <a class="quick-ref-item" href="#display-draw_bitmap_transparent" title="Draw a bitmap with transparency">tdeck.display.draw_bitmap_transparent</a>
+        <a class="quick-ref-item" href="#display-draw_box" title="Draw bordered box with optional title">tdeck.display.draw_box</a>
+        <a class="quick-ref-item" href="#display-draw_char" title="Draw a single character">tdeck.display.draw_char</a>
+        <a class="quick-ref-item" href="#display-draw_circle" title="Draw circle outline">tdeck.display.draw_circle</a>
+        <a class="quick-ref-item" href="#display-draw_hline" title="Draw horizontal line with optional connectors">tdeck.display.draw_hline</a>
+        <a class="quick-ref-item" href="#display-draw_indexed_bitmap" title="Draw a 3-bit indexed bitmap using a color palette">tdeck.display.draw_indexed_bitmap</a>
+        <a class="quick-ref-item" href="#display-draw_indexed_bitmap_scaled" title="Draw a scaled portion of a 3-bit indexed bitmap">tdeck.display.draw_indexed_bitmap_scaled</a>
+        <a class="quick-ref-item" href="#display-draw_line" title="Draw a line between two points">tdeck.display.draw_line</a>
+        <a class="quick-ref-item" href="#display-draw_pixel" title="Draw a single pixel">tdeck.display.draw_pixel</a>
+        <a class="quick-ref-item" href="#display-draw_progress" title="Draw a progress bar">tdeck.display.draw_progress</a>
+        <a class="quick-ref-item" href="#display-draw_rect" title="Draw rectangle outline">tdeck.display.draw_rect</a>
+        <a class="quick-ref-item" href="#display-draw_round_rect" title="Draw rounded rectangle outline">tdeck.display.draw_round_rect</a>
+        <a class="quick-ref-item" href="#display-draw_signal" title="Draw signal strength indicator">tdeck.display.draw_signal</a>
+        <a class="quick-ref-item" href="#display-draw_text" title="Draw text at pixel coordinates">tdeck.display.draw_text</a>
+        <a class="quick-ref-item" href="#display-draw_text_centered" title="Draw horizontally centered text">tdeck.display.draw_text_centered</a>
+        <a class="quick-ref-item" href="#display-draw_triangle" title="Draw triangle outline">tdeck.display.draw_triangle</a>
+        <a class="quick-ref-item" href="#display-fill_circle" title="Draw filled circle">tdeck.display.fill_circle</a>
+        <a class="quick-ref-item" href="#display-fill_rect" title="Fill a rectangle with color">tdeck.display.fill_rect</a>
+        <a class="quick-ref-item" href="#display-fill_round_rect" title="Draw filled rounded rectangle">tdeck.display.fill_round_rect</a>
+        <a class="quick-ref-item" href="#display-fill_triangle" title="Draw filled triangle">tdeck.display.fill_triangle</a>
+        <a class="quick-ref-item" href="#display-flush" title="Flush buffer to physical display">tdeck.display.flush</a>
+        <a class="quick-ref-item" href="#display-get_cols" title="Get display columns">tdeck.display.get_cols</a>
+        <a class="quick-ref-item" href="#display-get_font_height" title="Get font character height">tdeck.display.get_font_height</a>
+        <a class="quick-ref-item" href="#display-get_font_width" title="Get font character width">tdeck.display.get_font_width</a>
+        <a class="quick-ref-item" href="#display-get_height" title="Get display height">tdeck.display.get_height</a>
+        <a class="quick-ref-item" href="#display-get_rows" title="Get display rows">tdeck.display.get_rows</a>
+        <a class="quick-ref-item" href="#display-get_width" title="Get display width">tdeck.display.get_width</a>
+        <a class="quick-ref-item" href="#display-rgb" title="Convert RGB to RGB565 color value">tdeck.display.rgb</a>
+        <a class="quick-ref-item" href="#display-save_screenshot" title="Save current display contents as BMP screenshot to SD card">tdeck.display.save_screenshot</a>
+        <a class="quick-ref-item" href="#display-set_brightness" title="Set backlight brightness">tdeck.display.set_brightness</a>
+        <a class="quick-ref-item" href="#display-set_font_size" title="Set font size">tdeck.display.set_font_size</a>
+        <a class="quick-ref-item" href="#display-text_width" title="Get pixel width of text string">tdeck.display.text_width</a>
+        <a class="quick-ref-item" href="#keyboard-available" title="Check if a key is waiting">tdeck.keyboard.available</a>
+        <a class="quick-ref-item" href="#keyboard-get_backlight" title="Get current keyboard backlight level">tdeck.keyboard.get_backlight</a>
+        <a class="quick-ref-item" href="#keyboard-get_mode" title="Get current keyboard input mode">tdeck.keyboard.get_mode</a>
+        <a class="quick-ref-item" href="#keyboard-get_raw_matrix_bits" title="Get full matrix state as 64-bit integer (raw mode)">tdeck.keyboard.get_raw_matrix_bits</a>
+        <a class="quick-ref-item" href="#keyboard-get_repeat_delay" title="Get initial delay before key repeat starts">tdeck.keyboard.get_repeat_delay</a>
+        <a class="quick-ref-item" href="#keyboard-get_repeat_enabled" title="Check if key repeat is enabled">tdeck.keyboard.get_repeat_enabled</a>
+        <a class="quick-ref-item" href="#keyboard-get_repeat_rate" title="Get key repeat rate (interval between repeats)">tdeck.keyboard.get_repeat_rate</a>
+        <a class="quick-ref-item" href="#keyboard-get_trackball_mode" title="Get current trackball input mode">tdeck.keyboard.get_trackball_mode</a>
+        <a class="quick-ref-item" href="#keyboard-get_trackball_sensitivity" title="Get trackball sensitivity level">tdeck.keyboard.get_trackball_sensitivity</a>
+        <a class="quick-ref-item" href="#keyboard-has_trackball" title="Check if device has trackball">tdeck.keyboard.has_trackball</a>
+        <a class="quick-ref-item" href="#keyboard-is_alt_held" title="Check if Alt is currently held">tdeck.keyboard.is_alt_held</a>
+        <a class="quick-ref-item" href="#keyboard-is_ctrl_held" title="Check if Ctrl is currently held">tdeck.keyboard.is_ctrl_held</a>
+        <a class="quick-ref-item" href="#keyboard-is_fn_held" title="Check if Fn is currently held">tdeck.keyboard.is_fn_held</a>
+        <a class="quick-ref-item" href="#keyboard-is_key_pressed" title="Check if a specific matrix key is pressed (raw mode)">tdeck.keyboard.is_key_pressed</a>
+        <a class="quick-ref-item" href="#keyboard-is_shift_held" title="Check if Shift is currently held">tdeck.keyboard.is_shift_held</a>
+        <a class="quick-ref-item" href="#keyboard-read" title="Read next key event (non-blocking)">tdeck.keyboard.read</a>
+        <a class="quick-ref-item" href="#keyboard-read_blocking" title="Read key with optional timeout (blocking)">tdeck.keyboard.read_blocking</a>
+        <a class="quick-ref-item" href="#keyboard-read_raw_code" title="Read raw key code byte directly from I2C (no translation)">tdeck.keyboard.read_raw_code</a>
+        <a class="quick-ref-item" href="#keyboard-read_raw_matrix" title="Read raw key matrix state (only works in raw mode)">tdeck.keyboard.read_raw_matrix</a>
+        <a class="quick-ref-item" href="#keyboard-set_backlight" title="Set keyboard backlight brightness">tdeck.keyboard.set_backlight</a>
+        <a class="quick-ref-item" href="#keyboard-set_mode" title="Set keyboard input mode">tdeck.keyboard.set_mode</a>
+        <a class="quick-ref-item" href="#keyboard-set_repeat_delay" title="Set initial delay before key repeat starts">tdeck.keyboard.set_repeat_delay</a>
+        <a class="quick-ref-item" href="#keyboard-set_repeat_enabled" title="Enable or disable key repeat">tdeck.keyboard.set_repeat_enabled</a>
+        <a class="quick-ref-item" href="#keyboard-set_repeat_rate" title="Set key repeat rate (interval between repeats)">tdeck.keyboard.set_repeat_rate</a>
+        <a class="quick-ref-item" href="#keyboard-set_trackball_mode" title="Set trackball input mode">tdeck.keyboard.set_trackball_mode</a>
+        <a class="quick-ref-item" href="#keyboard-set_trackball_sensitivity" title="Set trackball sensitivity level">tdeck.keyboard.set_trackball_sensitivity</a>
+        <a class="quick-ref-item" href="#mesh-build_packet" title="Build a raw mesh packet for transmission">tdeck.mesh.build_packet</a>
+        <a class="quick-ref-item" href="#mesh-calc_shared_secret" title="Calculate ECDH shared secret with another node">tdeck.mesh.calc_shared_secret</a>
+        <a class="quick-ref-item" href="#mesh-clear_packet_queue" title="Clear all packets from the queue">tdeck.mesh.clear_packet_queue</a>
+        <a class="quick-ref-item" href="#mesh-clear_tx_queue" title="Clear all packets from transmit queue">tdeck.mesh.clear_tx_queue</a>
+        <a class="quick-ref-item" href="#mesh-ed25519_sign" title="Sign data with this node&#x27;s private key">tdeck.mesh.ed25519_sign</a>
+        <a class="quick-ref-item" href="#mesh-ed25519_verify" title="Verify an Ed25519 signature">tdeck.mesh.ed25519_verify</a>
+        <a class="quick-ref-item" href="#mesh-enable_packet_queue" title="Enable or disable packet queuing for polling">tdeck.mesh.enable_packet_queue</a>
+        <a class="quick-ref-item" href="#mesh-get_announce_interval" title="Get current auto-announce interval">tdeck.mesh.get_announce_interval</a>
+        <a class="quick-ref-item" href="#mesh-get_node_count" title="Get number of known nodes">tdeck.mesh.get_node_count</a>
+        <a class="quick-ref-item" href="#mesh-get_node_id" title="Get this node&#x27;s full ID">tdeck.mesh.get_node_id</a>
+        <a class="quick-ref-item" href="#mesh-get_node_name" title="Get this node&#x27;s display name">tdeck.mesh.get_node_name</a>
+        <a class="quick-ref-item" href="#mesh-get_nodes" title="Get list of discovered mesh nodes">tdeck.mesh.get_nodes</a>
+        <a class="quick-ref-item" href="#mesh-get_path_check" title="Get current path check setting">tdeck.mesh.get_path_check</a>
+        <a class="quick-ref-item" href="#mesh-get_path_hash" title="Get this node&#x27;s path hash (first byte of public key)">tdeck.mesh.get_path_hash</a>
+        <a class="quick-ref-item" href="#mesh-get_public_key" title="Get this node&#x27;s public key as binary string">tdeck.mesh.get_public_key</a>
+        <a class="quick-ref-item" href="#mesh-get_public_key_hex" title="Get this node&#x27;s public key as hex string">tdeck.mesh.get_public_key_hex</a>
+        <a class="quick-ref-item" href="#mesh-get_rx_count" title="Get total packets received">tdeck.mesh.get_rx_count</a>
+        <a class="quick-ref-item" href="#mesh-get_short_id" title="Get this node&#x27;s short ID">tdeck.mesh.get_short_id</a>
+        <a class="quick-ref-item" href="#mesh-get_tx_count" title="Get total packets transmitted">tdeck.mesh.get_tx_count</a>
+        <a class="quick-ref-item" href="#mesh-get_tx_queue_capacity" title="Get maximum transmit queue capacity">tdeck.mesh.get_tx_queue_capacity</a>
+        <a class="quick-ref-item" href="#mesh-get_tx_queue_size" title="Get number of packets waiting in transmit queue">tdeck.mesh.get_tx_queue_size</a>
+        <a class="quick-ref-item" href="#mesh-get_tx_throttle" title="Get current throttle interval">tdeck.mesh.get_tx_throttle</a>
+        <a class="quick-ref-item" href="#mesh-has_packets" title="Check if packets are available in the queue">tdeck.mesh.has_packets</a>
+        <a class="quick-ref-item" href="#mesh-is_initialized" title="Check if mesh networking is initialized">tdeck.mesh.is_initialized</a>
+        <a class="quick-ref-item" href="#mesh-is_tx_queue_full" title="Check if transmit queue is full">tdeck.mesh.is_tx_queue_full</a>
+        <a class="quick-ref-item" href="#mesh-make_header" title="Create a packet header byte from components">tdeck.mesh.make_header</a>
+        <a class="quick-ref-item" href="#mesh-on_group_packet" title="Set callback for raw group packets (DEPRECATED - use bus.subscribe(&quot;mesh/group_packet&quot;) instead)">tdeck.mesh.on_group_packet</a>
+        <a class="quick-ref-item" href="#mesh-on_node_discovered" title="Set callback for node discovery (DEPRECATED - use bus.subscribe(&quot;mesh/node_discovered&quot;) instead)">tdeck.mesh.on_node_discovered</a>
+        <a class="quick-ref-item" href="#mesh-on_packet" title="Set callback for ALL incoming packets (DEPRECATED - use bus.subscribe(&quot;mesh/packet&quot;) instead)">tdeck.mesh.on_packet</a>
+        <a class="quick-ref-item" href="#mesh-packet_count" title="Get number of packets in queue">tdeck.mesh.packet_count</a>
+        <a class="quick-ref-item" href="#mesh-parse_header" title="Parse a packet header byte into components">tdeck.mesh.parse_header</a>
+        <a class="quick-ref-item" href="#mesh-pop_packet" title="Get and remove the next packet from queue">tdeck.mesh.pop_packet</a>
+        <a class="quick-ref-item" href="#mesh-queue_send" title="Queue packet for transmission (throttled, non-blocking)">tdeck.mesh.queue_send</a>
+        <a class="quick-ref-item" href="#mesh-schedule_rebroadcast" title="Schedule raw packet data for rebroadcast">tdeck.mesh.schedule_rebroadcast</a>
+        <a class="quick-ref-item" href="#mesh-send_announce" title="Broadcast node announcement">tdeck.mesh.send_announce</a>
+        <a class="quick-ref-item" href="#mesh-send_group_packet" title="Send raw encrypted group packet">tdeck.mesh.send_group_packet</a>
+        <a class="quick-ref-item" href="#mesh-send_raw" title="Send raw packet data directly via radio (bypasses queue, immediate)">tdeck.mesh.send_raw</a>
+        <a class="quick-ref-item" href="#mesh-set_announce_interval" title="Set auto-announce interval in milliseconds (0 = disabled)">tdeck.mesh.set_announce_interval</a>
+        <a class="quick-ref-item" href="#mesh-set_node_name" title="Set this node&#x27;s display name">tdeck.mesh.set_node_name</a>
+        <a class="quick-ref-item" href="#mesh-set_path_check" title="Enable or disable path check for flood routing">tdeck.mesh.set_path_check</a>
+        <a class="quick-ref-item" href="#mesh-set_tx_throttle" title="Set minimum interval between transmissions">tdeck.mesh.set_tx_throttle</a>
+        <a class="quick-ref-item" href="#mesh-update" title="Process incoming mesh packets">tdeck.mesh.update</a>
+        <a class="quick-ref-item" href="#radio-available" title="Check if data is available">tdeck.radio.available</a>
+        <a class="quick-ref-item" href="#radio-get_config" title="Get current radio configuration">tdeck.radio.get_config</a>
+        <a class="quick-ref-item" href="#radio-get_last_rssi" title="Get last received signal strength">tdeck.radio.get_last_rssi</a>
+        <a class="quick-ref-item" href="#radio-get_last_snr" title="Get last signal-to-noise ratio">tdeck.radio.get_last_snr</a>
+        <a class="quick-ref-item" href="#radio-is_busy" title="Check if radio is busy">tdeck.radio.is_busy</a>
+        <a class="quick-ref-item" href="#radio-is_initialized" title="Check if radio is initialized">tdeck.radio.is_initialized</a>
+        <a class="quick-ref-item" href="#radio-is_receiving" title="Check if in receive mode">tdeck.radio.is_receiving</a>
+        <a class="quick-ref-item" href="#radio-is_transmitting" title="Check if currently transmitting">tdeck.radio.is_transmitting</a>
+        <a class="quick-ref-item" href="#radio-receive" title="Receive a packet">tdeck.radio.receive</a>
+        <a class="quick-ref-item" href="#radio-send" title="Transmit data">tdeck.radio.send</a>
+        <a class="quick-ref-item" href="#radio-set_bandwidth" title="Set radio bandwidth">tdeck.radio.set_bandwidth</a>
+        <a class="quick-ref-item" href="#radio-set_coding_rate" title="Set LoRa coding rate">tdeck.radio.set_coding_rate</a>
+        <a class="quick-ref-item" href="#radio-set_frequency" title="Set radio frequency">tdeck.radio.set_frequency</a>
+        <a class="quick-ref-item" href="#radio-set_spreading_factor" title="Set LoRa spreading factor">tdeck.radio.set_spreading_factor</a>
+        <a class="quick-ref-item" href="#radio-set_sync_word" title="Set sync word">tdeck.radio.set_sync_word</a>
+        <a class="quick-ref-item" href="#radio-set_tx_power" title="Set transmit power">tdeck.radio.set_tx_power</a>
+        <a class="quick-ref-item" href="#radio-sleep" title="Put radio into sleep mode">tdeck.radio.sleep</a>
+        <a class="quick-ref-item" href="#radio-start_receive" title="Start listening for packets">tdeck.radio.start_receive</a>
+        <a class="quick-ref-item" href="#radio-wake" title="Wake radio from sleep">tdeck.radio.wake</a>
+        <a class="quick-ref-item" href="#storage-append_file" title="Append content to file">tdeck.storage.append_file</a>
+        <a class="quick-ref-item" href="#storage-clear_prefs" title="Clear all preferences">tdeck.storage.clear_prefs</a>
+        <a class="quick-ref-item" href="#storage-exists" title="Check if file or directory exists">tdeck.storage.exists</a>
+        <a class="quick-ref-item" href="#storage-file_size" title="Get file size in bytes">tdeck.storage.file_size</a>
+        <a class="quick-ref-item" href="#storage-get_flash_info" title="Get flash storage info">tdeck.storage.get_flash_info</a>
+        <a class="quick-ref-item" href="#storage-get_pref" title="Get preference value">tdeck.storage.get_pref</a>
+        <a class="quick-ref-item" href="#storage-get_sd_info" title="Get SD card info">tdeck.storage.get_sd_info</a>
+        <a class="quick-ref-item" href="#storage-is_sd_available" title="Check if SD card is mounted">tdeck.storage.is_sd_available</a>
+        <a class="quick-ref-item" href="#storage-json_decode" title="Decode JSON string to Lua value">tdeck.storage.json_decode</a>
+        <a class="quick-ref-item" href="#storage-json_encode" title="Encode Lua value to JSON string">tdeck.storage.json_encode</a>
+        <a class="quick-ref-item" href="#storage-list_dir" title="List directory contents">tdeck.storage.list_dir</a>
+        <a class="quick-ref-item" href="#storage-mkdir" title="Create directory">tdeck.storage.mkdir</a>
+        <a class="quick-ref-item" href="#storage-read_bytes" title="Read bytes from file at specific offset (for random access)">tdeck.storage.read_bytes</a>
+        <a class="quick-ref-item" href="#storage-read_file" title="Read entire file contents">tdeck.storage.read_file</a>
+        <a class="quick-ref-item" href="#storage-remove" title="Delete a file">tdeck.storage.remove</a>
+        <a class="quick-ref-item" href="#storage-remove_pref" title="Remove a preference">tdeck.storage.remove_pref</a>
+        <a class="quick-ref-item" href="#storage-rename" title="Rename or move a file">tdeck.storage.rename</a>
+        <a class="quick-ref-item" href="#storage-rmdir" title="Remove empty directory">tdeck.storage.rmdir</a>
+        <a class="quick-ref-item" href="#storage-set_pref" title="Set preference value">tdeck.storage.set_pref</a>
+        <a class="quick-ref-item" href="#storage-write_file" title="Write content to file (creates/overwrites)">tdeck.storage.write_file</a>
+        <a class="quick-ref-item" href="#system-cancel_timer" title="Cancel a scheduled timer">tdeck.system.cancel_timer</a>
+        <a class="quick-ref-item" href="#system-chip_model" title="Get ESP32 chip model name">tdeck.system.chip_model</a>
+        <a class="quick-ref-item" href="#system-cpu_freq" title="Get CPU frequency">tdeck.system.cpu_freq</a>
+        <a class="quick-ref-item" href="#system-delay" title="Blocking delay execution">tdeck.system.delay</a>
+        <a class="quick-ref-item" href="#system-gc" title="Force full garbage collection">tdeck.system.gc</a>
+        <a class="quick-ref-item" href="#system-gc_step" title="Perform incremental garbage collection">tdeck.system.gc_step</a>
+        <a class="quick-ref-item" href="#system-get_battery_percent" title="Get battery charge level">tdeck.system.get_battery_percent</a>
+        <a class="quick-ref-item" href="#system-get_battery_voltage" title="Get battery voltage">tdeck.system.get_battery_voltage</a>
+        <a class="quick-ref-item" href="#system-get_firmware_info" title="Get firmware partition info">tdeck.system.get_firmware_info</a>
+        <a class="quick-ref-item" href="#system-get_free_heap" title="Get free internal RAM">tdeck.system.get_free_heap</a>
+        <a class="quick-ref-item" href="#system-get_free_psram" title="Get free PSRAM">tdeck.system.get_free_psram</a>
+        <a class="quick-ref-item" href="#system-get_last_error" title="Get last Lua error message">tdeck.system.get_last_error</a>
+        <a class="quick-ref-item" href="#system-get_lua_memory" title="Get memory used by Lua runtime">tdeck.system.get_lua_memory</a>
+        <a class="quick-ref-item" href="#system-get_time" title="Get current wall clock time">tdeck.system.get_time</a>
+        <a class="quick-ref-item" href="#system-get_time_unix" title="Get current Unix timestamp">tdeck.system.get_time_unix</a>
+        <a class="quick-ref-item" href="#system-get_timezone" title="Get current timezone UTC offset in hours">tdeck.system.get_timezone</a>
+        <a class="quick-ref-item" href="#system-get_total_heap" title="Get total heap size">tdeck.system.get_total_heap</a>
+        <a class="quick-ref-item" href="#system-get_total_psram" title="Get total PSRAM size">tdeck.system.get_total_psram</a>
+        <a class="quick-ref-item" href="#system-is_low_memory" title="Check if memory is critically low">tdeck.system.is_low_memory</a>
+        <a class="quick-ref-item" href="#system-is_sd_available" title="Check if SD card is available">tdeck.system.is_sd_available</a>
+        <a class="quick-ref-item" href="#system-is_usb_msc_active" title="Check if USB MSC mode is active">tdeck.system.is_usb_msc_active</a>
+        <a class="quick-ref-item" href="#system-log" title="Log message to serial output">tdeck.system.log</a>
+        <a class="quick-ref-item" href="#system-millis" title="Returns milliseconds since boot">tdeck.system.millis</a>
+        <a class="quick-ref-item" href="#system-reload_scripts" title="Reload all Lua scripts (hot reload)">tdeck.system.reload_scripts</a>
+        <a class="quick-ref-item" href="#system-restart" title="Restart the device">tdeck.system.restart</a>
+        <a class="quick-ref-item" href="#system-set_interval" title="Schedule a repeating callback">tdeck.system.set_interval</a>
+        <a class="quick-ref-item" href="#system-set_time" title="Set system clock time">tdeck.system.set_time</a>
+        <a class="quick-ref-item" href="#system-set_time_unix" title="Set system clock from Unix timestamp">tdeck.system.set_time_unix</a>
+        <a class="quick-ref-item" href="#system-set_timer" title="Schedule a one-shot callback">tdeck.system.set_timer</a>
+        <a class="quick-ref-item" href="#system-set_timezone" title="Set timezone using POSIX TZ string">tdeck.system.set_timezone</a>
+        <a class="quick-ref-item" href="#system-start_usb_msc" title="Start USB Mass Storage mode to access SD card from PC">tdeck.system.start_usb_msc</a>
+        <a class="quick-ref-item" href="#system-stop_usb_msc" title="Stop USB Mass Storage mode">tdeck.system.stop_usb_msc</a>
+        <a class="quick-ref-item" href="#system-uptime" title="Get device uptime">tdeck.system.uptime</a>
+        <a class="quick-ref-item" href="#system-yield" title="Yield execution to allow C++ background tasks to run">tdeck.system.yield</a>
     </div>
 </div>
 
