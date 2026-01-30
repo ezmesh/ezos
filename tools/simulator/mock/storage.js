@@ -85,7 +85,37 @@ async function idbKeys() {
 
 export function createStorageModule() {
     const module = {
-        // Read entire file
+        // Read entire file (sync version for Lua compatibility)
+        read(path) {
+            // For simulator, return from localStorage or null
+            try {
+                const cached = localStorage.getItem(`tdeck_file_${path}`);
+                return cached;
+            } catch (e) {
+                return null;
+            }
+        },
+
+        // Write entire file (sync version for Lua compatibility)
+        write(path, content) {
+            try {
+                localStorage.setItem(`tdeck_file_${path}`, content);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        },
+
+        // Read bytes from file (sync version)
+        read_bytes(path, offset, len) {
+            const content = module.read(path);
+            if (content) {
+                return content.substring(offset, offset + len);
+            }
+            return null;
+        },
+
+        // Read entire file (async version)
         async read_file(path) {
             try {
                 // Check IndexedDB first
@@ -295,6 +325,23 @@ export function createStorageModule() {
 
         get_free_space() {
             return 10 * 1024 * 1024 * 1024; // 10GB
+        },
+
+        // Flash/SD info (mock)
+        get_flash_info() {
+            return {
+                total: 4 * 1024 * 1024,
+                used: 1 * 1024 * 1024,
+                free: 3 * 1024 * 1024,
+            };
+        },
+
+        get_sd_info() {
+            return {
+                total: 16 * 1024 * 1024 * 1024,
+                used: 6 * 1024 * 1024 * 1024,
+                free: 10 * 1024 * 1024 * 1024,
+            };
         },
     };
 
