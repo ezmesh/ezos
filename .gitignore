@@ -25,3 +25,4 @@ tools/maps/*.checkpoint
 
 # Screenshots
 *.png
+node_modules/
