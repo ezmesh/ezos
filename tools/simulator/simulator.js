@@ -16,6 +16,7 @@ import { createRadioModule } from './mock/radio.js';
 import { createAudioModule } from './mock/audio.js';
 import { createGpsModule } from './mock/gps.js';
 import { createCryptoModule } from './mock/crypto.js';
+import { createBusModule } from './mock/bus.js';
 
 // UI Elements
 const canvas = document.getElementById('screen');
@@ -35,6 +36,7 @@ let lastFrameTime = 0;
 let hasError = false;
 let lastError = null;
 let keyboardModule = null;  // Reference to keyboard module for virtual keyboard
+let busModule = null;       // Reference to bus module for message processing
 
 // Console logging
 function log(msg, type = 'log') {
@@ -194,6 +196,7 @@ async function preloadScripts() {
         'ui/screens/packets.lua',
         'ui/screens/test_icon.lua',
         'ui/screens/testing_menu.lua',
+        'ui/screens/bus_test.lua',
     ];
 
     log(`Preloading ${scripts.length} scripts...`, 'info');
@@ -251,6 +254,8 @@ async function initLua() {
     const audio = createAudioModule();
     const gps = createGpsModule();
     const cryptoMod = createCryptoModule();
+    const bus = createBusModule();
+    busModule = bus;  // Store reference for main loop
 
     // Set up modules as top-level globals first
     lua.global.set('_display', display);
@@ -262,6 +267,7 @@ async function initLua() {
     lua.global.set('_audio', audio);
     lua.global.set('_gps', gps);
     lua.global.set('_crypto', cryptoMod);
+    lua.global.set('_bus', bus);
 
     // Create the tdeck namespace in Lua to avoid JS object nesting issues
     await lua.doString(`
@@ -275,6 +281,7 @@ async function initLua() {
             audio = _audio,
             gps = _gps,
             crypto = _crypto,
+            bus = _bus,
         }
         -- Also set global aliases
         display = _display
@@ -295,6 +302,7 @@ async function initLua() {
         _audio = nil
         _gps = nil
         _crypto = nil
+        _bus = nil
     `);
 
     // Simulator flag
@@ -514,6 +522,11 @@ async function mainLoop(timestamp) {
     lastFrameTime = timestamp;
 
     try {
+        // Process message bus (deliver queued messages)
+        if (busModule) {
+            busModule._process();
+        }
+
         // Call the global main_loop function if it exists
         const mainLoopFn = lua.global.get('main_loop');
         if (typeof mainLoopFn === 'function') {
@@ -542,6 +555,7 @@ btnRestart.addEventListener('click', async () => {
     frameCount = 0;
     hasError = false;
     lastError = null;
+    busModule = null;
     btnPause.textContent = 'Pause';
     btnPause.disabled = true;
 

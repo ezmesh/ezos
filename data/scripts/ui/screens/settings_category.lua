@@ -153,11 +153,7 @@ function SettingsCategory:new(category_key, category_title)
 end
 
 function SettingsCategory:on_enter()
-    if not _G.Icons then
-        spawn(function()
-            _G.Icons = load_module("/scripts/ui/icons.lua")
-        end)
-    end
+    -- Icons are pre-loaded during splash screen
     self:load_settings()
 end
 
@@ -241,6 +237,12 @@ function SettingsCategory:save_setting(setting)
         if tdeck.storage and tdeck.storage.set_pref then
             tdeck.storage.set_pref(key, value)
         end
+    end
+
+    -- Publish setting changed event
+    if tdeck.bus and tdeck.bus.post then
+        local value_str = tostring(setting.value)
+        tdeck.bus.post("settings/changed", setting.name .. "=" .. value_str)
     end
 
     if setting.name == "node_name" then

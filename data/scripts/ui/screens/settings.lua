@@ -52,12 +52,7 @@ function Settings:new()
 end
 
 function Settings:on_enter()
-    -- Lazy-load Icons module if not already loaded
-    if not _G.Icons then
-        spawn(function()
-            _G.Icons = load_module("/scripts/ui/icons.lua")
-        end)
-    end
+    -- Icons are pre-loaded during splash screen
 end
 
 function Settings:adjust_scroll()

@@ -12,10 +12,15 @@ local GamesMenu = {
     ICON_SIZE = 24,
 
     items = {
-        {label = "Snake",    description = "Classic snake game",  icon_path = "games"},
-        {label = "Tetris",   description = "Falling blocks",      icon_path = "games"},
-        {label = "Breakout", description = "Break the bricks",    icon_path = "games"},
-        {label = "Poker",    description = "Texas Hold'em",       icon_path = "games"},
+        {label = "Snake",       description = "Classic snake game",    icon_path = "games"},
+        {label = "Tetris",      description = "Falling blocks",        icon_path = "games"},
+        {label = "Breakout",    description = "Break the bricks",      icon_path = "games"},
+        {label = "Poker",       description = "Texas Hold'em",         icon_path = "games"},
+        {label = "2048",        description = "Slide and merge tiles", icon_path = "games"},
+        {label = "Minesweeper", description = "Find the mines",        icon_path = "games"},
+        {label = "Blackjack",   description = "Beat the dealer",       icon_path = "games"},
+        {label = "Solitaire",   description = "Klondike card game",    icon_path = "games"},
+        {label = "Sudoku",      description = "Number puzzle",         icon_path = "games"},
     }
 }
 
@@ -45,12 +50,7 @@ function GamesMenu:new()
 end
 
 function GamesMenu:on_enter()
-    -- Lazy-load Icons module if not already loaded
-    if not _G.Icons then
-        spawn(function()
-            _G.Icons = load_module("/scripts/ui/icons.lua")
-        end)
-    end
+    -- Icons are pre-loaded during splash screen
 end
 
 function GamesMenu:adjust_scroll()
@@ -187,10 +187,15 @@ function GamesMenu:launch_game()
     local item = self.items[self.selected]
 
     local games = {
-        ["Snake"]    = "/scripts/ui/screens/snake.lua",
-        ["Tetris"]   = "/scripts/ui/screens/tetris.lua",
-        ["Breakout"] = "/scripts/ui/screens/breakout.lua",
-        ["Poker"]    = "/scripts/ui/screens/poker.lua",
+        ["Snake"]       = "/scripts/ui/screens/snake.lua",
+        ["Tetris"]      = "/scripts/ui/screens/tetris.lua",
+        ["Breakout"]    = "/scripts/ui/screens/breakout.lua",
+        ["Poker"]       = "/scripts/ui/screens/poker.lua",
+        ["2048"]        = "/scripts/ui/screens/game_2048.lua",
+        ["Minesweeper"] = "/scripts/ui/screens/minesweeper.lua",
+        ["Blackjack"]   = "/scripts/ui/screens/blackjack.lua",
+        ["Solitaire"]   = "/scripts/ui/screens/solitaire.lua",
+        ["Sudoku"]      = "/scripts/ui/screens/sudoku.lua",
     }
 
     local path = games[item.label]

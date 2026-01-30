@@ -610,6 +610,11 @@ function ThemeManager.set_wallpaper(name)
     ThemeManager.current_wallpaper = name
     ThemeManager.save()
 
+    -- Publish theme change event
+    if tdeck.bus and tdeck.bus.post then
+        tdeck.bus.post("theme/wallpaper", name)
+    end
+
     if _G.ScreenManager then
         _G.ScreenManager.invalidate()
     end
@@ -631,6 +636,11 @@ function ThemeManager.set_icon_theme(name)
 
     ThemeManager.current_icon_theme = name
     ThemeManager.save()
+
+    -- Publish theme change event
+    if tdeck.bus and tdeck.bus.post then
+        tdeck.bus.post("theme/icons", name)
+    end
 
     if _G.ScreenManager then
         _G.ScreenManager.invalidate()
@@ -654,6 +664,11 @@ function ThemeManager.set_color_theme(name)
     ThemeManager.current_color_theme = name
     ThemeManager.apply_color_theme()
     ThemeManager.save()
+
+    -- Publish theme change event
+    if tdeck.bus and tdeck.bus.post then
+        tdeck.bus.post("theme/colors", name)
+    end
 
     if _G.ScreenManager then
         _G.ScreenManager.invalidate()

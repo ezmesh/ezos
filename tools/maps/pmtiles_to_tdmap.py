@@ -179,19 +179,13 @@ def render_vector_tile(tile_data: bytes, zoom: int) -> Image.Image:
     Returns:
         Indexed PIL Image (256x256) with values 0-7
     """
-    # Create image with water/ocean as background
-    # Many vector tile formats (OpenMapTiles, Protomaps) don't include ocean polygons.
-    # Instead they provide land polygons and expect the renderer to use ocean as background.
-    img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
-    draw = ImageDraw.Draw(img)
-
     # Decompress if needed
     try:
         data = decompress_tile(tile_data)
         decoded = mvt.decode(data)
     except Exception as e:
-        # Return blank tile on decode error
-        return img
+        # Return blank tile on decode error - use land as default (safer for inland areas)
+        return Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
 
     # Get extent (default 4096 for most vector tiles)
     extent = 4096
@@ -199,6 +193,47 @@ def render_vector_tile(tile_data: bytes, zoom: int) -> Image.Image:
         if "extent" in layer:
             extent = layer["extent"]
             break
+
+    # Check if tile has land or water polygons
+    # Coastal tiles: have earth/land polygons to define the coastline
+    # Ocean tiles: may have water polygons or just no land features
+    # Inland tiles: often have no earth/land/water polygons (100% land assumed)
+    has_land_features = False
+    has_water_features = False
+
+    for layer_name in ["land", "earth", "landcover"]:
+        layer = get_layer(decoded, layer_name)
+        if layer and layer.get("features"):
+            for feature in layer.get("features", []):
+                geom = feature.get("geometry", {})
+                if geom.get("type") in ("Polygon", "MultiPolygon"):
+                    has_land_features = True
+                    break
+            if has_land_features:
+                break
+
+    for layer_name in ["water", "ocean"]:
+        layer = get_layer(decoded, layer_name)
+        if layer and layer.get("features"):
+            for feature in layer.get("features", []):
+                geom = feature.get("geometry", {})
+                if geom.get("type") in ("Polygon", "MultiPolygon"):
+                    has_water_features = True
+                    break
+            if has_water_features:
+                break
+
+    # Determine background based on tile content:
+    # - Coastal tiles (have land features): use water background, draw land on top
+    # - Ocean tiles (have water but no land): use water background
+    # - Inland tiles (no land or water features): use land background
+    if has_land_features or has_water_features:
+        # Coastal or ocean tile - use water as background
+        img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
+    else:
+        # Inland tile - no coastline data, assume fully land
+        img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
+    draw = ImageDraw.Draw(img)
 
     # Render layers in order (back to front)
 

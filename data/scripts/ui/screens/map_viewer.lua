@@ -31,14 +31,22 @@ local MapViewer = {
     SCREEN_W = 320,
     SCREEN_H = 240,
 
-    -- Tile cache (LRU, reduced for memory efficiency on ESP32)
-    tile_cache = {},
-    cache_order = {},
-    MAX_CACHE = 12,
+    -- Tile cache (LRU - stores indexed data at ~24KB per tile)
+    -- Cache size tuned for PSRAM: 16 tiles × 24KB = ~384KB
+    -- Increased from 6 to reduce cache churn during panning
+    tile_cache = {},       -- key -> {data=tile_data, access=counter, zoom=z}
+    cache_counter = 0,     -- Incremented on each access for LRU tracking
+    MAX_CACHE = 16,        -- 4x4 grid - allows smooth panning with margin
 
     -- Pending async tile loads (to avoid duplicate requests)
     pending_tiles = {},
-    MAX_PENDING = 2,  -- Limit concurrent loads to keep panning responsive
+    MAX_PENDING = 4,  -- Increased from 2 for faster tile loading
+
+    -- Pan direction tracking for prefetching
+    last_center_x = 0,
+    last_center_y = 0,
+    pan_dx = 0,  -- Pan velocity for prefetch direction
+    pan_dy = 0,
 
     -- Debug counter for tile searches
     _search_count = 0,
@@ -133,13 +141,17 @@ function MapViewer:new(archive_path)
         center_y = 0,
         zoom = 2,
         tile_cache = {},
-        cache_order = {},
+        cache_counter = 0,
         pending_tiles = {},
         missing_tiles = {},
         error_msg = nil,
         pan_speed = 0.1,
         theme = "light",
         loading = false,
+        last_center_x = 0,
+        last_center_y = 0,
+        pan_dx = 0,
+        pan_dy = 0,
         label_index = nil,
         label_index_offset = 0,
         label_index_count = 0,
@@ -336,21 +348,34 @@ function MapViewer:load_archive_async()
         print(string.format("[Map] Loaded archive: v%d, %d tiles, zoom %d-%d, index@%d, data@%d, tile_size=%d",
             version, tile_count, min_zoom, max_zoom, index_offset, data_offset, tile_size))
 
-        -- Debug: read first index entry to verify format
-        local first_entry = bytes_to_string(tdeck.storage.read_bytes(self_ref.archive_path, index_offset, self_ref.INDEX_ENTRY_SIZE))
-        if first_entry and #first_entry == self_ref.INDEX_ENTRY_SIZE then
-            local fz = read_u8(first_entry, 0)
-            local fx = read_u16(first_entry, 1)
-            local fy = read_u16(first_entry, 3)
-            local foff = read_u32(first_entry, 5)
-            local fsize = read_u16(first_entry, 9)
-            print(string.format("[Map] First index entry: z=%d x=%d y=%d offset=%d size=%d", fz, fx, fy, foff, fsize))
+        -- Load tile index into memory for fast binary search (avoids SD reads per tile lookup)
+        -- Index size: 11 bytes per tile, typically 5-50KB total
+        local index_size = tile_count * self_ref.INDEX_ENTRY_SIZE
+        print(string.format("[Map] Loading tile index: %d tiles, %d bytes", tile_count, index_size))
+
+        local index_data = bytes_to_string(async_read_bytes(self_ref.archive_path, index_offset, index_size))
+        if index_data and #index_data >= index_size then
+            -- Parse index into memory table for fast lookup
+            self_ref.tile_index = {}
+            for i = 0, tile_count - 1 do
+                local offset = i * self_ref.INDEX_ENTRY_SIZE
+                local z = read_u8(index_data, offset)
+                local x = read_u16(index_data, offset + 1)
+                local y = read_u16(index_data, offset + 3)
+                local data_offset = read_u32(index_data, offset + 5)
+                local data_size = read_u16(index_data, offset + 9)
+                -- Store with composite key for O(1) lookup
+                local key = string.format("%d/%d/%d", z, x, y)
+                self_ref.tile_index[key] = { offset = data_offset, size = data_size }
+            end
+            print(string.format("[Map] Tile index loaded: %d entries", tile_count))
+        else
+            print("[Map] Warning: Failed to load tile index, falling back to lazy loading")
+            self_ref.tile_index = nil
         end
 
-        -- Use lazy loading for tile index
-        self_ref.tile_index = nil
-
         -- Load label index if present (v3) or all labels (v2)
+        print(string.format("[Map] Label info: version=%d count=%d offset=%d", version, label_index_count, label_index_offset))
         if label_index_count > 0 and label_index_offset > 0 then
             if version >= 3 then
                 self_ref:load_label_index_async(label_index_offset, label_index_count)
@@ -578,6 +603,7 @@ function MapViewer:load_labels_v2_async(labels_offset, labels_count)
 end
 
 -- Get labels visible at current zoom and position
+-- Optimized to check fewer zoom levels and exit early
 function MapViewer:get_visible_labels(start_tile_x, start_tile_y, tiles_x, tiles_y)
     if not self.label_index or not self.show_labels then
         return {}
@@ -592,17 +618,15 @@ function MapViewer:get_visible_labels(start_tile_x, start_tile_y, tiles_x, tiles
             if zoom >= label.zoom_min and zoom <= label.zoom_max then
                 local zoom_diff = zoom - label.zoom_min
                 local scale = 2 ^ zoom_diff
-                local label_tile_x = label.tile_x * scale
-                local label_tile_y = label.tile_y * scale
-                local tile_x = math.floor(label_tile_x)
-                local tile_y = math.floor(label_tile_y)
+                local full_x = (label.tile_x + label.pixel_x / 256) * scale
+                local full_y = (label.tile_y + label.pixel_y / 256) * scale
+                local tile_x = math.floor(full_x)
+                local tile_y = math.floor(full_y)
 
                 if tile_x >= start_tile_x and tile_x < start_tile_x + tiles_x and
                    tile_y >= start_tile_y and tile_y < start_tile_y + tiles_y then
-                    local frac_x = label_tile_x - tile_x
-                    local frac_y = label_tile_y - tile_y
-                    local px = (label.pixel_x / 256 + frac_x) * 256
-                    local py = (label.pixel_y / 256 + frac_y) * 256
+                    local px = (full_x - tile_x) * 256
+                    local py = (full_y - tile_y) * 256
 
                     table.insert(visible, {
                         tile_x = tile_x,
@@ -619,46 +643,44 @@ function MapViewer:get_visible_labels(start_tile_x, start_tile_y, tiles_x, tiles
     end
 
     -- v3: load labels per-tile lazily
-    -- Labels are indexed by extraction_zoom (tile coordinate level)
-    -- Each label has its own zoom_min for visibility filtering
+    -- Optimization: only check 2-3 most relevant zoom levels instead of all
     local seen = {}
     local min_data_zoom = self.archive.min_zoom
     local max_data_zoom = self.archive.max_zoom
 
-    -- Check each zoom level from min_zoom to current zoom for parent tiles with labels
-    for check_zoom = min_data_zoom, math.min(max_data_zoom, zoom) do
+    -- Priority order: current zoom first, then parents (most labels are at current or near zoom)
+    local zoom_levels = {}
+    for z = math.min(max_data_zoom, zoom), min_data_zoom, -1 do
+        table.insert(zoom_levels, z)
+        -- Limit to 4 zoom levels to reduce SD reads
+        if #zoom_levels >= 4 then break end
+    end
+
+    for _, check_zoom in ipairs(zoom_levels) do
         local zoom_diff = zoom - check_zoom
         local scale = 2 ^ zoom_diff
 
-        -- Calculate which tiles at check_zoom cover our visible area
         local src_start_x = math.floor(start_tile_x / scale)
         local src_start_y = math.floor(start_tile_y / scale)
         local src_end_x = math.floor((start_tile_x + tiles_x - 1) / scale)
         local src_end_y = math.floor((start_tile_y + tiles_y - 1) / scale)
 
-        -- Load labels for each source tile
         for src_x = src_start_x, src_end_x do
             for src_y = src_start_y, src_end_y do
-                -- Load labels indexed by extraction_zoom (check_zoom)
                 local labels = self:load_labels_for_tile(check_zoom, src_x, src_y)
                 if labels then
                     for _, label in ipairs(labels) do
-                        -- Check visibility: zoom_min <= current_zoom <= zoom_max
                         if zoom >= label.zoom_min and zoom <= label.zoom_max then
-                            -- Scale label position to current zoom
-                            local label_tile_x = label.tile_x * scale
-                            local label_tile_y = label.tile_y * scale
-                            local tile_x = math.floor(label_tile_x)
-                            local tile_y = math.floor(label_tile_y)
+                            local full_x = (label.tile_x + label.pixel_x / 256) * scale
+                            local full_y = (label.tile_y + label.pixel_y / 256) * scale
+                            local tile_x = math.floor(full_x)
+                            local tile_y = math.floor(full_y)
 
                             if tile_x >= start_tile_x and tile_x < start_tile_x + tiles_x and
                                tile_y >= start_tile_y and tile_y < start_tile_y + tiles_y then
-                                local frac_x = label_tile_x - tile_x
-                                local frac_y = label_tile_y - tile_y
-                                local px = (label.pixel_x / 256 + frac_x) * 256
-                                local py = (label.pixel_y / 256 + frac_y) * 256
+                                local px = (full_x - tile_x) * 256
+                                local py = (full_y - tile_y) * 256
 
-                                -- Deduplicate by text (same label from different zoom sources)
                                 local key = label.text
                                 if not seen[key] then
                                     seen[key] = true
@@ -703,8 +725,13 @@ end
 -- Center map on GPS coordinates
 function MapViewer:center_on(lat, lon)
     self.center_x, self.center_y = self:lat_lon_to_tile(lat, lon, self.zoom)
-    self.tile_cache = {}
-    self.cache_order = {}
+    -- Reset pan tracking
+    self.last_center_x = self.center_x
+    self.last_center_y = self.center_y
+    self.pan_dx = 0
+    self.pan_dy = 0
+    -- Clear tile cache but keep parent tiles for fallback
+    self:prune_cache_for_zoom(self.zoom)
     self.pending_tiles = {}
     self.label_cache = {}
     self.label_cache_order = {}
@@ -720,97 +747,72 @@ function MapViewer:count_pending()
     return count
 end
 
--- Start async tile search and load (runs in coroutine)
--- Combines binary search and tile decompression into single async operation
+-- Start async tile load (runs in coroutine)
+-- Uses in-memory tile index for O(1) lookup, only does I/O for tile data
+-- Now uses async_rle_read_rgb565 to get pre-decoded RGB565 data for faster drawing
 function MapViewer:start_async_tile_load(key, zoom, x, y)
     local self_ref = self
 
-    local function do_search_and_load()
-        -- Binary search using async reads
-        local lo = 0
-        local hi = self_ref.archive.tile_count - 1
-        local target_key = zoom * 0x100000000 + x * 0x10000 + y
+    local function do_load()
+        -- Look up tile in memory index (O(1) hash table lookup)
         local entry = nil
-
-        -- Debug: log first few searches
-        self_ref._search_count = (self_ref._search_count or 0) + 1
-        if self_ref._search_count <= 5 then
-            print(string.format("[Map] Search #%d: z=%d x=%d y=%d (key=%.0f) in %d tiles",
-                self_ref._search_count, zoom, x, y, target_key, self_ref.archive.tile_count))
-        end
-
-        while lo <= hi do
-            local mid = math.floor((lo + hi) / 2)
-
-            -- Read index entry asynchronously
-            local entry_offset = self_ref.archive.index_offset + mid * self_ref.INDEX_ENTRY_SIZE
-            local entry_data = bytes_to_string(async_read_bytes(self_ref.archive_path, entry_offset, self_ref.INDEX_ENTRY_SIZE))
-            if not entry_data then
-                -- Read failed, abort
-                print(string.format("[Map] Read failed for index entry at offset %d", entry_offset))
-                self_ref.pending_tiles[key] = nil
-                return
-            end
-
-            local ez = read_u8(entry_data, 0)
-            local ex = read_u16(entry_data, 1)
-            local ey = read_u16(entry_data, 3)
-            local eoffset = read_u32(entry_data, 5)
-            local esize = read_u16(entry_data, 9)
-
-            local entry_key = ez * 0x100000000 + ex * 0x10000 + ey
-
-            if entry_key == target_key then
-                entry = { offset = eoffset, size = esize }
-                break
-            elseif entry_key < target_key then
-                lo = mid + 1
-            else
-                hi = mid - 1
-            end
+        if self_ref.tile_index then
+            entry = self_ref.tile_index[key]
         end
 
         -- Remove from pending
         self_ref.pending_tiles[key] = nil
 
         if not entry then
-            -- Tile not found in archive, cache as missing
-            print(string.format("[Map] Tile not found: z=%d x=%d y=%d", zoom, x, y))
+            -- Tile not in index, cache as missing
             self_ref.missing_tiles[key] = true
             return
         end
 
-        -- Read and decompress tile data asynchronously
-        -- Note: In simulator, async_rle_read returns JS array (userdata in Lua)
-        -- In native, it returns a Lua string. Either works with draw_indexed_bitmap.
+        -- Read and decompress tile data
+        -- Use indexed path (24KB) instead of RGB565 (128KB) to reduce memory pressure
+        -- The draw_indexed_bitmap function has PSRAM optimization for fast rendering
         local tile_data = async_rle_read(self_ref.archive_path, entry.offset, entry.size)
+
         if not tile_data then
-            print(string.format("[Map] RLE read failed for tile z=%d x=%d y=%d at offset=%d size=%d", zoom, x, y, entry.offset, entry.size))
             return
         end
 
-        -- Get length (works for both strings and userdata with .length property)
-        local tile_len = (type(tile_data) == "string") and #tile_data or (tile_data.length or 0)
+        -- Add to cache with access counter
+        self_ref.cache_counter = self_ref.cache_counter + 1
+        self_ref.tile_cache[key] = {
+            data = tile_data,
+            access = self_ref.cache_counter
+        }
 
-        -- Add to cache
-        if self_ref._search_count <= 5 then
-            print(string.format("[Map] Tile loaded: %s, data len=%d, type=%s", key, tile_len, type(tile_data)))
-        end
-        self_ref.tile_cache[key] = tile_data
-        table.insert(self_ref.cache_order, key)
+        -- Evict least recently used if cache full
+        local cache_size = 0
+        for _ in pairs(self_ref.tile_cache) do cache_size = cache_size + 1 end
 
-        -- Evict oldest if cache full
-        while #self_ref.cache_order > self_ref.MAX_CACHE do
-            local old_key = table.remove(self_ref.cache_order, 1)
-            self_ref.tile_cache[old_key] = nil
+        while cache_size > self_ref.MAX_CACHE do
+            -- Find entry with lowest access counter
+            local oldest_key = nil
+            local oldest_access = math.huge
+            for k, v in pairs(self_ref.tile_cache) do
+                if v.access < oldest_access then
+                    oldest_access = v.access
+                    oldest_key = k
+                end
+            end
+            if oldest_key then
+                self_ref.tile_cache[oldest_key] = nil
+                cache_size = cache_size - 1
+            else
+                break
+            end
         end
 
         -- Trigger screen refresh to show the loaded tile
         ScreenManager.invalidate()
     end
 
-    -- Start coroutine for async search and load
-    local co = spawn(do_search_and_load)
+    -- Start coroutine for async tile load
+    local co = spawn(do_load)
     -- In simulator mode, spawn returns nil (runs synchronously)
     -- On real hardware, check if coroutine finished with error
     if co and coroutine.status(co) == "dead" then
@@ -819,23 +821,55 @@ function MapViewer:start_async_tile_load(key, zoom, x, y)
     end
 end
 
+-- Get parent tile data for fallback rendering
+-- Returns {data, src_x, src_y, scale} if a parent tile is cached, nil otherwise
+function MapViewer:get_parent_tile_fallback(zoom, x, y)
+    if zoom <= self.archive.min_zoom then
+        return nil
+    end
+
+    -- Check up to 3 zoom levels up for a cached parent
+    for dz = 1, 3 do
+        local parent_zoom = zoom - dz
+        if parent_zoom < self.archive.min_zoom then
+            break
+        end
+
+        local scale = 2 ^ dz
+        local parent_x = math.floor(x / scale)
+        local parent_y = math.floor(y / scale)
+        local key = string.format("%d/%d/%d", parent_zoom, parent_x, parent_y)
+
+        local entry = self.tile_cache[key]
+        if entry then
+            -- Calculate which portion of parent tile to use
+            local src_x = (x % scale) / scale  -- 0.0 to 1.0 position within parent
+            local src_y = (y % scale) / scale
+            return {
+                data = entry.data,
+                src_x = src_x,
+                src_y = src_y,
+                scale = scale,
+                zoom = parent_zoom,
+            }
+        end
+    end
+    return nil
+end
+
 -- Get tile data (with caching and async loading)
 -- Returns tile data if cached, nil if loading/missing
 function MapViewer:get_tile(zoom, x, y)
     -- Create cache key
     local key = string.format("%d/%d/%d", zoom, x, y)
 
-    -- Check tile cache
-    if self.tile_cache[key] then
-        -- Move to end of LRU order
-        for i, k in ipairs(self.cache_order) do
-            if k == key then
-                table.remove(self.cache_order, i)
-                break
-            end
-        end
-        table.insert(self.cache_order, key)
-        return self.tile_cache[key]
+    -- Check tile cache (O(1) lookup with counter-based LRU)
+    local entry = self.tile_cache[key]
+    if entry then
+        -- Update access counter for LRU tracking
+        self.cache_counter = self.cache_counter + 1
+        entry.access = self.cache_counter
+        return entry.data
     end
 
     -- Check if known missing (not in archive)
@@ -849,11 +883,23 @@ function MapViewer:get_tile(zoom, x, y)
     end
 
     -- Limit concurrent loads to keep UI responsive
-    if self:count_pending() >= self.MAX_PENDING then
+    local pending_count = self:count_pending()
+    if pending_count >= self.MAX_PENDING then
         return nil
     end
 
-    -- Mark as pending and start async search + load
+    -- Check if tile exists in index before starting load
+    if not self.tile_index then
+        return nil
+    end
+
+    local index_entry = self.tile_index[key]
+    if not index_entry then
+        self.missing_tiles[key] = true
+        return nil
+    end
+
+    -- Mark as pending and start async load
     self.pending_tiles[key] = true
     self:start_async_tile_load(key, zoom, x, y)
 
@@ -862,6 +908,12 @@ end
 
 function MapViewer:on_enter()
     tdeck.keyboard.set_mode("normal")
+
+    -- Initialize pan tracking
+    self.last_center_x = self.center_x
+    self.last_center_y = self.center_y
+    self.pan_dx = 0
+    self.pan_dy = 0
 
     -- Load preferences
     local old_theme = self.theme
@@ -881,9 +933,9 @@ function MapViewer:on_enter()
             palette_array[i + 1] = palette[i]
         end
         self.archive.palette = palette_array
-        -- Clear tile cache since colors changed
+        -- Clear tile cache since RGB565 colors are baked in
         self.tile_cache = {}
-        self.cache_order = {}
+        self.cache_counter = 0
         self.pending_tiles = {}
     end
 
@@ -897,7 +949,7 @@ end
 function MapViewer:on_leave()
     -- Clear all caches to free memory
     self.tile_cache = {}
-    self.cache_order = {}
+    self.cache_counter = 0
     self.pending_tiles = {}
     self.missing_tiles = {}
     self.label_cache = {}
@@ -948,6 +1000,16 @@ function MapViewer:render(display)
     -- Max tile index at current zoom
     local max_tile = 2 ^ self.zoom - 1
 
+    -- Track pan direction for prefetching
+    local dx = self.center_x - self.last_center_x
+    local dy = self.center_y - self.last_center_y
+    if dx ~= 0 or dy ~= 0 then
+        self.pan_dx = dx
+        self.pan_dy = dy
+    end
+    self.last_center_x = self.center_x
+    self.last_center_y = self.center_y
+
     -- Screen center in tile grid coordinates
     local screen_center_tx = (tiles_x - 1) / 2
     local screen_center_ty = (tiles_y - 1) / 2
@@ -991,6 +1053,23 @@ function MapViewer:render(display)
         end
     end
 
+    -- Prefetch tiles in pan direction (1-2 tiles ahead)
+    if (self.pan_dx ~= 0 or self.pan_dy ~= 0) and self:count_pending() < self.MAX_PENDING then
+        local prefetch_dist = 2  -- Tiles ahead to prefetch
+        local norm = math.sqrt(self.pan_dx * self.pan_dx + self.pan_dy * self.pan_dy)
+        if norm > 0.001 then
+            local dir_x = self.pan_dx / norm
+            local dir_y = self.pan_dy / norm
+            for d = 1, prefetch_dist do
+                local px = math.floor(self.center_x + dir_x * d + 0.5)
+                local py = math.floor(self.center_y + dir_y * d + 0.5)
+                if px >= 0 and px <= max_tile and py >= 0 and py <= max_tile then
+                    self:get_tile(self.zoom, px, py)
+                end
+            end
+        end
+    end
+
     -- Draw tiles (in any order, drawing is fast)
     for _, t in ipairs(visible_tiles) do
         local tile_x = t.tile_x
@@ -1014,11 +1093,11 @@ function MapViewer:render(display)
             else
                 -- Get tile data (already requested above, just check cache)
                 local key = string.format("%d/%d/%d", self.zoom, tile_x, tile_y)
-                local tile_data = self.tile_cache[key]
+                local entry = self.tile_cache[key]
+                local tile_data = entry and entry.data or nil
 
                 if tile_data then
-                    -- Draw tile using indexed bitmap function
-                    -- Use actual tile size from archive (data size), not display size
+                    -- Draw tile using indexed bitmap with PSRAM-optimized conversion
                     local data_size = self.archive.tile_size or tile_w
                     display.draw_indexed_bitmap(
                         screen_x, screen_y,
@@ -1027,25 +1106,38 @@ function MapViewer:render(display)
                         self.archive.palette
                     )
                 else
-                    -- Draw placeholder for loading/missing tile
-                    display.fill_rect(draw_x, draw_y, draw_w, draw_h, 0x2104)
-                    -- Draw X pattern for loading indicator (clipped by display)
-                    display.draw_line(screen_x, screen_y, screen_x + tile_w, screen_y + tile_h, 0x4208)
-                    display.draw_line(screen_x + tile_w, screen_y, screen_x, screen_y + tile_h, 0x4208)
+                    -- Try to use parent tile as fallback (scaled up)
+                    local fallback = self:get_parent_tile_fallback(self.zoom, tile_x, tile_y)
+                    if fallback and display.draw_indexed_bitmap_scaled then
+                        -- Draw scaled portion of parent tile
+                        local data_size = self.archive.tile_size or tile_w
+                        local src_size = math.floor(data_size / fallback.scale)
+                        local src_x_px = math.floor(fallback.src_x * data_size)
+                        local src_y_px = math.floor(fallback.src_y * data_size)
+                        display.draw_indexed_bitmap_scaled(
+                            screen_x, screen_y,
+                            data_size, data_size,  -- dest size
+                            fallback.data,
+                            self.archive.palette,
+                            src_x_px, src_y_px,    -- source offset
+                            src_size, src_size     -- source size
+                        )
+                    elseif fallback then
+                        -- Fallback without scaling support: show blurred placeholder
+                        display.fill_rect(draw_x, draw_y, draw_w, draw_h, 0x4208)
+                    else
+                        -- No fallback: draw placeholder for loading/missing tile
+                        display.fill_rect(draw_x, draw_y, draw_w, draw_h, 0x2104)
+                        -- Draw X pattern for loading indicator (clipped by display)
+                        display.draw_line(screen_x, screen_y, screen_x + tile_w, screen_y + tile_h, 0x4208)
+                        display.draw_line(screen_x + tile_w, screen_y, screen_x, screen_y + tile_h, 0x4208)
+                    end
                 end
             end
         end
     end
 
     -- Draw labels (v3 uses label_index, v2 uses label_cache["v2_all"])
-    -- Debug: check why labels might not be drawing
-    if (self._last_cond_debug or 0) + 5000 < (os.clock() * 1000) then
-        self._last_cond_debug = os.clock() * 1000
-        print(string.format("[Map] Label check: show_labels=%s label_index=%s v2_all=%s",
-            tostring(self.show_labels),
-            self.label_index and ("#" .. #self.label_index) or "nil",
-            self.label_cache["v2_all"] and ("#" .. #self.label_cache["v2_all"]) or "nil"))
-    end
     if self.show_labels and (self.label_index or self.label_cache["v2_all"]) then
         self:draw_labels(display, colors, start_tile_x, start_tile_y, tiles_x, tiles_y, pixel_offset_x, pixel_offset_y)
     end
@@ -1293,38 +1385,57 @@ end
 
 function MapViewer:zoom_in()
     if self.zoom < self.archive.max_zoom then
+        local old_zoom = self.zoom
         -- Convert position to new zoom level
         self.center_x = self.center_x * 2
         self.center_y = self.center_y * 2
         self.zoom = self.zoom + 1
         self:clamp_position()
-        -- Clear caches since zoom changed (different tile set)
-        self.tile_cache = {}
-        self.cache_order = {}
+        -- Preserve parent tiles (old zoom) for fallback, clear others
+        self:prune_cache_for_zoom(old_zoom)
         self.pending_tiles = {}
         self.missing_tiles = {}
-        self.label_cache = {}
-        self.label_cache_order = {}
+        -- Keep label cache (labels work across zoom levels)
         ScreenManager.invalidate()
     end
 end
 
 function MapViewer:zoom_out()
     if self.zoom > self.archive.min_zoom then
+        local old_zoom = self.zoom
         -- Convert position to new zoom level
         self.center_x = self.center_x / 2
         self.center_y = self.center_y / 2
         self.zoom = self.zoom - 1
         self:clamp_position()
-        -- Clear caches since zoom changed (different tile set)
-        self.tile_cache = {}
-        self.cache_order = {}
+        -- Preserve tiles from new zoom and adjacent levels
+        self:prune_cache_for_zoom(old_zoom)
         self.pending_tiles = {}
         self.missing_tiles = {}
-        self.label_cache = {}
-        self.label_cache_order = {}
         ScreenManager.invalidate()
     end
+end
+
+-- Prune cache to keep only tiles useful for current zoom (parents for fallback)
+function MapViewer:prune_cache_for_zoom(old_zoom)
+    local new_cache = {}
+    local kept = 0
+    local max_keep = self.MAX_CACHE / 2  -- Keep up to half cache for fallback tiles
+
+    for key, entry in pairs(self.tile_cache) do
+        -- Parse zoom from key
+        local tile_zoom = tonumber(string.match(key, "^(%d+)/"))
+        if tile_zoom then
+            -- Keep tiles from current zoom-1, zoom-2, zoom-3 (parents for fallback)
+            local zoom_diff = self.zoom - tile_zoom
+            if zoom_diff >= 1 and zoom_diff <= 3 and kept < max_keep then
+                new_cache[key] = entry
+                kept = kept + 1
+            end
+        end
+    end
+
+    self.tile_cache = new_cache
 end
 
 function MapViewer:clamp_position()

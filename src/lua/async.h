@@ -34,6 +34,7 @@ public:
 
     // Lua functions - Data processing
     static int l_async_rle_read(lua_State* L);
+    static int l_async_rle_read_rgb565(lua_State* L);
 
     // Lua functions - Crypto
     static int l_async_aes_encrypt(lua_State* L);
@@ -56,6 +57,7 @@ private:
         JSON_WRITE,
         // Data processing
         RLE_READ,
+        RLE_READ_RGB565,
         // Crypto
         AES_ENCRYPT,
         AES_DECRYPT,
@@ -77,6 +79,7 @@ private:
         size_t length;          // Length for READ_BYTES/RLE_READ
         uint8_t key[MAX_KEY];   // Key for crypto operations
         size_t keyLen;
+        uint16_t palette[8];    // RGB565 palette for RLE_READ_RGB565
     };
 
     struct Result {
@@ -98,6 +101,8 @@ private:
 
     // Helper functions for worker task
     static uint8_t* rleDecompress(const uint8_t* data, size_t len, size_t* outLen);
+    static uint16_t* rleDecompressToRgb565(const uint8_t* data, size_t len,
+                                            const uint16_t* palette, size_t* outLen);
     static uint8_t* aesEncrypt(const uint8_t* key, size_t keyLen,
                                const uint8_t* data, size_t dataLen, size_t* outLen);
     static uint8_t* aesDecrypt(const uint8_t* key, size_t keyLen,

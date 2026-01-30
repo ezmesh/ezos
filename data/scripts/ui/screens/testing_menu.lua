@@ -13,7 +13,8 @@ local TestingMenu = {
         {label = "Trackball", description = "Draw with trackball"},
         {label = "Key Matrix", description = "Raw keyboard map"},
         {label = "Key Repeat", description = "Test key repeat"},
-        {label = "System Info", description = "Device stats"}
+        {label = "System Info", description = "Device stats"},
+        {label = "Message Bus", description = "Pub/sub test"}
     }
 }
 
@@ -117,6 +118,7 @@ function TestingMenu:activate_selected()
         ["Key Matrix"]  = "/scripts/ui/screens/keyboard_matrix.lua",
         ["Key Repeat"]  = "/scripts/ui/screens/key_repeat_test.lua",
         ["System Info"] = "/scripts/ui/screens/system_info.lua",
+        ["Message Bus"] = "/scripts/ui/screens/bus_test.lua",
     }
 
     local path = screens[item.label]

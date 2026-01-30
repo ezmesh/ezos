@@ -621,24 +621,65 @@ LUA_FUNCTION(l_display_draw_indexed_bitmap) {
         return 0;  // Completely off-screen
     }
 
-    // Decode and draw pixels
-    // The 3-bit packing format: 8 pixels in 3 bytes
+    int visibleWidth = endX - startX;
+    int visibleHeight = endY - startY;
+
+    // FAST PATH: If tile is fully visible and aligned, decode entire tile at once
+    // This is the common case for map tiles
+    if (startX == 0 && startY == 0 && endX == width && endY == height && width == 256 && height == 256) {
+        // Allocate full tile buffer in PSRAM (256*256*2 = 128KB)
+        uint16_t* tileBuffer = (uint16_t*)ps_malloc(256 * 256 * sizeof(uint16_t));
+        if (tileBuffer) {
+            // Optimized decode: process 8 pixels at a time from each 3-byte group
+            // This eliminates per-pixel switch and byte fetch overhead
+            uint16_t* outPtr = tileBuffer;
+            const uint8_t* inPtr = data;
+            size_t numGroups = (256 * 256) / 8;  // 8192 groups
+
+            for (size_t g = 0; g < numGroups; g++) {
+                uint8_t b0 = *inPtr++;
+                uint8_t b1 = *inPtr++;
+                uint8_t b2 = *inPtr++;
+
+                // Unpack all 8 pixels at once (no switch, no conditionals)
+                *outPtr++ = palette[b0 & 0x07];
+                *outPtr++ = palette[(b0 >> 3) & 0x07];
+                *outPtr++ = palette[((b0 >> 6) & 0x03) | ((b1 & 0x01) << 2)];
+                *outPtr++ = palette[(b1 >> 1) & 0x07];
+                *outPtr++ = palette[(b1 >> 4) & 0x07];
+                *outPtr++ = palette[((b1 >> 7) & 0x01) | ((b2 & 0x03) << 1)];
+                *outPtr++ = palette[(b2 >> 2) & 0x07];
+                *outPtr++ = palette[(b2 >> 5) & 0x07];
+            }
+
+            // Push entire tile at once (single DMA transfer)
+            display->drawBitmap(x, y, 256, 256, tileBuffer);
+            free(tileBuffer);
+            return 0;
+        }
+        // Fall through to row-by-row if PSRAM allocation fails
+    }
+
+    // SLOW PATH: Partial tile or non-standard size - process row by row
+    uint16_t* lineBuffer = (uint16_t*)malloc(visibleWidth * sizeof(uint16_t));
+    if (!lineBuffer) {
+        return 0;  // Can't allocate, skip this tile
+    }
+
     for (int row = startY; row < endY; row++) {
-        for (int col = startX; col < endX; col++) {
-            int pixelIndex = row * width + col;
+        int bufIdx = 0;
+        int pixelIndex = row * width + startX;
+
+        for (int col = startX; col < endX; col++, pixelIndex++) {
             int groupIndex = pixelIndex / 8;
             int pixelInGroup = pixelIndex % 8;
-
-            // Each group of 8 pixels is stored in 3 consecutive bytes
             int byteOffset = groupIndex * 3;
-            if (byteOffset + 2 >= (int)dataLen) break;
 
             uint8_t b0 = data[byteOffset];
             uint8_t b1 = data[byteOffset + 1];
             uint8_t b2 = data[byteOffset + 2];
 
-            // Extract 3-bit palette index based on pixel position in group
-            uint8_t paletteIndex = 0;
+            uint8_t paletteIndex;
             switch (pixelInGroup) {
                 case 0: paletteIndex = b0 & 0x07; break;
                 case 1: paletteIndex = (b0 >> 3) & 0x07; break;
@@ -647,16 +688,136 @@ LUA_FUNCTION(l_display_draw_indexed_bitmap) {
                 case 4: paletteIndex = (b1 >> 4) & 0x07; break;
                 case 5: paletteIndex = ((b1 >> 7) & 0x01) | ((b2 & 0x03) << 1); break;
                 case 6: paletteIndex = (b2 >> 2) & 0x07; break;
-                case 7: paletteIndex = (b2 >> 5) & 0x07; break;
+                default: paletteIndex = (b2 >> 5) & 0x07; break;
             }
-
-            // Clamp to valid palette range
-            paletteIndex = paletteIndex & 0x07;
-
-            display->drawPixel(x + col, y + row, palette[paletteIndex]);
+            lineBuffer[bufIdx++] = palette[paletteIndex];
         }
+
+        display->drawBitmap(x + startX, y + row, visibleWidth, 1, lineBuffer);
     }
 
+    free(lineBuffer);
+    return 0;
+}
+
+// @lua tdeck.display.draw_indexed_bitmap_scaled(x, y, dest_w, dest_h, data, palette, src_x, src_y, src_w, src_h)
+// @brief Draw a scaled portion of a 3-bit indexed bitmap
+// @param x Destination X position
+// @param y Destination Y position
+// @param dest_w Destination width
+// @param dest_h Destination height
+// @param data Packed 3-bit pixel indices (256x256 source assumed)
+// @param palette Table of 8 RGB565 color values
+// @param src_x Source X offset in pixels
+// @param src_y Source Y offset in pixels
+// @param src_w Source width to sample
+// @param src_h Source height to sample
+// @details
+// Used for map tile fallback rendering: shows a scaled-up portion of a parent tile
+// while the higher-resolution child tile is loading from SD card.
+// @end
+LUA_FUNCTION(l_display_draw_indexed_bitmap_scaled) {
+    LUA_CHECK_ARGC(L, 10);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int dest_w = luaL_checkinteger(L, 3);
+    int dest_h = luaL_checkinteger(L, 4);
+
+    size_t dataLen;
+    const uint8_t* data = (const uint8_t*)luaL_checklstring(L, 5, &dataLen);
+
+    // Get palette table
+    luaL_checktype(L, 6, LUA_TTABLE);
+    uint16_t palette[8];
+    for (int i = 0; i < 8; i++) {
+        lua_rawgeti(L, 6, i + 1);
+        palette[i] = lua_tointeger(L, -1);
+        lua_pop(L, 1);
+    }
+
+    int src_x = luaL_checkinteger(L, 7);
+    int src_y = luaL_checkinteger(L, 8);
+    int src_w = luaL_checkinteger(L, 9);
+    int src_h = luaL_checkinteger(L, 10);
+
+    if (!display || dest_w <= 0 || dest_h <= 0 || src_w <= 0 || src_h <= 0) {
+        return 0;
+    }
+
+    // Source is 256x256 indexed bitmap
+    const int SRC_SIZE = 256;
+
+    // Clip destination to screen
+    int screenW = display->getWidth();
+    int screenH = display->getHeight();
+    int endX = (x + dest_w > screenW) ? screenW : x + dest_w;
+    int endY = (y + dest_h > screenH) ? screenH : y + dest_h;
+    int startX = (x < 0) ? 0 : x;
+    int startY = (y < 0) ? 0 : y;
+
+    if (startX >= endX || startY >= endY) {
+        return 0;
+    }
+
+    // Allocate line buffer
+    int visibleWidth = endX - startX;
+    uint16_t* lineBuffer = (uint16_t*)malloc(visibleWidth * sizeof(uint16_t));
+    if (!lineBuffer) {
+        return 0;
+    }
+
+    // Scale factors (fixed point, 8.8 format)
+    int scaleX = (src_w << 8) / dest_w;
+    int scaleY = (src_h << 8) / dest_h;
+
+    // Helper lambda to get pixel at source coordinates
+    auto getPixel = [&](int px, int py) -> uint16_t {
+        if (px < 0 || px >= SRC_SIZE || py < 0 || py >= SRC_SIZE) {
+            return palette[0];  // Default to first palette color
+        }
+        int pixelIndex = py * SRC_SIZE + px;
+        int groupIndex = pixelIndex / 8;
+        int pixelInGroup = pixelIndex % 8;
+        int byteOffset = groupIndex * 3;
+
+        if (byteOffset + 2 >= (int)dataLen) {
+            return palette[0];
+        }
+
+        uint8_t b0 = data[byteOffset];
+        uint8_t b1 = data[byteOffset + 1];
+        uint8_t b2 = data[byteOffset + 2];
+
+        uint8_t paletteIndex;
+        switch (pixelInGroup) {
+            case 0: paletteIndex = b0 & 0x07; break;
+            case 1: paletteIndex = (b0 >> 3) & 0x07; break;
+            case 2: paletteIndex = ((b0 >> 6) & 0x03) | ((b1 & 0x01) << 2); break;
+            case 3: paletteIndex = (b1 >> 1) & 0x07; break;
+            case 4: paletteIndex = (b1 >> 4) & 0x07; break;
+            case 5: paletteIndex = ((b1 >> 7) & 0x01) | ((b2 & 0x03) << 1); break;
+            case 6: paletteIndex = (b2 >> 2) & 0x07; break;
+            default: paletteIndex = (b2 >> 5) & 0x07; break;
+        }
+        return palette[paletteIndex];
+    };
+
+    // Render each row
+    for (int dy = startY; dy < endY; dy++) {
+        int bufIdx = 0;
+        // Map destination Y to source Y
+        int srcY = src_y + (((dy - y) * scaleY) >> 8);
+
+        for (int dx = startX; dx < endX; dx++) {
+            // Map destination X to source X
+            int srcX = src_x + (((dx - x) * scaleX) >> 8);
+            lineBuffer[bufIdx++] = getPixel(srcX, srcY);
+        }
+
+        display->drawBitmap(startX, dy, visibleWidth, 1, lineBuffer);
+    }
+
+    free(lineBuffer);
     return 0;
 }
 
@@ -757,6 +918,7 @@ static const luaL_Reg display_funcs[] = {
     {"draw_bitmap_transparent", l_display_draw_bitmap_transparent},
     {"draw_bitmap_1bit",  l_display_draw_bitmap_1bit},
     {"draw_indexed_bitmap", l_display_draw_indexed_bitmap},
+    {"draw_indexed_bitmap_scaled", l_display_draw_indexed_bitmap_scaled},
     {nullptr, nullptr}
 };
 

@@ -63,13 +63,6 @@ function MainMenu:on_enter()
         self.title = "MeshCore"
     end
 
-    -- Lazy-load Icons module if not already loaded
-    if not _G.Icons then
-        spawn(function()
-            _G.Icons = load_module("/scripts/ui/icons.lua")
-        end)
-    end
-
     -- Rebuild items array if it was cleared in on_leave
     if #self.items == 0 then
         for i, item in ipairs(MainMenu.items) do

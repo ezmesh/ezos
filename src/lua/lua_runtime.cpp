@@ -25,6 +25,8 @@ void registerStorageModule(lua_State* L);
 void registerCryptoModule(lua_State* L);
 // GPS module
 #include "bindings/gps_bindings.h"
+// Message bus module
+#include "bindings/bus_bindings.h"
 
 LuaRuntime& LuaRuntime::instance() {
     static LuaRuntime runtime;
@@ -170,6 +172,9 @@ void LuaRuntime::registerAllModules() {
 
     // Async I/O bindings (async_read, async_write, async_exists)
     AsyncIO::registerBindings(_state);
+
+    // Message bus module
+    registerBusModule(_state);
 
     Serial.println("[LuaRuntime] Modules registered");
 }
@@ -391,6 +396,9 @@ void LuaRuntime::update() {
 
     // Process async I/O completions (resumes waiting coroutines)
     AsyncIO::instance().update();
+
+    // Process message bus (delivers queued messages to subscribers)
+    MessageBus::instance().process(_state);
 
     // Incremental garbage collection step
     lua_gc(_state, LUA_GCSTEP, 10);

@@ -39,6 +39,30 @@ end
 -- Mesh status service
 -- Updates node count and unread message indicator
 function StatusServices.init_mesh_service()
+    -- Subscribe to bus events for immediate updates
+    if tdeck.bus and tdeck.bus.subscribe then
+        -- Node count changes
+        tdeck.bus.subscribe("mesh/node_count", function(topic, data)
+            local count = tonumber(data) or 0
+            if StatusBar then
+                StatusBar.set_node_count(count)
+            end
+        end)
+
+        -- Channel unread changes (data format: "channel:count")
+        tdeck.bus.subscribe("channel/unread", function(topic, data)
+            -- Parse count from "channel:count" format
+            local colon = data:find(":")
+            if colon then
+                local count = tonumber(data:sub(colon + 1)) or 0
+                if StatusBar then
+                    StatusBar.set_unread(count > 0)
+                end
+            end
+        end)
+    end
+
+    -- Keep polling as fallback (reduced to 10s since bus handles immediate updates)
     Scheduler.register_service("mesh_status", function()
         if tdeck.mesh.is_initialized() then
             -- Update node count in status bar
@@ -62,7 +86,7 @@ function StatusServices.init_mesh_service()
                 end
             end
         end
-    end, 5000)  -- Every 5 seconds
+    end, 10000)  -- Every 10 seconds (was 5, bus handles immediate)
 end
 
 -- Radio status service

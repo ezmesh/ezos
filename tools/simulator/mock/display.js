@@ -59,6 +59,9 @@ export function createDisplayModule(ctx, canvas) {
         // Screen dimensions (lowercase for Lua compatibility)
         width: WIDTH,
         height: HEIGHT,
+        // Character-based dimensions (assuming default 8x16 font)
+        cols: Math.floor(WIDTH / 8),   // 40 columns
+        rows: Math.floor(HEIGHT / 16), // 15 rows
 
         // Colors (spread for direct access like tdeck.display.WHITE)
         ...colors,
@@ -577,6 +580,100 @@ export function createDisplayModule(ctx, canvas) {
                     pixels[pixelIdx * 4 + 1] = g;
                     pixels[pixelIdx * 4 + 2] = b;
                     pixels[pixelIdx * 4 + 3] = 255;
+                }
+            }
+
+            ctx.putImageData(imageData, x, y);
+        },
+
+        // Draw scaled indexed bitmap (for map tile fallback rendering)
+        // Shows a scaled-up portion of a parent tile while child tile loads
+        draw_indexed_bitmap_scaled(x, y, dest_w, dest_h, data, palette, src_x, src_y, src_w, src_h) {
+            if (!data || data.length === 0) {
+                return;
+            }
+
+            const SRC_SIZE = 256;  // Source bitmap is always 256x256
+            const isString = typeof data.charCodeAt === 'function';
+
+            // Detect indexing mode
+            let dataOffset = 0;
+            if (!isString) {
+                if (data[0] === undefined && data[1] !== undefined) {
+                    dataOffset = 1;
+                }
+            }
+
+            const getByte = isString
+                ? (idx) => data.charCodeAt(idx)
+                : (idx) => {
+                    const val = data[idx + dataOffset];
+                    return (val !== undefined ? val : 0) & 0xFF;
+                };
+
+            // Palette handling
+            let paletteOffset = 0;
+            if (palette && palette[0] === undefined && palette[1] !== undefined) {
+                paletteOffset = 1;
+            }
+
+            const getColor = (idx) => {
+                if (!palette) return 0;
+                const color = palette[idx + paletteOffset];
+                return color !== undefined ? color : 0;
+            };
+
+            // Get pixel from source bitmap at (px, py)
+            const getPixel = (px, py) => {
+                if (px < 0 || px >= SRC_SIZE || py < 0 || py >= SRC_SIZE) {
+                    return getColor(0);
+                }
+                const pixelIndex = py * SRC_SIZE + px;
+                const groupIndex = Math.floor(pixelIndex / 8);
+                const pixelInGroup = pixelIndex % 8;
+                const byteOffset = groupIndex * 3;
+
+                const b0 = getByte(byteOffset);
+                const b1 = getByte(byteOffset + 1);
+                const b2 = getByte(byteOffset + 2);
+
+                let paletteIndex;
+                switch (pixelInGroup) {
+                    case 0: paletteIndex = b0 & 0x07; break;
+                    case 1: paletteIndex = (b0 >> 3) & 0x07; break;
+                    case 2: paletteIndex = ((b0 >> 6) & 0x03) | ((b1 & 0x01) << 2); break;
+                    case 3: paletteIndex = (b1 >> 1) & 0x07; break;
+                    case 4: paletteIndex = (b1 >> 4) & 0x07; break;
+                    case 5: paletteIndex = ((b1 >> 7) & 0x01) | ((b2 & 0x03) << 1); break;
+                    case 6: paletteIndex = (b2 >> 2) & 0x07; break;
+                    default: paletteIndex = (b2 >> 5) & 0x07; break;
+                }
+                return getColor(paletteIndex);
+            };
+
+            // Create scaled image
+            const imageData = ctx.createImageData(dest_w, dest_h);
+            const pixels = imageData.data;
+
+            // Scale factors
+            const scaleX = src_w / dest_w;
+            const scaleY = src_h / dest_h;
+
+            for (let dy = 0; dy < dest_h; dy++) {
+                const srcY = Math.floor(src_y + dy * scaleY);
+                for (let dx = 0; dx < dest_w; dx++) {
+                    const srcX = Math.floor(src_x + dx * scaleX);
+                    const color = getPixel(srcX, srcY);
+
+                    const r = ((color >> 11) & 0x1F) << 3;
+                    const g = ((color >> 5) & 0x3F) << 2;
+                    const b = (color & 0x1F) << 3;
+
+                    const idx = (dy * dest_w + dx) * 4;
+                    pixels[idx] = r;
+                    pixels[idx + 1] = g;
+                    pixels[idx + 2] = b;
+                    pixels[idx + 3] = 255;
                 }
             }
 

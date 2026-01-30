@@ -1,5 +1,5 @@
 -- splash.lua - Stylized splash screen with triangular cat
--- This file is loaded, executed, and immediately unloaded
+-- Shows splash while loading essential UI modules (Icons)
 
 local function show()
     local d = tdeck.display
@@ -58,12 +58,42 @@ local function show()
     d.draw_line(cx, cy+35, cx-10, cy+42, BLACK)
     d.draw_line(cx, cy+35, cx+10, cy+42, BLACK)
 
+    -- Loading text
+    d.set_font_size("small")
+    d.draw_text_centered(200, "Loading...", 0x8410)
+
     d.flush()
-    tdeck.system.delay(500)
+end
+
+local function wait_for_modules()
+    local start_time = tdeck.system.millis()
+    local MIN_DISPLAY_MS = 300  -- Minimum time to show splash
+    local MAX_WAIT_MS = 5000    -- Maximum time to wait for modules
+
+    -- Show splash immediately
+    show()
+
+    -- Load Icons module (the main thing we're waiting for)
+    tdeck.system.log("[Splash] Loading Icons...")
+    local ok, Icons = pcall(load_module, "/scripts/ui/icons.lua")
+    if ok and Icons then
+        _G.Icons = Icons
+        tdeck.system.log("[Splash] Icons loaded")
+    else
+        tdeck.system.log("[Splash] Icons failed to load: " .. tostring(Icons))
+    end
+
+    -- Ensure minimum display time
+    local elapsed = tdeck.system.millis() - start_time
+    if elapsed < MIN_DISPLAY_MS then
+        tdeck.system.delay(MIN_DISPLAY_MS - elapsed)
+    end
+
+    tdeck.system.log("[Splash] Done, waited " .. (tdeck.system.millis() - start_time) .. "ms")
 end
 
 -- Execute immediately
-show()
+wait_for_modules()
 
 -- Return nil so nothing gets stored
 return nil

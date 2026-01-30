@@ -4,16 +4,22 @@
 #include "../lua_bindings.h"
 #include "../../mesh/meshcore.h"
 #include "../../mesh/identity.h"
+#include "bus_bindings.h"
 #include <deque>
 
 // External reference to the global mesh instance
 extern MeshCore* mesh;
 
-// Callback references for Lua callbacks
-static int nodeCallbackRef = LUA_NOREF;
-static int groupPacketCallbackRef = LUA_NOREF;
-static int packetCallbackRef = LUA_NOREF;
-static lua_State* callbackState = nullptr;
+// Flag indicating whether mesh bus events are set up
+static bool meshBusEventsEnabled = false;
+
+// Helper: Convert public key bytes to hex string
+static void pubKeyToHexStr(const uint8_t* pubKey, char* hexOut) {
+    for (int i = 0; i < ED25519_PUBLIC_KEY_SIZE; i++) {
+        sprintf(&hexOut[i * 2], "%02X", pubKey[i]);
+    }
+    hexOut[ED25519_PUBLIC_KEY_SIZE * 2] = '\0';
+}
 
 // Packet queue for polling-based access (avoids callback complexity)
 struct QueuedPacket {
@@ -111,13 +117,8 @@ LUA_FUNCTION(l_mesh_set_node_name) {
     return 1;
 }
 
-// Helper function to convert public key bytes to hex string
-static void pubKeyToHex(const uint8_t* pubKey, char* hexOut) {
-    for (int i = 0; i < ED25519_PUBLIC_KEY_SIZE; i++) {
-        sprintf(&hexOut[i * 2], "%02X", pubKey[i]);
-    }
-    hexOut[ED25519_PUBLIC_KEY_SIZE * 2] = '\0';
-}
+// Helper function to convert public key bytes to hex string (alias for compatibility)
+#define pubKeyToHex pubKeyToHexStr
 
 // @lua tdeck.mesh.get_nodes() -> table
 // @brief Get list of discovered mesh nodes
@@ -230,14 +231,115 @@ LUA_FUNCTION(l_mesh_get_rx_count) {
     return 1;
 }
 
+// Callback references for Lua callbacks (kept for backward compatibility)
+static int nodeCallbackRef = LUA_NOREF;
+static int groupPacketCallbackRef = LUA_NOREF;
+static int packetCallbackRef = LUA_NOREF;
+static lua_State* callbackState = nullptr;
+
+// Helper: Push node info as Lua table onto stack and post to bus
+static void pushNodeTable(lua_State* L, const NodeInfo& node) {
+    lua_newtable(L);
+
+    lua_pushinteger(L, node.pathHash);
+    lua_setfield(L, -2, "path_hash");
+
+    lua_pushstring(L, node.name);
+    lua_setfield(L, -2, "name");
+
+    lua_pushnumber(L, node.lastRssi);
+    lua_setfield(L, -2, "rssi");
+
+    lua_pushnumber(L, node.lastSnr);
+    lua_setfield(L, -2, "snr");
+
+    lua_pushinteger(L, node.role);
+    lua_setfield(L, -2, "role");
+
+    lua_pushinteger(L, node.advertTimestamp);
+    lua_setfield(L, -2, "advert_timestamp");
+
+    uint32_t age = (millis() - node.lastSeen) / 1000;
+    lua_pushinteger(L, age);
+    lua_setfield(L, -2, "age_seconds");
+
+    lua_pushinteger(L, node.lastSeen);
+    lua_setfield(L, -2, "last_seen");
+
+    if (node.hasPublicKey) {
+        char hexKey[ED25519_PUBLIC_KEY_SIZE * 2 + 1];
+        pubKeyToHex(node.publicKey, hexKey);
+        lua_pushstring(L, hexKey);
+        lua_setfield(L, -2, "pub_key_hex");
+    }
+
+    lua_pushboolean(L, node.hasLocation);
+    lua_setfield(L, -2, "has_location");
+    if (node.hasLocation) {
+        lua_pushnumber(L, node.latitude);
+        lua_setfield(L, -2, "lat");
+        lua_pushnumber(L, node.longitude);
+        lua_setfield(L, -2, "lon");
+    }
+}
+
+// Helper: Push group packet info as Lua table onto stack
+static void pushGroupPacketTable(lua_State* L, uint8_t channelHash, const uint8_t* data, size_t dataLen,
+                                  uint8_t senderHash, float rssi, float snr) {
+    lua_newtable(L);
+
+    lua_pushinteger(L, channelHash);
+    lua_setfield(L, -2, "channel_hash");
+
+    lua_pushlstring(L, reinterpret_cast<const char*>(data), dataLen);
+    lua_setfield(L, -2, "data");
+
+    lua_pushinteger(L, senderHash);
+    lua_setfield(L, -2, "sender_hash");
+
+    lua_pushnumber(L, rssi);
+    lua_setfield(L, -2, "rssi");
+
+    lua_pushnumber(L, snr);
+    lua_setfield(L, -2, "snr");
+}
+
+// Helper: Push parsed packet info as Lua table onto stack
+static void pushPacketTable(lua_State* L, const ParsedPacket& pkt) {
+    lua_newtable(L);
+
+    lua_pushinteger(L, pkt.routeType);
+    lua_setfield(L, -2, "route_type");
+
+    lua_pushinteger(L, pkt.payloadType);
+    lua_setfield(L, -2, "payload_type");
+
+    lua_pushinteger(L, pkt.version);
+    lua_setfield(L, -2, "version");
+
+    lua_pushlstring(L, reinterpret_cast<const char*>(pkt.path), pkt.pathLen);
+    lua_setfield(L, -2, "path");
+
+    lua_pushlstring(L, reinterpret_cast<const char*>(pkt.payload), pkt.payloadLen);
+    lua_setfield(L, -2, "payload");
+
+    lua_pushnumber(L, pkt.rssi);
+    lua_setfield(L, -2, "rssi");
+
+    lua_pushnumber(L, pkt.snr);
+    lua_setfield(L, -2, "snr");
+
+    lua_pushinteger(L, pkt.timestamp);
+    lua_setfield(L, -2, "timestamp");
+}
+
 // @lua tdeck.mesh.on_node_discovered(callback)
-// @brief Set callback for node discovery
+// @brief Set callback for node discovery (DEPRECATED - use bus.subscribe("mesh/node_discovered") instead)
 // @param callback Function(node_table) called when node discovered
 // @note node_table contains: path_hash, name, rssi, snr, role, advert_timestamp, age_seconds, pub_key_hex (if available)
 LUA_FUNCTION(l_mesh_on_node_discovered) {
     LUA_CHECK_ARGC(L, 1);
 
-    // Release old callback if any
     if (nodeCallbackRef != LUA_NOREF && callbackState) {
         luaL_unref(callbackState, LUA_REGISTRYINDEX, nodeCallbackRef);
     }
@@ -247,58 +349,12 @@ LUA_FUNCTION(l_mesh_on_node_discovered) {
         nodeCallbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
         callbackState = L;
 
-        // Set up the C++ callback to call Lua
         if (mesh) {
             mesh->setNodeCallback([](const NodeInfo& node) {
+                // Call legacy callback if registered
                 if (callbackState && nodeCallbackRef != LUA_NOREF) {
                     lua_rawgeti(callbackState, LUA_REGISTRYINDEX, nodeCallbackRef);
-
-                    // Push node as table with full information
-                    lua_newtable(callbackState);
-
-                    lua_pushinteger(callbackState, node.pathHash);
-                    lua_setfield(callbackState, -2, "path_hash");
-
-                    lua_pushstring(callbackState, node.name);
-                    lua_setfield(callbackState, -2, "name");
-
-                    lua_pushnumber(callbackState, node.lastRssi);
-                    lua_setfield(callbackState, -2, "rssi");
-
-                    lua_pushnumber(callbackState, node.lastSnr);
-                    lua_setfield(callbackState, -2, "snr");
-
-                    lua_pushinteger(callbackState, node.role);
-                    lua_setfield(callbackState, -2, "role");
-
-                    lua_pushinteger(callbackState, node.advertTimestamp);
-                    lua_setfield(callbackState, -2, "advert_timestamp");
-
-                    // Calculate age in seconds
-                    uint32_t age = (millis() - node.lastSeen) / 1000;
-                    lua_pushinteger(callbackState, age);
-                    lua_setfield(callbackState, -2, "age_seconds");
-
-                    lua_pushinteger(callbackState, node.lastSeen);
-                    lua_setfield(callbackState, -2, "last_seen");
-
-                    // Public key as hex string (if available)
-                    if (node.hasPublicKey) {
-                        char hexKey[ED25519_PUBLIC_KEY_SIZE * 2 + 1];
-                        pubKeyToHex(node.publicKey, hexKey);
-                        lua_pushstring(callbackState, hexKey);
-                        lua_setfield(callbackState, -2, "pub_key_hex");
-                    }
-
-                    // Location (if available)
-                    lua_pushboolean(callbackState, node.hasLocation);
-                    lua_setfield(callbackState, -2, "has_location");
-                    if (node.hasLocation) {
-                        lua_pushnumber(callbackState, node.latitude);
-                        lua_setfield(callbackState, -2, "lat");
-                        lua_pushnumber(callbackState, node.longitude);
-                        lua_setfield(callbackState, -2, "lon");
-                    }
+                    pushNodeTable(callbackState, node);
 
                     if (lua_pcall(callbackState, 1, 0, 0) != LUA_OK) {
                         Serial.printf("[Lua] Node callback error: %s\n",
@@ -306,10 +362,15 @@ LUA_FUNCTION(l_mesh_on_node_discovered) {
                         lua_pop(callbackState, 1);
                     }
                 }
+
+                // Post table to message bus with full node data
+                NodeInfo nodeCopy = node;
+                MessageBus::instance().postTable("mesh/node_discovered", [nodeCopy](lua_State* L) {
+                    pushNodeTable(L, nodeCopy);
+                });
             });
         }
     } else if (lua_isnil(L, 1)) {
-        // Clear callback
         nodeCallbackRef = LUA_NOREF;
         if (mesh) {
             mesh->setNodeCallback(nullptr);
@@ -320,7 +381,7 @@ LUA_FUNCTION(l_mesh_on_node_discovered) {
 }
 
 // @lua tdeck.mesh.on_group_packet(callback)
-// @brief Set callback for raw group packets (before C++ decryption)
+// @brief Set callback for raw group packets (DEPRECATED - use bus.subscribe("mesh/group_packet") instead)
 // @param callback Function(packet_table) called with {channel_hash, data, sender_hash, rssi, snr}
 // @note When this callback is set, Lua takes over channel handling
 LUA_FUNCTION(l_mesh_on_group_packet) {
@@ -338,27 +399,10 @@ LUA_FUNCTION(l_mesh_on_group_packet) {
         if (mesh) {
             mesh->setGroupPacketCallback([](uint8_t channelHash, const uint8_t* data, size_t dataLen,
                                            uint8_t senderHash, float rssi, float snr) {
+                // Call legacy callback if registered
                 if (callbackState && groupPacketCallbackRef != LUA_NOREF) {
                     lua_rawgeti(callbackState, LUA_REGISTRYINDEX, groupPacketCallbackRef);
-
-                    // Create packet table
-                    lua_newtable(callbackState);
-
-                    lua_pushinteger(callbackState, channelHash);
-                    lua_setfield(callbackState, -2, "channel_hash");
-
-                    // Pass raw encrypted data as binary string
-                    lua_pushlstring(callbackState, reinterpret_cast<const char*>(data), dataLen);
-                    lua_setfield(callbackState, -2, "data");
-
-                    lua_pushinteger(callbackState, senderHash);
-                    lua_setfield(callbackState, -2, "sender_hash");
-
-                    lua_pushnumber(callbackState, rssi);
-                    lua_setfield(callbackState, -2, "rssi");
-
-                    lua_pushnumber(callbackState, snr);
-                    lua_setfield(callbackState, -2, "snr");
+                    pushGroupPacketTable(callbackState, channelHash, data, dataLen, senderHash, rssi, snr);
 
                     if (lua_pcall(callbackState, 1, 0, 0) != LUA_OK) {
                         Serial.printf("[Lua] Group packet callback error: %s\n",
@@ -366,6 +410,15 @@ LUA_FUNCTION(l_mesh_on_group_packet) {
                         lua_pop(callbackState, 1);
                     }
                 }
+
+                // Post table to message bus with full packet data
+                // Copy data since it won't survive beyond this callback
+                std::vector<uint8_t> dataCopy(data, data + dataLen);
+                MessageBus::instance().postTable("mesh/group_packet",
+                    [channelHash, dataCopy, senderHash, rssi, snr](lua_State* L) {
+                        pushGroupPacketTable(L, channelHash, dataCopy.data(), dataCopy.size(),
+                                           senderHash, rssi, snr);
+                    });
             });
         }
     } else if (lua_isnil(L, 1)) {
@@ -402,7 +455,7 @@ LUA_FUNCTION(l_mesh_send_group_packet) {
 }
 
 // @lua tdeck.mesh.on_packet(callback)
-// @brief Set callback for ALL incoming packets (called before C++ handling)
+// @brief Set callback for ALL incoming packets (DEPRECATED - use bus.subscribe("mesh/packet") instead)
 // @param callback Function(packet_table) returning handled, rebroadcast booleans
 // @note packet_table contains: route_type, payload_type, version, path (binary), payload (binary), rssi, snr, timestamp
 LUA_FUNCTION(l_mesh_on_packet) {
@@ -419,53 +472,64 @@ LUA_FUNCTION(l_mesh_on_packet) {
 
         if (mesh) {
             mesh->setPacketCallback([](const ParsedPacket& pkt) -> std::pair<bool, bool> {
-                if (!callbackState || packetCallbackRef == LUA_NOREF) {
-                    return {false, false};
+                bool handled = false;
+                bool rebroadcast = false;
+
+                // Call legacy callback if registered
+                if (callbackState && packetCallbackRef != LUA_NOREF) {
+                    lua_rawgeti(callbackState, LUA_REGISTRYINDEX, packetCallbackRef);
+                    pushPacketTable(callbackState, pkt);
+
+                    if (lua_pcall(callbackState, 1, 2, 0) != LUA_OK) {
+                        Serial.printf("[Lua] Packet callback error: %s\n",
+                                     lua_tostring(callbackState, -1));
+                        lua_pop(callbackState, 1);
+                    } else {
+                        rebroadcast = lua_toboolean(callbackState, -1);
+                        handled = lua_toboolean(callbackState, -2);
+                        lua_pop(callbackState, 2);
+                    }
                 }
 
-                lua_rawgeti(callbackState, LUA_REGISTRYINDEX, packetCallbackRef);
+                // Post table to message bus with full packet data
+                // Copy path and payload since they won't survive beyond this callback
+                std::vector<uint8_t> pathCopy(pkt.path, pkt.path + pkt.pathLen);
+                std::vector<uint8_t> payloadCopy(pkt.payload, pkt.payload + pkt.payloadLen);
+                uint8_t routeType = pkt.routeType;
+                uint8_t payloadType = pkt.payloadType;
+                uint8_t version = pkt.version;
+                float rssi = pkt.rssi;
+                float snr = pkt.snr;
+                uint32_t timestamp = pkt.timestamp;
 
-                // Create packet table
-                lua_newtable(callbackState);
+                MessageBus::instance().postTable("mesh/packet",
+                    [routeType, payloadType, version, pathCopy, payloadCopy, rssi, snr, timestamp](lua_State* L) {
+                        lua_newtable(L);
 
-                lua_pushinteger(callbackState, pkt.routeType);
-                lua_setfield(callbackState, -2, "route_type");
+                        lua_pushinteger(L, routeType);
+                        lua_setfield(L, -2, "route_type");
 
-                lua_pushinteger(callbackState, pkt.payloadType);
-                lua_setfield(callbackState, -2, "payload_type");
+                        lua_pushinteger(L, payloadType);
+                        lua_setfield(L, -2, "payload_type");
 
-                lua_pushinteger(callbackState, pkt.version);
-                lua_setfield(callbackState, -2, "version");
+                        lua_pushinteger(L, version);
+                        lua_setfield(L, -2, "version");
 
-                // Path as binary string
-                lua_pushlstring(callbackState, reinterpret_cast<const char*>(pkt.path), pkt.pathLen);
-                lua_setfield(callbackState, -2, "path");
+                        lua_pushlstring(L, reinterpret_cast<const char*>(pathCopy.data()), pathCopy.size());
+                        lua_setfield(L, -2, "path");
 
-                // Payload as binary string
-                lua_pushlstring(callbackState, reinterpret_cast<const char*>(pkt.payload), pkt.payloadLen);
-                lua_setfield(callbackState, -2, "payload");
+                        lua_pushlstring(L, reinterpret_cast<const char*>(payloadCopy.data()), payloadCopy.size());
+                        lua_setfield(L, -2, "payload");
 
-                lua_pushnumber(callbackState, pkt.rssi);
-                lua_setfield(callbackState, -2, "rssi");
+                        lua_pushnumber(L, rssi);
+                        lua_setfield(L, -2, "rssi");
 
-                lua_pushnumber(callbackState, pkt.snr);
-                lua_setfield(callbackState, -2, "snr");
+                        lua_pushnumber(L, snr);
+                        lua_setfield(L, -2, "snr");
 
-                lua_pushinteger(callbackState, pkt.timestamp);
-                lua_setfield(callbackState, -2, "timestamp");
-
-                // Call with 1 argument, expect 2 return values
-                if (lua_pcall(callbackState, 1, 2, 0) != LUA_OK) {
-                    Serial.printf("[Lua] Packet callback error: %s\n",
-                                 lua_tostring(callbackState, -1));
-                    lua_pop(callbackState, 1);
-                    return {false, false};
-                }
-
-                // Get return values: handled, rebroadcast
-                bool rebroadcast = lua_toboolean(callbackState, -1);
-                bool handled = lua_toboolean(callbackState, -2);
-                lua_pop(callbackState, 2);
+                        lua_pushinteger(L, timestamp);
+                        lua_setfield(L, -2, "timestamp");
+                    });
 
                 return {handled, rebroadcast};
             });

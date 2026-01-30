@@ -34,9 +34,10 @@ function Contacts.init()
     local auto_sync = tdeck.storage.get_pref("autoTimeSyncContacts", "true")
     Contacts.auto_time_sync = (auto_sync == "true" or auto_sync == true)
 
-    -- Register for node discovery to track discovered nodes
-    if tdeck.mesh.on_node_discovered then
-        tdeck.mesh.on_node_discovered(function(node)
+    -- Subscribe to node discovery events via message bus
+    if tdeck.bus and tdeck.bus.subscribe then
+        tdeck.bus.subscribe("mesh/node_discovered", function(topic, node)
+            -- node is a table with path_hash, name, rssi, snr, pub_key_hex, etc.
             Contacts._handle_node_discovered(node)
         end)
     end
@@ -227,10 +228,10 @@ function Contacts._handle_node_discovered(node)
         Contacts._check_auto_time_sync(node)
     end
 
-    -- Notify DirectMessages service about node discovery
-    -- (for retrying pending TXT_MSG packets from newly discovered nodes)
-    if _G.DirectMessages and _G.DirectMessages._on_node_discovered then
-        _G.DirectMessages._on_node_discovered(node)
+    -- Publish node count change event for status bar
+    if tdeck.bus and tdeck.bus.post then
+        local count = Contacts._count_discovered()
+        tdeck.bus.post("mesh/node_count", tostring(count))
     end
 end
 

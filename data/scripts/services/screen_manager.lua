@@ -24,6 +24,11 @@ function ScreenManager.push(screen)
     -- Add to stack
     table.insert(ScreenManager.stack, screen)
 
+    -- Publish screen lifecycle event
+    if tdeck.bus and tdeck.bus.post then
+        tdeck.bus.post("screen/pushed", screen.title or "unknown")
+    end
+
     -- Call on_enter on new screen
     if screen.on_enter then
         screen:on_enter()
@@ -40,10 +45,16 @@ function ScreenManager.pop()
 
     -- Get and remove top screen
     local screen = table.remove(ScreenManager.stack)
+    local screen_name = screen and screen.title or "unknown"
 
     -- Call on_exit if defined
     if screen and screen.on_exit then
         screen:on_exit()
+    end
+
+    -- Publish screen lifecycle event
+    if tdeck.bus and tdeck.bus.post then
+        tdeck.bus.post("screen/popped", screen_name)
     end
 
     -- Clear reference and collect garbage to free memory
@@ -69,8 +80,14 @@ function ScreenManager.replace(screen)
 
     -- Pop current (with on_exit)
     local old = table.remove(ScreenManager.stack)
+    local old_name = old and old.title or "unknown"
     if old and old.on_exit then
         old:on_exit()
+    end
+
+    -- Publish screen lifecycle event
+    if tdeck.bus and tdeck.bus.post then
+        tdeck.bus.post("screen/replaced", old_name .. ">" .. (screen.title or "unknown"))
     end
 
     -- Clear old screen reference and collect garbage

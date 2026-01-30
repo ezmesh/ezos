@@ -21,17 +21,20 @@ local crypto = tdeck.crypto
 function Channels.init()
     -- Load saved channels
     Channels._load()
-    
+
     -- Always join #Public
     if not Channels.joined["#Public"] then
         Channels._join_internal("#Public", crypto.public_channel_key(), false)
     end
-    
-    -- Register for raw group packets
-    tdeck.mesh.on_group_packet(function(packet)
-        Channels._handle_group_packet(packet)
-    end)
-    
+
+    -- Subscribe to group packets via message bus
+    if tdeck.bus and tdeck.bus.subscribe then
+        tdeck.bus.subscribe("mesh/group_packet", function(topic, packet)
+            -- packet is a table with channel_hash, data, sender_hash, rssi, snr
+            Channels._handle_group_packet(packet)
+        end)
+    end
+
     print("[Channels] Initialized with " .. Channels._count_channels() .. " channels")
 end
 
@@ -293,14 +296,28 @@ function Channels._handle_group_packet(packet)
     }
     
     Channels._store_message(channel_name, msg)
-    
+
     -- Update channel info
     local info = Channels.joined[channel_name]
     if info then
         info.unread = info.unread + 1
         info.last_activity = now
+
+        -- Publish unread count change event
+        if tdeck.bus and tdeck.bus.post then
+            tdeck.bus.post("channel/unread", channel_name .. ":" .. info.unread)
+        end
     end
-    
+
+    -- Publish channel message event
+    if tdeck.bus and tdeck.bus.post then
+        tdeck.bus.post("channel/message", {
+            channel = channel_name,
+            sender = msg.sender or "",
+            text = text
+        })
+    end
+
     -- Call callback
     if Channels._on_message then
         Channels._on_message(channel_name, msg)

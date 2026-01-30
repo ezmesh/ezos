@@ -162,7 +162,7 @@ local function boot_sequence()
     _G.TitleBar = TitleBar
     _G.Logger = Logger
 
-    -- Icons module is lazy-loaded by main_menu when needed
+    -- Icons module is loaded during splash screen
     _G.Icons = nil
 
     -- Global timer helpers (wraps Scheduler methods for convenience)
@@ -180,6 +180,14 @@ local function boot_sequence()
 
     function _G.clear_interval(timer_id)
         return Scheduler.cancel_timer(timer_id)
+    end
+
+    -- Spawn a function after a delay (combines set_timeout with spawn)
+    -- Useful for async operations that need to run after a delay
+    function _G.spawn_delay(delay_ms, callback)
+        return set_timeout(function()
+            spawn(callback)
+        end, delay_ms)
     end
 
     -- Global error display function (can be called from C++ or Lua)

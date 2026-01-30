@@ -317,10 +317,11 @@ function DirectMessages.init()
     -- Load existing conversations from storage
     DirectMessages._load_all()
 
-    -- Register for incoming packets to intercept TXT_MSG
-    if tdeck.mesh.on_packet then
-        tdeck.mesh.on_packet(function(packet)
-            return DirectMessages._handle_packet(packet)
+    -- Subscribe to incoming packets via message bus
+    if tdeck.bus and tdeck.bus.subscribe then
+        tdeck.bus.subscribe("mesh/packet", function(topic, packet)
+            -- packet is a table with route_type, payload_type, path, payload, rssi, snr, timestamp
+            DirectMessages._handle_packet(packet)
         end)
     end
 
@@ -339,8 +340,14 @@ function DirectMessages.init()
     -- Register handlers for custom request types
     DirectMessages._register_builtin_handlers()
 
-    -- Node discovery is handled via callback from Contacts service
-    -- (see Contacts._handle_node_discovered -> DirectMessages._on_node_discovered)
+    -- Subscribe to node discovery events via bus
+    -- This decouples DirectMessages from Contacts service
+    if tdeck.bus and tdeck.bus.subscribe then
+        tdeck.bus.subscribe("mesh/node_discovered", function(topic, node)
+            -- node is a table with path_hash, name, pub_key_hex, etc.
+            DirectMessages._on_node_discovered(node)
+        end)
+    end
 
     -- Clean up old pending packets periodically
     if _G.set_interval then
@@ -353,6 +360,7 @@ function DirectMessages.init()
 end
 
 -- Handle node discovery - retry any pending packets from this node
+-- Called via bus subscription to mesh/node_discovered events
 function DirectMessages._on_node_discovered(node)
     if not node or not node.path_hash then return end
 
@@ -1173,6 +1181,12 @@ function DirectMessages._handle_path(packet)
                         msg.failed = nil  -- Clear failed status if ACK received late
                         print("[DirectMessages] Message #" .. ack_counter .. " ACKed via PATH")
                         DirectMessages._save_conversation(sender_pub_key_hex)
+
+                        -- Publish message acked event
+                        if tdeck.bus and tdeck.bus.post then
+                            tdeck.bus.post("message/acked", msg.id or tostring(ack_counter))
+                        end
+
                         -- Refresh UI
                         if _G.ScreenManager then
                             local current = _G.ScreenManager.peek()
@@ -1278,6 +1292,12 @@ function DirectMessages._handle_ack(packet)
                     msg.failed = nil  -- Clear failed status if ACK received late
                     print("[DirectMessages] Message #" .. counter .. " ACKed: " .. msg.text:sub(1, 20))
                     DirectMessages._save_conversation(acker_pub_key_hex)
+
+                    -- Publish message acked event
+                    if tdeck.bus and tdeck.bus.post then
+                        tdeck.bus.post("message/acked", msg.id or tostring(counter))
+                    end
+
                     -- Force refresh on conversation screen or messages list if open
                     if _G.ScreenManager then
                         local current = _G.ScreenManager.peek()
@@ -1918,6 +1938,14 @@ function DirectMessages._handle_packet(packet)
         DirectMessages._save_conversation(sender_pub_key_hex)
     else
         DirectMessages._store_message(sender_pub_key_hex, msg)
+    end
+
+    -- Publish message received event
+    if tdeck.bus and tdeck.bus.post then
+        tdeck.bus.post("message/received", {
+            from = sender_pub_key_hex:sub(1, 16),
+            text = text:sub(1, 50)
+        })
     end
 
     -- Update unread count

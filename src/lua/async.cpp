@@ -63,39 +63,37 @@ bool AsyncIO::init(lua_State* L) {
 // =============================================================================
 
 uint8_t* AsyncIO::rleDecompress(const uint8_t* data, size_t len, size_t* outLen) {
-    // First pass: calculate output size
-    size_t outputSize = 0;
-    size_t i = 0;
-    while (i < len) {
-        if (data[i] == 0xFF && i + 2 < len) {
-            outputSize += data[i + 1];
-            i += 3;
-        } else {
-            outputSize++;
-            i++;
-        }
-    }
+    // Single-pass RLE decompression with pre-allocated buffer
+    // For map tiles, output is always 24576 bytes (256*256*3/8)
+    // We allocate generously to handle any compressed data
 
-    // Allocate output buffer
-    uint8_t* output = (uint8_t*)ps_malloc(outputSize);
+    // Estimate max output size: worst case is no compression (1:1)
+    // but RLE runs can expand, so use input * 256 as absolute max
+    // In practice, map tiles decompress to ~24KB
+    constexpr size_t MAP_TILE_SIZE = 256 * 256 * 3 / 8;  // 24576 bytes
+    size_t maxOutput = (len < 1024) ? len * 256 : MAP_TILE_SIZE + 4096;
+
+    // Allocate output buffer in PSRAM
+    uint8_t* output = (uint8_t*)ps_malloc(maxOutput);
     if (!output) {
-        output = (uint8_t*)malloc(outputSize);
+        output = (uint8_t*)malloc(maxOutput);
     }
     if (!output) {
         *outLen = 0;
         return nullptr;
     }
 
-    // Second pass: decompress
+    // Single-pass decompress with memset optimization for runs
     size_t outIdx = 0;
-    i = 0;
-    while (i < len && outIdx < outputSize) {
+    size_t i = 0;
+    while (i < len && outIdx < maxOutput) {
         if (data[i] == 0xFF && i + 2 < len) {
             uint8_t count = data[i + 1];
             uint8_t value = data[i + 2];
-            for (uint8_t j = 0; j < count && outIdx < outputSize; j++) {
-                output[outIdx++] = value;
-            }
+            // Use memset for runs (faster than byte-by-byte loop)
+            size_t runLen = (outIdx + count <= maxOutput) ? count : (maxOutput - outIdx);
+            memset(output + outIdx, value, runLen);
+            outIdx += runLen;
             i += 3;
         } else {
             output[outIdx++] = data[i++];
@@ -103,6 +101,71 @@ uint8_t* AsyncIO::rleDecompress(const uint8_t* data, size_t len, size_t* outLen)
     }
 
     *outLen = outIdx;
+    return output;
+}
+
+// Decompress RLE data and convert to RGB565
+// Two-step: decompress RLE first, then convert 3-bit indexed to RGB565
+// Output: 256*256*2 = 131072 bytes for a full map tile
+uint16_t* AsyncIO::rleDecompressToRgb565(const uint8_t* data, size_t len,
+                                          const uint16_t* palette, size_t* outLen) {
+    // Step 1: Decompress RLE to get indexed data
+    size_t indexedLen;
+    uint8_t* indexed = rleDecompress(data, len, &indexedLen);
+    if (!indexed) {
+        Serial.println("[AsyncIO] RLE decompress failed in RGB565");
+        *outLen = 0;
+        return nullptr;
+    }
+
+    // Expected size for 256x256 tile with 3-bit indexed (8 pixels per 3 bytes)
+    constexpr size_t EXPECTED_INDEXED = 256 * 256 * 3 / 8;  // 24576 bytes
+    if (indexedLen < EXPECTED_INDEXED) {
+        Serial.printf("[AsyncIO] Indexed data too short: %d < %d\n", indexedLen, EXPECTED_INDEXED);
+        free(indexed);
+        *outLen = 0;
+        return nullptr;
+    }
+
+    // Step 2: Allocate RGB565 output buffer
+    constexpr size_t TILE_PIXELS = 256 * 256;
+    constexpr size_t RGB565_SIZE = TILE_PIXELS * sizeof(uint16_t);
+
+    uint16_t* output = (uint16_t*)ps_malloc(RGB565_SIZE);
+    if (!output) {
+        output = (uint16_t*)malloc(RGB565_SIZE);
+    }
+    if (!output) {
+        Serial.println("[AsyncIO] RGB565 buffer alloc failed");
+        free(indexed);
+        *outLen = 0;
+        return nullptr;
+    }
+
+    // Step 3: Convert 3-bit indexed to RGB565
+    // Process 8 pixels (3 bytes) at a time
+    uint16_t* outPtr = output;
+    const uint8_t* inPtr = indexed;
+    size_t numGroups = TILE_PIXELS / 8;  // 8192 groups
+
+    for (size_t g = 0; g < numGroups; g++) {
+        uint8_t b0 = *inPtr++;
+        uint8_t b1 = *inPtr++;
+        uint8_t b2 = *inPtr++;
+
+        // Unpack 8 pixels from 3 bytes
+        *outPtr++ = palette[b0 & 0x07];
+        *outPtr++ = palette[(b0 >> 3) & 0x07];
+        *outPtr++ = palette[((b0 >> 6) & 0x03) | ((b1 & 0x01) << 2)];
+        *outPtr++ = palette[(b1 >> 1) & 0x07];
+        *outPtr++ = palette[(b1 >> 4) & 0x07];
+        *outPtr++ = palette[((b1 >> 7) & 0x01) | ((b2 & 0x03) << 1)];
+        *outPtr++ = palette[(b2 >> 2) & 0x07];
+        *outPtr++ = palette[(b2 >> 5) & 0x07];
+    }
+
+    free(indexed);
+    *outLen = RGB565_SIZE;
     return output;
 }
 
@@ -444,6 +507,46 @@ void AsyncIO::workerTask(void* param) {
                     break;
                 }
 
+                case OpType::RLE_READ_RGB565: {
+                    File f = fs->open(adjustedPath, FILE_READ);
+                    if (f) {
+                        size_t fileSize = f.size();
+                        if (req.offset < fileSize && req.length > 0) {
+                            size_t actualLen = req.length;
+                            if (req.offset + actualLen > fileSize) {
+                                actualLen = fileSize - req.offset;
+                            }
+                            uint8_t* compressed = (uint8_t*)malloc(actualLen);
+                            if (compressed) {
+                                f.seek(req.offset);
+                                size_t readLen = f.read(compressed, actualLen);
+                                if (readLen == actualLen) {
+                                    // Decompress and convert to RGB565 in one pass
+                                    size_t rgb565Len;
+                                    result.data = (uint8_t*)rleDecompressToRgb565(
+                                        compressed, actualLen, req.palette, &rgb565Len);
+                                    if (result.data) {
+                                        result.len = rgb565Len;
+                                        result.success = true;
+                                        Serial.printf("[AsyncIO] RGB565 tile: in=%d out=%d\n", actualLen, rgb565Len);
+                                    } else {
+                                        Serial.println("[AsyncIO] RGB565 conversion failed");
+                                    }
+                                } else {
+                                    Serial.printf("[AsyncIO] RGB565 read mismatch: %d vs %d\n", readLen, actualLen);
+                                }
+                                free(compressed);
+                            } else {
+                                Serial.println("[AsyncIO] RGB565 malloc failed");
+                            }
+                        }
+                        f.close();
+                    } else {
+                        Serial.printf("[AsyncIO] RGB565 file open failed: %s\n", adjustedPath);
+                    }
+                    break;
+                }
+
                 case OpType::AES_ENCRYPT: {
                     if (req.data && req.dataLen > 0 && req.keyLen == 16) {
                         size_t outLen;
@@ -513,6 +616,7 @@ void AsyncIO::processResults() {
                 case OpType::READ:
                 case OpType::READ_BYTES:
                 case OpType::RLE_READ:
+                case OpType::RLE_READ_RGB565:
                 case OpType::AES_ENCRYPT:
                 case OpType::AES_DECRYPT:
                 case OpType::HMAC_SHA256:
@@ -847,6 +951,45 @@ int AsyncIO::l_async_rle_read(lua_State* L) {
     return lua_yield(L, 0);
 }
 
+// async_rle_read_rgb565(path, offset, len, palette) - yields, resumes with RGB565 data
+// Combines RLE decompression and 3-bit to RGB565 conversion in one async operation
+// Returns 128KB of RGB565 data ready for draw_bitmap
+int AsyncIO::l_async_rle_read_rgb565(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    lua_Integer offset = luaL_checkinteger(L, 2);
+    lua_Integer len = luaL_checkinteger(L, 3);
+    luaL_checktype(L, 4, LUA_TTABLE);
+
+    if (offset < 0 || len <= 0) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    lua_pushthread(L);
+    int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    Request req = {};
+    req.type = OpType::RLE_READ_RGB565;
+    req.coroRef = coroRef;
+    strncpy(req.path, path, MAX_PATH - 1);
+    req.offset = (size_t)offset;
+    req.length = (size_t)len;
+
+    // Copy palette from Lua table (8 RGB565 values, 1-indexed in Lua)
+    for (int i = 0; i < 8; i++) {
+        lua_rawgeti(L, 4, i + 1);
+        req.palette[i] = (uint16_t)lua_tointeger(L, -1);
+        lua_pop(L, 1);
+    }
+
+    if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
+        luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
+        return luaL_error(L, "async queue full");
+    }
+
+    return lua_yield(L, 0);
+}
+
 // async_aes_encrypt(key, plaintext) - yields coroutine, resumes with ciphertext or nil
 int AsyncIO::l_async_aes_encrypt(lua_State* L) {
     size_t keyLen, dataLen;
@@ -985,6 +1128,7 @@ void AsyncIO::registerBindings(lua_State* L) {
 
     // Data processing
     lua_register(L, "async_rle_read", l_async_rle_read);
+    lua_register(L, "async_rle_read_rgb565", l_async_rle_read_rgb565);
 
     // Crypto
     lua_register(L, "async_aes_encrypt", l_async_aes_encrypt);
