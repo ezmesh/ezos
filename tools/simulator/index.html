@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T-Deck OS Simulator</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 10px;
+            font-size: 24px;
+            color: #00d4ff;
+        }
+
+        .status {
+            margin-bottom: 20px;
+            padding: 8px 16px;
+            background: #2a2a4e;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .status.loading { color: #ffa500; }
+        .status.running { color: #00ff88; }
+        .status.error { color: #ff4444; }
+
+        .simulator-container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .device-frame {
+            background: #2d2d2d;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        #screen {
+            background: #000;
+            border: 2px solid #444;
+            border-radius: 4px;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        button {
+            padding: 8px 16px;
+            background: #00d4ff;
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #00a8cc;
+        }
+
+        button:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+        }
+
+        .panel {
+            background: #2a2a4e;
+            border-radius: 10px;
+            padding: 15px;
+            min-width: 300px;
+            max-width: 400px;
+        }
+
+        .panel h2 {
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: #00d4ff;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+        }
+
+        #console {
+            background: #1a1a2e;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        #console .log { color: #aaa; }
+        #console .error { color: #ff4444; }
+        #console .warn { color: #ffa500; }
+        #console .info { color: #00d4ff; }
+
+        .keyboard-hint {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .keyboard-hint kbd {
+            background: #444;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+
+        .key-display {
+            margin-top: 10px;
+            padding: 10px;
+            background: #1a1a2e;
+            border-radius: 4px;
+            font-family: monospace;
+            min-height: 40px;
+        }
+
+        .key-display .label {
+            color: #888;
+            font-size: 11px;
+        }
+
+        .key-display .value {
+            color: #00ff88;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>T-Deck OS Simulator</h1>
+    <div id="status" class="status loading">Initializing...</div>
+
+    <div class="simulator-container">
+        <div class="device-frame">
+            <canvas id="screen" width="320" height="240"></canvas>
+            <div class="controls">
+                <button id="btn-restart">Restart</button>
+                <button id="btn-pause" disabled>Pause</button>
+            </div>
+            <div class="keyboard-hint">
+                Click canvas to focus. Use keyboard for input.<br>
+                <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> Arrow keys |
+                <kbd>Enter</kbd> Select |
+                <kbd>Esc</kbd> Back
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Console Output</h2>
+            <div id="console"></div>
+
+            <h2 style="margin-top: 15px;">Keyboard Input</h2>
+            <div class="key-display">
+                <div class="label">Last key pressed:</div>
+                <div class="value" id="last-key">-</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./simulator.js"></script>
+</body>
+</html>
