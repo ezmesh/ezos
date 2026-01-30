@@ -70,6 +70,11 @@ void Display::clear() {
 
 void Display::flush() {
     _buffer.pushSprite(0, 0);
+
+    // Mark that a frame has been flushed (for text capture)
+    if (_textCaptureEnabled) {
+        _frameFlushed = true;
+    }
 }
 
 void Display::setBrightness(uint8_t level) {
@@ -78,6 +83,22 @@ void Display::setBrightness(uint8_t level) {
 
 void Display::drawText(int x, int y, const char* text, uint16_t color) {
     if (!text) return;
+
+    // Capture text position if enabled
+    if (_textCaptureEnabled && _capturedTextCount < MAX_CAPTURED_TEXTS) {
+        CapturedText& ct = _capturedTexts[_capturedTextCount];
+        ct.x = x;
+        ct.y = y;
+        ct.color = color;
+        // Copy text, truncating if needed
+        size_t len = strlen(text);
+        if (len >= sizeof(ct.text)) {
+            len = sizeof(ct.text) - 1;
+        }
+        memcpy(ct.text, text, len);
+        ct.text[len] = '\0';
+        _capturedTextCount++;
+    }
 
     _buffer.setTextColor(color);
     _buffer.setCursor(x, y);
@@ -502,4 +523,115 @@ bool Display::saveScreenshot(const char* path) {
 
     Serial.printf("[Screenshot] Saved: %s (%d bytes)\n", path, fileSize);
     return true;
+}
+
+size_t Display::getScreenshotRLE(uint8_t* buffer, size_t maxSize) {
+    if (!_initialized || !buffer) {
+        return 0;
+    }
+
+    // Get pointer to sprite buffer (RGB565 format)
+    uint16_t* fb = (uint16_t*)_buffer.getBuffer();
+    if (!fb) {
+        return 0;
+    }
+
+    const int totalPixels = TFT_WIDTH * TFT_HEIGHT;
+    size_t pos = 0;
+
+    uint16_t prev = fb[0];
+    uint8_t count = 1;
+
+    for (int i = 1; i < totalPixels; i++) {
+        uint16_t curr = fb[i];
+        if (curr == prev && count < 255) {
+            count++;
+        } else {
+            // Write run: [count:1][color_lo:1][color_hi:1]
+            if (pos + 3 > maxSize) {
+                return 0;  // Buffer overflow
+            }
+            buffer[pos++] = count;
+            buffer[pos++] = prev & 0xFF;
+            buffer[pos++] = (prev >> 8) & 0xFF;
+            prev = curr;
+            count = 1;
+        }
+    }
+
+    // Write final run
+    if (pos + 3 > maxSize) {
+        return 0;
+    }
+    buffer[pos++] = count;
+    buffer[pos++] = prev & 0xFF;
+    buffer[pos++] = (prev >> 8) & 0xFF;
+
+    return pos;
+}
+
+void Display::setTextCaptureEnabled(bool enabled) {
+    _textCaptureEnabled = enabled;
+    if (enabled) {
+        clearCapturedText();
+        _frameFlushed = false;
+    }
+}
+
+void Display::clearCapturedText() {
+    _capturedTextCount = 0;
+}
+
+size_t Display::getCapturedTextJSON(char* buffer, size_t maxSize) {
+    if (!buffer || maxSize < 3) {
+        return 0;
+    }
+
+    size_t pos = 0;
+    buffer[pos++] = '[';
+
+    for (size_t i = 0; i < _capturedTextCount && pos < maxSize - 50; i++) {
+        const CapturedText& ct = _capturedTexts[i];
+
+        if (i > 0) {
+            buffer[pos++] = ',';
+        }
+
+        // Escape special characters in text for JSON
+        char escapedText[128];
+        size_t ej = 0;
+        for (size_t j = 0; ct.text[j] && ej < sizeof(escapedText) - 2; j++) {
+            char c = ct.text[j];
+            if (c == '"' || c == '\\') {
+                escapedText[ej++] = '\\';
+            } else if (c == '\n') {
+                escapedText[ej++] = '\\';
+                c = 'n';
+            } else if (c == '\r') {
+                escapedText[ej++] = '\\';
+                c = 'r';
+            } else if (c == '\t') {
+                escapedText[ej++] = '\\';
+                c = 't';
+            }
+            escapedText[ej++] = c;
+        }
+        escapedText[ej] = '\0';
+
+        int written = snprintf(buffer + pos, maxSize - pos,
+            "{\"x\":%d,\"y\":%d,\"color\":%u,\"text\":\"%s\"}",
+            ct.x, ct.y, ct.color, escapedText);
+
+        if (written < 0 || (size_t)written >= maxSize - pos) {
+            break;
+        }
+        pos += written;
+    }
+
+    if (pos < maxSize - 1) {
+        buffer[pos++] = ']';
+    }
+    buffer[pos] = '\0';
+
+    return pos;
 }

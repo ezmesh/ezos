@@ -204,6 +204,45 @@ function Solitaire:do_select()
         -- Select cards (only if there's a card to select)
         if not card then return end
 
+        -- Try auto-move to foundation first (single cards only)
+        if source == "waste" or (source == "tableau" and self.cursor.row == #self.tableau[idx]) then
+            if self:try_auto_foundation(card, source, idx) then
+                return  -- Card was moved to foundation
+            end
+        end
+
+        -- Try auto-move Kings to empty tableau columns
+        if card.value == 13 then
+            for col = 1, 7 do
+                if #self.tableau[col] == 0 then
+                    -- Move King (and any cards below it) to empty column
+                    if source == "waste" then
+                        table.remove(self.waste)
+                        table.insert(self.tableau[col], card)
+                    elseif source == "tableau" then
+                        -- Move King and all cards on top of it
+                        local cards_to_move = {}
+                        for i = self.cursor.row, #self.tableau[idx] do
+                            table.insert(cards_to_move, self.tableau[idx][i])
+                        end
+                        for _ = 1, #cards_to_move do
+                            table.remove(self.tableau[idx])
+                        end
+                        for _, c in ipairs(cards_to_move) do
+                            table.insert(self.tableau[col], c)
+                        end
+                        -- Flip new top card in source column
+                        if #self.tableau[idx] > 0 and not self.tableau[idx][#self.tableau[idx]].face_up then
+                            self.tableau[idx][#self.tableau[idx]].face_up = true
+                        end
+                    end
+                    self.moves = self.moves + 1
+                    return  -- Card was moved
+                end
+            end
+        end
+
+        -- No auto-move possible, select the card(s)
         if source == "waste" then
             self.selected = {source = "waste", idx = 0, cards = {card}}
         elseif source == "tableau" then
@@ -248,6 +287,10 @@ function Solitaire:render(display)
     -- Waste
     if #self.waste > 0 then
         Cards.draw_face_up(display, self.waste[#self.waste], waste_x, stock_y, self.CARD_W, self.CARD_H)
+        -- Show green selection indicator when waste card is selected
+        if self.selected and self.selected.source == "waste" then
+            display.draw_rect(waste_x, stock_y, self.CARD_W, self.CARD_H, colors.SUCCESS)
+        end
     else
         Cards.draw_empty_slot(display, waste_x, stock_y, self.CARD_W, self.CARD_H)
     end

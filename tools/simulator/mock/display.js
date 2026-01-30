@@ -202,9 +202,9 @@ export function createDisplayModule(ctx, canvas) {
             return currentFont?.charWidth || 8;
         },
 
-        // Get font height
+        // Get font height (uses charHeight, not yAdvance, to match device firmware)
         get_font_height() {
-            return currentFont?.yAdvance || fontSize;
+            return currentFont?.charHeight || fontSize;
         },
 
         // Get number of text columns that fit on screen
@@ -212,9 +212,9 @@ export function createDisplayModule(ctx, canvas) {
             return Math.floor(WIDTH / (currentFont?.charWidth || 8));
         },
 
-        // Get number of text rows that fit on screen
+        // Get number of text rows that fit on screen (uses charHeight to match device)
         get_rows() {
-            return Math.floor(HEIGHT / (currentFont?.yAdvance || fontSize));
+            return Math.floor(HEIGHT / (currentFont?.charHeight || fontSize));
         },
 
         // Draw line

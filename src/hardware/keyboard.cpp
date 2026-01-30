@@ -173,12 +173,29 @@ uint8_t Keyboard::readRaw() {
     return 0;
 }
 
+void Keyboard::injectEvent(const KeyEvent& event) {
+    // Add event to circular queue (thread-safe with single producer)
+    size_t nextHead = (_injectHead + 1) % INJECT_QUEUE_SIZE;
+    if (nextHead != _injectTail) {
+        _injectQueue[_injectHead] = event;
+        _injectHead = nextHead;
+    }
+    // If queue is full, event is dropped
+}
+
 KeyEvent Keyboard::read() {
     if (!_initialized) {
         return KeyEvent::invalid();
     }
 
-    // First check for key press (direct read from keyboard I2C)
+    // First check inject queue for remote control events
+    if (_injectTail != _injectHead) {
+        KeyEvent event = _injectQueue[_injectTail];
+        _injectTail = (_injectTail + 1) % INJECT_QUEUE_SIZE;
+        return event;
+    }
+
+    // Then check for key press (direct read from keyboard I2C)
     _wire->requestFrom((uint8_t)KB_I2C_ADDR, (uint8_t)1);
     if (_wire->available()) {
         uint8_t code = _wire->read();

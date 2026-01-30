@@ -54,12 +54,69 @@
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
         }
 
+        .screen-container {
+            position: relative;
+            display: inline-block;
+        }
+
         #screen {
+            display: block;
             background: #000;
             border: 2px solid #444;
             border-radius: 4px;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 320px;
+            height: 240px;
+            pointer-events: none;
+            opacity: 0.5;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            display: none;
+            object-fit: fill;
+        }
+
+        .overlay-controls {
+            margin-top: 10px;
+            padding: 10px;
+            background: #1a1a2e;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .overlay-controls label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+
+        .overlay-controls input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+        }
+
+        .overlay-controls input[type="file"] {
+            margin-top: 8px;
+            font-size: 11px;
+        }
+
+        .overlay-controls input[type="range"] {
+            width: 100%;
+            margin-top: 8px;
+        }
+
+        .overlay-controls .opacity-label {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            color: #888;
         }
 
         .controls {
@@ -237,7 +294,10 @@
 
     <div class="simulator-container">
         <div class="device-frame">
-            <canvas id="screen" width="320" height="240"></canvas>
+            <div class="screen-container">
+                <canvas id="screen" width="320" height="240"></canvas>
+                <img id="overlay" src="" alt="overlay">
+            </div>
             <div class="controls">
                 <button id="btn-restart">Restart</button>
                 <button id="btn-pause" disabled>Pause</button>
@@ -247,6 +307,19 @@
                 <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> Arrow keys |
                 <kbd>Enter</kbd> Select |
                 <kbd>Esc</kbd> Back
+            </div>
+
+            <div class="overlay-controls">
+                <label>
+                    <input type="checkbox" id="overlay-toggle">
+                    Show screenshot overlay (for color comparison)
+                </label>
+                <input type="file" id="overlay-file" accept="image/*">
+                <div class="opacity-label">
+                    <span>Opacity:</span>
+                    <span id="opacity-value">50%</span>
+                </div>
+                <input type="range" id="overlay-opacity" min="0" max="100" value="50">
             </div>
 
             <!-- Virtual T-Deck Keyboard -->

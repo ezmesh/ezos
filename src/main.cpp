@@ -15,6 +15,7 @@
 #include "mesh/meshcore.h"
 #include "settings.h"
 #include "lua/lua_runtime.h"
+#include "remote/remote_control.h"
 
 
 // Track initialization status
@@ -251,6 +252,9 @@ void setup() {
 }
 
 void loop() {
+    // Process remote control commands (non-blocking)
+    RemoteControl::instance().update();
+
     // Update GPS (reads serial data, auto-syncs time on first fix)
     if (gpsOk) {
         GPS::instance().update();

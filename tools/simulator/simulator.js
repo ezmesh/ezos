@@ -27,6 +27,13 @@ const lastKeyEl = document.getElementById('last-key');
 const btnRestart = document.getElementById('btn-restart');
 const btnPause = document.getElementById('btn-pause');
 
+// Overlay elements
+const overlayImg = document.getElementById('overlay');
+const overlayToggle = document.getElementById('overlay-toggle');
+const overlayFile = document.getElementById('overlay-file');
+const overlayOpacity = document.getElementById('overlay-opacity');
+const opacityValue = document.getElementById('opacity-value');
+
 // Simulator state
 let lua = null;
 let running = false;
@@ -602,6 +609,31 @@ if (virtualKeyboard) {
         canvas.focus();
     });
 }
+
+// Overlay handling
+overlayToggle.addEventListener('change', () => {
+    overlayImg.style.display = overlayToggle.checked ? 'block' : 'none';
+});
+
+overlayFile.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            overlayImg.src = event.target.result;
+            overlayToggle.checked = true;
+            overlayImg.style.display = 'block';
+            log(`Loaded overlay: ${file.name}`, 'info');
+        };
+        reader.readAsDataURL(file);
+    }
+});
+
+overlayOpacity.addEventListener('input', () => {
+    const opacity = overlayOpacity.value / 100;
+    overlayImg.style.opacity = opacity;
+    opacityValue.textContent = `${overlayOpacity.value}%`;
+});
 
 // Initialize on page load
 async function init() {

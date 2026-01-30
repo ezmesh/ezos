@@ -117,6 +117,9 @@ public:
     // Get raw key code (for debugging)
     uint8_t readRaw();
 
+    // Inject a synthetic key event (for remote control)
+    void injectEvent(const KeyEvent& event);
+
     // Check modifier states
     bool isShiftHeld() const { return _shiftHeld; }
     bool isCtrlHeld() const { return _ctrlHeld; }
@@ -188,6 +191,12 @@ private:
 
     // Cached raw matrix state (updated on each read in raw mode)
     uint8_t _rawMatrix[MATRIX_COLS] = {0};
+
+    // Event injection queue for remote control
+    static constexpr size_t INJECT_QUEUE_SIZE = 16;
+    KeyEvent _injectQueue[INJECT_QUEUE_SIZE];
+    volatile size_t _injectHead = 0;
+    volatile size_t _injectTail = 0;
 
     // Modifier key states
     bool _shiftHeld = false;

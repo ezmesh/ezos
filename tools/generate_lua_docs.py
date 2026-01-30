@@ -493,6 +493,11 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
             box-shadow: 0 4px 16px var(--shadow);
         }
 
+        /* Offset anchors to account for sticky header */
+        .func[id], .module-header h2[id] {
+            scroll-margin-top: 100px;
+        }
+
         .sig {
             font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
             font-size: 15px;

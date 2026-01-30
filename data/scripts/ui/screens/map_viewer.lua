@@ -375,9 +375,13 @@ function MapViewer:load_archive_async()
         end
 
         -- Load label index if present (v3) or all labels (v2)
+        -- Skip label loading if count is too high (Wasmoon/simulator memory limit)
+        local max_label_entries = 5000
         print(string.format("[Map] Label info: version=%d count=%d offset=%d", version, label_index_count, label_index_offset))
         if label_index_count > 0 and label_index_offset > 0 then
-            if version >= 3 then
+            if label_index_count > max_label_entries then
+                print(string.format("[Map] Skipping labels: %d entries exceeds limit %d (memory constraint)", label_index_count, max_label_entries))
+            elseif version >= 3 then
                 self_ref:load_label_index_async(label_index_offset, label_index_count)
             else
                 -- v2: load all labels (legacy, memory-intensive)

@@ -218,6 +218,27 @@ public:
     // Screenshot capture (saves current buffer to BMP file)
     bool saveScreenshot(const char* path);
 
+    // Get RLE-compressed screenshot data for serial transfer
+    // Returns size written to buffer, 0 on error
+    // Format: [count:1][color_lo:1][color_hi:1] repeated
+    size_t getScreenshotRLE(uint8_t* buffer, size_t maxSize);
+
+    // Text capture for remote control
+    // Enable/disable capturing text positions during rendering
+    void setTextCaptureEnabled(bool enabled);
+    bool isTextCaptureEnabled() const { return _textCaptureEnabled; }
+
+    // Clear captured text (call before rendering a frame)
+    void clearCapturedText();
+
+    // Check if a frame has been flushed since capture was enabled
+    bool hasFrameBeenFlushed() const { return _frameFlushed; }
+    void resetFrameFlushed() { _frameFlushed = false; }
+
+    // Get captured text as JSON array
+    // Format: [{"x":0,"y":0,"text":"hello","color":65535}, ...]
+    size_t getCapturedTextJSON(char* buffer, size_t maxSize);
+
 private:
     LGFX _lcd;
     LGFX_Sprite _buffer;
@@ -229,4 +250,19 @@ private:
     int _fontHeight = 16;
 
     void drawBoxChar(int x, int y, char boxChar, uint16_t color);
+
+    // Text capture data structure
+    struct CapturedText {
+        int16_t x;
+        int16_t y;
+        uint16_t color;
+        char text[64];  // Truncated to fit
+    };
+
+    // Text capture state
+    bool _textCaptureEnabled = false;
+    bool _frameFlushed = false;
+    static constexpr size_t MAX_CAPTURED_TEXTS = 128;
+    CapturedText _capturedTexts[MAX_CAPTURED_TEXTS];
+    size_t _capturedTextCount = 0;
 };

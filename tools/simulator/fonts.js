@@ -13,11 +13,12 @@ const FONT_PATHS = {
 };
 
 // Font metrics (charWidth, charHeight, yAdvance)
+// charWidth and charHeight must match device firmware FONT_METRICS in display.cpp
 const FONT_METRICS = {
     tiny: { charWidth: 6, charHeight: 10, yAdvance: 10 },
-    small: { charWidth: 7, charHeight: 12, yAdvance: 15 },
-    medium: { charWidth: 8, charHeight: 16, yAdvance: 24 },
-    large: { charWidth: 12, charHeight: 24, yAdvance: 32 }
+    small: { charWidth: 6, charHeight: 12, yAdvance: 18 },
+    medium: { charWidth: 7, charHeight: 16, yAdvance: 24 },
+    large: { charWidth: 11, charHeight: 24, yAdvance: 32 }
 };
 
 // Parsed fonts cache
