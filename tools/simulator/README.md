@@ -8,7 +8,7 @@ A browser-based simulator that runs T-Deck OS Lua scripts using Wasmoon (Lua 5.4
 cd tools/simulator
 npm install
 npm start
-# Open http://localhost:3000 in your browser
+# Open http://localhost:3000/tools/simulator/ in your browser
 ```
 
 ## Features

@@ -4,8 +4,8 @@
   "description": "Browser-based T-Deck OS simulator",
   "type": "module",
   "scripts": {
-    "start": "npx serve -p 3000",
-    "dev": "npx serve -p 3000"
+    "start": "npx serve ../.. -p 3000 -C --no-clipboard && echo 'Open http://localhost:3000/tools/simulator/'",
+    "dev": "npx serve ../.. -p 3000 -C --no-clipboard"
   },
   "dependencies": {
     "wasmoon": "^1.16.0"
