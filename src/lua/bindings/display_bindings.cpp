@@ -821,6 +821,27 @@ LUA_FUNCTION(l_display_draw_indexed_bitmap_scaled) {
     return 0;
 }
 
+// @lua tdeck.display.save_screenshot(path) -> boolean
+// @brief Save current display contents as BMP screenshot to SD card
+// @param path File path on SD card (e.g., "/screenshots/screen_001.bmp")
+// @return true if saved successfully, false on error
+// @example
+// local ok = display.save_screenshot("/screenshots/capture.bmp")
+// @end
+LUA_FUNCTION(l_display_save_screenshot) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* path = luaL_checkstring(L, 1);
+
+    if (!display) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    bool ok = display->saveScreenshot(path);
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
 // @lua tdeck.display.draw_bitmap_1bit(x, y, width, height, data, scale, color)
 // @brief Draw a 1-bit bitmap with scaling and colorization
 // @param x X position
@@ -919,6 +940,7 @@ static const luaL_Reg display_funcs[] = {
     {"draw_bitmap_1bit",  l_display_draw_bitmap_1bit},
     {"draw_indexed_bitmap", l_display_draw_indexed_bitmap},
     {"draw_indexed_bitmap_scaled", l_display_draw_indexed_bitmap_scaled},
+    {"save_screenshot",   l_display_save_screenshot},
     {nullptr, nullptr}
 };
 

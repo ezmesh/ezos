@@ -289,6 +289,15 @@ local function boot_sequence()
             tdeck.mesh.set_path_check(path_check)
         end
 
+        -- Auto-advert interval (default: Off)
+        local auto_advert = tonumber(get_pref("autoAdvert", 1)) or 1
+        if tdeck.mesh and tdeck.mesh.set_announce_interval then
+            -- Convert option index to milliseconds: 1=Off, 2=1h, 3=4h, 4=8h, 5=12h, 6=24h
+            local intervals = {0, 3600000, 14400000, 28800000, 43200000, 86400000}
+            local ms = intervals[auto_advert] or 0
+            tdeck.mesh.set_announce_interval(ms)
+        end
+
         -- UI Sounds (lazy-loaded when enabled)
         local ui_sounds = get_pref("uiSoundsEnabled", false)
         if ui_sounds then

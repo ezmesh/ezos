@@ -3,3 +3,5 @@ pmtiles>=3.0.0
 mapbox-vector-tile>=2.0.0
 Pillow>=9.0.0
 numpy>=1.20.0
+shapely>=2.0.0
+pyshp>=2.3.0

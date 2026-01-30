@@ -64,10 +64,17 @@ function AppMenu.show()
         end
     end
 
+    -- Add Screenshot action (always available)
+    table.insert(AppMenu.items, {icon = "screenshot", action = function()
+        if _G.StatusBar and _G.StatusBar.take_screenshot then
+            _G.StatusBar.take_screenshot()
+        end
+    end})
+
     -- Add Home action if we're deeper than main menu
     local depth = _G.ScreenManager and _G.ScreenManager.depth() or 0
     if depth > 1 then
-        table.insert(AppMenu.items, {label = "Home", action = function()
+        table.insert(AppMenu.items, {icon = "home", action = function()
             while _G.ScreenManager and _G.ScreenManager.depth() > 1 do
                 _G.ScreenManager.pop()
             end
@@ -131,11 +138,19 @@ function AppMenu.calculate_item_positions(display)
     local positions = {}
     local x = 12
     local item_spacing = 16
+    local icon_size = 16  -- Size for inline icons
 
     for i, item in ipairs(AppMenu.items) do
-        local tw = display.text_width(item.label)
-        positions[i] = {x = x, width = tw}
-        x = x + tw + item_spacing
+        local width
+        if item.icon and not item.label then
+            -- Icon-only item
+            width = icon_size
+        else
+            -- Text item (with or without icon)
+            width = display.text_width(item.label or "")
+        end
+        positions[i] = {x = x, width = width}
+        x = x + width + item_spacing
     end
 
     positions.total_width = x
@@ -179,6 +194,7 @@ function AppMenu.render(display)
     AppMenu.adjust_scroll(display)
 
     -- Draw items
+    local icon_size = 16
     for i, item in ipairs(AppMenu.items) do
         local pos = positions[i]
         local x = pos.x - AppMenu.scroll_offset
@@ -191,7 +207,19 @@ function AppMenu.render(display)
             end
 
             local color = is_sel and colors.ACCENT or colors.TEXT_SECONDARY
-            display.draw_text(x, y + 4, item.label, color)
+
+            if item.icon and not item.label then
+                -- Icon-only item
+                local icon_y = y + (fh - icon_size) / 2 + 2
+                if _G.Icons then
+                    _G.Icons.draw(item.icon, display, x, icon_y, icon_size, color)
+                else
+                    display.draw_rect(x, icon_y, icon_size, icon_size, color)
+                end
+            else
+                -- Text item
+                display.draw_text(x, y + 4, item.label, color)
+            end
         end
     end
 

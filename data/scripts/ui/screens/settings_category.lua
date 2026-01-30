@@ -64,6 +64,7 @@ SettingsCategory.ALL_SETTINGS = {
         {name = "tx_power", label = "TX Power", value = 22, type = "number", min = 0, max = 22, suffix = " dBm", icon = "channels"},
         {name = "ttl", label = "TTL", value = 3, type = "number", min = 1, max = 10, suffix = " hops", icon = "channels"},
         {name = "path_check", label = "Path Check", value = true, type = "toggle", icon = "channels"},
+        {name = "auto_advert", label = "Auto Advert", value = 1, type = "option", options = {"Off", "1 hour", "4 hours", "8 hours", "12 hours", "24 hours"}, icon = "channels"},
     },
     display = {
         {name = "brightness", label = "Display", value = 200, type = "number", min = 25, max = 255, step = 25, suffix = "%", scale = 100/255, icon = "info"},
@@ -107,8 +108,11 @@ SettingsCategory.ALL_SETTINGS = {
         {name = "map_invert_colors", label = "Invert Colors", value = true, type = "toggle", icon = "map"},
         {name = "map_pan_speed", label = "Pan Speed", value = 2, type = "number", min = 1, max = 5, suffix = "", icon = "map"},
     },
-    system = {
+    hotkeys = {
         {name = "menu_hotkey", label = "Menu Hotkey", value = "", type = "button", icon = "settings"},
+        {name = "screenshot_hotkey", label = "Screenshot", value = "", type = "button", icon = "screenshot"},
+    },
+    system = {
         {name = "usb", label = "USB Transfer", value = "", type = "button", icon = "files"},
     }
 }
@@ -179,6 +183,8 @@ function SettingsCategory:load_settings()
             setting.value = tonumber(get_pref("ttl", 3)) or 3
         elseif setting.name == "path_check" then
             setting.value = get_pref("pathCheck", true)
+        elseif setting.name == "auto_advert" then
+            setting.value = tonumber(get_pref("autoAdvert", 1)) or 1  -- Default: Off
         elseif setting.name == "brightness" then
             setting.value = tonumber(get_pref("brightness", 200)) or 200
         elseif setting.name == "kb_backlight" then
@@ -255,6 +261,8 @@ function SettingsCategory:save_setting(setting)
         set_pref("ttl", setting.value)
     elseif setting.name == "path_check" then
         set_pref("pathCheck", setting.value)
+    elseif setting.name == "auto_advert" then
+        set_pref("autoAdvert", setting.value)
     elseif setting.name == "brightness" then
         set_pref("brightness", setting.value)
     elseif setting.name == "kb_backlight" then
@@ -507,7 +515,14 @@ function SettingsCategory:start_editing()
             spawn(function()
                 local ok, HotkeyConfig = pcall(load_module, "/scripts/ui/screens/hotkey_config.lua")
                 if ok and HotkeyConfig then
-                    ScreenManager.push(HotkeyConfig:new())
+                    ScreenManager.push(HotkeyConfig:new("menu", "Menu Hotkey", "menuHotkey"))
+                end
+            end)
+        elseif setting.name == "screenshot_hotkey" then
+            spawn(function()
+                local ok, HotkeyConfig = pcall(load_module, "/scripts/ui/screens/hotkey_config.lua")
+                if ok and HotkeyConfig then
+                    ScreenManager.push(HotkeyConfig:new("screenshot", "Screenshot Key", "screenshotHotkey"))
                 end
             end)
         elseif setting.name == "wallpaper_tint" then
@@ -612,6 +627,13 @@ function SettingsCategory:adjust_value(delta)
     elseif setting.name == "path_check" then
         if tdeck.mesh and tdeck.mesh.set_path_check then
             tdeck.mesh.set_path_check(setting.value)
+        end
+    elseif setting.name == "auto_advert" then
+        if tdeck.mesh and tdeck.mesh.set_announce_interval then
+            -- Convert option index to milliseconds: 1=Off, 2=1h, 3=4h, 4=8h, 5=12h, 6=24h
+            local intervals = {0, 3600000, 14400000, 28800000, 43200000, 86400000}
+            local ms = intervals[setting.value] or 0
+            tdeck.mesh.set_announce_interval(ms)
         end
     elseif setting.name == "ui_sounds" then
         if setting.value then

@@ -35,6 +35,11 @@ local StatusBar = {
     -- Format: matrix bits packed as col0*128^0 + col1*128^1 + ...
     menu_hotkey = 139264,  -- LShift (col1=0x40) + RShift (col2=0x08)
     menu_hotkey_loaded = false,
+
+    -- Screenshot hotkey detection
+    screenshot_hotkey = 2097156,  -- Default: Mic (col3=0x01) + Sym (col0=0x04) = 2097156
+    screenshot_hotkey_loaded = false,
+    screenshot_triggered = false,
 }
 
 function StatusBar.set_battery(p) StatusBar.battery = p or 0 end
@@ -346,6 +351,51 @@ function StatusBar.reload_hotkey()
     StatusBar.load_hotkey()
 end
 
+function StatusBar.load_screenshot_hotkey()
+    -- Load screenshot hotkey from preferences (only once unless forced)
+    if StatusBar.screenshot_hotkey_loaded then
+        return
+    end
+    StatusBar.screenshot_hotkey_loaded = true
+
+    if tdeck.storage and tdeck.storage.get_pref then
+        local saved = tdeck.storage.get_pref("screenshotHotkey", nil)
+        if saved and saved > 0 then
+            StatusBar.screenshot_hotkey = saved
+        end
+    end
+end
+
+function StatusBar.reload_screenshot_hotkey()
+    -- Force reload screenshot hotkey from preferences
+    StatusBar.screenshot_hotkey_loaded = false
+    StatusBar.screenshot_hotkey = 2097156  -- Reset to default (Mic + Sym)
+    StatusBar.load_screenshot_hotkey()
+end
+
+function StatusBar.take_screenshot()
+    -- Take a screenshot and save to SD card
+    if tdeck.display and tdeck.display.save_screenshot then
+        local filename = "/screenshots/screen_" .. os.time() .. ".bmp"
+        local ok = tdeck.display.save_screenshot(filename)
+        if ok then
+            tdeck.system.log("[Screenshot] Saved: " .. filename)
+            if _G.SoundUtils and _G.SoundUtils.is_enabled() then
+                _G.SoundUtils.confirm()
+            end
+        else
+            tdeck.system.log("[Screenshot] Failed to save")
+            if _G.SoundUtils and _G.SoundUtils.is_enabled() then
+                _G.SoundUtils.error()
+            end
+        end
+        return ok
+    else
+        tdeck.system.log("[Screenshot] Not available")
+        return false
+    end
+end
+
 function StatusBar.get_matrix_bits(matrix)
     -- Pack 5 columns into a single number matching hotkey format
     -- Use bit shifts instead of exponentiation to keep values as integers
@@ -357,12 +407,10 @@ function StatusBar.get_matrix_bits(matrix)
     return bits
 end
 
-function StatusBar.check_menu_trigger()
+function StatusBar.check_hotkeys()
     -- Skip if current screen has disabled the app menu
     local current = _G.ScreenManager and _G.ScreenManager.peek()
-    if current and current.disable_app_menu then
-        return
-    end
+    local menu_disabled = current and current.disable_app_menu
 
     local now = tdeck.system.millis()
     if now - StatusBar.menu_last_check < StatusBar.menu_check_interval then
@@ -370,8 +418,9 @@ function StatusBar.check_menu_trigger()
     end
     StatusBar.menu_last_check = now
 
-    -- Load hotkey configuration
+    -- Load hotkey configurations
     StatusBar.load_hotkey()
+    StatusBar.load_screenshot_hotkey()
 
     local prev_mode = tdeck.keyboard.get_mode()
     if not tdeck.keyboard.set_mode("raw") then
@@ -384,22 +433,41 @@ function StatusBar.check_menu_trigger()
         return
     end
 
-    -- Get current matrix bits and check if hotkey is pressed
+    -- Get current matrix bits
     local current_bits = StatusBar.get_matrix_bits(matrix)
-    local hotkey_pressed = (current_bits & StatusBar.menu_hotkey) == StatusBar.menu_hotkey
 
     tdeck.keyboard.set_mode(prev_mode)
 
-    if hotkey_pressed and StatusBar.menu_hotkey > 0 then
-        if not StatusBar.menu_triggered then
-            StatusBar.menu_triggered = true
-            if _G.AppMenu then
-                _G.AppMenu.show()
+    -- Check menu hotkey (unless disabled by current screen)
+    if not menu_disabled then
+        local menu_pressed = (current_bits & StatusBar.menu_hotkey) == StatusBar.menu_hotkey
+        if menu_pressed and StatusBar.menu_hotkey > 0 then
+            if not StatusBar.menu_triggered then
+                StatusBar.menu_triggered = true
+                if _G.AppMenu then
+                    _G.AppMenu.show()
+                end
             end
+        else
+            StatusBar.menu_triggered = false
+        end
+    end
+
+    -- Check screenshot hotkey
+    local screenshot_pressed = (current_bits & StatusBar.screenshot_hotkey) == StatusBar.screenshot_hotkey
+    if screenshot_pressed and StatusBar.screenshot_hotkey > 0 then
+        if not StatusBar.screenshot_triggered then
+            StatusBar.screenshot_triggered = true
+            StatusBar.take_screenshot()
         end
     else
-        StatusBar.menu_triggered = false
+        StatusBar.screenshot_triggered = false
     end
+end
+
+-- Alias for backward compatibility
+function StatusBar.check_menu_trigger()
+    StatusBar.check_hotkeys()
 end
 
 function StatusBar.update()

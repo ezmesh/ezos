@@ -1,7 +1,10 @@
 #include "display.h"
 #include <cstring>
 #include <Arduino.h>
+#include <SD.h>
+#include <SPI.h>
 #include "../fonts/FreeMono5pt7b.h"
+#include "../config.h"
 
 // Font metrics for each size (width, height measured for monospace 'M')
 // All fonts are FreeMono - true monospace with UTF-8 support
@@ -385,4 +388,118 @@ void Display::drawRoundRect(int x, int y, int w, int h, int r, uint16_t color) {
 
 void Display::fillRoundRect(int x, int y, int w, int h, int r, uint16_t color) {
     _buffer.fillRoundRect(x, y, w, h, r, color);
+}
+
+bool Display::saveScreenshot(const char* path) {
+    if (!_initialized) {
+        Serial.println("[Screenshot] Display not initialized");
+        return false;
+    }
+
+    // Initialize SD if needed
+    SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
+    if (!SD.begin(SD_CS)) {
+        Serial.println("[Screenshot] SD card not available");
+        return false;
+    }
+
+    // Create screenshots directory if it doesn't exist
+    if (!SD.exists("/screenshots")) {
+        SD.mkdir("/screenshots");
+    }
+
+    File file = SD.open(path, FILE_WRITE);
+    if (!file) {
+        Serial.printf("[Screenshot] Cannot create file: %s\n", path);
+        return false;
+    }
+
+    const int width = TFT_WIDTH;
+    const int height = TFT_HEIGHT;
+
+    // BMP file uses 24-bit color (3 bytes per pixel) with 4-byte row alignment
+    int rowSize = ((width * 3 + 3) / 4) * 4;  // Row size padded to 4-byte boundary
+    int imageSize = rowSize * height;
+    int fileSize = 54 + imageSize;  // 14 (file header) + 40 (DIB header) + pixels
+
+    // BMP File Header (14 bytes)
+    uint8_t bmpFileHeader[14] = {
+        'B', 'M',                                           // Signature
+        (uint8_t)(fileSize), (uint8_t)(fileSize >> 8),     // File size (bytes 2-5)
+        (uint8_t)(fileSize >> 16), (uint8_t)(fileSize >> 24),
+        0, 0, 0, 0,                                         // Reserved
+        54, 0, 0, 0                                         // Pixel data offset (54 bytes)
+    };
+    file.write(bmpFileHeader, 14);
+
+    // DIB Header (BITMAPINFOHEADER - 40 bytes)
+    uint8_t bmpInfoHeader[40] = {
+        40, 0, 0, 0,                                        // Header size
+        (uint8_t)(width), (uint8_t)(width >> 8),           // Width
+        (uint8_t)(width >> 16), (uint8_t)(width >> 24),
+        (uint8_t)(height), (uint8_t)(height >> 8),         // Height
+        (uint8_t)(height >> 16), (uint8_t)(height >> 24),
+        1, 0,                                               // Color planes
+        24, 0,                                              // Bits per pixel (24-bit)
+        0, 0, 0, 0,                                         // Compression (BI_RGB)
+        (uint8_t)(imageSize), (uint8_t)(imageSize >> 8),   // Image size
+        (uint8_t)(imageSize >> 16), (uint8_t)(imageSize >> 24),
+        0x13, 0x0B, 0, 0,                                   // X pixels per meter (2835)
+        0x13, 0x0B, 0, 0,                                   // Y pixels per meter (2835)
+        0, 0, 0, 0,                                         // Colors in palette
+        0, 0, 0, 0                                          // Important colors
+    };
+    file.write(bmpInfoHeader, 40);
+
+    // Get pointer to sprite buffer (RGB565 format)
+    uint16_t* buffer = (uint16_t*)_buffer.getBuffer();
+    if (!buffer) {
+        Serial.println("[Screenshot] Cannot access display buffer");
+        file.close();
+        return false;
+    }
+
+    // Allocate row buffer for 24-bit conversion
+    uint8_t* rowBuffer = (uint8_t*)malloc(rowSize);
+    if (!rowBuffer) {
+        Serial.println("[Screenshot] Out of memory for row buffer");
+        file.close();
+        return false;
+    }
+
+    // Write pixel data (BMP stores rows bottom-to-top)
+    for (int y = height - 1; y >= 0; y--) {
+        // Convert row from RGB565 to BGR24 (BMP uses BGR order)
+        for (int x = 0; x < width; x++) {
+            uint16_t pixel = buffer[y * width + x];
+
+            // Extract RGB565 components and expand to 8-bit
+            uint8_t r = ((pixel >> 11) & 0x1F) << 3;  // 5 bits -> 8 bits
+            uint8_t g = ((pixel >> 5) & 0x3F) << 2;   // 6 bits -> 8 bits
+            uint8_t b = (pixel & 0x1F) << 3;          // 5 bits -> 8 bits
+
+            // Fill in the missing bits for better color accuracy
+            r |= r >> 5;
+            g |= g >> 6;
+            b |= b >> 5;
+
+            // BMP uses BGR order
+            rowBuffer[x * 3] = b;
+            rowBuffer[x * 3 + 1] = g;
+            rowBuffer[x * 3 + 2] = r;
+        }
+
+        // Pad remaining bytes in row to 0
+        for (int x = width * 3; x < rowSize; x++) {
+            rowBuffer[x] = 0;
+        }
+
+        file.write(rowBuffer, rowSize);
+    }
+
+    free(rowBuffer);
+    file.close();
+
+    Serial.printf("[Screenshot] Saved: %s (%d bytes)\n", path, fileSize);
+    return true;
 }

@@ -10,13 +10,19 @@ Usage:
     python pmtiles_to_tdmap.py input.pmtiles --bounds 4.0,52.0,5.0,52.5 --zoom 10,14 -o nl.tdmap
 
 Requirements:
-    pip install pmtiles mapbox-vector-tile Pillow
+    pip install pmtiles mapbox-vector-tile Pillow numpy shapely pyshp
 
-The script renders vector tiles to grayscale using a simple style:
-- Roads rendered as dark lines (width based on road class)
-- Water rendered as light gray fill
-- Land/background as white
-- Buildings as medium gray
+    shapely + pyshp are used for the Natural Earth land mask which determines
+    whether tiles are over land or water. On first run, downloads ~800KB of
+    Natural Earth 110m land polygons for consistent tile backgrounds.
+
+The script renders vector tiles using semantic feature indices:
+- Land (background for inland tiles)
+- Water (background for ocean tiles, plus lakes/rivers)
+- Parks/forests
+- Buildings
+- Roads (minor, major, highway)
+- Railways
 """
 
 import argparse
@@ -50,6 +56,7 @@ from config import (
 )
 from process import pack_3bit_pixels, rle_compress
 from archive import TDMAPWriter, verify_archive
+from land_mask import get_land_mask, LandMask
 
 
 # Feature indices for semantic tile encoding (3-bit, 0-7)
@@ -165,7 +172,8 @@ def get_road_style(props: dict) -> Optional[Tuple[int, float]]:
     return ROAD_STYLE.get(road_class)
 
 
-def render_vector_tile(tile_data: bytes, zoom: int) -> Image.Image:
+def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int = 0,
+                       land_mask: LandMask = None) -> Image.Image:
     """
     Render a vector tile to an indexed PIL Image.
 
@@ -175,6 +183,9 @@ def render_vector_tile(tile_data: bytes, zoom: int) -> Image.Image:
     Args:
         tile_data: Raw MVT data (possibly gzipped)
         zoom: Zoom level (affects rendering detail)
+        tile_x: Tile X coordinate (for land mask lookup)
+        tile_y: Tile Y coordinate (for land mask lookup)
+        land_mask: Optional LandMask instance for background detection
 
     Returns:
         Indexed PIL Image (256x256) with values 0-7
@@ -184,8 +195,10 @@ def render_vector_tile(tile_data: bytes, zoom: int) -> Image.Image:
         data = decompress_tile(tile_data)
         decoded = mvt.decode(data)
     except Exception as e:
-        # Return blank tile on decode error - use land as default (safer for inland areas)
-        return Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
+        # Return blank tile on decode error - use land mask if available
+        if land_mask and land_mask.is_land_tile(zoom, tile_x, tile_y):
+            return Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
+        return Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
 
     # Get extent (default 4096 for most vector tiles)
     extent = 4096
@@ -194,44 +207,33 @@ def render_vector_tile(tile_data: bytes, zoom: int) -> Image.Image:
             extent = layer["extent"]
             break
 
-    # Check if tile has land or water polygons
-    # Coastal tiles: have earth/land polygons to define the coastline
-    # Ocean tiles: may have water polygons or just no land features
-    # Inland tiles: often have no earth/land/water polygons (100% land assumed)
-    has_land_features = False
-    has_water_features = False
-
-    for layer_name in ["land", "earth", "landcover"]:
+    # Check if tile has explicit land polygons (coastline data)
+    has_land_polygons = False
+    for layer_name in ["land", "earth"]:
         layer = get_layer(decoded, layer_name)
         if layer and layer.get("features"):
             for feature in layer.get("features", []):
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    has_land_features = True
+                    has_land_polygons = True
                     break
-            if has_land_features:
+            if has_land_polygons:
                 break
 
-    for layer_name in ["water", "ocean"]:
-        layer = get_layer(decoded, layer_name)
-        if layer and layer.get("features"):
-            for feature in layer.get("features", []):
-                geom = feature.get("geometry", {})
-                if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    has_water_features = True
-                    break
-            if has_water_features:
-                break
-
-    # Determine background based on tile content:
-    # - Coastal tiles (have land features): use water background, draw land on top
-    # - Ocean tiles (have water but no land): use water background
-    # - Inland tiles (no land or water features): use land background
-    if has_land_features or has_water_features:
-        # Coastal or ocean tile - use water as background
+    # Determine background using Natural Earth land mask (no more heuristics!)
+    # - If tile has explicit land polygons: use water background, draw land on top
+    # - Otherwise: use land mask to determine if tile is over land or water
+    if has_land_polygons:
+        # Coastal tile with explicit land polygons - use water background
         img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
+    elif land_mask is not None:
+        # Use Natural Earth land mask for consistent backgrounds
+        if land_mask.is_land_tile(zoom, tile_x, tile_y):
+            img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
+        else:
+            img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
     else:
-        # Inland tile - no coastline data, assume fully land
+        # Fallback: assume land (safer for most map uses)
         img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
     draw = ImageDraw.Draw(img)
 
@@ -526,19 +528,22 @@ def count_tiles_in_bounds(bounds: Optional[Tuple[float, float, float, float]], z
     return (x_max - x_min + 1) * (y_max - y_min + 1)
 
 
-# Global variable for worker process PMTiles reader
+# Global variable for worker process PMTiles reader and land mask
 _worker_reader = None
 _worker_pmtiles_path = None
+_worker_land_mask = None
 
 
 def _init_worker(pmtiles_path: str):
-    """Initialize worker process with its own PMTiles reader."""
-    global _worker_reader, _worker_pmtiles_path
+    """Initialize worker process with its own PMTiles reader and land mask."""
+    global _worker_reader, _worker_pmtiles_path, _worker_land_mask
     _worker_pmtiles_path = pmtiles_path
     # Open file and create reader in this worker process
     f = open(pmtiles_path, "rb")
     source = MmapSource(f)
     _worker_reader = PMTilesReader(source)
+    # Initialize land mask (shared across tiles in this worker)
+    _worker_land_mask = get_land_mask()
 
 
 def _process_tile_worker(args: Tuple[int, int, int]) -> Optional[Dict[str, Any]]:
@@ -551,7 +556,7 @@ def _process_tile_worker(args: Tuple[int, int, int]) -> Optional[Dict[str, Any]]
     Returns:
         Dict with tile data and labels, or None if tile not found
     """
-    global _worker_reader
+    global _worker_reader, _worker_land_mask
     z, x, y = args
 
     try:
@@ -563,8 +568,8 @@ def _process_tile_worker(args: Tuple[int, int, int]) -> Optional[Dict[str, Any]]
         return {"status": "missing", "z": z, "x": x, "y": y}
 
     try:
-        # Render vector tile to raster
-        img = render_vector_tile(tile_data, z)
+        # Render vector tile to raster using land mask for consistent backgrounds
+        img = render_vector_tile(tile_data, z, x, y, _worker_land_mask)
         compressed = process_tile_image(img)
 
         # Extract labels
@@ -748,6 +753,14 @@ def convert_pmtiles(
 
     print(f"Opening PMTiles: {input_path}")
     print(f"Using {workers} parallel workers")
+
+    # Initialize land mask (downloads Natural Earth data on first run)
+    print("Initializing land mask...")
+    land_mask = get_land_mask()
+    if land_mask.land_polygons is not None:
+        print("  Land mask ready (Natural Earth 110m)")
+    else:
+        print("  Warning: Land mask not available, using fallback heuristics")
 
     # Checkpoint file path (same name as output with .checkpoint extension)
     checkpoint_path = output_path.with_suffix(".checkpoint")
@@ -934,11 +947,15 @@ def convert_pmtiles(
                         total_handled = processed + missing + failed
                         if total_handled % 100 == 0:
                             elapsed = time.time() - start_time
-                            rate = total_handled / elapsed if elapsed > 0 else 0
-                            eta = (remaining - total_handled) / rate if rate > 0 else 0
+                            # Calculate rate based only on content tiles (excludes empty water tiles)
+                            content_tiles = processed + failed
+                            content_rate = content_tiles / elapsed if elapsed > 0 else 0
+                            # ETA based on worst-case (all remaining are content tiles)
+                            tiles_left = remaining - total_handled
+                            eta = tiles_left / content_rate if content_rate > 0 else 0
                             print(f"\r  Progress: {total_handled:,}/{remaining:,} "
-                                  f"({rate:.1f}/s, ETA: {eta/60:.0f}m) "
-                                  f"[missing: {missing}, failed: {failed}, labels: {labels_extracted}]",
+                                  f"({content_rate:.1f} content/s, ETA: {eta/60:.0f}m) "
+                                  f"[empty: {missing}, failed: {failed}, labels: {labels_extracted}]",
                                   end="", flush=True)
 
                     print()  # Newline after progress

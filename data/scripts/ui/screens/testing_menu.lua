@@ -1,20 +1,27 @@
 -- Diagnostics Menu Screen for T-Deck OS
--- Diagnostic tests and demos
+-- Diagnostic tests and demos with vertical list UI
 
 local TestingMenu = {
     title = "Diagnostics",
     selected = 1,
+    scroll_offset = 0,
+
+    -- Layout constants (matching games menu style)
+    VISIBLE_ROWS = 4,
+    ROW_HEIGHT = 46,
+    ICON_SIZE = 24,
+
     items = {
-        {label = "GPS Test", description = "Location & time"},
-        {label = "Radio Test", description = "LoRa module"},
-        {label = "Color Range", description = "Display colors"},
-        {label = "Bitmap Test", description = "Image display"},
-        {label = "Sound Test", description = "Audio output"},
-        {label = "Trackball", description = "Draw with trackball"},
-        {label = "Key Matrix", description = "Raw keyboard map"},
-        {label = "Key Repeat", description = "Test key repeat"},
-        {label = "System Info", description = "Device stats"},
-        {label = "Message Bus", description = "Pub/sub test"}
+        {label = "GPS Test",    description = "Location & time",   icon_path = "settings"},
+        {label = "Radio Test",  description = "LoRa module",       icon_path = "settings"},
+        {label = "Color Range", description = "Display colors",    icon_path = "settings"},
+        {label = "Fonts Test",  description = "Font sizes",        icon_path = "settings"},
+        {label = "Sound Test",  description = "Audio output",      icon_path = "settings"},
+        {label = "Trackball",   description = "Draw with trackball", icon_path = "settings"},
+        {label = "Key Matrix",  description = "Raw keyboard map",  icon_path = "settings"},
+        {label = "Key Repeat",  description = "Test key repeat",   icon_path = "settings"},
+        {label = "System Info", description = "Device stats",      icon_path = "settings"},
+        {label = "Message Bus", description = "Pub/sub test",      icon_path = "settings"},
     }
 }
 
@@ -29,77 +36,150 @@ function TestingMenu:new()
     local o = {
         title = self.title,
         selected = 1,
-        items = self.items
+        scroll_offset = 0,
+        items = {}
     }
+    for i, item in ipairs(self.items) do
+        o.items[i] = {
+            label = item.label,
+            description = item.description,
+            icon_path = item.icon_path
+        }
+    end
     setmetatable(o, {__index = TestingMenu})
     return o
 end
 
+function TestingMenu:on_enter()
+    -- Icons are pre-loaded during splash screen
+end
+
+function TestingMenu:adjust_scroll()
+    -- Keep selected item visible in the window
+    if self.selected <= self.scroll_offset then
+        self.scroll_offset = self.selected - 1
+    elseif self.selected > self.scroll_offset + self.VISIBLE_ROWS then
+        self.scroll_offset = self.selected - self.VISIBLE_ROWS
+    end
+
+    -- Clamp scroll offset
+    self.scroll_offset = math.max(0, self.scroll_offset)
+    self.scroll_offset = math.min(#self.items - self.VISIBLE_ROWS, self.scroll_offset)
+end
+
 function TestingMenu:render(display)
     local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local w = display.width
+    local h = display.height
 
     -- Fill background with theme wallpaper
     if _G.ThemeManager then
         _G.ThemeManager.draw_background(display)
     else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
+        display.fill_rect(0, 0, w, h, colors.BLACK)
     end
-
-    -- Use small font throughout
-    display.set_font_size("small")
-    local fw = display.get_font_width()
-    local fh = display.get_font_height()
 
     -- Title bar
     TitleBar.draw(display, self.title)
 
-    local menu_start_y = fh + 10
-    local menu_x = 3
+    -- List area starts after title
+    local list_start_y = _G.ThemeManager and _G.ThemeManager.LIST_START_Y or 31
+    local icon_margin = 12
+    local text_x = icon_margin + self.ICON_SIZE + 10
+    local scrollbar_width = 8
 
-    for i, item in ipairs(self.items) do
-        local y = menu_start_y + (i - 1) * (fh + 2)
-        local is_selected = (i == self.selected)
+    -- Draw visible menu items
+    for i = 0, self.VISIBLE_ROWS - 1 do
+        local item_idx = self.scroll_offset + i + 1
+        if item_idx > #self.items then break end
 
+        local item = self.items[item_idx]
+        if not item then break end
+        local y = list_start_y + i * self.ROW_HEIGHT
+        local is_selected = (item_idx == self.selected)
+
+        -- Selection outline (rounded rect)
         if is_selected then
-            display.fill_rect(fw, y, (display.cols - 2) * fw, fh, colors.SURFACE_ALT)
-            -- Draw chevron selection indicator
-            local chevron_y = y + math.floor((fh - 9) / 2)
-            if _G.Icons and _G.Icons.draw_chevron_right then
-                _G.Icons.draw_chevron_right(display, fw, chevron_y, colors.ACCENT, colors.SURFACE_ALT)
-            else
-                display.draw_text(fw, y, ">", colors.ACCENT)
-            end
+            display.draw_round_rect(4, y - 1, w - 12 - scrollbar_width, self.ROW_HEIGHT - 6, 6, colors.ACCENT)
         end
 
-        local text_color = is_selected and colors.ACCENT or colors.TEXT
-        display.draw_text(menu_x * fw, y, item.label, text_color)
+        -- Draw icon using Icons module
+        local icon_y = y + (self.ROW_HEIGHT - self.ICON_SIZE) / 2 - 4
+        local icon_color = is_selected and colors.ACCENT or colors.WHITE
+        if item.icon_path and _G.Icons then
+            _G.Icons.draw(item.icon_path, display, icon_margin, icon_y, self.ICON_SIZE, icon_color)
+        else
+            -- Fallback: colored square outline
+            display.draw_rect(icon_margin, icon_y, self.ICON_SIZE, self.ICON_SIZE, icon_color)
+        end
 
-        -- Description
-        local desc_color = is_selected and colors.ACCENT or colors.TEXT_SECONDARY
-        display.draw_text((menu_x + 14) * fw, y, item.description, desc_color)
+        -- Label (main text) - use medium font
+        display.set_font_size("medium")
+        local label_color = is_selected and colors.ACCENT or colors.WHITE
+        local label_y = y + 4
+        display.draw_text(text_x, label_y, item.label, label_color)
+
+        -- Description (secondary text) - use small font
+        display.set_font_size("small")
+        local desc_color = is_selected and colors.TEXT_SECONDARY or colors.TEXT_MUTED
+        local desc_y = y + 4 + 18  -- After medium font height
+        display.draw_text(text_x, desc_y, item.description, desc_color)
+    end
+
+    -- Reset to medium font
+    display.set_font_size("medium")
+
+    -- Scrollbar (only show if there are more items than visible)
+    if #self.items > self.VISIBLE_ROWS then
+        local sb_x = w - scrollbar_width - 2
+        local sb_top = list_start_y
+        local sb_height = self.VISIBLE_ROWS * self.ROW_HEIGHT - 6
+
+        -- Track (background) with rounded corners
+        display.fill_round_rect(sb_x, sb_top, 4, sb_height, 2, colors.SURFACE)
+
+        -- Thumb (current position) with rounded corners
+        local thumb_height = math.max(12, math.floor(sb_height * self.VISIBLE_ROWS / #self.items))
+        local scroll_range = #self.items - self.VISIBLE_ROWS
+        local thumb_range = sb_height - thumb_height
+        local thumb_y = sb_top + math.floor(self.scroll_offset * thumb_range / scroll_range)
+
+        display.fill_round_rect(sb_x, thumb_y, 4, thumb_height, 2, colors.ACCENT)
     end
 end
 
 function TestingMenu:handle_key(key)
     if key.special == "UP" then
-        self.selected = self.selected - 1
-        if self.selected < 1 then
-            self.selected = #self.items
+        if self.selected > 1 then
+            self.selected = self.selected - 1
+            self:adjust_scroll()
+            play_sound("navigate")
+            ScreenManager.invalidate()
         end
-        play_sound("navigate")
-        ScreenManager.invalidate()
     elseif key.special == "DOWN" then
-        self.selected = self.selected + 1
-        if self.selected > #self.items then
-            self.selected = 1
+        if self.selected < #self.items then
+            self.selected = self.selected + 1
+            self:adjust_scroll()
+            play_sound("navigate")
+            ScreenManager.invalidate()
         end
-        play_sound("navigate")
-        ScreenManager.invalidate()
-    elseif key.special == "ENTER" then
+    elseif key.special == "ENTER" or key.character == " " then
         play_sound("click")
         self:activate_selected()
     elseif key.special == "ESCAPE" or key.character == "q" then
         return "pop"
+    elseif key.character then
+        -- Jump to item by first letter
+        local c = string.upper(key.character)
+        for i, item in ipairs(self.items) do
+            if string.upper(string.sub(item.label, 1, 1)) == c then
+                self.selected = i
+                self:adjust_scroll()
+                play_sound("navigate")
+                ScreenManager.invalidate()
+                break
+            end
+        end
     end
 
     return "continue"
@@ -112,7 +192,7 @@ function TestingMenu:activate_selected()
         ["GPS Test"]    = "/scripts/ui/screens/gps_test.lua",
         ["Radio Test"]  = "/scripts/ui/screens/radio_test.lua",
         ["Color Range"] = "/scripts/ui/screens/color_test.lua",
-        ["Bitmap Test"] = "/scripts/ui/screens/test_icon.lua",
+        ["Fonts Test"]  = "/scripts/ui/screens/font_test.lua",
         ["Sound Test"]  = "/scripts/ui/screens/sound_test.lua",
         ["Trackball"]   = "/scripts/ui/screens/trackball_test.lua",
         ["Key Matrix"]  = "/scripts/ui/screens/keyboard_matrix.lua",

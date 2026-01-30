@@ -18,7 +18,8 @@ local Settings = {
         {key = "input",   label = "Input",   description = "Font, trackball", icon = "settings"},
         {key = "sound",   label = "Sound",   description = "UI sounds, volume", icon = "settings"},
         {key = "map",     label = "Map",     description = "Map viewer options", icon = "map"},
-        {key = "system",  label = "System",  description = "Hotkey, USB transfer", icon = "settings"},
+        {key = "hotkeys", label = "Hotkeys", description = "Menu, screenshot shortcuts", icon = "settings"},
+        {key = "system",  label = "System",  description = "USB transfer", icon = "settings"},
     }
 }
 

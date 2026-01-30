@@ -215,6 +215,9 @@ public:
     // Text measurement (UTF-8 aware)
     int textWidth(const char* text);
 
+    // Screenshot capture (saves current buffer to BMP file)
+    bool saveScreenshot(const char* path);
+
 private:
     LGFX _lcd;
     LGFX_Sprite _buffer;

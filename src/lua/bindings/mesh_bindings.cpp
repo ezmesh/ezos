@@ -1064,6 +1064,30 @@ LUA_FUNCTION(l_mesh_get_path_check) {
     return 1;
 }
 
+// @lua tdeck.mesh.set_announce_interval(ms)
+// @brief Set auto-announce interval in milliseconds (0 = disabled)
+// @param ms Integer - interval in milliseconds (0 to disable)
+LUA_FUNCTION(l_mesh_set_announce_interval) {
+    LUA_CHECK_ARGC(L, 1);
+    uint32_t ms = (uint32_t)luaL_checkinteger(L, 1);
+
+    if (mesh) {
+        mesh->setAnnounceInterval(ms);
+        Serial.printf("[Mesh] Auto-announce interval set to %lu ms\n", ms);
+    }
+
+    return 0;
+}
+
+// @lua tdeck.mesh.get_announce_interval() -> integer
+// @brief Get current auto-announce interval
+// @return Interval in milliseconds (0 = disabled)
+LUA_FUNCTION(l_mesh_get_announce_interval) {
+    uint32_t ms = mesh ? mesh->getAnnounceInterval() : 0;
+    lua_pushinteger(L, ms);
+    return 1;
+}
+
 // Function table for tdeck.mesh
 static const luaL_Reg mesh_funcs[] = {
     {"is_initialized",       l_mesh_is_initialized},
@@ -1109,6 +1133,9 @@ static const luaL_Reg mesh_funcs[] = {
     // Path check setting
     {"set_path_check",       l_mesh_set_path_check},
     {"get_path_check",       l_mesh_get_path_check},
+    // Auto-announce interval setting
+    {"set_announce_interval", l_mesh_set_announce_interval},
+    {"get_announce_interval", l_mesh_get_announce_interval},
     {nullptr, nullptr}
 };
 

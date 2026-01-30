@@ -119,6 +119,10 @@ public:
     void setPathCheckEnabled(bool enabled) { _pathCheckEnabled = enabled; }
     bool isPathCheckEnabled() const { return _pathCheckEnabled; }
 
+    // Auto-announce interval setting (0 = disabled)
+    void setAnnounceInterval(uint32_t ms) { _announceInterval = ms; }
+    uint32_t getAnnounceInterval() const { return _announceInterval; }
+
 private:
     Radio& _radio;
     Identity _identity;
@@ -134,6 +138,7 @@ private:
     uint32_t _txCount = 0;
     uint32_t _rxCount = 0;
     uint32_t _lastAnnounce = 0;
+    uint32_t _announceInterval = 0;  // Auto-announce interval in ms (0 = disabled)
     bool _pathCheckEnabled = true;  // Skip packets where our hash is in path (flood only)
 
     // Pending rebroadcast

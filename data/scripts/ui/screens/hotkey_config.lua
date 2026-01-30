@@ -1,27 +1,39 @@
 -- Hotkey Configuration Screen for T-Deck OS
--- Records a key combination for the app menu trigger
+-- Generic hotkey recorder for any key combination
 
 local HotkeyConfig = {
-    title = "Menu Hotkey",
+    title = "Hotkey",
     disable_app_menu = true,  -- Prevent menu interference during recording
     recording = false,
     countdown = 0,
     countdown_start = 0,
     RECORD_TIMEOUT = 5000,  -- 5 seconds to record
     recorded_matrix = nil,
-    current_matrix = nil
+    current_matrix = nil,
+    hotkey_id = "menu",      -- Identifier for this hotkey
+    pref_key = "menuHotkey", -- Preferences key for storage
+    default_desc = "LShift+RShift",  -- Default description
 }
 
-function HotkeyConfig:new()
+-- Default hotkey descriptions
+local DEFAULT_DESCS = {
+    menu = "LShift+RShift",
+    screenshot = "Mic+Sym",
+}
+
+function HotkeyConfig:new(hotkey_id, title, pref_key)
     local o = {
-        title = self.title,
+        title = title or "Hotkey",
         disable_app_menu = true,
         recording = false,
         countdown = 0,
         countdown_start = 0,
         RECORD_TIMEOUT = self.RECORD_TIMEOUT,
         recorded_matrix = nil,
-        current_matrix = nil
+        current_matrix = nil,
+        hotkey_id = hotkey_id or "menu",
+        pref_key = pref_key or "menuHotkey",
+        default_desc = DEFAULT_DESCS[hotkey_id] or "Default",
     }
     setmetatable(o, {__index = HotkeyConfig})
     return o
@@ -42,7 +54,7 @@ end
 
 function HotkeyConfig:load_current()
     if tdeck.storage and tdeck.storage.get_pref then
-        local saved = tdeck.storage.get_pref("menuHotkey", nil)
+        local saved = tdeck.storage.get_pref(self.pref_key, nil)
         if saved then
             self.recorded_matrix = saved
         end
@@ -52,17 +64,25 @@ end
 function HotkeyConfig:save_hotkey(matrix_bits)
     if tdeck.storage and tdeck.storage.set_pref then
         if matrix_bits then
-            tdeck.storage.set_pref("menuHotkey", matrix_bits)
+            tdeck.storage.set_pref(self.pref_key, matrix_bits)
         else
             -- Clear/reset to default
-            tdeck.storage.set_pref("menuHotkey", nil)
+            tdeck.storage.set_pref(self.pref_key, nil)
         end
     end
     self.recorded_matrix = matrix_bits
 
-    -- Reload the hotkey in StatusBar so it takes effect immediately
-    if _G.StatusBar and _G.StatusBar.reload_hotkey then
-        _G.StatusBar.reload_hotkey()
+    -- Notify appropriate handler based on hotkey type
+    if self.hotkey_id == "menu" then
+        -- Reload the hotkey in StatusBar so it takes effect immediately
+        if _G.StatusBar and _G.StatusBar.reload_hotkey then
+            _G.StatusBar.reload_hotkey()
+        end
+    elseif self.hotkey_id == "screenshot" then
+        -- Reload screenshot hotkey
+        if _G.StatusBar and _G.StatusBar.reload_screenshot_hotkey then
+            _G.StatusBar.reload_screenshot_hotkey()
+        end
     end
 end
 
@@ -142,7 +162,7 @@ function HotkeyConfig:render(display)
     display.draw_text(10, y, "Current:", colors.TEXT_SECONDARY)
     local current_str = self:format_matrix(self.recorded_matrix)
     if not self.recorded_matrix then
-        current_str = "Default (LShift+RShift)"
+        current_str = "Default (" .. self.default_desc .. ")"
     end
     display.draw_text(90, y, current_str, colors.ACCENT)
     y = y + 25
@@ -185,7 +205,7 @@ function HotkeyConfig:render(display)
         end
     else
         -- Normal mode - show instructions
-        display.draw_text_centered(y, "Configure app menu hotkey", colors.TEXT)
+        display.draw_text_centered(y, "Configure " .. string.lower(self.title), colors.TEXT)
         y = y + 30
 
         display.set_font_size("small")

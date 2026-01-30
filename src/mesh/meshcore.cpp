@@ -6,8 +6,8 @@
 constexpr uint32_t REBROADCAST_DELAY_MIN = 50;
 constexpr uint32_t REBROADCAST_DELAY_MAX = 200;
 
-// Announce interval (ms)
-constexpr uint32_t ANNOUNCE_INTERVAL = 60000;
+// Default announce interval removed - now configurable via setAnnounceInterval()
+// Default is 0 (disabled), can be set to: 1h, 4h, 8h, 12h, 24h via settings
 
 MeshCore::MeshCore(Radio& radio) : _radio(radio) {
 }
@@ -31,8 +31,9 @@ bool MeshCore::init() {
     // The Lua Channels service will call on_group_packet() to receive raw packets
     // and send_group_packet() to transmit encrypted messages
 
-    // Announce ourselves
-    sendAnnounce();
+    // Note: Auto-advert is disabled by default. The user can enable periodic
+    // announces via Settings > Radio > Auto Advert, or trigger manual announces
+    // via tdeck.mesh.send_advert() from Lua.
 
     return true;
 }
@@ -60,11 +61,13 @@ void MeshCore::update() {
     // Process pending rebroadcasts
     processRebroadcasts();
 
-    // Periodic announce
-    uint32_t now = millis();
-    if (now - _lastAnnounce >= ANNOUNCE_INTERVAL) {
-        _lastAnnounce = now;
-        sendAnnounce();
+    // Periodic announce (if enabled)
+    if (_announceInterval > 0) {
+        uint32_t now = millis();
+        if (now - _lastAnnounce >= _announceInterval) {
+            _lastAnnounce = now;
+            sendAnnounce();
+        }
     }
 }
 

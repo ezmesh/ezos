@@ -5,1380 +5,2512 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>T-Deck OS Lua API Reference</title>
     <style>
-        :root { --bg: #1a1a2e; --fg: #eee; --accent: #00d4ff; --code-bg: #16213e; --border: #0f3460; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.6; margin: 0; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; }
-        h1 { color: var(--accent); border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
-        h2 { color: var(--accent); margin-top: 40px; }
-        h3 { color: #ff6b6b; }
-        code { font-family: 'Fira Code', monospace; background: var(--code-bg); padding: 2px 6px; border-radius: 3px; }
-        pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: 15px; overflow-x: auto; }
-        pre code { background: none; padding: 0; }
-        .func { background: var(--code-bg); border-left: 3px solid var(--accent); padding: 10px 15px; margin: 10px 0; }
-        .sig { font-family: monospace; color: var(--accent); font-weight: bold; }
-        .desc { margin-top: 5px; color: #ccc; }
-        .params { margin: 10px 0; padding-left: 20px; }
-        .toc { background: var(--code-bg); padding: 20px; border-radius: 5px; margin: 20px 0; }
-        .toc a { color: var(--fg); text-decoration: none; margin-right: 20px; }
-        .toc a:hover { color: var(--accent); }
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-code: #f1f5f9;
+            --text-primary: #1e293b;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+            --accent: #0ea5e9;
+            --accent-hover: #0284c7;
+            --border: #e2e8f0;
+            --shadow: rgba(0, 0, 0, 0.05);
+            --code-text: #0f172a;
+            --func-border: #0ea5e9;
+        }
+
+        [data-theme="dark"] {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-code: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #cbd5e1;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --accent-hover: #7dd3fc;
+            --border: #334155;
+            --shadow: rgba(0, 0, 0, 0.3);
+            --code-text: #e2e8f0;
+            --func-border: #38bdf8;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+            margin: 0;
+            padding: 0;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 24px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 0 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent), #6366f1);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .logo-text h1 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .logo-text span {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .theme-toggle {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 16px;
+            cursor: pointer;
+            color: var(--text-primary);
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--accent);
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        /* Quick Reference Index */
+        .quick-ref {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 32px;
+        }
+
+        .quick-ref-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .quick-ref-title span {
+            background: var(--accent);
+            color: white;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
+
+        .quick-ref-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .quick-ref-item {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 12px;
+            padding: 6px 10px;
+            border-radius: 4px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.15s;
+        }
+
+        .quick-ref-item:hover {
+            background: var(--bg-code);
+            color: var(--accent);
+        }
+
+        .toc {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 40px;
+        }
+
+        .toc-title {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+
+        .toc-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 12px;
+        }
+
+        .toc a {
+            display: block;
+            padding: 10px 16px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .toc a:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px var(--shadow);
+        }
+
+        .module {
+            margin-bottom: 48px;
+        }
+
+        .module-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .module-header h2 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--accent);
+        }
+
+        .func-count {
+            background: var(--accent);
+            color: white;
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 500;
+        }
+
+        .func {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--func-border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 16px;
+            transition: all 0.2s;
+        }
+
+        .func:hover {
+            box-shadow: 0 4px 16px var(--shadow);
+        }
+
+        .sig {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 15px;
+            color: var(--accent);
+            font-weight: 600;
+            word-break: break-word;
+        }
+
+        .desc {
+            margin-top: 12px;
+            color: var(--text-secondary);
+            font-size: 15px;
+        }
+
+        .params {
+            margin-top: 16px;
+        }
+
+        .params-title {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .params-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .params-table th {
+            text-align: left;
+            padding: 10px 12px;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .params-table td {
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            background: var(--bg-primary);
+        }
+
+        .params-table td:first-child {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            color: var(--accent);
+            font-weight: 600;
+            white-space: nowrap;
+            width: 120px;
+        }
+
+        .returns {
+            margin-top: 12px;
+            padding: 10px 14px;
+            background: var(--bg-code);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .returns strong {
+            color: var(--text-muted);
+        }
+
+        pre {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            margin-top: 12px;
+        }
+
+        pre code {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 13px;
+            color: var(--code-text);
+            background: none;
+            padding: 0;
+        }
+
+        code {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            background: var(--bg-code);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 32px 24px;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        @media (max-width: 640px) {
+            .header-content { flex-direction: column; gap: 16px; }
+            .toc-grid { grid-template-columns: 1fr; }
+            .quick-ref-list { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
+<header class="header">
+    <div class="header-content">
+        <div class="logo">
+            <div class="logo-icon">TD</div>
+            <div class="logo-text">
+                <h1>T-Deck OS</h1>
+                <span>Lua API Reference</span>
+            </div>
+        </div>
+        <button class="theme-toggle" onclick="toggleTheme()">
+            <span id="theme-icon">&#9790;</span>
+            <span id="theme-label">Dark Mode</span>
+        </button>
+    </div>
+</header>
+
 <div class="container">
-<h1>T-Deck OS Lua API Reference</h1>
-<p><em>Auto-generated from source code</em></p>
+
+<!-- Quick Reference Index -->
+<div class="quick-ref">
+    <div class="quick-ref-title">Quick Reference <span>204 methods</span></div>
+    <div class="quick-ref-list">
+        <a class="quick-ref-item" href="#audio-beep">tdeck.audio.beep</a>
+        <a class="quick-ref-item" href="#audio-get_volume">tdeck.audio.get_volume</a>
+        <a class="quick-ref-item" href="#audio-is_playing">tdeck.audio.is_playing</a>
+        <a class="quick-ref-item" href="#audio-play_sample">tdeck.audio.play_sample</a>
+        <a class="quick-ref-item" href="#audio-play_tone">tdeck.audio.play_tone</a>
+        <a class="quick-ref-item" href="#audio-set_frequency">tdeck.audio.set_frequency</a>
+        <a class="quick-ref-item" href="#audio-set_volume">tdeck.audio.set_volume</a>
+        <a class="quick-ref-item" href="#audio-start">tdeck.audio.start</a>
+        <a class="quick-ref-item" href="#audio-stop">tdeck.audio.stop</a>
+        <a class="quick-ref-item" href="#bus-has_subscribers">tdeck.bus.has_subscribers</a>
+        <a class="quick-ref-item" href="#bus-pending_count">tdeck.bus.pending_count</a>
+        <a class="quick-ref-item" href="#bus-post">tdeck.bus.post</a>
+        <a class="quick-ref-item" href="#bus-subscribe">tdeck.bus.subscribe</a>
+        <a class="quick-ref-item" href="#bus-unsubscribe">tdeck.bus.unsubscribe</a>
+        <a class="quick-ref-item" href="#crypto-aes128_ecb_decrypt">tdeck.crypto.aes128_ecb_decrypt</a>
+        <a class="quick-ref-item" href="#crypto-aes128_ecb_encrypt">tdeck.crypto.aes128_ecb_encrypt</a>
+        <a class="quick-ref-item" href="#crypto-base64_decode">tdeck.crypto.base64_decode</a>
+        <a class="quick-ref-item" href="#crypto-base64_encode">tdeck.crypto.base64_encode</a>
+        <a class="quick-ref-item" href="#crypto-bytes_to_hex">tdeck.crypto.bytes_to_hex</a>
+        <a class="quick-ref-item" href="#crypto-channel_hash">tdeck.crypto.channel_hash</a>
+        <a class="quick-ref-item" href="#crypto-derive_channel_key">tdeck.crypto.derive_channel_key</a>
+        <a class="quick-ref-item" href="#crypto-hex_to_bytes">tdeck.crypto.hex_to_bytes</a>
+        <a class="quick-ref-item" href="#crypto-hmac_sha256">tdeck.crypto.hmac_sha256</a>
+        <a class="quick-ref-item" href="#crypto-public_channel_key">tdeck.crypto.public_channel_key</a>
+        <a class="quick-ref-item" href="#crypto-random_bytes">tdeck.crypto.random_bytes</a>
+        <a class="quick-ref-item" href="#crypto-sha256">tdeck.crypto.sha256</a>
+        <a class="quick-ref-item" href="#crypto-sha512">tdeck.crypto.sha512</a>
+        <a class="quick-ref-item" href="#display-clear">tdeck.display.clear</a>
+        <a class="quick-ref-item" href="#display-draw_battery">tdeck.display.draw_battery</a>
+        <a class="quick-ref-item" href="#display-draw_bitmap">tdeck.display.draw_bitmap</a>
+        <a class="quick-ref-item" href="#display-draw_bitmap_1bit">tdeck.display.draw_bitmap_1bit</a>
+        <a class="quick-ref-item" href="#display-draw_bitmap_transparent">tdeck.display.draw_bitmap_transparent</a>
+        <a class="quick-ref-item" href="#display-draw_box">tdeck.display.draw_box</a>
+        <a class="quick-ref-item" href="#display-draw_char">tdeck.display.draw_char</a>
+        <a class="quick-ref-item" href="#display-draw_circle">tdeck.display.draw_circle</a>
+        <a class="quick-ref-item" href="#display-draw_hline">tdeck.display.draw_hline</a>
+        <a class="quick-ref-item" href="#display-draw_indexed_bitmap">tdeck.display.draw_indexed_bitmap</a>
+        <a class="quick-ref-item" href="#display-draw_indexed_bitmap_scaled">tdeck.display.draw_indexed_bitmap_scaled</a>
+        <a class="quick-ref-item" href="#display-draw_line">tdeck.display.draw_line</a>
+        <a class="quick-ref-item" href="#display-draw_pixel">tdeck.display.draw_pixel</a>
+        <a class="quick-ref-item" href="#display-draw_progress">tdeck.display.draw_progress</a>
+        <a class="quick-ref-item" href="#display-draw_rect">tdeck.display.draw_rect</a>
+        <a class="quick-ref-item" href="#display-draw_round_rect">tdeck.display.draw_round_rect</a>
+        <a class="quick-ref-item" href="#display-draw_signal">tdeck.display.draw_signal</a>
+        <a class="quick-ref-item" href="#display-draw_text">tdeck.display.draw_text</a>
+        <a class="quick-ref-item" href="#display-draw_text_centered">tdeck.display.draw_text_centered</a>
+        <a class="quick-ref-item" href="#display-draw_triangle">tdeck.display.draw_triangle</a>
+        <a class="quick-ref-item" href="#display-fill_circle">tdeck.display.fill_circle</a>
+        <a class="quick-ref-item" href="#display-fill_rect">tdeck.display.fill_rect</a>
+        <a class="quick-ref-item" href="#display-fill_round_rect">tdeck.display.fill_round_rect</a>
+        <a class="quick-ref-item" href="#display-fill_triangle">tdeck.display.fill_triangle</a>
+        <a class="quick-ref-item" href="#display-flush">tdeck.display.flush</a>
+        <a class="quick-ref-item" href="#display-get_cols">tdeck.display.get_cols</a>
+        <a class="quick-ref-item" href="#display-get_font_height">tdeck.display.get_font_height</a>
+        <a class="quick-ref-item" href="#display-get_font_width">tdeck.display.get_font_width</a>
+        <a class="quick-ref-item" href="#display-get_height">tdeck.display.get_height</a>
+        <a class="quick-ref-item" href="#display-get_rows">tdeck.display.get_rows</a>
+        <a class="quick-ref-item" href="#display-get_width">tdeck.display.get_width</a>
+        <a class="quick-ref-item" href="#display-rgb">tdeck.display.rgb</a>
+        <a class="quick-ref-item" href="#display-save_screenshot">tdeck.display.save_screenshot</a>
+        <a class="quick-ref-item" href="#display-set_brightness">tdeck.display.set_brightness</a>
+        <a class="quick-ref-item" href="#display-set_font_size">tdeck.display.set_font_size</a>
+        <a class="quick-ref-item" href="#display-text_width">tdeck.display.text_width</a>
+        <a class="quick-ref-item" href="#keyboard-available">tdeck.keyboard.available</a>
+        <a class="quick-ref-item" href="#keyboard-get_backlight">tdeck.keyboard.get_backlight</a>
+        <a class="quick-ref-item" href="#keyboard-get_mode">tdeck.keyboard.get_mode</a>
+        <a class="quick-ref-item" href="#keyboard-get_raw_matrix_bits">tdeck.keyboard.get_raw_matrix_bits</a>
+        <a class="quick-ref-item" href="#keyboard-get_repeat_delay">tdeck.keyboard.get_repeat_delay</a>
+        <a class="quick-ref-item" href="#keyboard-get_repeat_enabled">tdeck.keyboard.get_repeat_enabled</a>
+        <a class="quick-ref-item" href="#keyboard-get_repeat_rate">tdeck.keyboard.get_repeat_rate</a>
+        <a class="quick-ref-item" href="#keyboard-get_trackball_mode">tdeck.keyboard.get_trackball_mode</a>
+        <a class="quick-ref-item" href="#keyboard-get_trackball_sensitivity">tdeck.keyboard.get_trackball_sensitivity</a>
+        <a class="quick-ref-item" href="#keyboard-has_trackball">tdeck.keyboard.has_trackball</a>
+        <a class="quick-ref-item" href="#keyboard-is_alt_held">tdeck.keyboard.is_alt_held</a>
+        <a class="quick-ref-item" href="#keyboard-is_ctrl_held">tdeck.keyboard.is_ctrl_held</a>
+        <a class="quick-ref-item" href="#keyboard-is_fn_held">tdeck.keyboard.is_fn_held</a>
+        <a class="quick-ref-item" href="#keyboard-is_key_pressed">tdeck.keyboard.is_key_pressed</a>
+        <a class="quick-ref-item" href="#keyboard-is_shift_held">tdeck.keyboard.is_shift_held</a>
+        <a class="quick-ref-item" href="#keyboard-read">tdeck.keyboard.read</a>
+        <a class="quick-ref-item" href="#keyboard-read_blocking">tdeck.keyboard.read_blocking</a>
+        <a class="quick-ref-item" href="#keyboard-read_raw_code">tdeck.keyboard.read_raw_code</a>
+        <a class="quick-ref-item" href="#keyboard-read_raw_matrix">tdeck.keyboard.read_raw_matrix</a>
+        <a class="quick-ref-item" href="#keyboard-set_backlight">tdeck.keyboard.set_backlight</a>
+        <a class="quick-ref-item" href="#keyboard-set_mode">tdeck.keyboard.set_mode</a>
+        <a class="quick-ref-item" href="#keyboard-set_repeat_delay">tdeck.keyboard.set_repeat_delay</a>
+        <a class="quick-ref-item" href="#keyboard-set_repeat_enabled">tdeck.keyboard.set_repeat_enabled</a>
+        <a class="quick-ref-item" href="#keyboard-set_repeat_rate">tdeck.keyboard.set_repeat_rate</a>
+        <a class="quick-ref-item" href="#keyboard-set_trackball_mode">tdeck.keyboard.set_trackball_mode</a>
+        <a class="quick-ref-item" href="#keyboard-set_trackball_sensitivity">tdeck.keyboard.set_trackball_sensitivity</a>
+        <a class="quick-ref-item" href="#mesh-build_packet">tdeck.mesh.build_packet</a>
+        <a class="quick-ref-item" href="#mesh-calc_shared_secret">tdeck.mesh.calc_shared_secret</a>
+        <a class="quick-ref-item" href="#mesh-clear_packet_queue">tdeck.mesh.clear_packet_queue</a>
+        <a class="quick-ref-item" href="#mesh-clear_tx_queue">tdeck.mesh.clear_tx_queue</a>
+        <a class="quick-ref-item" href="#mesh-ed25519_sign">tdeck.mesh.ed25519_sign</a>
+        <a class="quick-ref-item" href="#mesh-ed25519_verify">tdeck.mesh.ed25519_verify</a>
+        <a class="quick-ref-item" href="#mesh-enable_packet_queue">tdeck.mesh.enable_packet_queue</a>
+        <a class="quick-ref-item" href="#mesh-get_announce_interval">tdeck.mesh.get_announce_interval</a>
+        <a class="quick-ref-item" href="#mesh-get_node_count">tdeck.mesh.get_node_count</a>
+        <a class="quick-ref-item" href="#mesh-get_node_id">tdeck.mesh.get_node_id</a>
+        <a class="quick-ref-item" href="#mesh-get_node_name">tdeck.mesh.get_node_name</a>
+        <a class="quick-ref-item" href="#mesh-get_nodes">tdeck.mesh.get_nodes</a>
+        <a class="quick-ref-item" href="#mesh-get_path_check">tdeck.mesh.get_path_check</a>
+        <a class="quick-ref-item" href="#mesh-get_path_hash">tdeck.mesh.get_path_hash</a>
+        <a class="quick-ref-item" href="#mesh-get_public_key">tdeck.mesh.get_public_key</a>
+        <a class="quick-ref-item" href="#mesh-get_public_key_hex">tdeck.mesh.get_public_key_hex</a>
+        <a class="quick-ref-item" href="#mesh-get_rx_count">tdeck.mesh.get_rx_count</a>
+        <a class="quick-ref-item" href="#mesh-get_short_id">tdeck.mesh.get_short_id</a>
+        <a class="quick-ref-item" href="#mesh-get_tx_count">tdeck.mesh.get_tx_count</a>
+        <a class="quick-ref-item" href="#mesh-get_tx_queue_capacity">tdeck.mesh.get_tx_queue_capacity</a>
+        <a class="quick-ref-item" href="#mesh-get_tx_queue_size">tdeck.mesh.get_tx_queue_size</a>
+        <a class="quick-ref-item" href="#mesh-get_tx_throttle">tdeck.mesh.get_tx_throttle</a>
+        <a class="quick-ref-item" href="#mesh-has_packets">tdeck.mesh.has_packets</a>
+        <a class="quick-ref-item" href="#mesh-is_initialized">tdeck.mesh.is_initialized</a>
+        <a class="quick-ref-item" href="#mesh-is_tx_queue_full">tdeck.mesh.is_tx_queue_full</a>
+        <a class="quick-ref-item" href="#mesh-make_header">tdeck.mesh.make_header</a>
+        <a class="quick-ref-item" href="#mesh-on_group_packet">tdeck.mesh.on_group_packet</a>
+        <a class="quick-ref-item" href="#mesh-on_node_discovered">tdeck.mesh.on_node_discovered</a>
+        <a class="quick-ref-item" href="#mesh-on_packet">tdeck.mesh.on_packet</a>
+        <a class="quick-ref-item" href="#mesh-packet_count">tdeck.mesh.packet_count</a>
+        <a class="quick-ref-item" href="#mesh-parse_header">tdeck.mesh.parse_header</a>
+        <a class="quick-ref-item" href="#mesh-pop_packet">tdeck.mesh.pop_packet</a>
+        <a class="quick-ref-item" href="#mesh-queue_send">tdeck.mesh.queue_send</a>
+        <a class="quick-ref-item" href="#mesh-schedule_rebroadcast">tdeck.mesh.schedule_rebroadcast</a>
+        <a class="quick-ref-item" href="#mesh-send_announce">tdeck.mesh.send_announce</a>
+        <a class="quick-ref-item" href="#mesh-send_group_packet">tdeck.mesh.send_group_packet</a>
+        <a class="quick-ref-item" href="#mesh-send_raw">tdeck.mesh.send_raw</a>
+        <a class="quick-ref-item" href="#mesh-set_announce_interval">tdeck.mesh.set_announce_interval</a>
+        <a class="quick-ref-item" href="#mesh-set_node_name">tdeck.mesh.set_node_name</a>
+        <a class="quick-ref-item" href="#mesh-set_path_check">tdeck.mesh.set_path_check</a>
+        <a class="quick-ref-item" href="#mesh-set_tx_throttle">tdeck.mesh.set_tx_throttle</a>
+        <a class="quick-ref-item" href="#mesh-update">tdeck.mesh.update</a>
+        <a class="quick-ref-item" href="#radio-available">tdeck.radio.available</a>
+        <a class="quick-ref-item" href="#radio-get_config">tdeck.radio.get_config</a>
+        <a class="quick-ref-item" href="#radio-get_last_rssi">tdeck.radio.get_last_rssi</a>
+        <a class="quick-ref-item" href="#radio-get_last_snr">tdeck.radio.get_last_snr</a>
+        <a class="quick-ref-item" href="#radio-is_busy">tdeck.radio.is_busy</a>
+        <a class="quick-ref-item" href="#radio-is_initialized">tdeck.radio.is_initialized</a>
+        <a class="quick-ref-item" href="#radio-is_receiving">tdeck.radio.is_receiving</a>
+        <a class="quick-ref-item" href="#radio-is_transmitting">tdeck.radio.is_transmitting</a>
+        <a class="quick-ref-item" href="#radio-receive">tdeck.radio.receive</a>
+        <a class="quick-ref-item" href="#radio-send">tdeck.radio.send</a>
+        <a class="quick-ref-item" href="#radio-set_bandwidth">tdeck.radio.set_bandwidth</a>
+        <a class="quick-ref-item" href="#radio-set_coding_rate">tdeck.radio.set_coding_rate</a>
+        <a class="quick-ref-item" href="#radio-set_frequency">tdeck.radio.set_frequency</a>
+        <a class="quick-ref-item" href="#radio-set_spreading_factor">tdeck.radio.set_spreading_factor</a>
+        <a class="quick-ref-item" href="#radio-set_sync_word">tdeck.radio.set_sync_word</a>
+        <a class="quick-ref-item" href="#radio-set_tx_power">tdeck.radio.set_tx_power</a>
+        <a class="quick-ref-item" href="#radio-sleep">tdeck.radio.sleep</a>
+        <a class="quick-ref-item" href="#radio-start_receive">tdeck.radio.start_receive</a>
+        <a class="quick-ref-item" href="#radio-wake">tdeck.radio.wake</a>
+        <a class="quick-ref-item" href="#storage-append_file">tdeck.storage.append_file</a>
+        <a class="quick-ref-item" href="#storage-clear_prefs">tdeck.storage.clear_prefs</a>
+        <a class="quick-ref-item" href="#storage-exists">tdeck.storage.exists</a>
+        <a class="quick-ref-item" href="#storage-file_size">tdeck.storage.file_size</a>
+        <a class="quick-ref-item" href="#storage-get_flash_info">tdeck.storage.get_flash_info</a>
+        <a class="quick-ref-item" href="#storage-get_pref">tdeck.storage.get_pref</a>
+        <a class="quick-ref-item" href="#storage-get_sd_info">tdeck.storage.get_sd_info</a>
+        <a class="quick-ref-item" href="#storage-is_sd_available">tdeck.storage.is_sd_available</a>
+        <a class="quick-ref-item" href="#storage-json_decode">tdeck.storage.json_decode</a>
+        <a class="quick-ref-item" href="#storage-json_encode">tdeck.storage.json_encode</a>
+        <a class="quick-ref-item" href="#storage-list_dir">tdeck.storage.list_dir</a>
+        <a class="quick-ref-item" href="#storage-mkdir">tdeck.storage.mkdir</a>
+        <a class="quick-ref-item" href="#storage-read_bytes">tdeck.storage.read_bytes</a>
+        <a class="quick-ref-item" href="#storage-read_file">tdeck.storage.read_file</a>
+        <a class="quick-ref-item" href="#storage-remove">tdeck.storage.remove</a>
+        <a class="quick-ref-item" href="#storage-remove_pref">tdeck.storage.remove_pref</a>
+        <a class="quick-ref-item" href="#storage-rename">tdeck.storage.rename</a>
+        <a class="quick-ref-item" href="#storage-rmdir">tdeck.storage.rmdir</a>
+        <a class="quick-ref-item" href="#storage-set_pref">tdeck.storage.set_pref</a>
+        <a class="quick-ref-item" href="#storage-write_file">tdeck.storage.write_file</a>
+        <a class="quick-ref-item" href="#system-cancel_timer">tdeck.system.cancel_timer</a>
+        <a class="quick-ref-item" href="#system-chip_model">tdeck.system.chip_model</a>
+        <a class="quick-ref-item" href="#system-cpu_freq">tdeck.system.cpu_freq</a>
+        <a class="quick-ref-item" href="#system-delay">tdeck.system.delay</a>
+        <a class="quick-ref-item" href="#system-gc">tdeck.system.gc</a>
+        <a class="quick-ref-item" href="#system-gc_step">tdeck.system.gc_step</a>
+        <a class="quick-ref-item" href="#system-get_battery_percent">tdeck.system.get_battery_percent</a>
+        <a class="quick-ref-item" href="#system-get_battery_voltage">tdeck.system.get_battery_voltage</a>
+        <a class="quick-ref-item" href="#system-get_firmware_info">tdeck.system.get_firmware_info</a>
+        <a class="quick-ref-item" href="#system-get_free_heap">tdeck.system.get_free_heap</a>
+        <a class="quick-ref-item" href="#system-get_free_psram">tdeck.system.get_free_psram</a>
+        <a class="quick-ref-item" href="#system-get_last_error">tdeck.system.get_last_error</a>
+        <a class="quick-ref-item" href="#system-get_lua_memory">tdeck.system.get_lua_memory</a>
+        <a class="quick-ref-item" href="#system-get_time">tdeck.system.get_time</a>
+        <a class="quick-ref-item" href="#system-get_time_unix">tdeck.system.get_time_unix</a>
+        <a class="quick-ref-item" href="#system-get_timezone">tdeck.system.get_timezone</a>
+        <a class="quick-ref-item" href="#system-get_total_heap">tdeck.system.get_total_heap</a>
+        <a class="quick-ref-item" href="#system-get_total_psram">tdeck.system.get_total_psram</a>
+        <a class="quick-ref-item" href="#system-is_low_memory">tdeck.system.is_low_memory</a>
+        <a class="quick-ref-item" href="#system-is_sd_available">tdeck.system.is_sd_available</a>
+        <a class="quick-ref-item" href="#system-is_usb_msc_active">tdeck.system.is_usb_msc_active</a>
+        <a class="quick-ref-item" href="#system-log">tdeck.system.log</a>
+        <a class="quick-ref-item" href="#system-millis">tdeck.system.millis</a>
+        <a class="quick-ref-item" href="#system-reload_scripts">tdeck.system.reload_scripts</a>
+        <a class="quick-ref-item" href="#system-restart">tdeck.system.restart</a>
+        <a class="quick-ref-item" href="#system-set_interval">tdeck.system.set_interval</a>
+        <a class="quick-ref-item" href="#system-set_time">tdeck.system.set_time</a>
+        <a class="quick-ref-item" href="#system-set_time_unix">tdeck.system.set_time_unix</a>
+        <a class="quick-ref-item" href="#system-set_timer">tdeck.system.set_timer</a>
+        <a class="quick-ref-item" href="#system-set_timezone">tdeck.system.set_timezone</a>
+        <a class="quick-ref-item" href="#system-start_usb_msc">tdeck.system.start_usb_msc</a>
+        <a class="quick-ref-item" href="#system-stop_usb_msc">tdeck.system.stop_usb_msc</a>
+        <a class="quick-ref-item" href="#system-uptime">tdeck.system.uptime</a>
+        <a class="quick-ref-item" href="#system-yield">tdeck.system.yield</a>
+    </div>
+</div>
 
 <div class="toc">
-<strong>Modules:</strong><br>
-<a href="#audio">tdeck.audio</a>
-<a href="#crypto">tdeck.crypto</a>
-<a href="#display">tdeck.display</a>
-<a href="#keyboard">tdeck.keyboard</a>
-<a href="#mesh">tdeck.mesh</a>
-<a href="#radio">tdeck.radio</a>
-<a href="#storage">tdeck.storage</a>
-<a href="#system">tdeck.system</a>
-</div>
-<h2 id="audio">tdeck.audio</h2>
-<div class="func">
-<div class="sig">tdeck.audio.beep(count, frequency, on_ms, off_ms)</div>
-<div class="desc">Play a series of beeps (blocking)</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>count</code>: Number of beeps (default 1)</li>
-<li><code>frequency</code>: Tone frequency in Hz (default 1000)</li>
-<li><code>on_ms</code>: Beep duration in ms (default 100)</li>
-<li><code>off_ms</code>: Pause between beeps in ms (default 50)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.audio.get_volume() -&gt; integer</div>
-<div class="desc">Get current volume level</div>
-<div><strong>Returns:</strong> Volume level 0-100</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.audio.is_playing() -&gt; boolean</div>
-<div class="desc">Check if audio is playing</div>
-<div><strong>Returns:</strong> true if playing</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.audio.play_sample(filename) -&gt; boolean</div>
-<div class="desc">Play a PCM sample file from LittleFS</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>filename</code>: Path to .pcm file (16-bit signed, 22050Hz mono)</li>
-</ul></div>
-<div><strong>Returns:</strong> true if played successfully</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.audio.play_tone(frequency, duration_ms) -&gt; boolean</div>
-<div class="desc">Play a tone for specified duration</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>frequency</code>: Frequency in Hz (20-20000)</li>
-<li><code>duration_ms</code>: Duration in milliseconds</li>
-</ul></div>
-<div><strong>Returns:</strong> true if started successfully</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.audio.set_frequency(frequency) -&gt; boolean</div>
-<div class="desc">Set playback frequency for continuous tones</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>frequency</code>: Frequency in Hz (20-20000)</li>
-</ul></div>
-<div><strong>Returns:</strong> true if valid frequency</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.audio.set_volume(level)</div>
-<div class="desc">Set audio volume level</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>level</code>: Volume level 0-100</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.audio.start()</div>
-<div class="desc">Start continuous tone at current frequency</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.audio.stop()</div>
-<div class="desc">Stop audio playback</div>
-</div>
-<h2 id="crypto">tdeck.crypto</h2>
-<div class="func">
-<div class="sig">tdeck.crypto.aes128_ecb_decrypt(key, ciphertext) -&gt; string</div>
-<div class="desc">Decrypt data with AES-128-ECB</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>key</code>: 16-byte key</li>
-<li><code>ciphertext</code>: Data to decrypt (must be multiple of 16 bytes)</li>
-</ul></div>
-<div><strong>Returns:</strong> Decrypted data as binary string (with padding zeros)</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.crypto.aes128_ecb_encrypt(key, plaintext) -&gt; string</div>
-<div class="desc">Encrypt data with AES-128-ECB</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>key</code>: 16-byte key</li>
-<li><code>plaintext</code>: Data to encrypt (will be zero-padded to block boundary)</li>
-</ul></div>
-<div><strong>Returns:</strong> Encrypted data as binary string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.crypto.base64_decode(encoded) -&gt; string</div>
-<div class="desc">Decode base64 string to binary data</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>encoded</code>: Base64 encoded string</li>
-</ul></div>
-<div><strong>Returns:</strong> Binary string, or nil on error</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.crypto.base64_encode(data) -&gt; string</div>
-<div class="desc">Encode binary data to base64 string</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>data</code>: Binary string to encode</li>
-</ul></div>
-<div><strong>Returns:</strong> Base64 encoded string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.crypto.bytes_to_hex(data) -&gt; string</div>
-<div class="desc">Convert binary data to hex string</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>data</code>: Binary string</li>
-</ul></div>
-<div><strong>Returns:</strong> Hex string (lowercase)</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.crypto.channel_hash(key) -&gt; integer</div>
-<div class="desc">Compute channel hash from key (SHA256(key)[0])</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>key</code>: 16-byte channel key</li>
-</ul></div>
-<div><strong>Returns:</strong> Single byte hash as integer (0-255)</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.crypto.derive_channel_key(input) -&gt; string</div>
-<div class="desc">Derive 16-byte channel key from password/name using SHA256</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>input</code>: Password or channel name string</li>
-</ul></div>
-<div><strong>Returns:</strong> 16-byte key as binary string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.crypto.hex_to_bytes(hex) -&gt; string</div>
-<div class="desc">Convert hex string to binary data</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>hex</code>: Hex string (case-insensitive)</li>
-</ul></div>
-<div><strong>Returns:</strong> Binary string, or nil on error</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.crypto.hmac_sha256(key, data) -&gt; string</div>
-<div class="desc">Compute HMAC-SHA256</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>key</code>: Binary string key</li>
-<li><code>data</code>: Binary string to authenticate</li>
-</ul></div>
-<div><strong>Returns:</strong> 32-byte MAC as binary string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.crypto.public_channel_key() -&gt; string</div>
-<div class="desc">Get the well-known #Public channel key</div>
-<div><strong>Returns:</strong> 16-byte key as binary string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.crypto.random_bytes(count) -&gt; string</div>
-<div class="desc">Generate cryptographically secure random bytes</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>count</code>: Number of bytes to generate</li>
-</ul></div>
-<div><strong>Returns:</strong> Random bytes as binary string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.crypto.sha256(data) -&gt; string</div>
-<div class="desc">Compute SHA-256 hash</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>data</code>: Binary string to hash</li>
-</ul></div>
-<div><strong>Returns:</strong> 32-byte hash as binary string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.crypto.sha512(data) -&gt; string</div>
-<div class="desc">Compute SHA-512 hash</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>data</code>: Binary string to hash</li>
-</ul></div>
-<div><strong>Returns:</strong> 64-byte hash as binary string</div>
-</div>
-<h2 id="display">tdeck.display</h2>
-<div class="func">
-<div class="sig">tdeck.display.clear()</div>
-<div class="desc">Clear display buffer to black</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_battery(x, y, percent)</div>
-<div class="desc">Draw battery indicator icon</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position in pixels</li>
-<li><code>y</code>: Y position in pixels</li>
-<li><code>percent</code>: Battery percentage (0-100)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_bitmap(x, y, width, height, data)</div>
-<div class="desc">Draw a bitmap image from raw RGB565 data</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position</li>
-<li><code>y</code>: Y position</li>
-<li><code>width</code>: Bitmap width in pixels</li>
-<li><code>height</code>: Bitmap height in pixels</li>
-<li><code>data</code>: Raw RGB565 pixel data (2 bytes per pixel, big-endian)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_bitmap_1bit(x, y, width, height, data, scale, color)</div>
-<div class="desc">Draw a 1-bit bitmap with scaling and colorization</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position</li>
-<li><code>y</code>: Y position</li>
-<li><code>width</code>: Bitmap width in pixels (original size)</li>
-<li><code>height</code>: Bitmap height in pixels (original size)</li>
-<li><code>data</code>: Packed 1-bit data (MSB first, row by row)</li>
-<li><code>scale</code>: Scale factor (1, 2, 3, etc.) - optional, default 1</li>
-<li><code>color</code>: RGB565 color for &quot;on&quot; pixels - optional, default WHITE</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_bitmap_transparent(x, y, width, height, data, transparent_color)</div>
-<div class="desc">Draw a bitmap with transparency</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position</li>
-<li><code>y</code>: Y position</li>
-<li><code>width</code>: Bitmap width in pixels</li>
-<li><code>height</code>: Bitmap height in pixels</li>
-<li><code>data</code>: Raw RGB565 pixel data</li>
-<li><code>transparent_color</code>: RGB565 color to treat as transparent</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_box(x, y, w, h, title, border_color, title_color)</div>
-<div class="desc">Draw bordered box with optional title</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position in character cells</li>
-<li><code>y</code>: Y position in character cells</li>
-<li><code>w</code>: Width in character cells</li>
-<li><code>h</code>: Height in character cells</li>
-<li><code>title</code>: Optional title string</li>
-<li><code>border_color</code>: Border color (optional)</li>
-<li><code>title_color</code>: Title color (optional)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_char(x, y, char, color)</div>
-<div class="desc">Draw a single character</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position in pixels</li>
-<li><code>y</code>: Y position in pixels</li>
-<li><code>char</code>: Character to draw (first char of string)</li>
-<li><code>color</code>: Character color (optional)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_circle(x, y, r, color)</div>
-<div class="desc">Draw circle outline</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: Center X position</li>
-<li><code>y</code>: Center Y position</li>
-<li><code>r</code>: Radius</li>
-<li><code>color</code>: Circle color (optional)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_hline(x, y, w, left_connect, right_connect, color)</div>
-<div class="desc">Draw horizontal line with optional connectors</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position in character cells</li>
-<li><code>y</code>: Y position in character cells</li>
-<li><code>w</code>: Width in character cells</li>
-<li><code>left_connect</code>: Connect to left border (optional)</li>
-<li><code>right_connect</code>: Connect to right border (optional)</li>
-<li><code>color</code>: Line color (optional)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_indexed_bitmap(x, y, width, height, data, palette)</div>
-<div class="desc">Draw a 3-bit indexed bitmap using a color palette</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position</li>
-<li><code>y</code>: Y position</li>
-<li><code>width</code>: Bitmap width in pixels</li>
-<li><code>height</code>: Bitmap height in pixels</li>
-<li><code>data</code>: Packed 3-bit pixel indices (8 pixels packed into 3 bytes)</li>
-<li><code>palette</code>: Table of 8 RGB565 color values</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_line(x1, y1, x2, y2, color)</div>
-<div class="desc">Draw a line between two points</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x1</code>: Start X position</li>
-<li><code>y1</code>: Start Y position</li>
-<li><code>x2</code>: End X position</li>
-<li><code>y2</code>: End Y position</li>
-<li><code>color</code>: Line color (optional)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_pixel(x, y, color)</div>
-<div class="desc">Draw a single pixel</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position in pixels</li>
-<li><code>y</code>: Y position in pixels</li>
-<li><code>color</code>: Pixel color (optional)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_progress(x, y, w, h, progress, fg_color, bg_color)</div>
-<div class="desc">Draw a progress bar</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position in pixels</li>
-<li><code>y</code>: Y position in pixels</li>
-<li><code>w</code>: Width in pixels</li>
-<li><code>h</code>: Height in pixels</li>
-<li><code>progress</code>: Progress value (0.0 to 1.0)</li>
-<li><code>fg_color</code>: Foreground color (optional)</li>
-<li><code>bg_color</code>: Background color (optional)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_rect(x, y, w, h, color)</div>
-<div class="desc">Draw rectangle outline</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position in pixels</li>
-<li><code>y</code>: Y position in pixels</li>
-<li><code>w</code>: Width in pixels</li>
-<li><code>h</code>: Height in pixels</li>
-<li><code>color</code>: Outline color (optional)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_round_rect(x, y, w, h, r, color)</div>
-<div class="desc">Draw rounded rectangle outline</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_signal(x, y, bars)</div>
-<div class="desc">Draw signal strength indicator</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position in pixels</li>
-<li><code>y</code>: Y position in pixels</li>
-<li><code>bars</code>: Signal strength (0-4 bars)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_text(x, y, text, color)</div>
-<div class="desc">Draw text at pixel coordinates</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position in pixels</li>
-<li><code>y</code>: Y position in pixels</li>
-<li><code>text</code>: Text string to draw</li>
-<li><code>color</code>: Text color (optional, defaults to TEXT)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_text_centered(y, text, color)</div>
-<div class="desc">Draw horizontally centered text</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>y</code>: Y position in pixels</li>
-<li><code>text</code>: Text string to draw</li>
-<li><code>color</code>: Text color (optional, defaults to TEXT)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.draw_triangle(x1, y1, x2, y2, x3, y3, color)</div>
-<div class="desc">Draw triangle outline</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.fill_circle(x, y, r, color)</div>
-<div class="desc">Draw filled circle</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: Center X position</li>
-<li><code>y</code>: Center Y position</li>
-<li><code>r</code>: Radius</li>
-<li><code>color</code>: Fill color (optional)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.fill_rect(x, y, w, h, color)</div>
-<div class="desc">Fill a rectangle with color</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>x</code>: X position in pixels</li>
-<li><code>y</code>: Y position in pixels</li>
-<li><code>w</code>: Width in pixels</li>
-<li><code>h</code>: Height in pixels</li>
-<li><code>color</code>: Fill color (optional)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.fill_round_rect(x, y, w, h, r, color)</div>
-<div class="desc">Draw filled rounded rectangle</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.fill_triangle(x1, y1, x2, y2, x3, y3, color)</div>
-<div class="desc">Draw filled triangle</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.flush()</div>
-<div class="desc">Flush buffer to physical display</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.get_cols() -&gt; integer</div>
-<div class="desc">Get display columns</div>
-<div><strong>Returns:</strong> Number of character columns</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.get_font_height() -&gt; integer</div>
-<div class="desc">Get font character height</div>
-<div><strong>Returns:</strong> Character height in pixels</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.get_font_width() -&gt; integer</div>
-<div class="desc">Get font character width</div>
-<div><strong>Returns:</strong> Character width in pixels</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.get_height() -&gt; integer</div>
-<div class="desc">Get display height</div>
-<div><strong>Returns:</strong> Height in pixels</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.get_rows() -&gt; integer</div>
-<div class="desc">Get display rows</div>
-<div><strong>Returns:</strong> Number of character rows</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.get_width() -&gt; integer</div>
-<div class="desc">Get display width</div>
-<div><strong>Returns:</strong> Width in pixels</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.rgb(r, g, b) -&gt; integer</div>
-<div class="desc">Convert RGB to RGB565 color value</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>r</code>: Red component (0-255)</li>
-<li><code>g</code>: Green component (0-255)</li>
-<li><code>b</code>: Blue component (0-255)</li>
-</ul></div>
-<div><strong>Returns:</strong> RGB565 color value</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.set_brightness(level)</div>
-<div class="desc">Set backlight brightness</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>level</code>: Brightness level (0-255)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.set_font_size(size)</div>
-<div class="desc">Set font size</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>size</code>: Font size string: &quot;tiny&quot;, &quot;small&quot;, &quot;medium&quot;, or &quot;large&quot;</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.display.text_width(text) -&gt; integer</div>
-<div class="desc">Get pixel width of text string</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>text</code>: Text string to measure</li>
-</ul></div>
-<div><strong>Returns:</strong> Width in pixels</div>
-</div>
-<h2 id="keyboard">tdeck.keyboard</h2>
-<div class="func">
-<div class="sig">tdeck.keyboard.available() -&gt; boolean</div>
-<div class="desc">Check if a key is waiting</div>
-<div><strong>Returns:</strong> true if a key is available to read</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.get_adaptive_scrolling() -&gt; boolean</div>
-<div class="desc">Check if adaptive scrolling is enabled</div>
-<div><strong>Returns:</strong> true if adaptive scrolling is on</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.get_backlight() -&gt; integer</div>
-<div class="desc">Get current keyboard backlight level</div>
-<div><strong>Returns:</strong> Backlight level (0-255, 0 = off)</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.get_mode() -&gt; string</div>
-<div class="desc">Get current keyboard input mode</div>
-<div><strong>Returns:</strong> &quot;normal&quot; or &quot;raw&quot;</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.get_raw_matrix_bits() -&gt; integer</div>
-<div class="desc">Get full matrix state as 64-bit integer (raw mode)</div>
-<div><strong>Returns:</strong> 49-bit value (7 cols × 7 rows), bits 0-6 = col 0, bits 7-13 = col 1, etc.</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.get_repeat_delay() -&gt; integer</div>
-<div class="desc">Get initial delay before key repeat starts</div>
-<div><strong>Returns:</strong> Delay in milliseconds</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.get_repeat_enabled() -&gt; boolean</div>
-<div class="desc">Check if key repeat is enabled</div>
-<div><strong>Returns:</strong> true if key repeat is enabled</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.get_repeat_rate() -&gt; integer</div>
-<div class="desc">Get key repeat rate (interval between repeats)</div>
-<div><strong>Returns:</strong> Rate in milliseconds</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.get_trackball_mode() -&gt; string</div>
-<div class="desc">Get current trackball input mode</div>
-<div><strong>Returns:</strong> &quot;polling&quot; or &quot;interrupt&quot;</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.get_trackball_sensitivity() -&gt; integer</div>
-<div class="desc">Get trackball sensitivity level</div>
-<div><strong>Returns:</strong> Sensitivity value</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.has_trackball() -&gt; boolean</div>
-<div class="desc">Check if device has trackball</div>
-<div><strong>Returns:</strong> true if trackball is available</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.is_alt_held() -&gt; boolean</div>
-<div class="desc">Check if Alt is currently held</div>
-<div><strong>Returns:</strong> true if Alt is held</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.is_ctrl_held() -&gt; boolean</div>
-<div class="desc">Check if Ctrl is currently held</div>
-<div><strong>Returns:</strong> true if Ctrl is held</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.is_fn_held() -&gt; boolean</div>
-<div class="desc">Check if Fn is currently held</div>
-<div><strong>Returns:</strong> true if Fn is held</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.is_key_pressed(col, row) -&gt; boolean</div>
-<div class="desc">Check if a specific matrix key is pressed (raw mode)</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>col</code>: Column index (0-4)</li>
-<li><code>row</code>: Row index (0-6)</li>
-</ul></div>
-<div><strong>Returns:</strong> true if key is pressed</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.is_shift_held() -&gt; boolean</div>
-<div class="desc">Check if Shift is currently held</div>
-<div><strong>Returns:</strong> true if Shift is held</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.read() -&gt; table</div>
-<div class="desc">Read next key event (non-blocking)</div>
-<div><strong>Returns:</strong> Key event table or nil if no key available</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.read_blocking(timeout_ms) -&gt; table</div>
-<div class="desc">Read key with optional timeout (blocking)</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>timeout_ms</code>: Timeout in milliseconds (0 = forever)</li>
-</ul></div>
-<div><strong>Returns:</strong> Key event table or nil on timeout</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.read_raw_code() -&gt; integer|nil</div>
-<div class="desc">Read raw key code byte directly from I2C (no translation)</div>
-<div><strong>Returns:</strong> Raw byte (0x00-0xFF) or nil if no key available</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.read_raw_matrix() -&gt; table|nil</div>
-<div class="desc">Read raw key matrix state (only works in raw mode)</div>
-<div><strong>Returns:</strong> Table of 7 bytes (one per column, 7 bits = rows), or nil on error</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.set_adaptive_scrolling(enabled)</div>
-<div class="desc">Enable or disable adaptive scrolling</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>enabled</code>: true to enable, false to disable</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.set_backlight(level)</div>
-<div class="desc">Set keyboard backlight brightness</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>level</code>: Brightness level (0-255, 0 = off)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.set_mode(mode) -&gt; boolean</div>
-<div class="desc">Set keyboard input mode</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>mode</code>: &quot;normal&quot; or &quot;raw&quot;</li>
-</ul></div>
-<div><strong>Returns:</strong> true if mode was set successfully</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.set_repeat_delay(delay_ms)</div>
-<div class="desc">Set initial delay before key repeat starts</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>delay_ms</code>: Delay in milliseconds (typically 200-800)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.set_repeat_enabled(enabled)</div>
-<div class="desc">Enable or disable key repeat</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>enabled</code>: true to enable, false to disable</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.set_repeat_rate(rate_ms)</div>
-<div class="desc">Set key repeat rate (interval between repeats)</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>rate_ms</code>: Rate in milliseconds (typically 20-100)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.set_trackball_mode(mode)</div>
-<div class="desc">Set trackball input mode</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>mode</code>: &quot;polling&quot; or &quot;interrupt&quot;</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.keyboard.set_trackball_sensitivity(value)</div>
-<div class="desc">Set trackball sensitivity level</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>value</code>: Sensitivity value</li>
-</ul></div>
-</div>
-<h2 id="mesh">tdeck.mesh</h2>
-<div class="func">
-<div class="sig">tdeck.mesh.build_packet(route_type, payload_type, payload, path) -&gt; string|nil</div>
-<div class="desc">Build a raw mesh packet for transmission</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>route_type</code>: Route type constant (FLOOD=1, DIRECT=2)</li>
-<li><code>payload_type</code>: Payload type constant (ADVERT=4, GRP_TXT=5, etc.)</li>
-<li><code>payload</code>: Binary string payload</li>
-<li><code>path</code>: Optional binary string of path hashes (default: empty)</li>
-</ul></div>
-<div><strong>Returns:</strong> Serialized packet as binary string, or nil on error</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.calc_shared_secret(other_pub_key) -&gt; string|nil</div>
-<div class="desc">Calculate ECDH shared secret with another node</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>other_pub_key</code>: 32-byte Ed25519 public key of the other party</li>
-</ul></div>
-<div><strong>Returns:</strong> 32-byte shared secret as binary string, or nil on error</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.clear_packet_queue()</div>
-<div class="desc">Clear all packets from the queue</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.clear_tx_queue()</div>
-<div class="desc">Clear all packets from transmit queue</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.ed25519_sign(data) -&gt; signature</div>
-<div class="desc">Sign data with this node&#x27;s private key</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>data</code>: Binary string to sign</li>
-</ul></div>
-<div><strong>Returns:</strong> 64-byte Ed25519 signature as binary string, or nil on error</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.ed25519_verify(data, signature, pub_key) -&gt; boolean</div>
-<div class="desc">Verify an Ed25519 signature</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>data</code>: Binary string that was signed</li>
-<li><code>signature</code>: 64-byte Ed25519 signature</li>
-<li><code>pub_key</code>: 32-byte Ed25519 public key</li>
-</ul></div>
-<div><strong>Returns:</strong> true if signature is valid</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.enable_packet_queue(enabled)</div>
-<div class="desc">Enable or disable packet queuing for polling</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>enabled</code>: Boolean to enable/disable</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_node_count() -&gt; integer</div>
-<div class="desc">Get number of known nodes</div>
-<div><strong>Returns:</strong> Node count</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_node_id() -&gt; string</div>
-<div class="desc">Get this node&#x27;s full ID</div>
-<div><strong>Returns:</strong> 6-byte hex string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_node_name() -&gt; string</div>
-<div class="desc">Get this node&#x27;s display name</div>
-<div><strong>Returns:</strong> Node name string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_nodes() -&gt; table</div>
-<div class="desc">Get list of discovered mesh nodes</div>
-<div><strong>Returns:</strong> Array of node tables with path_hash, name, rssi, snr, last_seen, hops, pub_key_hex</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_path_check() -&gt; boolean</div>
-<div class="desc">Get current path check setting</div>
-<div><strong>Returns:</strong> true if path check is enabled</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_path_hash() -&gt; integer</div>
-<div class="desc">Get this node&#x27;s path hash (first byte of public key)</div>
-<div><strong>Returns:</strong> Path hash as integer (0-255)</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_public_key() -&gt; string</div>
-<div class="desc">Get this node&#x27;s public key as binary string</div>
-<div><strong>Returns:</strong> 32-byte Ed25519 public key</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_public_key_hex() -&gt; string</div>
-<div class="desc">Get this node&#x27;s public key as hex string</div>
-<div><strong>Returns:</strong> 64-character hex string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_rx_count() -&gt; integer</div>
-<div class="desc">Get total packets received</div>
-<div><strong>Returns:</strong> Receive count</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_short_id() -&gt; string</div>
-<div class="desc">Get this node&#x27;s short ID</div>
-<div><strong>Returns:</strong> 3-byte hex string (6 chars)</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_tx_count() -&gt; integer</div>
-<div class="desc">Get total packets transmitted</div>
-<div><strong>Returns:</strong> Transmit count</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_tx_queue_capacity() -&gt; integer</div>
-<div class="desc">Get maximum transmit queue capacity</div>
-<div><strong>Returns:</strong> Max queue size</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_tx_queue_size() -&gt; integer</div>
-<div class="desc">Get number of packets waiting in transmit queue</div>
-<div><strong>Returns:</strong> Queue size</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.get_tx_throttle() -&gt; integer</div>
-<div class="desc">Get current throttle interval</div>
-<div><strong>Returns:</strong> Milliseconds between transmissions</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.has_packets() -&gt; boolean</div>
-<div class="desc">Check if packets are available in the queue</div>
-<div><strong>Returns:</strong> true if one or more packets are queued</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.is_initialized() -&gt; boolean</div>
-<div class="desc">Check if mesh networking is initialized</div>
-<div><strong>Returns:</strong> true if mesh is ready</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.is_tx_queue_full() -&gt; boolean</div>
-<div class="desc">Check if transmit queue is full</div>
-<div><strong>Returns:</strong> true if queue is full</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.make_header(route_type, payload_type, version) -&gt; integer</div>
-<div class="desc">Create a packet header byte from components</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>route_type</code>: Route type constant</li>
-<li><code>payload_type</code>: Payload type constant</li>
-<li><code>version</code>: Optional version (default: 0)</li>
-</ul></div>
-<div><strong>Returns:</strong> Header byte as integer</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.on_group_packet(callback)</div>
-<div class="desc">Set callback for raw group packets (before C++ decryption)</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>callback</code>: Function(packet_table) called with {channel_hash, data, sender_hash, rssi, snr}</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.on_node_discovered(callback)</div>
-<div class="desc">Set callback for node discovery</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>callback</code>: Function(node_table) called when node discovered</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.on_packet(callback)</div>
-<div class="desc">Set callback for ALL incoming packets (called before C++ handling)</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>callback</code>: Function(packet_table) returning handled, rebroadcast booleans</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.packet_count() -&gt; integer</div>
-<div class="desc">Get number of packets in queue</div>
-<div><strong>Returns:</strong> Number of queued packets</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.parse_header(header_byte) -&gt; route_type, payload_type, version</div>
-<div class="desc">Parse a packet header byte into components</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>header_byte</code>: Single byte header value</li>
-</ul></div>
-<div><strong>Returns:</strong> route_type, payload_type, version as integers</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.pop_packet() -&gt; table|nil</div>
-<div class="desc">Get and remove the next packet from queue</div>
-<div><strong>Returns:</strong> Packet table or nil if queue is empty</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.queue_send(data) -&gt; boolean</div>
-<div class="desc">Queue packet for transmission (throttled, non-blocking)</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>data</code>: Binary string of serialized packet</li>
-</ul></div>
-<div><strong>Returns:</strong> true if queued successfully, false if queue full or error</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.schedule_rebroadcast(data)</div>
-<div class="desc">Schedule raw packet data for rebroadcast</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>data</code>: Binary string of raw packet bytes</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.send_announce() -&gt; boolean</div>
-<div class="desc">Broadcast node announcement</div>
-<div><strong>Returns:</strong> true if sent successfully</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.send_group_packet(channel_hash, encrypted_data) -&gt; boolean</div>
-<div class="desc">Send raw encrypted group packet</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>channel_hash</code>: Single byte channel identifier</li>
-<li><code>encrypted_data</code>: Pre-encrypted payload (MAC + ciphertext)</li>
-</ul></div>
-<div><strong>Returns:</strong> true if sent successfully</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.send_raw(data) -&gt; boolean</div>
-<div class="desc">Send raw packet data directly via radio (bypasses queue, immediate)</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>data</code>: Binary string of serialized packet</li>
-</ul></div>
-<div><strong>Returns:</strong> true if sent successfully</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.set_node_name(name) -&gt; boolean</div>
-<div class="desc">Set this node&#x27;s display name</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>name</code>: New node name</li>
-</ul></div>
-<div><strong>Returns:</strong> true if successful</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.set_path_check(enabled)</div>
-<div class="desc">Enable or disable path check for flood routing</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>enabled</code>: Boolean - when true, packets with our hash in path are skipped</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.set_tx_throttle(ms)</div>
-<div class="desc">Set minimum interval between transmissions</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>ms</code>: Milliseconds between transmissions (default 100)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.mesh.update()</div>
-<div class="desc">Process incoming mesh packets</div>
-</div>
-<h2 id="radio">tdeck.radio</h2>
-<div class="func">
-<div class="sig">tdeck.radio.available() -&gt; boolean</div>
-<div class="desc">Check if data is available</div>
-<div><strong>Returns:</strong> true if packet waiting</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.get_config() -&gt; table</div>
-<div class="desc">Get current radio configuration</div>
-<div><strong>Returns:</strong> Table with frequency, bandwidth, spreading_factor, etc.</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.get_last_rssi() -&gt; number</div>
-<div class="desc">Get last received signal strength</div>
-<div><strong>Returns:</strong> RSSI in dBm</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.get_last_snr() -&gt; number</div>
-<div class="desc">Get last signal-to-noise ratio</div>
-<div><strong>Returns:</strong> SNR in dB</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.is_busy() -&gt; boolean</div>
-<div class="desc">Check if radio is busy</div>
-<div><strong>Returns:</strong> true if transmitting or receiving</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.is_initialized() -&gt; boolean</div>
-<div class="desc">Check if radio is initialized</div>
-<div><strong>Returns:</strong> true if radio is ready</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.is_receiving() -&gt; boolean</div>
-<div class="desc">Check if in receive mode</div>
-<div><strong>Returns:</strong> true if listening</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.is_transmitting() -&gt; boolean</div>
-<div class="desc">Check if currently transmitting</div>
-<div><strong>Returns:</strong> true if transmission in progress</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.receive() -&gt; string, number, number</div>
-<div class="desc">Receive a packet</div>
-<div><strong>Returns:</strong> Data string, RSSI, SNR or nil if no data</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.send(data) -&gt; string</div>
-<div class="desc">Transmit data</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>data</code>: String or table of bytes to send</li>
-</ul></div>
-<div><strong>Returns:</strong> Result string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.set_bandwidth(khz) -&gt; string</div>
-<div class="desc">Set radio bandwidth</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>khz</code>: Bandwidth in kHz</li>
-</ul></div>
-<div><strong>Returns:</strong> Result string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.set_coding_rate(cr) -&gt; string</div>
-<div class="desc">Set LoRa coding rate</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>cr</code>: Coding rate (5-8)</li>
-</ul></div>
-<div><strong>Returns:</strong> Result string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.set_frequency(mhz) -&gt; string</div>
-<div class="desc">Set radio frequency</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>mhz</code>: Frequency in MHz</li>
-</ul></div>
-<div><strong>Returns:</strong> Result string (ok, error_init, etc.)</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.set_spreading_factor(sf) -&gt; string</div>
-<div class="desc">Set LoRa spreading factor</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>sf</code>: Spreading factor (6-12)</li>
-</ul></div>
-<div><strong>Returns:</strong> Result string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.set_sync_word(sw) -&gt; string</div>
-<div class="desc">Set sync word</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>sw</code>: Sync word value</li>
-</ul></div>
-<div><strong>Returns:</strong> Result string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.set_tx_power(dbm) -&gt; string</div>
-<div class="desc">Set transmit power</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>dbm</code>: Power in dBm (0-22)</li>
-</ul></div>
-<div><strong>Returns:</strong> Result string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.sleep() -&gt; string</div>
-<div class="desc">Put radio into sleep mode</div>
-<div><strong>Returns:</strong> Result string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.start_receive() -&gt; string</div>
-<div class="desc">Start listening for packets</div>
-<div><strong>Returns:</strong> Result string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.radio.wake() -&gt; string</div>
-<div class="desc">Wake radio from sleep</div>
-<div><strong>Returns:</strong> Result string</div>
-</div>
-<h2 id="storage">tdeck.storage</h2>
-<div class="func">
-<div class="sig">tdeck.storage.append_file(path, content) -&gt; boolean</div>
-<div class="desc">Append content to file</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>path</code>: File path</li>
-<li><code>content</code>: Content to append</li>
-</ul></div>
-<div><strong>Returns:</strong> true if successful</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.clear_prefs() -&gt; boolean</div>
-<div class="desc">Clear all preferences</div>
-<div><strong>Returns:</strong> true if cleared</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.exists(path) -&gt; boolean</div>
-<div class="desc">Check if file or directory exists</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>path</code>: Path to check</li>
-</ul></div>
-<div><strong>Returns:</strong> true if exists</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.file_size(path) -&gt; integer</div>
-<div class="desc">Get file size in bytes</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>path</code>: File path (prefix /sd/ for SD card)</li>
-</ul></div>
-<div><strong>Returns:</strong> File size or nil with error message</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.get_flash_info() -&gt; table</div>
-<div class="desc">Get flash storage info</div>
-<div><strong>Returns:</strong> Table with total_bytes, used_bytes, free_bytes</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.get_pref(key, default) -&gt; string</div>
-<div class="desc">Get preference value</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>key</code>: Preference key</li>
-<li><code>default</code>: Default value if not found</li>
-</ul></div>
-<div><strong>Returns:</strong> Stored value or default</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.get_sd_info() -&gt; table</div>
-<div class="desc">Get SD card info</div>
-<div><strong>Returns:</strong> Table with total_bytes, used_bytes, free_bytes or nil</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.is_sd_available() -&gt; boolean</div>
-<div class="desc">Check if SD card is mounted</div>
-<div><strong>Returns:</strong> true if SD card available</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.json_decode(json_string) -&gt; value</div>
-<div class="desc">Decode JSON string to Lua value</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>json_string</code>: JSON string</li>
-</ul></div>
-<div><strong>Returns:</strong> Lua value or nil on error</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.json_encode(value) -&gt; string</div>
-<div class="desc">Encode Lua value to JSON string</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>value</code>: Lua table, string, number, boolean, or nil</li>
-</ul></div>
-<div><strong>Returns:</strong> JSON string or nil on error</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.list_dir(path) -&gt; table</div>
-<div class="desc">List directory contents</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>path</code>: Directory path (default &quot;/&quot;)</li>
-</ul></div>
-<div><strong>Returns:</strong> Array of tables with name, is_dir, size</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.mkdir(path) -&gt; boolean</div>
-<div class="desc">Create directory</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>path</code>: Directory path</li>
-</ul></div>
-<div><strong>Returns:</strong> true if created</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.read_bytes(path, offset, length) -&gt; string</div>
-<div class="desc">Read bytes from file at specific offset (for random access)</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>path</code>: File path (prefix /sd/ for SD card)</li>
-<li><code>offset</code>: Byte offset to start reading from</li>
-<li><code>length</code>: Number of bytes to read</li>
-</ul></div>
-<div><strong>Returns:</strong> Binary data as string, or nil with error message</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.read_file(path) -&gt; string</div>
-<div class="desc">Read entire file contents</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>path</code>: File path (prefix /sd/ for SD card)</li>
-</ul></div>
-<div><strong>Returns:</strong> File content or nil, error_message</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.remove(path) -&gt; boolean</div>
-<div class="desc">Delete a file</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>path</code>: File path to delete</li>
-</ul></div>
-<div><strong>Returns:</strong> true if deleted</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.remove_pref(key) -&gt; boolean</div>
-<div class="desc">Remove a preference</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>key</code>: Preference key to remove</li>
-</ul></div>
-<div><strong>Returns:</strong> true if removed</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.rename(old_path, new_path) -&gt; boolean</div>
-<div class="desc">Rename or move a file</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>old_path</code>: Current path</li>
-<li><code>new_path</code>: New path</li>
-</ul></div>
-<div><strong>Returns:</strong> true if renamed</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.rmdir(path) -&gt; boolean</div>
-<div class="desc">Remove empty directory</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>path</code>: Directory path</li>
-</ul></div>
-<div><strong>Returns:</strong> true if removed</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.set_pref(key, value) -&gt; boolean</div>
-<div class="desc">Set preference value</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>key</code>: Preference key</li>
-<li><code>value</code>: Value to store</li>
-</ul></div>
-<div><strong>Returns:</strong> true if saved successfully</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.storage.write_file(path, content) -&gt; boolean</div>
-<div class="desc">Write content to file (creates/overwrites)</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>path</code>: File path</li>
-<li><code>content</code>: Content to write</li>
-</ul></div>
-<div><strong>Returns:</strong> true if successful, or false with error</div>
-</div>
-<h2 id="system">tdeck.system</h2>
-<div class="func">
-<div class="sig">tdeck.system.cancel_timer(timer_id)</div>
-<div class="desc">Cancel a scheduled timer</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>timer_id</code>: ID returned by set_timer or set_interval</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.chip_model() -&gt; string</div>
-<div class="desc">Get ESP32 chip model name</div>
-<div><strong>Returns:</strong> Chip model string</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.cpu_freq() -&gt; integer</div>
-<div class="desc">Get CPU frequency</div>
-<div><strong>Returns:</strong> Frequency in MHz</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.delay(ms)</div>
-<div class="desc">Blocking delay execution</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>ms</code>: Delay duration in milliseconds (max 60000)</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.gc()</div>
-<div class="desc">Force full garbage collection</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.gc_step(steps) -&gt; integer</div>
-<div class="desc">Perform incremental garbage collection</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>steps</code>: Number of GC steps (default 10)</li>
-</ul></div>
-<div><strong>Returns:</strong> Result from lua_gc</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.get_battery_percent() -&gt; integer</div>
-<div class="desc">Get battery charge level</div>
-<div><strong>Returns:</strong> Battery percentage (0-100)</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.get_battery_voltage() -&gt; number</div>
-<div class="desc">Get battery voltage</div>
-<div><strong>Returns:</strong> Estimated battery voltage in volts</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.get_firmware_info() -&gt; table</div>
-<div class="desc">Get firmware partition info</div>
-<div><strong>Returns:</strong> Table with partition_size, app_size, free_bytes</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.get_free_heap() -&gt; integer</div>
-<div class="desc">Get free internal RAM</div>
-<div><strong>Returns:</strong> Free heap memory in bytes</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.get_free_psram() -&gt; integer</div>
-<div class="desc">Get free PSRAM</div>
-<div><strong>Returns:</strong> Free PSRAM in bytes</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.get_last_error() -&gt; string</div>
-<div class="desc">Get last Lua error message</div>
-<div><strong>Returns:</strong> Error message or nil if no error</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.get_lua_memory() -&gt; integer</div>
-<div class="desc">Get memory used by Lua runtime</div>
-<div><strong>Returns:</strong> Memory usage in bytes</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.get_time() -&gt; table|nil</div>
-<div class="desc">Get current wall clock time</div>
-<div><strong>Returns:</strong> Table with hour, minute, second, or nil if time not set</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.get_time_unix() -&gt; integer</div>
-<div class="desc">Get current Unix timestamp</div>
-<div><strong>Returns:</strong> Unix timestamp (seconds since 1970-01-01), or 0 if time not set</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.get_timezone() -&gt; integer</div>
-<div class="desc">Get current timezone UTC offset in hours</div>
-<div><strong>Returns:</strong> UTC offset in hours</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.get_total_heap() -&gt; integer</div>
-<div class="desc">Get total heap size</div>
-<div><strong>Returns:</strong> Total heap memory in bytes</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.get_total_psram() -&gt; integer</div>
-<div class="desc">Get total PSRAM size</div>
-<div><strong>Returns:</strong> Total PSRAM in bytes</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.is_low_memory() -&gt; boolean</div>
-<div class="desc">Check if memory is critically low</div>
-<div><strong>Returns:</strong> true if less than 32KB available</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.is_sd_available() -&gt; boolean</div>
-<div class="desc">Check if SD card is available</div>
-<div><strong>Returns:</strong> true if SD card is present and accessible</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.is_usb_msc_active() -&gt; boolean</div>
-<div class="desc">Check if USB MSC mode is active</div>
-<div><strong>Returns:</strong> true if MSC mode is active</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.log(message)</div>
-<div class="desc">Log message to serial output</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>message</code>: Text to log</li>
-</ul></div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.millis() -&gt; integer</div>
-<div class="desc">Returns milliseconds since boot</div>
-<div><strong>Returns:</strong> Milliseconds elapsed since device started</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.reload_scripts() -&gt; boolean</div>
-<div class="desc">Reload all Lua scripts (hot reload)</div>
-<div><strong>Returns:</strong> true if successful</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.restart()</div>
-<div class="desc">Restart the device</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.set_interval(ms, callback) -&gt; integer</div>
-<div class="desc">Schedule a repeating callback</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>ms</code>: Interval between calls (minimum 10ms)</li>
-<li><code>callback</code>: Function to call repeatedly</li>
-</ul></div>
-<div><strong>Returns:</strong> Timer ID for cancellation</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.set_time(year, month, day, hour, minute, second) -&gt; boolean</div>
-<div class="desc">Set system clock time</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>year</code>: Full year (e.g., 2024)</li>
-<li><code>month</code>: Month (1-12)</li>
-<li><code>day</code>: Day of month (1-31)</li>
-<li><code>hour</code>: Hour (0-23)</li>
-<li><code>minute</code>: Minute (0-59)</li>
-<li><code>second</code>: Second (0-59)</li>
-</ul></div>
-<div><strong>Returns:</strong> true if time was set successfully</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.set_time_unix(timestamp) -&gt; boolean</div>
-<div class="desc">Set system clock from Unix timestamp</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>timestamp</code>: Unix timestamp (seconds since 1970-01-01)</li>
-</ul></div>
-<div><strong>Returns:</strong> true if time was set successfully</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.set_timer(ms, callback) -&gt; integer</div>
-<div class="desc">Schedule a one-shot callback</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>ms</code>: Delay before callback fires</li>
-<li><code>callback</code>: Function to call</li>
-</ul></div>
-<div><strong>Returns:</strong> Timer ID for cancellation</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.set_timezone(tz_string) -&gt; boolean</div>
-<div class="desc">Set timezone using POSIX TZ string</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>tz_string</code>: POSIX timezone string (e.g., &quot;CET-1CEST,M3.5.0,M10.5.0/3&quot;)</li>
-</ul></div>
-<div><strong>Returns:</strong> true if timezone was set successfully</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.start_usb_msc() -&gt; boolean</div>
-<div class="desc">Start USB Mass Storage mode to access SD card from PC</div>
-<div><strong>Returns:</strong> true if started successfully</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.stop_usb_msc()</div>
-<div class="desc">Stop USB Mass Storage mode</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.uptime() -&gt; integer</div>
-<div class="desc">Get device uptime</div>
-<div><strong>Returns:</strong> Seconds since boot</div>
-</div>
-<div class="func">
-<div class="sig">tdeck.system.yield(ms)</div>
-<div class="desc">Yield execution to allow C++ background tasks to run</div>
-<div class="params"><strong>Parameters:</strong><ul>
-<li><code>ms</code>: Optional sleep time in milliseconds (default 1, max 100)</li>
-</ul></div>
+    <div class="toc-title">Modules</div>
+    <div class="toc-grid">
+        <a href="#audio">tdeck.audio <span style="opacity:0.5">(9)</span></a>
+        <a href="#bus">tdeck.bus <span style="opacity:0.5">(5)</span></a>
+        <a href="#crypto">tdeck.crypto <span style="opacity:0.5">(13)</span></a>
+        <a href="#display">tdeck.display <span style="opacity:0.5">(36)</span></a>
+        <a href="#keyboard">tdeck.keyboard <span style="opacity:0.5">(26)</span></a>
+        <a href="#mesh">tdeck.mesh <span style="opacity:0.5">(42)</span></a>
+        <a href="#radio">tdeck.radio <span style="opacity:0.5">(19)</span></a>
+        <a href="#storage">tdeck.storage <span style="opacity:0.5">(20)</span></a>
+        <a href="#system">tdeck.system <span style="opacity:0.5">(34)</span></a>
+    </div>
 </div>
 
-<hr>
-<p style="text-align: center; color: #666;">Auto-generated Lua API Documentation</p>
+<div class="module">
+    <div class="module-header">
+        <h2 id="audio">tdeck.audio</h2>
+        <span class="func-count">9 functions</span>
+    </div>
+    <div class="func" id="audio-beep">
+        <div class="sig">tdeck.audio.beep(count, frequency, on_ms, off_ms)</div>
+        <div class="desc">Play a series of beeps (blocking)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>count</td><td>Number of beeps (default 1)</td></tr>
+                <tr><td>frequency</td><td>Tone frequency in Hz (default 1000)</td></tr>
+                <tr><td>on_ms</td><td>Beep duration in ms (default 100)</td></tr>
+                <tr><td>off_ms</td><td>Pause between beeps in ms (default 50)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="audio-get_volume">
+        <div class="sig">tdeck.audio.get_volume() -&gt; integer</div>
+        <div class="desc">Get current volume level</div>
+        <div class="returns"><strong>Returns:</strong> Volume level 0-100</div>
+    </div>
+    <div class="func" id="audio-is_playing">
+        <div class="sig">tdeck.audio.is_playing() -&gt; boolean</div>
+        <div class="desc">Check if audio is playing</div>
+        <div class="returns"><strong>Returns:</strong> true if playing</div>
+    </div>
+    <div class="func" id="audio-play_sample">
+        <div class="sig">tdeck.audio.play_sample(filename) -&gt; boolean</div>
+        <div class="desc">Play a PCM sample file from LittleFS</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>filename</td><td>Path to .pcm file (16-bit signed, 22050Hz mono)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if played successfully</div>
+    </div>
+    <div class="func" id="audio-play_tone">
+        <div class="sig">tdeck.audio.play_tone(frequency, duration_ms) -&gt; boolean</div>
+        <div class="desc">Play a tone for specified duration</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>frequency</td><td>Frequency in Hz (20-20000)</td></tr>
+                <tr><td>duration_ms</td><td>Duration in milliseconds</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if started successfully</div>
+    </div>
+    <div class="func" id="audio-set_frequency">
+        <div class="sig">tdeck.audio.set_frequency(frequency) -&gt; boolean</div>
+        <div class="desc">Set playback frequency for continuous tones</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>frequency</td><td>Frequency in Hz (20-20000)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if valid frequency</div>
+    </div>
+    <div class="func" id="audio-set_volume">
+        <div class="sig">tdeck.audio.set_volume(level)</div>
+        <div class="desc">Set audio volume level</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>level</td><td>Volume level 0-100</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="audio-start">
+        <div class="sig">tdeck.audio.start()</div>
+        <div class="desc">Start continuous tone at current frequency</div>
+    </div>
+    <div class="func" id="audio-stop">
+        <div class="sig">tdeck.audio.stop()</div>
+        <div class="desc">Stop audio playback</div>
+    </div>
 </div>
+
+<div class="module">
+    <div class="module-header">
+        <h2 id="bus">tdeck.bus</h2>
+        <span class="func-count">5 functions</span>
+    </div>
+    <div class="func" id="bus-has_subscribers">
+        <div class="sig">tdeck.bus.has_subscribers(topic) -&gt; boolean</div>
+        <div class="desc">Check if a topic has any active subscribers</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>topic</td><td>Topic string to check</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if one or more subscribers exist</div>
+    </div>
+    <div class="func" id="bus-pending_count">
+        <div class="sig">tdeck.bus.pending_count() -&gt; integer</div>
+        <div class="desc">Get number of messages waiting in queue</div>
+        <div class="returns"><strong>Returns:</strong> Number of pending messages</div>
+    </div>
+    <div class="func" id="bus-post">
+        <div class="sig">tdeck.bus.post(topic, data)</div>
+        <div class="desc">Post a message to a topic</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>topic</td><td>Topic string to post to</td></tr>
+                <tr><td>data</td><td>Message data (string or table)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="bus-subscribe">
+        <div class="sig">tdeck.bus.subscribe(topic, callback) -&gt; subscription_id</div>
+        <div class="desc">Subscribe to a topic with a callback function</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>topic</td><td>Topic string to subscribe to</td></tr>
+                <tr><td>callback</td><td>Function(topic, data) called when message received</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="bus-unsubscribe">
+        <div class="sig">tdeck.bus.unsubscribe(subscription_id) -&gt; boolean</div>
+        <div class="desc">Unsubscribe from a topic</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>subscription_id</td><td>ID returned from subscribe()</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if subscription was found and removed</div>
+    </div>
+</div>
+
+<div class="module">
+    <div class="module-header">
+        <h2 id="crypto">tdeck.crypto</h2>
+        <span class="func-count">13 functions</span>
+    </div>
+    <div class="func" id="crypto-aes128_ecb_decrypt">
+        <div class="sig">tdeck.crypto.aes128_ecb_decrypt(key, ciphertext) -&gt; string</div>
+        <div class="desc">Decrypt data with AES-128-ECB</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>key</td><td>16-byte key</td></tr>
+                <tr><td>ciphertext</td><td>Data to decrypt (must be multiple of 16 bytes)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Decrypted data as binary string (with padding zeros)</div>
+    </div>
+    <div class="func" id="crypto-aes128_ecb_encrypt">
+        <div class="sig">tdeck.crypto.aes128_ecb_encrypt(key, plaintext) -&gt; string</div>
+        <div class="desc">Encrypt data with AES-128-ECB</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>key</td><td>16-byte key</td></tr>
+                <tr><td>plaintext</td><td>Data to encrypt (will be zero-padded to block boundary)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Encrypted data as binary string</div>
+    </div>
+    <div class="func" id="crypto-base64_decode">
+        <div class="sig">tdeck.crypto.base64_decode(encoded) -&gt; string</div>
+        <div class="desc">Decode base64 string to binary data</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>encoded</td><td>Base64 encoded string</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Binary string, or nil on error</div>
+    </div>
+    <div class="func" id="crypto-base64_encode">
+        <div class="sig">tdeck.crypto.base64_encode(data) -&gt; string</div>
+        <div class="desc">Encode binary data to base64 string</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>data</td><td>Binary string to encode</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Base64 encoded string</div>
+    </div>
+    <div class="func" id="crypto-bytes_to_hex">
+        <div class="sig">tdeck.crypto.bytes_to_hex(data) -&gt; string</div>
+        <div class="desc">Convert binary data to hex string</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>data</td><td>Binary string</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Hex string (lowercase)</div>
+    </div>
+    <div class="func" id="crypto-channel_hash">
+        <div class="sig">tdeck.crypto.channel_hash(key) -&gt; integer</div>
+        <div class="desc">Compute channel hash from key (SHA256(key)[0])</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>key</td><td>16-byte channel key</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Single byte hash as integer (0-255)</div>
+    </div>
+    <div class="func" id="crypto-derive_channel_key">
+        <div class="sig">tdeck.crypto.derive_channel_key(input) -&gt; string</div>
+        <div class="desc">Derive 16-byte channel key from password/name using SHA256</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>input</td><td>Password or channel name string</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> 16-byte key as binary string</div>
+    </div>
+    <div class="func" id="crypto-hex_to_bytes">
+        <div class="sig">tdeck.crypto.hex_to_bytes(hex) -&gt; string</div>
+        <div class="desc">Convert hex string to binary data</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>hex</td><td>Hex string (case-insensitive)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Binary string, or nil on error</div>
+    </div>
+    <div class="func" id="crypto-hmac_sha256">
+        <div class="sig">tdeck.crypto.hmac_sha256(key, data) -&gt; string</div>
+        <div class="desc">Compute HMAC-SHA256</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>key</td><td>Binary string key</td></tr>
+                <tr><td>data</td><td>Binary string to authenticate</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> 32-byte MAC as binary string</div>
+    </div>
+    <div class="func" id="crypto-public_channel_key">
+        <div class="sig">tdeck.crypto.public_channel_key() -&gt; string</div>
+        <div class="desc">Get the well-known #Public channel key</div>
+        <div class="returns"><strong>Returns:</strong> 16-byte key as binary string</div>
+    </div>
+    <div class="func" id="crypto-random_bytes">
+        <div class="sig">tdeck.crypto.random_bytes(count) -&gt; string</div>
+        <div class="desc">Generate cryptographically secure random bytes</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>count</td><td>Number of bytes to generate</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Random bytes as binary string</div>
+    </div>
+    <div class="func" id="crypto-sha256">
+        <div class="sig">tdeck.crypto.sha256(data) -&gt; string</div>
+        <div class="desc">Compute SHA-256 hash</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>data</td><td>Binary string to hash</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> 32-byte hash as binary string</div>
+    </div>
+    <div class="func" id="crypto-sha512">
+        <div class="sig">tdeck.crypto.sha512(data) -&gt; string</div>
+        <div class="desc">Compute SHA-512 hash</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>data</td><td>Binary string to hash</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> 64-byte hash as binary string</div>
+    </div>
+</div>
+
+<div class="module">
+    <div class="module-header">
+        <h2 id="display">tdeck.display</h2>
+        <span class="func-count">36 functions</span>
+    </div>
+    <div class="func" id="display-clear">
+        <div class="sig">tdeck.display.clear()</div>
+        <div class="desc">Clear display buffer to black</div>
+    </div>
+    <div class="func" id="display-draw_battery">
+        <div class="sig">tdeck.display.draw_battery(x, y, percent)</div>
+        <div class="desc">Draw battery indicator icon</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>percent</td><td>Battery percentage (0-100)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_bitmap">
+        <div class="sig">tdeck.display.draw_bitmap(x, y, width, height, data)</div>
+        <div class="desc">Draw a bitmap image from raw RGB565 data</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position</td></tr>
+                <tr><td>y</td><td>Y position</td></tr>
+                <tr><td>width</td><td>Bitmap width in pixels</td></tr>
+                <tr><td>height</td><td>Bitmap height in pixels</td></tr>
+                <tr><td>data</td><td>Raw RGB565 pixel data (2 bytes per pixel, big-endian)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_bitmap_1bit">
+        <div class="sig">tdeck.display.draw_bitmap_1bit(x, y, width, height, data, scale, color)</div>
+        <div class="desc">Draw a 1-bit bitmap with scaling and colorization</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position</td></tr>
+                <tr><td>y</td><td>Y position</td></tr>
+                <tr><td>width</td><td>Bitmap width in pixels (original size)</td></tr>
+                <tr><td>height</td><td>Bitmap height in pixels (original size)</td></tr>
+                <tr><td>data</td><td>Packed 1-bit data (MSB first, row by row)</td></tr>
+                <tr><td>scale</td><td>Scale factor (1, 2, 3, etc.) - optional, default 1</td></tr>
+                <tr><td>color</td><td>RGB565 color for &quot;on&quot; pixels - optional, default WHITE</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_bitmap_transparent">
+        <div class="sig">tdeck.display.draw_bitmap_transparent(x, y, width, height, data, transparent_color)</div>
+        <div class="desc">Draw a bitmap with transparency</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position</td></tr>
+                <tr><td>y</td><td>Y position</td></tr>
+                <tr><td>width</td><td>Bitmap width in pixels</td></tr>
+                <tr><td>height</td><td>Bitmap height in pixels</td></tr>
+                <tr><td>data</td><td>Raw RGB565 pixel data</td></tr>
+                <tr><td>transparent_color</td><td>RGB565 color to treat as transparent</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_box">
+        <div class="sig">tdeck.display.draw_box(x, y, w, h, title, border_color, title_color)</div>
+        <div class="desc">Draw bordered box with optional title</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in character cells</td></tr>
+                <tr><td>y</td><td>Y position in character cells</td></tr>
+                <tr><td>w</td><td>Width in character cells</td></tr>
+                <tr><td>h</td><td>Height in character cells</td></tr>
+                <tr><td>title</td><td>Optional title string</td></tr>
+                <tr><td>border_color</td><td>Border color (optional)</td></tr>
+                <tr><td>title_color</td><td>Title color (optional)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_char">
+        <div class="sig">tdeck.display.draw_char(x, y, char, color)</div>
+        <div class="desc">Draw a single character</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>char</td><td>Character to draw (first char of string)</td></tr>
+                <tr><td>color</td><td>Character color (optional)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_circle">
+        <div class="sig">tdeck.display.draw_circle(x, y, r, color)</div>
+        <div class="desc">Draw circle outline</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>Center X position</td></tr>
+                <tr><td>y</td><td>Center Y position</td></tr>
+                <tr><td>r</td><td>Radius</td></tr>
+                <tr><td>color</td><td>Circle color (optional)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_hline">
+        <div class="sig">tdeck.display.draw_hline(x, y, w, left_connect, right_connect, color)</div>
+        <div class="desc">Draw horizontal line with optional connectors</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in character cells</td></tr>
+                <tr><td>y</td><td>Y position in character cells</td></tr>
+                <tr><td>w</td><td>Width in character cells</td></tr>
+                <tr><td>left_connect</td><td>Connect to left border (optional)</td></tr>
+                <tr><td>right_connect</td><td>Connect to right border (optional)</td></tr>
+                <tr><td>color</td><td>Line color (optional)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_indexed_bitmap">
+        <div class="sig">tdeck.display.draw_indexed_bitmap(x, y, width, height, data, palette)</div>
+        <div class="desc">Draw a 3-bit indexed bitmap using a color palette</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position</td></tr>
+                <tr><td>y</td><td>Y position</td></tr>
+                <tr><td>width</td><td>Bitmap width in pixels</td></tr>
+                <tr><td>height</td><td>Bitmap height in pixels</td></tr>
+                <tr><td>data</td><td>Packed 3-bit pixel indices (8 pixels packed into 3 bytes)</td></tr>
+                <tr><td>palette</td><td>Table of 8 RGB565 color values</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_indexed_bitmap_scaled">
+        <div class="sig">tdeck.display.draw_indexed_bitmap_scaled(x, y, dest_w, dest_h, data, palette, src_x, src_y, src_w, src_h)</div>
+        <div class="desc">Draw a scaled portion of a 3-bit indexed bitmap</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>Destination X position</td></tr>
+                <tr><td>y</td><td>Destination Y position</td></tr>
+                <tr><td>dest_w</td><td>Destination width</td></tr>
+                <tr><td>dest_h</td><td>Destination height</td></tr>
+                <tr><td>data</td><td>Packed 3-bit pixel indices (256x256 source assumed)</td></tr>
+                <tr><td>palette</td><td>Table of 8 RGB565 color values</td></tr>
+                <tr><td>src_x</td><td>Source X offset in pixels</td></tr>
+                <tr><td>src_y</td><td>Source Y offset in pixels</td></tr>
+                <tr><td>src_w</td><td>Source width to sample</td></tr>
+                <tr><td>src_h</td><td>Source height to sample</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_line">
+        <div class="sig">tdeck.display.draw_line(x1, y1, x2, y2, color)</div>
+        <div class="desc">Draw a line between two points</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x1</td><td>Start X position</td></tr>
+                <tr><td>y1</td><td>Start Y position</td></tr>
+                <tr><td>x2</td><td>End X position</td></tr>
+                <tr><td>y2</td><td>End Y position</td></tr>
+                <tr><td>color</td><td>Line color (optional)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_pixel">
+        <div class="sig">tdeck.display.draw_pixel(x, y, color)</div>
+        <div class="desc">Draw a single pixel</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>color</td><td>Pixel color (optional)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_progress">
+        <div class="sig">tdeck.display.draw_progress(x, y, w, h, progress, fg_color, bg_color)</div>
+        <div class="desc">Draw a progress bar</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>w</td><td>Width in pixels</td></tr>
+                <tr><td>h</td><td>Height in pixels</td></tr>
+                <tr><td>progress</td><td>Progress value (0.0 to 1.0)</td></tr>
+                <tr><td>fg_color</td><td>Foreground color (optional)</td></tr>
+                <tr><td>bg_color</td><td>Background color (optional)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_rect">
+        <div class="sig">tdeck.display.draw_rect(x, y, w, h, color)</div>
+        <div class="desc">Draw rectangle outline</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>w</td><td>Width in pixels</td></tr>
+                <tr><td>h</td><td>Height in pixels</td></tr>
+                <tr><td>color</td><td>Outline color (optional)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_round_rect">
+        <div class="sig">tdeck.display.draw_round_rect(x, y, w, h, r, color)</div>
+        <div class="desc">Draw rounded rectangle outline</div>
+    </div>
+    <div class="func" id="display-draw_signal">
+        <div class="sig">tdeck.display.draw_signal(x, y, bars)</div>
+        <div class="desc">Draw signal strength indicator</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>bars</td><td>Signal strength (0-4 bars)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_text">
+        <div class="sig">tdeck.display.draw_text(x, y, text, color)</div>
+        <div class="desc">Draw text at pixel coordinates</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>text</td><td>Text string to draw</td></tr>
+                <tr><td>color</td><td>Text color (optional, defaults to TEXT)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_text_centered">
+        <div class="sig">tdeck.display.draw_text_centered(y, text, color)</div>
+        <div class="desc">Draw horizontally centered text</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>text</td><td>Text string to draw</td></tr>
+                <tr><td>color</td><td>Text color (optional, defaults to TEXT)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-draw_triangle">
+        <div class="sig">tdeck.display.draw_triangle(x1, y1, x2, y2, x3, y3, color)</div>
+        <div class="desc">Draw triangle outline</div>
+    </div>
+    <div class="func" id="display-fill_circle">
+        <div class="sig">tdeck.display.fill_circle(x, y, r, color)</div>
+        <div class="desc">Draw filled circle</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>Center X position</td></tr>
+                <tr><td>y</td><td>Center Y position</td></tr>
+                <tr><td>r</td><td>Radius</td></tr>
+                <tr><td>color</td><td>Fill color (optional)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-fill_rect">
+        <div class="sig">tdeck.display.fill_rect(x, y, w, h, color)</div>
+        <div class="desc">Fill a rectangle with color</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>w</td><td>Width in pixels</td></tr>
+                <tr><td>h</td><td>Height in pixels</td></tr>
+                <tr><td>color</td><td>Fill color (optional)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-fill_round_rect">
+        <div class="sig">tdeck.display.fill_round_rect(x, y, w, h, r, color)</div>
+        <div class="desc">Draw filled rounded rectangle</div>
+    </div>
+    <div class="func" id="display-fill_triangle">
+        <div class="sig">tdeck.display.fill_triangle(x1, y1, x2, y2, x3, y3, color)</div>
+        <div class="desc">Draw filled triangle</div>
+    </div>
+    <div class="func" id="display-flush">
+        <div class="sig">tdeck.display.flush()</div>
+        <div class="desc">Flush buffer to physical display</div>
+    </div>
+    <div class="func" id="display-get_cols">
+        <div class="sig">tdeck.display.get_cols() -&gt; integer</div>
+        <div class="desc">Get display columns</div>
+        <div class="returns"><strong>Returns:</strong> Number of character columns</div>
+    </div>
+    <div class="func" id="display-get_font_height">
+        <div class="sig">tdeck.display.get_font_height() -&gt; integer</div>
+        <div class="desc">Get font character height</div>
+        <div class="returns"><strong>Returns:</strong> Character height in pixels</div>
+    </div>
+    <div class="func" id="display-get_font_width">
+        <div class="sig">tdeck.display.get_font_width() -&gt; integer</div>
+        <div class="desc">Get font character width</div>
+        <div class="returns"><strong>Returns:</strong> Character width in pixels</div>
+    </div>
+    <div class="func" id="display-get_height">
+        <div class="sig">tdeck.display.get_height() -&gt; integer</div>
+        <div class="desc">Get display height</div>
+        <div class="returns"><strong>Returns:</strong> Height in pixels</div>
+    </div>
+    <div class="func" id="display-get_rows">
+        <div class="sig">tdeck.display.get_rows() -&gt; integer</div>
+        <div class="desc">Get display rows</div>
+        <div class="returns"><strong>Returns:</strong> Number of character rows</div>
+    </div>
+    <div class="func" id="display-get_width">
+        <div class="sig">tdeck.display.get_width() -&gt; integer</div>
+        <div class="desc">Get display width</div>
+        <div class="returns"><strong>Returns:</strong> Width in pixels</div>
+    </div>
+    <div class="func" id="display-rgb">
+        <div class="sig">tdeck.display.rgb(r, g, b) -&gt; integer</div>
+        <div class="desc">Convert RGB to RGB565 color value</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>r</td><td>Red component (0-255)</td></tr>
+                <tr><td>g</td><td>Green component (0-255)</td></tr>
+                <tr><td>b</td><td>Blue component (0-255)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> RGB565 color value</div>
+    </div>
+    <div class="func" id="display-save_screenshot">
+        <div class="sig">tdeck.display.save_screenshot(path) -&gt; boolean</div>
+        <div class="desc">Save current display contents as BMP screenshot to SD card</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>path</td><td>File path on SD card (e.g., &quot;/screenshots/screen_001.bmp&quot;)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if saved successfully, false on error</div>
+    </div>
+    <div class="func" id="display-set_brightness">
+        <div class="sig">tdeck.display.set_brightness(level)</div>
+        <div class="desc">Set backlight brightness</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>level</td><td>Brightness level (0-255)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-set_font_size">
+        <div class="sig">tdeck.display.set_font_size(size)</div>
+        <div class="desc">Set font size</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>size</td><td>Font size string: &quot;tiny&quot;, &quot;small&quot;, &quot;medium&quot;, or &quot;large&quot;</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-text_width">
+        <div class="sig">tdeck.display.text_width(text) -&gt; integer</div>
+        <div class="desc">Get pixel width of text string</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>text</td><td>Text string to measure</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Width in pixels</div>
+    </div>
+</div>
+
+<div class="module">
+    <div class="module-header">
+        <h2 id="keyboard">tdeck.keyboard</h2>
+        <span class="func-count">26 functions</span>
+    </div>
+    <div class="func" id="keyboard-available">
+        <div class="sig">tdeck.keyboard.available() -&gt; boolean</div>
+        <div class="desc">Check if a key is waiting</div>
+        <div class="returns"><strong>Returns:</strong> true if a key is available to read</div>
+    </div>
+    <div class="func" id="keyboard-get_backlight">
+        <div class="sig">tdeck.keyboard.get_backlight() -&gt; integer</div>
+        <div class="desc">Get current keyboard backlight level</div>
+        <div class="returns"><strong>Returns:</strong> Backlight level (0-255, 0 = off)</div>
+    </div>
+    <div class="func" id="keyboard-get_mode">
+        <div class="sig">tdeck.keyboard.get_mode() -&gt; string</div>
+        <div class="desc">Get current keyboard input mode</div>
+        <div class="returns"><strong>Returns:</strong> &quot;normal&quot; or &quot;raw&quot;</div>
+    </div>
+    <div class="func" id="keyboard-get_raw_matrix_bits">
+        <div class="sig">tdeck.keyboard.get_raw_matrix_bits() -&gt; integer</div>
+        <div class="desc">Get full matrix state as 64-bit integer (raw mode)</div>
+        <div class="returns"><strong>Returns:</strong> 49-bit value (7 cols × 7 rows), bits 0-6 = col 0, bits 7-13 = col 1, etc.</div>
+    </div>
+    <div class="func" id="keyboard-get_repeat_delay">
+        <div class="sig">tdeck.keyboard.get_repeat_delay() -&gt; integer</div>
+        <div class="desc">Get initial delay before key repeat starts</div>
+        <div class="returns"><strong>Returns:</strong> Delay in milliseconds</div>
+    </div>
+    <div class="func" id="keyboard-get_repeat_enabled">
+        <div class="sig">tdeck.keyboard.get_repeat_enabled() -&gt; boolean</div>
+        <div class="desc">Check if key repeat is enabled</div>
+        <div class="returns"><strong>Returns:</strong> true if key repeat is enabled</div>
+    </div>
+    <div class="func" id="keyboard-get_repeat_rate">
+        <div class="sig">tdeck.keyboard.get_repeat_rate() -&gt; integer</div>
+        <div class="desc">Get key repeat rate (interval between repeats)</div>
+        <div class="returns"><strong>Returns:</strong> Rate in milliseconds</div>
+    </div>
+    <div class="func" id="keyboard-get_trackball_mode">
+        <div class="sig">tdeck.keyboard.get_trackball_mode() -&gt; string</div>
+        <div class="desc">Get current trackball input mode</div>
+        <div class="returns"><strong>Returns:</strong> &quot;polling&quot; or &quot;interrupt&quot;</div>
+    </div>
+    <div class="func" id="keyboard-get_trackball_sensitivity">
+        <div class="sig">tdeck.keyboard.get_trackball_sensitivity() -&gt; integer</div>
+        <div class="desc">Get trackball sensitivity level</div>
+        <div class="returns"><strong>Returns:</strong> Sensitivity value</div>
+    </div>
+    <div class="func" id="keyboard-has_trackball">
+        <div class="sig">tdeck.keyboard.has_trackball() -&gt; boolean</div>
+        <div class="desc">Check if device has trackball</div>
+        <div class="returns"><strong>Returns:</strong> true if trackball is available</div>
+    </div>
+    <div class="func" id="keyboard-is_alt_held">
+        <div class="sig">tdeck.keyboard.is_alt_held() -&gt; boolean</div>
+        <div class="desc">Check if Alt is currently held</div>
+        <div class="returns"><strong>Returns:</strong> true if Alt is held</div>
+    </div>
+    <div class="func" id="keyboard-is_ctrl_held">
+        <div class="sig">tdeck.keyboard.is_ctrl_held() -&gt; boolean</div>
+        <div class="desc">Check if Ctrl is currently held</div>
+        <div class="returns"><strong>Returns:</strong> true if Ctrl is held</div>
+    </div>
+    <div class="func" id="keyboard-is_fn_held">
+        <div class="sig">tdeck.keyboard.is_fn_held() -&gt; boolean</div>
+        <div class="desc">Check if Fn is currently held</div>
+        <div class="returns"><strong>Returns:</strong> true if Fn is held</div>
+    </div>
+    <div class="func" id="keyboard-is_key_pressed">
+        <div class="sig">tdeck.keyboard.is_key_pressed(col, row) -&gt; boolean</div>
+        <div class="desc">Check if a specific matrix key is pressed (raw mode)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>col</td><td>Column index (0-4)</td></tr>
+                <tr><td>row</td><td>Row index (0-6)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if key is pressed</div>
+    </div>
+    <div class="func" id="keyboard-is_shift_held">
+        <div class="sig">tdeck.keyboard.is_shift_held() -&gt; boolean</div>
+        <div class="desc">Check if Shift is currently held</div>
+        <div class="returns"><strong>Returns:</strong> true if Shift is held</div>
+    </div>
+    <div class="func" id="keyboard-read">
+        <div class="sig">tdeck.keyboard.read() -&gt; table</div>
+        <div class="desc">Read next key event (non-blocking)</div>
+        <div class="returns"><strong>Returns:</strong> Key event table or nil if no key available</div>
+    </div>
+    <div class="func" id="keyboard-read_blocking">
+        <div class="sig">tdeck.keyboard.read_blocking(timeout_ms) -&gt; table</div>
+        <div class="desc">Read key with optional timeout (blocking)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>timeout_ms</td><td>Timeout in milliseconds (0 = forever)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Key event table or nil on timeout</div>
+    </div>
+    <div class="func" id="keyboard-read_raw_code">
+        <div class="sig">tdeck.keyboard.read_raw_code() -&gt; integer|nil</div>
+        <div class="desc">Read raw key code byte directly from I2C (no translation)</div>
+        <div class="returns"><strong>Returns:</strong> Raw byte (0x00-0xFF) or nil if no key available</div>
+    </div>
+    <div class="func" id="keyboard-read_raw_matrix">
+        <div class="sig">tdeck.keyboard.read_raw_matrix() -&gt; table|nil</div>
+        <div class="desc">Read raw key matrix state (only works in raw mode)</div>
+        <div class="returns"><strong>Returns:</strong> Table of 7 bytes (one per column, 7 bits = rows), or nil on error</div>
+    </div>
+    <div class="func" id="keyboard-set_backlight">
+        <div class="sig">tdeck.keyboard.set_backlight(level)</div>
+        <div class="desc">Set keyboard backlight brightness</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>level</td><td>Brightness level (0-255, 0 = off)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="keyboard-set_mode">
+        <div class="sig">tdeck.keyboard.set_mode(mode) -&gt; boolean</div>
+        <div class="desc">Set keyboard input mode</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>mode</td><td>&quot;normal&quot; or &quot;raw&quot;</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if mode was set successfully</div>
+    </div>
+    <div class="func" id="keyboard-set_repeat_delay">
+        <div class="sig">tdeck.keyboard.set_repeat_delay(delay_ms)</div>
+        <div class="desc">Set initial delay before key repeat starts</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>delay_ms</td><td>Delay in milliseconds (typically 200-800)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="keyboard-set_repeat_enabled">
+        <div class="sig">tdeck.keyboard.set_repeat_enabled(enabled)</div>
+        <div class="desc">Enable or disable key repeat</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>enabled</td><td>true to enable, false to disable</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="keyboard-set_repeat_rate">
+        <div class="sig">tdeck.keyboard.set_repeat_rate(rate_ms)</div>
+        <div class="desc">Set key repeat rate (interval between repeats)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>rate_ms</td><td>Rate in milliseconds (typically 20-100)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="keyboard-set_trackball_mode">
+        <div class="sig">tdeck.keyboard.set_trackball_mode(mode)</div>
+        <div class="desc">Set trackball input mode</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>mode</td><td>&quot;polling&quot; or &quot;interrupt&quot;</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="keyboard-set_trackball_sensitivity">
+        <div class="sig">tdeck.keyboard.set_trackball_sensitivity(value)</div>
+        <div class="desc">Set trackball sensitivity level</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>value</td><td>Sensitivity value</td></tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="module">
+    <div class="module-header">
+        <h2 id="mesh">tdeck.mesh</h2>
+        <span class="func-count">42 functions</span>
+    </div>
+    <div class="func" id="mesh-build_packet">
+        <div class="sig">tdeck.mesh.build_packet(route_type, payload_type, payload, path) -&gt; string|nil</div>
+        <div class="desc">Build a raw mesh packet for transmission</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>route_type</td><td>Route type constant (FLOOD=1, DIRECT=2)</td></tr>
+                <tr><td>payload_type</td><td>Payload type constant (ADVERT=4, GRP_TXT=5, etc.)</td></tr>
+                <tr><td>payload</td><td>Binary string payload</td></tr>
+                <tr><td>path</td><td>Optional binary string of path hashes (default: empty)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Serialized packet as binary string, or nil on error</div>
+    </div>
+    <div class="func" id="mesh-calc_shared_secret">
+        <div class="sig">tdeck.mesh.calc_shared_secret(other_pub_key) -&gt; string|nil</div>
+        <div class="desc">Calculate ECDH shared secret with another node</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>other_pub_key</td><td>32-byte Ed25519 public key of the other party</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> 32-byte shared secret as binary string, or nil on error</div>
+    </div>
+    <div class="func" id="mesh-clear_packet_queue">
+        <div class="sig">tdeck.mesh.clear_packet_queue()</div>
+        <div class="desc">Clear all packets from the queue</div>
+    </div>
+    <div class="func" id="mesh-clear_tx_queue">
+        <div class="sig">tdeck.mesh.clear_tx_queue()</div>
+        <div class="desc">Clear all packets from transmit queue</div>
+    </div>
+    <div class="func" id="mesh-ed25519_sign">
+        <div class="sig">tdeck.mesh.ed25519_sign(data) -&gt; signature</div>
+        <div class="desc">Sign data with this node&#x27;s private key</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>data</td><td>Binary string to sign</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> 64-byte Ed25519 signature as binary string, or nil on error</div>
+    </div>
+    <div class="func" id="mesh-ed25519_verify">
+        <div class="sig">tdeck.mesh.ed25519_verify(data, signature, pub_key) -&gt; boolean</div>
+        <div class="desc">Verify an Ed25519 signature</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>data</td><td>Binary string that was signed</td></tr>
+                <tr><td>signature</td><td>64-byte Ed25519 signature</td></tr>
+                <tr><td>pub_key</td><td>32-byte Ed25519 public key</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if signature is valid</div>
+    </div>
+    <div class="func" id="mesh-enable_packet_queue">
+        <div class="sig">tdeck.mesh.enable_packet_queue(enabled)</div>
+        <div class="desc">Enable or disable packet queuing for polling</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>enabled</td><td>Boolean to enable/disable</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="mesh-get_announce_interval">
+        <div class="sig">tdeck.mesh.get_announce_interval() -&gt; integer</div>
+        <div class="desc">Get current auto-announce interval</div>
+        <div class="returns"><strong>Returns:</strong> Interval in milliseconds (0 = disabled)</div>
+    </div>
+    <div class="func" id="mesh-get_node_count">
+        <div class="sig">tdeck.mesh.get_node_count() -&gt; integer</div>
+        <div class="desc">Get number of known nodes</div>
+        <div class="returns"><strong>Returns:</strong> Node count</div>
+    </div>
+    <div class="func" id="mesh-get_node_id">
+        <div class="sig">tdeck.mesh.get_node_id() -&gt; string</div>
+        <div class="desc">Get this node&#x27;s full ID</div>
+        <div class="returns"><strong>Returns:</strong> 6-byte hex string</div>
+    </div>
+    <div class="func" id="mesh-get_node_name">
+        <div class="sig">tdeck.mesh.get_node_name() -&gt; string</div>
+        <div class="desc">Get this node&#x27;s display name</div>
+        <div class="returns"><strong>Returns:</strong> Node name string</div>
+    </div>
+    <div class="func" id="mesh-get_nodes">
+        <div class="sig">tdeck.mesh.get_nodes() -&gt; table</div>
+        <div class="desc">Get list of discovered mesh nodes</div>
+        <div class="returns"><strong>Returns:</strong> Array of node tables with path_hash, name, rssi, snr, last_seen, hops, pub_key_hex</div>
+    </div>
+    <div class="func" id="mesh-get_path_check">
+        <div class="sig">tdeck.mesh.get_path_check() -&gt; boolean</div>
+        <div class="desc">Get current path check setting</div>
+        <div class="returns"><strong>Returns:</strong> true if path check is enabled</div>
+    </div>
+    <div class="func" id="mesh-get_path_hash">
+        <div class="sig">tdeck.mesh.get_path_hash() -&gt; integer</div>
+        <div class="desc">Get this node&#x27;s path hash (first byte of public key)</div>
+        <div class="returns"><strong>Returns:</strong> Path hash as integer (0-255)</div>
+    </div>
+    <div class="func" id="mesh-get_public_key">
+        <div class="sig">tdeck.mesh.get_public_key() -&gt; string</div>
+        <div class="desc">Get this node&#x27;s public key as binary string</div>
+        <div class="returns"><strong>Returns:</strong> 32-byte Ed25519 public key</div>
+    </div>
+    <div class="func" id="mesh-get_public_key_hex">
+        <div class="sig">tdeck.mesh.get_public_key_hex() -&gt; string</div>
+        <div class="desc">Get this node&#x27;s public key as hex string</div>
+        <div class="returns"><strong>Returns:</strong> 64-character hex string</div>
+    </div>
+    <div class="func" id="mesh-get_rx_count">
+        <div class="sig">tdeck.mesh.get_rx_count() -&gt; integer</div>
+        <div class="desc">Get total packets received</div>
+        <div class="returns"><strong>Returns:</strong> Receive count</div>
+    </div>
+    <div class="func" id="mesh-get_short_id">
+        <div class="sig">tdeck.mesh.get_short_id() -&gt; string</div>
+        <div class="desc">Get this node&#x27;s short ID</div>
+        <div class="returns"><strong>Returns:</strong> 3-byte hex string (6 chars)</div>
+    </div>
+    <div class="func" id="mesh-get_tx_count">
+        <div class="sig">tdeck.mesh.get_tx_count() -&gt; integer</div>
+        <div class="desc">Get total packets transmitted</div>
+        <div class="returns"><strong>Returns:</strong> Transmit count</div>
+    </div>
+    <div class="func" id="mesh-get_tx_queue_capacity">
+        <div class="sig">tdeck.mesh.get_tx_queue_capacity() -&gt; integer</div>
+        <div class="desc">Get maximum transmit queue capacity</div>
+        <div class="returns"><strong>Returns:</strong> Max queue size</div>
+    </div>
+    <div class="func" id="mesh-get_tx_queue_size">
+        <div class="sig">tdeck.mesh.get_tx_queue_size() -&gt; integer</div>
+        <div class="desc">Get number of packets waiting in transmit queue</div>
+        <div class="returns"><strong>Returns:</strong> Queue size</div>
+    </div>
+    <div class="func" id="mesh-get_tx_throttle">
+        <div class="sig">tdeck.mesh.get_tx_throttle() -&gt; integer</div>
+        <div class="desc">Get current throttle interval</div>
+        <div class="returns"><strong>Returns:</strong> Milliseconds between transmissions</div>
+    </div>
+    <div class="func" id="mesh-has_packets">
+        <div class="sig">tdeck.mesh.has_packets() -&gt; boolean</div>
+        <div class="desc">Check if packets are available in the queue</div>
+        <div class="returns"><strong>Returns:</strong> true if one or more packets are queued</div>
+    </div>
+    <div class="func" id="mesh-is_initialized">
+        <div class="sig">tdeck.mesh.is_initialized() -&gt; boolean</div>
+        <div class="desc">Check if mesh networking is initialized</div>
+        <div class="returns"><strong>Returns:</strong> true if mesh is ready</div>
+    </div>
+    <div class="func" id="mesh-is_tx_queue_full">
+        <div class="sig">tdeck.mesh.is_tx_queue_full() -&gt; boolean</div>
+        <div class="desc">Check if transmit queue is full</div>
+        <div class="returns"><strong>Returns:</strong> true if queue is full</div>
+    </div>
+    <div class="func" id="mesh-make_header">
+        <div class="sig">tdeck.mesh.make_header(route_type, payload_type, version) -&gt; integer</div>
+        <div class="desc">Create a packet header byte from components</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>route_type</td><td>Route type constant</td></tr>
+                <tr><td>payload_type</td><td>Payload type constant</td></tr>
+                <tr><td>version</td><td>Optional version (default: 0)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Header byte as integer</div>
+    </div>
+    <div class="func" id="mesh-on_group_packet">
+        <div class="sig">tdeck.mesh.on_group_packet(callback)</div>
+        <div class="desc">Set callback for raw group packets (DEPRECATED - use bus.subscribe(&quot;mesh/group_packet&quot;) instead)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>callback</td><td>Function(packet_table) called with {channel_hash, data, sender_hash, rssi, snr}</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="mesh-on_node_discovered">
+        <div class="sig">tdeck.mesh.on_node_discovered(callback)</div>
+        <div class="desc">Set callback for node discovery (DEPRECATED - use bus.subscribe(&quot;mesh/node_discovered&quot;) instead)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>callback</td><td>Function(node_table) called when node discovered</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="mesh-on_packet">
+        <div class="sig">tdeck.mesh.on_packet(callback)</div>
+        <div class="desc">Set callback for ALL incoming packets (DEPRECATED - use bus.subscribe(&quot;mesh/packet&quot;) instead)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>callback</td><td>Function(packet_table) returning handled, rebroadcast booleans</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="mesh-packet_count">
+        <div class="sig">tdeck.mesh.packet_count() -&gt; integer</div>
+        <div class="desc">Get number of packets in queue</div>
+        <div class="returns"><strong>Returns:</strong> Number of queued packets</div>
+    </div>
+    <div class="func" id="mesh-parse_header">
+        <div class="sig">tdeck.mesh.parse_header(header_byte) -&gt; route_type, payload_type, version</div>
+        <div class="desc">Parse a packet header byte into components</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>header_byte</td><td>Single byte header value</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> route_type, payload_type, version as integers</div>
+    </div>
+    <div class="func" id="mesh-pop_packet">
+        <div class="sig">tdeck.mesh.pop_packet() -&gt; table|nil</div>
+        <div class="desc">Get and remove the next packet from queue</div>
+        <div class="returns"><strong>Returns:</strong> Packet table or nil if queue is empty</div>
+    </div>
+    <div class="func" id="mesh-queue_send">
+        <div class="sig">tdeck.mesh.queue_send(data) -&gt; boolean</div>
+        <div class="desc">Queue packet for transmission (throttled, non-blocking)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>data</td><td>Binary string of serialized packet</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if queued successfully, false if queue full or error</div>
+    </div>
+    <div class="func" id="mesh-schedule_rebroadcast">
+        <div class="sig">tdeck.mesh.schedule_rebroadcast(data)</div>
+        <div class="desc">Schedule raw packet data for rebroadcast</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>data</td><td>Binary string of raw packet bytes</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="mesh-send_announce">
+        <div class="sig">tdeck.mesh.send_announce() -&gt; boolean</div>
+        <div class="desc">Broadcast node announcement</div>
+        <div class="returns"><strong>Returns:</strong> true if sent successfully</div>
+    </div>
+    <div class="func" id="mesh-send_group_packet">
+        <div class="sig">tdeck.mesh.send_group_packet(channel_hash, encrypted_data) -&gt; boolean</div>
+        <div class="desc">Send raw encrypted group packet</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>channel_hash</td><td>Single byte channel identifier</td></tr>
+                <tr><td>encrypted_data</td><td>Pre-encrypted payload (MAC + ciphertext)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if sent successfully</div>
+    </div>
+    <div class="func" id="mesh-send_raw">
+        <div class="sig">tdeck.mesh.send_raw(data) -&gt; boolean</div>
+        <div class="desc">Send raw packet data directly via radio (bypasses queue, immediate)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>data</td><td>Binary string of serialized packet</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if sent successfully</div>
+    </div>
+    <div class="func" id="mesh-set_announce_interval">
+        <div class="sig">tdeck.mesh.set_announce_interval(ms)</div>
+        <div class="desc">Set auto-announce interval in milliseconds (0 = disabled)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>ms</td><td>Integer - interval in milliseconds (0 to disable)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="mesh-set_node_name">
+        <div class="sig">tdeck.mesh.set_node_name(name) -&gt; boolean</div>
+        <div class="desc">Set this node&#x27;s display name</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>name</td><td>New node name</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if successful</div>
+    </div>
+    <div class="func" id="mesh-set_path_check">
+        <div class="sig">tdeck.mesh.set_path_check(enabled)</div>
+        <div class="desc">Enable or disable path check for flood routing</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>enabled</td><td>Boolean - when true, packets with our hash in path are skipped</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="mesh-set_tx_throttle">
+        <div class="sig">tdeck.mesh.set_tx_throttle(ms)</div>
+        <div class="desc">Set minimum interval between transmissions</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>ms</td><td>Milliseconds between transmissions (default 100)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="mesh-update">
+        <div class="sig">tdeck.mesh.update()</div>
+        <div class="desc">Process incoming mesh packets</div>
+    </div>
+</div>
+
+<div class="module">
+    <div class="module-header">
+        <h2 id="radio">tdeck.radio</h2>
+        <span class="func-count">19 functions</span>
+    </div>
+    <div class="func" id="radio-available">
+        <div class="sig">tdeck.radio.available() -&gt; boolean</div>
+        <div class="desc">Check if data is available</div>
+        <div class="returns"><strong>Returns:</strong> true if packet waiting</div>
+    </div>
+    <div class="func" id="radio-get_config">
+        <div class="sig">tdeck.radio.get_config() -&gt; table</div>
+        <div class="desc">Get current radio configuration</div>
+        <div class="returns"><strong>Returns:</strong> Table with frequency, bandwidth, spreading_factor, etc.</div>
+    </div>
+    <div class="func" id="radio-get_last_rssi">
+        <div class="sig">tdeck.radio.get_last_rssi() -&gt; number</div>
+        <div class="desc">Get last received signal strength</div>
+        <div class="returns"><strong>Returns:</strong> RSSI in dBm</div>
+    </div>
+    <div class="func" id="radio-get_last_snr">
+        <div class="sig">tdeck.radio.get_last_snr() -&gt; number</div>
+        <div class="desc">Get last signal-to-noise ratio</div>
+        <div class="returns"><strong>Returns:</strong> SNR in dB</div>
+    </div>
+    <div class="func" id="radio-is_busy">
+        <div class="sig">tdeck.radio.is_busy() -&gt; boolean</div>
+        <div class="desc">Check if radio is busy</div>
+        <div class="returns"><strong>Returns:</strong> true if transmitting or receiving</div>
+    </div>
+    <div class="func" id="radio-is_initialized">
+        <div class="sig">tdeck.radio.is_initialized() -&gt; boolean</div>
+        <div class="desc">Check if radio is initialized</div>
+        <div class="returns"><strong>Returns:</strong> true if radio is ready</div>
+    </div>
+    <div class="func" id="radio-is_receiving">
+        <div class="sig">tdeck.radio.is_receiving() -&gt; boolean</div>
+        <div class="desc">Check if in receive mode</div>
+        <div class="returns"><strong>Returns:</strong> true if listening</div>
+    </div>
+    <div class="func" id="radio-is_transmitting">
+        <div class="sig">tdeck.radio.is_transmitting() -&gt; boolean</div>
+        <div class="desc">Check if currently transmitting</div>
+        <div class="returns"><strong>Returns:</strong> true if transmission in progress</div>
+    </div>
+    <div class="func" id="radio-receive">
+        <div class="sig">tdeck.radio.receive() -&gt; string, number, number</div>
+        <div class="desc">Receive a packet</div>
+        <div class="returns"><strong>Returns:</strong> Data string, RSSI, SNR or nil if no data</div>
+    </div>
+    <div class="func" id="radio-send">
+        <div class="sig">tdeck.radio.send(data) -&gt; string</div>
+        <div class="desc">Transmit data</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>data</td><td>String or table of bytes to send</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Result string</div>
+    </div>
+    <div class="func" id="radio-set_bandwidth">
+        <div class="sig">tdeck.radio.set_bandwidth(khz) -&gt; string</div>
+        <div class="desc">Set radio bandwidth</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>khz</td><td>Bandwidth in kHz</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Result string</div>
+    </div>
+    <div class="func" id="radio-set_coding_rate">
+        <div class="sig">tdeck.radio.set_coding_rate(cr) -&gt; string</div>
+        <div class="desc">Set LoRa coding rate</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>cr</td><td>Coding rate (5-8)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Result string</div>
+    </div>
+    <div class="func" id="radio-set_frequency">
+        <div class="sig">tdeck.radio.set_frequency(mhz) -&gt; string</div>
+        <div class="desc">Set radio frequency</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>mhz</td><td>Frequency in MHz</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Result string (ok, error_init, etc.)</div>
+    </div>
+    <div class="func" id="radio-set_spreading_factor">
+        <div class="sig">tdeck.radio.set_spreading_factor(sf) -&gt; string</div>
+        <div class="desc">Set LoRa spreading factor</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>sf</td><td>Spreading factor (6-12)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Result string</div>
+    </div>
+    <div class="func" id="radio-set_sync_word">
+        <div class="sig">tdeck.radio.set_sync_word(sw) -&gt; string</div>
+        <div class="desc">Set sync word</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>sw</td><td>Sync word value</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Result string</div>
+    </div>
+    <div class="func" id="radio-set_tx_power">
+        <div class="sig">tdeck.radio.set_tx_power(dbm) -&gt; string</div>
+        <div class="desc">Set transmit power</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>dbm</td><td>Power in dBm (0-22)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Result string</div>
+    </div>
+    <div class="func" id="radio-sleep">
+        <div class="sig">tdeck.radio.sleep() -&gt; string</div>
+        <div class="desc">Put radio into sleep mode</div>
+        <div class="returns"><strong>Returns:</strong> Result string</div>
+    </div>
+    <div class="func" id="radio-start_receive">
+        <div class="sig">tdeck.radio.start_receive() -&gt; string</div>
+        <div class="desc">Start listening for packets</div>
+        <div class="returns"><strong>Returns:</strong> Result string</div>
+    </div>
+    <div class="func" id="radio-wake">
+        <div class="sig">tdeck.radio.wake() -&gt; string</div>
+        <div class="desc">Wake radio from sleep</div>
+        <div class="returns"><strong>Returns:</strong> Result string</div>
+    </div>
+</div>
+
+<div class="module">
+    <div class="module-header">
+        <h2 id="storage">tdeck.storage</h2>
+        <span class="func-count">20 functions</span>
+    </div>
+    <div class="func" id="storage-append_file">
+        <div class="sig">tdeck.storage.append_file(path, content) -&gt; boolean</div>
+        <div class="desc">Append content to file</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>path</td><td>File path</td></tr>
+                <tr><td>content</td><td>Content to append</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if successful</div>
+    </div>
+    <div class="func" id="storage-clear_prefs">
+        <div class="sig">tdeck.storage.clear_prefs() -&gt; boolean</div>
+        <div class="desc">Clear all preferences</div>
+        <div class="returns"><strong>Returns:</strong> true if cleared</div>
+    </div>
+    <div class="func" id="storage-exists">
+        <div class="sig">tdeck.storage.exists(path) -&gt; boolean</div>
+        <div class="desc">Check if file or directory exists</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>path</td><td>Path to check</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if exists</div>
+    </div>
+    <div class="func" id="storage-file_size">
+        <div class="sig">tdeck.storage.file_size(path) -&gt; integer</div>
+        <div class="desc">Get file size in bytes</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>path</td><td>File path (prefix /sd/ for SD card)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> File size or nil with error message</div>
+    </div>
+    <div class="func" id="storage-get_flash_info">
+        <div class="sig">tdeck.storage.get_flash_info() -&gt; table</div>
+        <div class="desc">Get flash storage info</div>
+        <div class="returns"><strong>Returns:</strong> Table with total_bytes, used_bytes, free_bytes</div>
+    </div>
+    <div class="func" id="storage-get_pref">
+        <div class="sig">tdeck.storage.get_pref(key, default) -&gt; string</div>
+        <div class="desc">Get preference value</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>key</td><td>Preference key</td></tr>
+                <tr><td>default</td><td>Default value if not found</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Stored value or default</div>
+    </div>
+    <div class="func" id="storage-get_sd_info">
+        <div class="sig">tdeck.storage.get_sd_info() -&gt; table</div>
+        <div class="desc">Get SD card info</div>
+        <div class="returns"><strong>Returns:</strong> Table with total_bytes, used_bytes, free_bytes or nil</div>
+    </div>
+    <div class="func" id="storage-is_sd_available">
+        <div class="sig">tdeck.storage.is_sd_available() -&gt; boolean</div>
+        <div class="desc">Check if SD card is mounted</div>
+        <div class="returns"><strong>Returns:</strong> true if SD card available</div>
+    </div>
+    <div class="func" id="storage-json_decode">
+        <div class="sig">tdeck.storage.json_decode(json_string) -&gt; value</div>
+        <div class="desc">Decode JSON string to Lua value</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>json_string</td><td>JSON string</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Lua value or nil on error</div>
+    </div>
+    <div class="func" id="storage-json_encode">
+        <div class="sig">tdeck.storage.json_encode(value) -&gt; string</div>
+        <div class="desc">Encode Lua value to JSON string</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>value</td><td>Lua table, string, number, boolean, or nil</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> JSON string or nil on error</div>
+    </div>
+    <div class="func" id="storage-list_dir">
+        <div class="sig">tdeck.storage.list_dir(path) -&gt; table</div>
+        <div class="desc">List directory contents</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>path</td><td>Directory path (default &quot;/&quot;)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Array of tables with name, is_dir, size</div>
+    </div>
+    <div class="func" id="storage-mkdir">
+        <div class="sig">tdeck.storage.mkdir(path) -&gt; boolean</div>
+        <div class="desc">Create directory</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>path</td><td>Directory path</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if created</div>
+    </div>
+    <div class="func" id="storage-read_bytes">
+        <div class="sig">tdeck.storage.read_bytes(path, offset, length) -&gt; string</div>
+        <div class="desc">Read bytes from file at specific offset (for random access)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>path</td><td>File path (prefix /sd/ for SD card)</td></tr>
+                <tr><td>offset</td><td>Byte offset to start reading from</td></tr>
+                <tr><td>length</td><td>Number of bytes to read</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Binary data as string, or nil with error message</div>
+    </div>
+    <div class="func" id="storage-read_file">
+        <div class="sig">tdeck.storage.read_file(path) -&gt; string</div>
+        <div class="desc">Read entire file contents</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>path</td><td>File path (prefix /sd/ for SD card)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> File content or nil, error_message</div>
+    </div>
+    <div class="func" id="storage-remove">
+        <div class="sig">tdeck.storage.remove(path) -&gt; boolean</div>
+        <div class="desc">Delete a file</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>path</td><td>File path to delete</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if deleted</div>
+    </div>
+    <div class="func" id="storage-remove_pref">
+        <div class="sig">tdeck.storage.remove_pref(key) -&gt; boolean</div>
+        <div class="desc">Remove a preference</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>key</td><td>Preference key to remove</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if removed</div>
+    </div>
+    <div class="func" id="storage-rename">
+        <div class="sig">tdeck.storage.rename(old_path, new_path) -&gt; boolean</div>
+        <div class="desc">Rename or move a file</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>old_path</td><td>Current path</td></tr>
+                <tr><td>new_path</td><td>New path</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if renamed</div>
+    </div>
+    <div class="func" id="storage-rmdir">
+        <div class="sig">tdeck.storage.rmdir(path) -&gt; boolean</div>
+        <div class="desc">Remove empty directory</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>path</td><td>Directory path</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if removed</div>
+    </div>
+    <div class="func" id="storage-set_pref">
+        <div class="sig">tdeck.storage.set_pref(key, value) -&gt; boolean</div>
+        <div class="desc">Set preference value</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>key</td><td>Preference key</td></tr>
+                <tr><td>value</td><td>Value to store</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if saved successfully</div>
+    </div>
+    <div class="func" id="storage-write_file">
+        <div class="sig">tdeck.storage.write_file(path, content) -&gt; boolean</div>
+        <div class="desc">Write content to file (creates/overwrites)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>path</td><td>File path</td></tr>
+                <tr><td>content</td><td>Content to write</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if successful, or false with error</div>
+    </div>
+</div>
+
+<div class="module">
+    <div class="module-header">
+        <h2 id="system">tdeck.system</h2>
+        <span class="func-count">34 functions</span>
+    </div>
+    <div class="func" id="system-cancel_timer">
+        <div class="sig">tdeck.system.cancel_timer(timer_id)</div>
+        <div class="desc">Cancel a scheduled timer</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>timer_id</td><td>ID returned by set_timer or set_interval</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="system-chip_model">
+        <div class="sig">tdeck.system.chip_model() -&gt; string</div>
+        <div class="desc">Get ESP32 chip model name</div>
+        <div class="returns"><strong>Returns:</strong> Chip model string</div>
+    </div>
+    <div class="func" id="system-cpu_freq">
+        <div class="sig">tdeck.system.cpu_freq() -&gt; integer</div>
+        <div class="desc">Get CPU frequency</div>
+        <div class="returns"><strong>Returns:</strong> Frequency in MHz</div>
+    </div>
+    <div class="func" id="system-delay">
+        <div class="sig">tdeck.system.delay(ms)</div>
+        <div class="desc">Blocking delay execution</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>ms</td><td>Delay duration in milliseconds (max 60000)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="system-gc">
+        <div class="sig">tdeck.system.gc()</div>
+        <div class="desc">Force full garbage collection</div>
+    </div>
+    <div class="func" id="system-gc_step">
+        <div class="sig">tdeck.system.gc_step(steps) -&gt; integer</div>
+        <div class="desc">Perform incremental garbage collection</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>steps</td><td>Number of GC steps (default 10)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Result from lua_gc</div>
+    </div>
+    <div class="func" id="system-get_battery_percent">
+        <div class="sig">tdeck.system.get_battery_percent() -&gt; integer</div>
+        <div class="desc">Get battery charge level</div>
+        <div class="returns"><strong>Returns:</strong> Battery percentage (0-100)</div>
+    </div>
+    <div class="func" id="system-get_battery_voltage">
+        <div class="sig">tdeck.system.get_battery_voltage() -&gt; number</div>
+        <div class="desc">Get battery voltage</div>
+        <div class="returns"><strong>Returns:</strong> Estimated battery voltage in volts</div>
+    </div>
+    <div class="func" id="system-get_firmware_info">
+        <div class="sig">tdeck.system.get_firmware_info() -&gt; table</div>
+        <div class="desc">Get firmware partition info</div>
+        <div class="returns"><strong>Returns:</strong> Table with partition_size, app_size, free_bytes</div>
+    </div>
+    <div class="func" id="system-get_free_heap">
+        <div class="sig">tdeck.system.get_free_heap() -&gt; integer</div>
+        <div class="desc">Get free internal RAM</div>
+        <div class="returns"><strong>Returns:</strong> Free heap memory in bytes</div>
+    </div>
+    <div class="func" id="system-get_free_psram">
+        <div class="sig">tdeck.system.get_free_psram() -&gt; integer</div>
+        <div class="desc">Get free PSRAM</div>
+        <div class="returns"><strong>Returns:</strong> Free PSRAM in bytes</div>
+    </div>
+    <div class="func" id="system-get_last_error">
+        <div class="sig">tdeck.system.get_last_error() -&gt; string</div>
+        <div class="desc">Get last Lua error message</div>
+        <div class="returns"><strong>Returns:</strong> Error message or nil if no error</div>
+    </div>
+    <div class="func" id="system-get_lua_memory">
+        <div class="sig">tdeck.system.get_lua_memory() -&gt; integer</div>
+        <div class="desc">Get memory used by Lua runtime</div>
+        <div class="returns"><strong>Returns:</strong> Memory usage in bytes</div>
+    </div>
+    <div class="func" id="system-get_time">
+        <div class="sig">tdeck.system.get_time() -&gt; table|nil</div>
+        <div class="desc">Get current wall clock time</div>
+        <div class="returns"><strong>Returns:</strong> Table with hour, minute, second, or nil if time not set</div>
+    </div>
+    <div class="func" id="system-get_time_unix">
+        <div class="sig">tdeck.system.get_time_unix() -&gt; integer</div>
+        <div class="desc">Get current Unix timestamp</div>
+        <div class="returns"><strong>Returns:</strong> Unix timestamp (seconds since 1970-01-01), or 0 if time not set</div>
+    </div>
+    <div class="func" id="system-get_timezone">
+        <div class="sig">tdeck.system.get_timezone() -&gt; integer</div>
+        <div class="desc">Get current timezone UTC offset in hours</div>
+        <div class="returns"><strong>Returns:</strong> UTC offset in hours</div>
+    </div>
+    <div class="func" id="system-get_total_heap">
+        <div class="sig">tdeck.system.get_total_heap() -&gt; integer</div>
+        <div class="desc">Get total heap size</div>
+        <div class="returns"><strong>Returns:</strong> Total heap memory in bytes</div>
+    </div>
+    <div class="func" id="system-get_total_psram">
+        <div class="sig">tdeck.system.get_total_psram() -&gt; integer</div>
+        <div class="desc">Get total PSRAM size</div>
+        <div class="returns"><strong>Returns:</strong> Total PSRAM in bytes</div>
+    </div>
+    <div class="func" id="system-is_low_memory">
+        <div class="sig">tdeck.system.is_low_memory() -&gt; boolean</div>
+        <div class="desc">Check if memory is critically low</div>
+        <div class="returns"><strong>Returns:</strong> true if less than 32KB available</div>
+    </div>
+    <div class="func" id="system-is_sd_available">
+        <div class="sig">tdeck.system.is_sd_available() -&gt; boolean</div>
+        <div class="desc">Check if SD card is available</div>
+        <div class="returns"><strong>Returns:</strong> true if SD card is present and accessible</div>
+    </div>
+    <div class="func" id="system-is_usb_msc_active">
+        <div class="sig">tdeck.system.is_usb_msc_active() -&gt; boolean</div>
+        <div class="desc">Check if USB MSC mode is active</div>
+        <div class="returns"><strong>Returns:</strong> true if MSC mode is active</div>
+    </div>
+    <div class="func" id="system-log">
+        <div class="sig">tdeck.system.log(message)</div>
+        <div class="desc">Log message to serial output</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>message</td><td>Text to log</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="system-millis">
+        <div class="sig">tdeck.system.millis() -&gt; integer</div>
+        <div class="desc">Returns milliseconds since boot</div>
+        <div class="returns"><strong>Returns:</strong> Milliseconds elapsed since device started</div>
+    </div>
+    <div class="func" id="system-reload_scripts">
+        <div class="sig">tdeck.system.reload_scripts() -&gt; boolean</div>
+        <div class="desc">Reload all Lua scripts (hot reload)</div>
+        <div class="returns"><strong>Returns:</strong> true if successful</div>
+    </div>
+    <div class="func" id="system-restart">
+        <div class="sig">tdeck.system.restart()</div>
+        <div class="desc">Restart the device</div>
+    </div>
+    <div class="func" id="system-set_interval">
+        <div class="sig">tdeck.system.set_interval(ms, callback) -&gt; integer</div>
+        <div class="desc">Schedule a repeating callback</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>ms</td><td>Interval between calls (minimum 10ms)</td></tr>
+                <tr><td>callback</td><td>Function to call repeatedly</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Timer ID for cancellation</div>
+    </div>
+    <div class="func" id="system-set_time">
+        <div class="sig">tdeck.system.set_time(year, month, day, hour, minute, second) -&gt; boolean</div>
+        <div class="desc">Set system clock time</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>year</td><td>Full year (e.g., 2024)</td></tr>
+                <tr><td>month</td><td>Month (1-12)</td></tr>
+                <tr><td>day</td><td>Day of month (1-31)</td></tr>
+                <tr><td>hour</td><td>Hour (0-23)</td></tr>
+                <tr><td>minute</td><td>Minute (0-59)</td></tr>
+                <tr><td>second</td><td>Second (0-59)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if time was set successfully</div>
+    </div>
+    <div class="func" id="system-set_time_unix">
+        <div class="sig">tdeck.system.set_time_unix(timestamp) -&gt; boolean</div>
+        <div class="desc">Set system clock from Unix timestamp</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>timestamp</td><td>Unix timestamp (seconds since 1970-01-01)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if time was set successfully</div>
+    </div>
+    <div class="func" id="system-set_timer">
+        <div class="sig">tdeck.system.set_timer(ms, callback) -&gt; integer</div>
+        <div class="desc">Schedule a one-shot callback</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>ms</td><td>Delay before callback fires</td></tr>
+                <tr><td>callback</td><td>Function to call</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Timer ID for cancellation</div>
+    </div>
+    <div class="func" id="system-set_timezone">
+        <div class="sig">tdeck.system.set_timezone(tz_string) -&gt; boolean</div>
+        <div class="desc">Set timezone using POSIX TZ string</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>tz_string</td><td>POSIX timezone string (e.g., &quot;CET-1CEST,M3.5.0,M10.5.0/3&quot;)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if timezone was set successfully</div>
+    </div>
+    <div class="func" id="system-start_usb_msc">
+        <div class="sig">tdeck.system.start_usb_msc() -&gt; boolean</div>
+        <div class="desc">Start USB Mass Storage mode to access SD card from PC</div>
+        <div class="returns"><strong>Returns:</strong> true if started successfully</div>
+    </div>
+    <div class="func" id="system-stop_usb_msc">
+        <div class="sig">tdeck.system.stop_usb_msc()</div>
+        <div class="desc">Stop USB Mass Storage mode</div>
+    </div>
+    <div class="func" id="system-uptime">
+        <div class="sig">tdeck.system.uptime() -&gt; integer</div>
+        <div class="desc">Get device uptime</div>
+        <div class="returns"><strong>Returns:</strong> Seconds since boot</div>
+    </div>
+    <div class="func" id="system-yield">
+        <div class="sig">tdeck.system.yield(ms)</div>
+        <div class="desc">Yield execution to allow C++ background tasks to run</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>ms</td><td>Optional sleep time in milliseconds (default 1, max 100)</td></tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+</div>
+
+<footer class="footer">
+    T-Deck OS Lua API Documentation &middot; Auto-generated from source
+</footer>
+
+<script>
+    function toggleTheme() {
+        const html = document.documentElement;
+        const isDark = html.getAttribute('data-theme') === 'dark';
+        html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+        document.getElementById('theme-icon').innerHTML = isDark ? '&#9790;' : '&#9788;';
+        document.getElementById('theme-label').textContent = isDark ? 'Dark Mode' : 'Light Mode';
+        localStorage.setItem('theme', isDark ? 'light' : 'dark');
+    }
+
+    // Load saved theme preference
+    (function() {
+        const saved = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = saved || (prefersDark ? 'dark' : 'light');
+        if (theme === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            document.getElementById('theme-icon').innerHTML = '&#9788;';
+            document.getElementById('theme-label').textContent = 'Light Mode';
+        }
+    })();
+</script>
 </body>
 </html>

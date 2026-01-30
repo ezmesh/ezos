@@ -14,7 +14,7 @@ local GamesMenu = {
     items = {
         {label = "Snake",       description = "Classic snake game",    icon_path = "games"},
         {label = "Tetris",      description = "Falling blocks",        icon_path = "games"},
-        {label = "Breakout",    description = "Break the bricks",      icon_path = "games"},
+        {label = "Pong",        description = "Classic paddle game",   icon_path = "games"},
         {label = "Poker",       description = "Texas Hold'em",         icon_path = "games"},
         {label = "2048",        description = "Slide and merge tiles", icon_path = "games"},
         {label = "Minesweeper", description = "Find the mines",        icon_path = "games"},
@@ -189,7 +189,7 @@ function GamesMenu:launch_game()
     local games = {
         ["Snake"]       = "/scripts/ui/screens/snake.lua",
         ["Tetris"]      = "/scripts/ui/screens/tetris.lua",
-        ["Breakout"]    = "/scripts/ui/screens/breakout.lua",
+        ["Pong"]        = "/scripts/ui/screens/pong.lua",
         ["Poker"]       = "/scripts/ui/screens/poker.lua",
         ["2048"]        = "/scripts/ui/screens/game_2048.lua",
         ["Minesweeper"] = "/scripts/ui/screens/minesweeper.lua",

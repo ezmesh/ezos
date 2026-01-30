@@ -23,6 +23,12 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 import html
 
+# Functions to exclude from documentation (deprecated/removed features)
+EXCLUDED_FUNCTIONS = {
+    'get_adaptive_scrolling',
+    'set_adaptive_scrolling',
+}
+
 @dataclass
 class LuaParam:
     name: str
@@ -37,6 +43,11 @@ class LuaFunction:
     params: List[LuaParam] = field(default_factory=list)
     returns: str = ""
     example: str = ""
+
+    @property
+    def fqn(self) -> str:
+        """Return fully qualified name like tdeck.module.function"""
+        return f"tdeck.{self.module}.{self.name}"
 
 @dataclass
 class LuaModule:
@@ -73,6 +84,10 @@ def parse_binding_file(filepath: Path) -> List[LuaFunction]:
         name = sig_match.group(2)
         args = sig_match.group(3) or ""
         ret_type = sig_match.group(4) or ""
+
+        # Skip excluded functions
+        if name in EXCLUDED_FUNCTIONS:
+            continue
 
         func = LuaFunction(
             module=module,
@@ -131,18 +146,37 @@ def group_by_module(functions: List[LuaFunction]) -> Dict[str, LuaModule]:
 
     return modules
 
+def get_all_fqns_sorted(modules: Dict[str, LuaModule]) -> List[LuaFunction]:
+    """Get all functions sorted alphabetically by FQN."""
+    all_funcs = []
+    for module in modules.values():
+        all_funcs.extend(module.functions)
+    return sorted(all_funcs, key=lambda f: f.fqn)
+
 def generate_markdown(modules: Dict[str, LuaModule]) -> str:
     """Generate markdown documentation."""
+    all_funcs = get_all_fqns_sorted(modules)
+
     lines = [
         "# T-Deck OS Lua API Reference",
         "",
         "> Auto-generated from source code",
         "",
-        "## Table of Contents",
-        ""
+        "## Quick Reference (All Methods)",
+        "",
+        "| Method | Description |",
+        "|--------|-------------|"
     ]
 
-    # TOC
+    # Quick reference table
+    for func in all_funcs:
+        brief = func.brief[:60] + "..." if len(func.brief) > 60 else func.brief
+        anchor = f"#{func.module}-{func.name}".lower()
+        lines.append(f"| [`{func.fqn}`]({anchor}) | {brief} |")
+
+    lines.extend(["", "---", "", "## Table of Contents", ""])
+
+    # TOC by module
     for name in sorted(modules.keys()):
         lines.append(f"- [tdeck.{name}](#{name})")
     lines.append("")
@@ -161,8 +195,9 @@ def generate_markdown(modules: Dict[str, LuaModule]) -> str:
             lines.extend([module.description, ""])
 
         for func in sorted(module.functions, key=lambda f: f.name):
+            anchor = f"{name}-{func.name}".lower()
             lines.extend([
-                f"#### {func.name}",
+                f"#### <a name=\"{anchor}\"></a>{func.name}",
                 "",
                 f"```lua",
                 f"{func.signature}",
@@ -175,8 +210,11 @@ def generate_markdown(modules: Dict[str, LuaModule]) -> str:
 
             if func.params:
                 lines.append("**Parameters:**")
+                lines.append("")
+                lines.append("| Parameter | Description |")
+                lines.append("|-----------|-------------|")
                 for param in func.params:
-                    lines.append(f"- `{param.name}`: {param.description}")
+                    lines.append(f"| `{param.name}` | {param.description} |")
                 lines.append("")
 
             if func.returns:
@@ -194,7 +232,9 @@ def generate_markdown(modules: Dict[str, LuaModule]) -> str:
     return '\n'.join(lines)
 
 def generate_html(modules: Dict[str, LuaModule]) -> str:
-    """Generate HTML documentation."""
+    """Generate HTML documentation with professional styling and dark mode toggle."""
+    all_funcs = get_all_fqns_sorted(modules)
+
     html_parts = ['''<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -202,68 +242,480 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>T-Deck OS Lua API Reference</title>
     <style>
-        :root { --bg: #1a1a2e; --fg: #eee; --accent: #00d4ff; --code-bg: #16213e; --border: #0f3460; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.6; margin: 0; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; }
-        h1 { color: var(--accent); border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
-        h2 { color: var(--accent); margin-top: 40px; }
-        h3 { color: #ff6b6b; }
-        code { font-family: 'Fira Code', monospace; background: var(--code-bg); padding: 2px 6px; border-radius: 3px; }
-        pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: 15px; overflow-x: auto; }
-        pre code { background: none; padding: 0; }
-        .func { background: var(--code-bg); border-left: 3px solid var(--accent); padding: 10px 15px; margin: 10px 0; }
-        .sig { font-family: monospace; color: var(--accent); font-weight: bold; }
-        .desc { margin-top: 5px; color: #ccc; }
-        .params { margin: 10px 0; padding-left: 20px; }
-        .toc { background: var(--code-bg); padding: 20px; border-radius: 5px; margin: 20px 0; }
-        .toc a { color: var(--fg); text-decoration: none; margin-right: 20px; }
-        .toc a:hover { color: var(--accent); }
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-code: #f1f5f9;
+            --text-primary: #1e293b;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+            --accent: #0ea5e9;
+            --accent-hover: #0284c7;
+            --border: #e2e8f0;
+            --shadow: rgba(0, 0, 0, 0.05);
+            --code-text: #0f172a;
+            --func-border: #0ea5e9;
+        }
+
+        [data-theme="dark"] {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-code: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #cbd5e1;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --accent-hover: #7dd3fc;
+            --border: #334155;
+            --shadow: rgba(0, 0, 0, 0.3);
+            --code-text: #e2e8f0;
+            --func-border: #38bdf8;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+            margin: 0;
+            padding: 0;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 24px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 0 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent), #6366f1);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .logo-text h1 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .logo-text span {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .theme-toggle {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 16px;
+            cursor: pointer;
+            color: var(--text-primary);
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--accent);
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        /* Quick Reference Index */
+        .quick-ref {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 32px;
+        }
+
+        .quick-ref-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .quick-ref-title span {
+            background: var(--accent);
+            color: white;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
+
+        .quick-ref-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .quick-ref-item {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 12px;
+            padding: 6px 10px;
+            border-radius: 4px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.15s;
+        }
+
+        .quick-ref-item:hover {
+            background: var(--bg-code);
+            color: var(--accent);
+        }
+
+        .toc {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 40px;
+        }
+
+        .toc-title {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+
+        .toc-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 12px;
+        }
+
+        .toc a {
+            display: block;
+            padding: 10px 16px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .toc a:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px var(--shadow);
+        }
+
+        .module {
+            margin-bottom: 48px;
+        }
+
+        .module-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .module-header h2 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--accent);
+        }
+
+        .func-count {
+            background: var(--accent);
+            color: white;
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 500;
+        }
+
+        .func {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--func-border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 16px;
+            transition: all 0.2s;
+        }
+
+        .func:hover {
+            box-shadow: 0 4px 16px var(--shadow);
+        }
+
+        .sig {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 15px;
+            color: var(--accent);
+            font-weight: 600;
+            word-break: break-word;
+        }
+
+        .desc {
+            margin-top: 12px;
+            color: var(--text-secondary);
+            font-size: 15px;
+        }
+
+        .params {
+            margin-top: 16px;
+        }
+
+        .params-title {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .params-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .params-table th {
+            text-align: left;
+            padding: 10px 12px;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .params-table td {
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            background: var(--bg-primary);
+        }
+
+        .params-table td:first-child {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            color: var(--accent);
+            font-weight: 600;
+            white-space: nowrap;
+            width: 120px;
+        }
+
+        .returns {
+            margin-top: 12px;
+            padding: 10px 14px;
+            background: var(--bg-code);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .returns strong {
+            color: var(--text-muted);
+        }
+
+        pre {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            margin-top: 12px;
+        }
+
+        pre code {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 13px;
+            color: var(--code-text);
+            background: none;
+            padding: 0;
+        }
+
+        code {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            background: var(--bg-code);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 32px 24px;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        @media (max-width: 640px) {
+            .header-content { flex-direction: column; gap: 16px; }
+            .toc-grid { grid-template-columns: 1fr; }
+            .quick-ref-list { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
+<header class="header">
+    <div class="header-content">
+        <div class="logo">
+            <div class="logo-icon">TD</div>
+            <div class="logo-text">
+                <h1>T-Deck OS</h1>
+                <span>Lua API Reference</span>
+            </div>
+        </div>
+        <button class="theme-toggle" onclick="toggleTheme()">
+            <span id="theme-icon">&#9790;</span>
+            <span id="theme-label">Dark Mode</span>
+        </button>
+    </div>
+</header>
+
 <div class="container">
-<h1>T-Deck OS Lua API Reference</h1>
-<p><em>Auto-generated from source code</em></p>
+
+<!-- Quick Reference Index -->
+<div class="quick-ref">
+    <div class="quick-ref-title">Quick Reference <span>''' + str(len(all_funcs)) + ''' methods</span></div>
+    <div class="quick-ref-list">
+''']
+
+    # Quick reference sorted list
+    for func in all_funcs:
+        anchor = f"{func.module}-{func.name}".lower()
+        html_parts.append(f'        <a class="quick-ref-item" href="#{anchor}">{html.escape(func.fqn)}</a>\n')
+
+    html_parts.append('''    </div>
+</div>
 
 <div class="toc">
-<strong>Modules:</strong><br>
-''']
+    <div class="toc-title">Modules</div>
+    <div class="toc-grid">
+''')
 
     # TOC
     for name in sorted(modules.keys()):
-        html_parts.append(f'<a href="#{name}">tdeck.{name}</a>\n')
-    html_parts.append('</div>\n')
+        func_count = len(modules[name].functions)
+        html_parts.append(f'        <a href="#{name}">tdeck.{name} <span style="opacity:0.5">({func_count})</span></a>\n')
+    html_parts.append('    </div>\n</div>\n')
 
     # Modules
     for name in sorted(modules.keys()):
         module = modules[name]
-        html_parts.append(f'<h2 id="{name}">tdeck.{name}</h2>\n')
+        func_count = len(module.functions)
+        html_parts.append(f'''
+<div class="module">
+    <div class="module-header">
+        <h2 id="{name}">tdeck.{name}</h2>
+        <span class="func-count">{func_count} functions</span>
+    </div>
+''')
 
         for func in sorted(module.functions, key=lambda f: f.name):
-            html_parts.append('<div class="func">\n')
-            html_parts.append(f'<div class="sig">{html.escape(func.signature)}</div>\n')
+            anchor = f"{func.module}-{func.name}".lower()
+            html_parts.append(f'    <div class="func" id="{anchor}">\n')
+            html_parts.append(f'        <div class="sig">{html.escape(func.signature)}</div>\n')
 
             if func.brief:
-                html_parts.append(f'<div class="desc">{html.escape(func.brief)}</div>\n')
+                html_parts.append(f'        <div class="desc">{html.escape(func.brief)}</div>\n')
 
             if func.params:
-                html_parts.append('<div class="params"><strong>Parameters:</strong><ul>\n')
+                html_parts.append('        <div class="params">\n')
+                html_parts.append('            <div class="params-title">Parameters</div>\n')
+                html_parts.append('            <table class="params-table">\n')
+                html_parts.append('                <tr><th>Parameter</th><th>Description</th></tr>\n')
                 for param in func.params:
-                    html_parts.append(f'<li><code>{html.escape(param.name)}</code>: {html.escape(param.description)}</li>\n')
-                html_parts.append('</ul></div>\n')
+                    html_parts.append(f'                <tr><td>{html.escape(param.name)}</td><td>{html.escape(param.description)}</td></tr>\n')
+                html_parts.append('            </table>\n')
+                html_parts.append('        </div>\n')
 
             if func.returns:
-                html_parts.append(f'<div><strong>Returns:</strong> {html.escape(func.returns)}</div>\n')
+                html_parts.append(f'        <div class="returns"><strong>Returns:</strong> {html.escape(func.returns)}</div>\n')
 
             if func.example:
-                html_parts.append(f'<pre><code>{html.escape(func.example)}</code></pre>\n')
+                html_parts.append(f'        <pre><code>{html.escape(func.example)}</code></pre>\n')
 
-            html_parts.append('</div>\n')
+            html_parts.append('    </div>\n')
+
+        html_parts.append('</div>\n')
 
     html_parts.append('''
-<hr>
-<p style="text-align: center; color: #666;">Auto-generated Lua API Documentation</p>
 </div>
+
+<footer class="footer">
+    T-Deck OS Lua API Documentation &middot; Auto-generated from source
+</footer>
+
+<script>
+    function toggleTheme() {
+        const html = document.documentElement;
+        const isDark = html.getAttribute('data-theme') === 'dark';
+        html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+        document.getElementById('theme-icon').innerHTML = isDark ? '&#9790;' : '&#9788;';
+        document.getElementById('theme-label').textContent = isDark ? 'Dark Mode' : 'Light Mode';
+        localStorage.setItem('theme', isDark ? 'light' : 'dark');
+    }
+
+    // Load saved theme preference
+    (function() {
+        const saved = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = saved || (prefersDark ? 'dark' : 'light');
+        if (theme === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            document.getElementById('theme-icon').innerHTML = '&#9788;';
+            document.getElementById('theme-label').textContent = 'Light Mode';
+        }
+    })();
+</script>
 </body>
 </html>''')
 
@@ -300,6 +752,7 @@ def main():
     # Group by module
     modules = group_by_module(all_functions)
     print(f"\nTotal: {len(all_functions)} functions in {len(modules)} modules")
+    print(f"(Excluding {len(EXCLUDED_FUNCTIONS)} deprecated functions)")
 
     # Generate documentation
     docs_dir.mkdir(exist_ok=True)

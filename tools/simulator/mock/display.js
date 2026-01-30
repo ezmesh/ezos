@@ -752,6 +752,14 @@ export function createDisplayModule(ctx, canvas) {
 
             ctx.putImageData(imageData, x, y);
         },
+
+        // Save screenshot (simulated - logs to console)
+        save_screenshot(path) {
+            console.log(`[Screenshot] Would save to: ${path}`);
+            // In a real browser environment, we could use canvas.toBlob() and download
+            // For simulation, just return success
+            return true;
+        },
     };
 
     // Aliases for Lua compatibility (some code uses draw_round_rect instead of draw_rounded_rect)
