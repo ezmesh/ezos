@@ -138,38 +138,19 @@ async function initLua() {
     const gps = createGpsModule();
     const crypto = createCryptoModule();
 
-    // Create tdeck namespace table in Lua
-    await lua.doString(`
-        tdeck = {
-            display = {},
-            keyboard = {},
-            system = {},
-            storage = {},
-            mesh = {},
-            radio = {},
-            audio = {},
-            gps = {},
-            crypto = {}
-        }
-    `);
-
-    // Helper to set methods on tdeck namespace
-    function setModule(name, module) {
-        const luaModule = lua.global.get('tdeck')[name];
-        for (const [key, value] of Object.entries(module)) {
-            luaModule[key] = value;
-        }
-    }
-
-    setModule('display', display);
-    setModule('keyboard', keyboard);
-    setModule('system', system);
-    setModule('storage', storage);
-    setModule('mesh', mesh);
-    setModule('radio', radio);
-    setModule('audio', audio);
-    setModule('gps', gps);
-    setModule('crypto', crypto);
+    // Create tdeck namespace with all modules
+    // Wasmoon works best when setting entire objects at once
+    lua.global.set('tdeck', {
+        display: display,
+        keyboard: keyboard,
+        system: system,
+        storage: storage,
+        mesh: mesh,
+        radio: radio,
+        audio: audio,
+        gps: gps,
+        crypto: crypto,
+    });
 
     // Global aliases for convenience (some scripts use both patterns)
     lua.global.set('display', display);
