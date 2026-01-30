@@ -232,31 +232,31 @@ function Breakout:render(display)
         end
     end
 
-    -- Draw paddle
+    -- Draw paddle (use math.floor since paddle_x can be float from momentum)
     local paddle_y = h - 30
-    display.fill_rect(self.paddle_x, paddle_y, PADDLE_W, PADDLE_H, colors.WHITE)
+    display.fill_rect(math.floor(self.paddle_x), paddle_y, PADDLE_W, PADDLE_H, colors.WHITE)
 
-    -- Draw ball
-    display.fill_rect(self.ball_x, self.ball_y, BALL_SIZE, BALL_SIZE, colors.WHITE)
+    -- Draw ball (use math.floor since ball positions can be floats)
+    display.fill_rect(math.floor(self.ball_x), math.floor(self.ball_y), BALL_SIZE, BALL_SIZE, colors.WHITE)
 
     -- Score and lives
     display.draw_text(5, 5, "Score: " .. self.score, colors.WHITE)
     display.draw_text(w - 70, 5, "Lives: " .. self.lives, colors.WHITE)
 
     if self.ball_stuck then
-        display.draw_text_centered(h / 2, "[Space] to launch", colors.TEXT_DIM)
+        display.draw_text_centered(h / 2, "[Space] to launch", colors.TEXT_SECONDARY)
     end
 
     if self.game_over then
-        display.draw_text_centered(h / 2 - 10, "GAME OVER", colors.RED)
-        display.draw_text_centered(h / 2 + 10, "[Enter] Restart", colors.TEXT_DIM)
+        display.draw_text_centered(h / 2 - 10, "GAME OVER", colors.ERROR)
+        display.draw_text_centered(h / 2 + 10, "[Enter] Restart", colors.TEXT_SECONDARY)
     elseif self.won then
-        display.draw_text_centered(h / 2 - 10, "YOU WIN!", colors.GREEN)
-        display.draw_text_centered(h / 2 + 10, "[Enter] Play Again", colors.TEXT_DIM)
+        display.draw_text_centered(h / 2 - 10, "YOU WIN!", colors.SUCCESS)
+        display.draw_text_centered(h / 2 + 10, "[Enter] Play Again", colors.TEXT_SECONDARY)
     end
 
     local help_y = h - 10
-    display.draw_text(5, help_y, "[</>] Move  [Q] Quit", colors.TEXT_DIM)
+    display.draw_text(5, help_y, "[</>] Move  [Q] Quit", colors.TEXT_SECONDARY)
 end
 
 function Breakout:handle_key(key)
@@ -265,7 +265,7 @@ function Breakout:handle_key(key)
     if self.game_over or self.won then
         if key.special == "ENTER" then
             -- Clean up before restart
-            collectgarbage("collect")
+            run_gc("collect", "breakout-restart")
             self.score = 0
             self.lives = 3
             self.game_over = false

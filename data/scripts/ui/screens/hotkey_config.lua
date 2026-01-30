@@ -139,16 +139,16 @@ function HotkeyConfig:render(display)
     display.set_font_size("medium")
 
     -- Current hotkey display
-    display.draw_text(10, y, "Current:", colors.TEXT_DIM)
+    display.draw_text(10, y, "Current:", colors.TEXT_SECONDARY)
     local current_str = self:format_matrix(self.recorded_matrix)
     if not self.recorded_matrix then
-        current_str = "Default (Sym key)"
+        current_str = "Default (LShift+RShift)"
     end
-    display.draw_text(90, y, current_str, colors.CYAN)
+    display.draw_text(90, y, current_str, colors.ACCENT)
     y = y + 25
 
     -- Separator
-    display.fill_rect(10, y, w - 20, 1, colors.BORDER)
+    display.fill_rect(10, y, w - 20, 1, colors.TEXT_SECONDARY)
     y = y + 15
 
     if self.recording then
@@ -167,7 +167,7 @@ function HotkeyConfig:render(display)
             end
         else
             -- Show countdown
-            display.draw_text_centered(y, "RECORDING...", colors.ORANGE)
+            display.draw_text_centered(y, "RECORDING...", colors.WARNING)
             y = y + 25
 
             display.set_font_size("large")
@@ -175,13 +175,13 @@ function HotkeyConfig:render(display)
             y = y + 35
 
             display.set_font_size("medium")
-            display.draw_text_centered(y, "Hold desired key(s)", colors.TEXT_DIM)
+            display.draw_text_centered(y, "Hold desired key(s)", colors.TEXT_SECONDARY)
             y = y + 25
 
             -- Show currently pressed keys
             self.current_matrix = self:get_matrix_bits()
             local pressed_str = self:format_matrix(self.current_matrix)
-            display.draw_text_centered(y, "Pressed: " .. pressed_str, colors.GREEN)
+            display.draw_text_centered(y, "Pressed: " .. pressed_str, colors.SUCCESS)
         end
     else
         -- Normal mode - show instructions
@@ -189,17 +189,17 @@ function HotkeyConfig:render(display)
         y = y + 30
 
         display.set_font_size("small")
-        display.draw_text_centered(y, "Press ENTER to record new hotkey", colors.TEXT_DIM)
+        display.draw_text_centered(y, "Press ENTER to record new hotkey", colors.TEXT_SECONDARY)
         y = y + 18
-        display.draw_text_centered(y, "You have 5 seconds to press", colors.TEXT_DIM)
+        display.draw_text_centered(y, "You have 5 seconds to press", colors.TEXT_SECONDARY)
         y = y + 18
-        display.draw_text_centered(y, "and hold the desired key(s)", colors.TEXT_DIM)
+        display.draw_text_centered(y, "and hold the desired key(s)", colors.TEXT_SECONDARY)
         y = y + 30
 
         display.set_font_size("medium")
-        display.draw_text_centered(y, "Press R to reset to default", colors.TEXT_DIM)
+        display.draw_text_centered(y, "Press R to reset to default", colors.TEXT_SECONDARY)
         y = y + 20
-        display.draw_text_centered(y, "Press ESC to exit", colors.TEXT_DIM)
+        display.draw_text_centered(y, "Press Q to exit", colors.TEXT_SECONDARY)
     end
 
     -- Reset font

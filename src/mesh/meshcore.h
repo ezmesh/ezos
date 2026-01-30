@@ -34,6 +34,9 @@ struct NodeInfo {
     float lastSnr;
     uint8_t hopCount;                            // Hops to reach this node
     uint8_t role;                                // Node role (client, repeater, etc.)
+    bool hasLocation;                            // True if node has GPS location
+    float latitude;                              // GPS latitude (degrees)
+    float longitude;                             // GPS longitude (degrees)
 };
 
 // Received direct message
@@ -112,6 +115,10 @@ public:
     uint32_t getPacketsSent() const { return _txCount; }
     uint32_t getPacketsReceived() const { return _rxCount; }
 
+    // Path check setting (prevents reprocessing packets we've seen)
+    void setPathCheckEnabled(bool enabled) { _pathCheckEnabled = enabled; }
+    bool isPathCheckEnabled() const { return _pathCheckEnabled; }
+
 private:
     Radio& _radio;
     Identity _identity;
@@ -127,6 +134,7 @@ private:
     uint32_t _txCount = 0;
     uint32_t _rxCount = 0;
     uint32_t _lastAnnounce = 0;
+    bool _pathCheckEnabled = true;  // Skip packets where our hash is in path (flood only)
 
     // Pending rebroadcast
     struct PendingRebroadcast {
@@ -153,7 +161,8 @@ private:
     // Update or add node info
     void updateNode(uint8_t pathHash, const char* name, const uint8_t* publicKey,
                    const RxMetadata& meta, uint8_t hops, uint8_t role = ROLE_UNKNOWN,
-                   uint32_t advertTimestamp = 0);
+                   uint32_t advertTimestamp = 0, bool hasLocation = false,
+                   float latitude = 0.0f, float longitude = 0.0f);
 
     // Find node by path hash
     NodeInfo* findNodeByHash(uint8_t hash);

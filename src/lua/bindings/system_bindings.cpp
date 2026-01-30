@@ -6,6 +6,8 @@
 #include "../../hardware/usb_msc.h"
 #include <Arduino.h>
 #include <esp_heap_caps.h>
+#include <esp_partition.h>
+#include <esp_ota_ops.h>
 #include <LittleFS.h>
 #include <SD.h>
 #include <sys/time.h>
@@ -23,10 +25,6 @@ static constexpr int MAX_TIMERS = 16;
 static TimerEntry timers[MAX_TIMERS];
 static int nextTimerId = 1;
 static lua_State* timerLuaState = nullptr;
-
-// Main loop callback for Lua-controlled main loop
-static int mainLoopCallbackRef = LUA_NOREF;
-static lua_State* mainLoopLuaState = nullptr;
 
 // Forward declarations
 void processLuaTimers();
@@ -375,6 +373,55 @@ LUA_FUNCTION(l_system_get_time_unix) {
     return 1;
 }
 
+// @lua tdeck.system.set_timezone(tz_string) -> boolean
+// @brief Set timezone using POSIX TZ string
+// @param tz_string POSIX timezone string (e.g., "CET-1CEST,M3.5.0,M10.5.0/3")
+// @return true if timezone was set successfully
+// @example
+// tdeck.system.set_timezone("CET-1CEST,M3.5.0,M10.5.0/3")  -- Amsterdam/Berlin
+// tdeck.system.set_timezone("EST5EDT,M3.2.0,M11.1.0")      -- New York
+// tdeck.system.set_timezone("GMT0BST,M3.5.0/1,M10.5.0")    -- London
+// @end
+LUA_FUNCTION(l_system_set_timezone) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* tz = luaL_checkstring(L, 1);
+
+    setenv("TZ", tz, 1);
+    tzset();
+
+    Serial.printf("[System] Timezone set: TZ=%s\n", tz);
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+// @lua tdeck.system.get_timezone() -> integer
+// @brief Get current timezone UTC offset in hours
+// @return UTC offset in hours
+LUA_FUNCTION(l_system_get_timezone) {
+    // Get current time to force timezone calculation
+    time_t now;
+    struct tm local_tm, utc_tm;
+
+    time(&now);
+    localtime_r(&now, &local_tm);
+    gmtime_r(&now, &utc_tm);
+
+    // Calculate offset in hours
+    int local_mins = local_tm.tm_hour * 60 + local_tm.tm_min;
+    int utc_mins = utc_tm.tm_hour * 60 + utc_tm.tm_min;
+
+    // Handle day boundary
+    int diff_mins = local_mins - utc_mins;
+    if (diff_mins > 720) diff_mins -= 1440;  // Crossed day boundary
+    if (diff_mins < -720) diff_mins += 1440;
+
+    int offset_hours = diff_mins / 60;
+
+    lua_pushinteger(L, offset_hours);
+    return 1;
+}
+
 // @lua tdeck.system.chip_model() -> string
 // @brief Get ESP32 chip model name
 // @return Chip model string
@@ -478,6 +525,46 @@ LUA_FUNCTION(l_system_is_sd_available) {
     return 1;
 }
 
+// @lua tdeck.system.get_firmware_info() -> table
+// @brief Get firmware partition info
+// @return Table with partition_size, app_size, free_bytes
+LUA_FUNCTION(l_system_get_firmware_info) {
+    lua_newtable(L);
+
+    // Get the running app partition
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    if (running) {
+        lua_pushinteger(L, running->size);
+        lua_setfield(L, -2, "partition_size");
+
+        // Get the actual app size from the app descriptor
+        esp_app_desc_t app_desc;
+        if (esp_ota_get_partition_description(running, &app_desc) == ESP_OK) {
+            // The partition size is the max, we need the actual binary size
+            // Use the OTA data to get the actual image size
+            esp_ota_img_states_t state;
+            if (esp_ota_get_state_partition(running, &state) == ESP_OK) {
+                // We can't easily get exact binary size, but we can estimate
+                // by getting the sketch size from ESP Arduino API
+                lua_pushinteger(L, ESP.getSketchSize());
+                lua_setfield(L, -2, "app_size");
+
+                lua_pushinteger(L, running->size - ESP.getSketchSize());
+                lua_setfield(L, -2, "free_bytes");
+            }
+        }
+
+        lua_pushstring(L, running->label);
+        lua_setfield(L, -2, "partition_label");
+    }
+
+    // Also get total flash size
+    lua_pushinteger(L, ESP.getFlashChipSize());
+    lua_setfield(L, -2, "flash_chip_size");
+
+    return 1;
+}
+
 // @lua tdeck.system.yield(ms)
 // @brief Yield execution to allow C++ background tasks to run
 // @param ms Optional sleep time in milliseconds (default 1, max 100)
@@ -495,33 +582,6 @@ LUA_FUNCTION(l_system_yield) {
         delay(ms);
     } else {
         yield();  // Arduino yield for watchdog
-    }
-
-    return 0;
-}
-
-// @lua tdeck.system.set_main_loop(callback)
-// @brief Register a Lua function as the main loop handler
-// @param callback Function called each frame, or nil to disable
-// @note When set, C++ will call this instead of the TUI update
-LUA_FUNCTION(l_system_set_main_loop) {
-    // Release old callback if any
-    if (mainLoopCallbackRef != LUA_NOREF && mainLoopLuaState) {
-        luaL_unref(mainLoopLuaState, LUA_REGISTRYINDEX, mainLoopCallbackRef);
-        mainLoopCallbackRef = LUA_NOREF;
-        mainLoopLuaState = nullptr;
-    }
-
-    if (lua_isfunction(L, 1)) {
-        lua_pushvalue(L, 1);
-        mainLoopCallbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
-        mainLoopLuaState = L;
-        Serial.println("[Lua] Main loop callback registered");
-    } else if (lua_isnil(L, 1) || lua_gettop(L) == 0) {
-        // Already cleared above
-        Serial.println("[Lua] Main loop callback cleared");
-    } else {
-        return luaL_error(L, "Expected function or nil");
     }
 
     return 0;
@@ -547,6 +607,8 @@ static const luaL_Reg system_funcs[] = {
     {"set_time",           l_system_set_time},
     {"get_time_unix",      l_system_get_time_unix},
     {"set_time_unix",      l_system_set_time_unix},
+    {"set_timezone",       l_system_set_timezone},
+    {"get_timezone",       l_system_get_timezone},
     {"chip_model",         l_system_chip_model},
     {"cpu_freq",           l_system_cpu_freq},
     // Phase 6: Hot reload and memory management
@@ -561,8 +623,8 @@ static const luaL_Reg system_funcs[] = {
     {"stop_usb_msc",       l_system_stop_usb_msc},
     {"is_usb_msc_active",  l_system_is_usb_msc_active},
     {"is_sd_available",    l_system_is_sd_available},
+    {"get_firmware_info",  l_system_get_firmware_info},
     {"yield",              l_system_yield},
-    {"set_main_loop",      l_system_set_main_loop},
     {nullptr, nullptr}
 };
 
@@ -691,27 +753,6 @@ void registerSystemModule(lua_State* L) {
     lua_pop(L, 2);  // pop searchers and package
 
     Serial.println("[LuaRuntime] Registered tdeck.system");
-}
-
-// Check if Lua main loop is registered
-bool hasLuaMainLoop() {
-    return mainLoopCallbackRef != LUA_NOREF && mainLoopLuaState != nullptr;
-}
-
-// Call the Lua main loop callback (called from main.cpp loop())
-void callLuaMainLoop() {
-    if (mainLoopCallbackRef == LUA_NOREF || mainLoopLuaState == nullptr) {
-        return;
-    }
-
-    // Get callback from registry
-    lua_rawgeti(mainLoopLuaState, LUA_REGISTRYINDEX, mainLoopCallbackRef);
-
-    // Call with no arguments, no return values
-    if (lua_pcall(mainLoopLuaState, 0, 0, 0) != LUA_OK) {
-        Serial.printf("[Lua Main] Error: %s\n", lua_tostring(mainLoopLuaState, -1));
-        lua_pop(mainLoopLuaState, 1);
-    }
 }
 
 // Process pending timers (called from LuaRuntime::update())

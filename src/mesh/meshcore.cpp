@@ -42,6 +42,9 @@ bool MeshCore::init() {
 // =============================================================================
 
 void MeshCore::update() {
+    // Process radio transmit queue (throttled)
+    _radio.processQueue();
+
     // Check for incoming packets
     if (_radio.available()) {
         uint8_t buffer[MeshPacket::MAX_SIZE];
@@ -81,10 +84,18 @@ void MeshCore::handlePacket(const uint8_t* data, size_t len, const RxMetadata& m
         return;
     }
 
-    // Check if we've already seen this packet (by checking if our hash is in path)
     uint8_t myHash = _identity.getPathHash();
-    if (packet.isInPath(myHash)) {
-        return;
+    uint8_t routeType = packet.getRouteType();
+
+    // For FLOOD routing, check if we've already seen this packet (our hash in path)
+    // For DIRECT routing, skip this check - destination hash IS in the path by design
+    // This check can be disabled via settings for debugging
+    if (_pathCheckEnabled) {
+        if (routeType == RouteType::FLOOD || routeType == RouteType::TRANSPORT_FLOOD) {
+            if (packet.isInPath(myHash)) {
+                return;
+            }
+        }
     }
 
     uint8_t payloadType = packet.getPayloadType();
@@ -203,14 +214,16 @@ void MeshCore::handleAdvertPacket(const MeshPacket& packet, const RxMetadata& me
 
     // Verify signature over (pub_key + timestamp + app_data)
     // This is the MeshCore reference format
-    uint8_t signedMessage[PUB_KEY_SIZE + 4 + MAX_NODE_NAME];
+    // Buffer must fit: pubkey(32) + timestamp(4) + appdata(up to 32) = 68 bytes max
+    constexpr size_t MAX_ADVERT_DATA = 32;
+    uint8_t signedMessage[PUB_KEY_SIZE + 4 + MAX_ADVERT_DATA];
     size_t msgLen = 0;
     memcpy(signedMessage + msgLen, pubKey, PUB_KEY_SIZE);
     msgLen += PUB_KEY_SIZE;
     memcpy(signedMessage + msgLen, &timestamp, 4);
     msgLen += 4;
     if (appDataLen > 0) {
-        size_t copyLen = (appDataLen > MAX_NODE_NAME) ? MAX_NODE_NAME : appDataLen;
+        size_t copyLen = (appDataLen > MAX_ADVERT_DATA) ? MAX_ADVERT_DATA : appDataLen;
         memcpy(signedMessage + msgLen, appData, copyLen);
         msgLen += copyLen;
     }
@@ -218,40 +231,66 @@ void MeshCore::handleAdvertPacket(const MeshPacket& packet, const RxMetadata& me
     bool sigValid = Identity::verify(signedMessage, msgLen, signature, pubKey);
 
     // Parse role and name from app_data
-    // The app_data format from Ripple/MeshCore apps is: [adv_type:1][name:variable]
-    // where adv_type is 0x81=chat, 0x82=repeater, 0x83=room, 0x84=sensor
-    const uint8_t* nameData = appData;
-    size_t nameLen = appDataLen;
+    // Format: [flags:1][lat:4?][lon:4?][feat1:2?][feat2:2?][name:variable?]
+    // Flags byte:
+    //   bits 0-1: role (0x01=chat, 0x02=repeater, 0x03=room)
+    //   bit 2 (0x04): sensor
+    //   bit 4 (0x10): has location (8 bytes lat+lon follow)
+    //   bit 5 (0x20): has feature1 (2 bytes follow)
+    //   bit 6 (0x40): has feature2 (2 bytes follow)
+    //   bit 7 (0x80): has name (at end)
+    const uint8_t* nameData = nullptr;
+    size_t nameLen = 0;
     uint8_t role = ROLE_UNKNOWN;
+    bool hasLocation = false;
+    float latitude = 0.0f;
+    float longitude = 0.0f;
 
-    if (nameLen > 0) {
-        uint8_t advType = nameData[0];
-        // Parse role from ADV_TYPE byte
-        switch (advType) {
-            case ADV_TYPE_CHAT:
-                role = ROLE_CLIENT;
-                break;
-            case ADV_TYPE_REPEATER:
-                role = ROLE_REPEATER;
-                break;
-            case ADV_TYPE_ROOM:
-                role = ROLE_ROUTER;
-                break;
-            case ADV_TYPE_SENSOR:
-                role = ROLE_SENSOR;
-                break;
-            default:
-                // If not a known type, keep as unknown
-                if (advType >= 0x80) {
-                    role = ROLE_UNKNOWN;
-                }
-                break;
+    if (appDataLen > 0) {
+        uint8_t flags = appData[0];
+        size_t dataOffset = 1;  // Skip flags byte
+
+        // Parse role from bits 0-1
+        uint8_t roleVal = flags & 0x03;
+        switch (roleVal) {
+            case 0x01: role = ROLE_CLIENT; break;
+            case 0x02: role = ROLE_REPEATER; break;
+            case 0x03: role = ROLE_ROUTER; break;
+            default: role = ROLE_UNKNOWN; break;
         }
-        // Skip the type byte if it's a recognized prefix
-        if (advType >= 0x80) {
-            nameData++;
-            nameLen--;
+        // Check sensor bit
+        if (flags & 0x04) {
+            role = ROLE_SENSOR;
         }
+
+        // Extract location if present (8 bytes: lat + lon as int32_le * 1,000,000)
+        if ((flags & 0x10) && dataOffset + 8 <= appDataLen) {
+            int32_t latRaw, lonRaw;
+            memcpy(&latRaw, appData + dataOffset, 4);
+            memcpy(&lonRaw, appData + dataOffset + 4, 4);
+            latitude = latRaw / 1000000.0f;
+            longitude = lonRaw / 1000000.0f;
+            hasLocation = true;
+            dataOffset += 8;
+            Serial.printf("ADVERT: location=%.6f, %.6f\n", latitude, longitude);
+        }
+        // Skip optional feature1 (2 bytes)
+        if (flags & 0x20) {
+            dataOffset += 2;
+        }
+        // Skip optional feature2 (2 bytes)
+        if (flags & 0x40) {
+            dataOffset += 2;
+        }
+
+        // Extract name if present
+        if ((flags & 0x80) && dataOffset < appDataLen) {
+            nameData = appData + dataOffset;
+            nameLen = appDataLen - dataOffset;
+        }
+
+        Serial.printf("ADVERT: flags=%02X role=%d hasLoc=%d hasName=%d nameOffset=%d\n",
+                     flags, role, hasLocation ? 1 : 0, (flags & 0x80) ? 1 : 0, (int)dataOffset);
     }
 
     if (nameLen > MAX_NODE_NAME) nameLen = MAX_NODE_NAME;
@@ -278,13 +317,12 @@ void MeshCore::handleAdvertPacket(const MeshPacket& packet, const RxMetadata& me
         Serial.printf("ADVERT from %02X: %s [%s] (verified)\n", pathHash, name, roleStr);
     }
 
-    // Update node info with role and ADVERT timestamp
-    updateNode(pathHash, name, pubKey, meta, packet.pathLen, role, timestamp);
+    // Update node info with role, ADVERT timestamp, and location
+    updateNode(pathHash, name, pubKey, meta, packet.pathLen, role, timestamp, hasLocation, latitude, longitude);
 }
 
 void MeshCore::handleTextPacket(const MeshPacket& packet, const RxMetadata& meta) {
-    // Direct text message - not implemented yet for simplicity
-    Serial.println("TXT_MSG received (not implemented)");
+    // Direct text message - handled by Lua DirectMessages service
 }
 
 void MeshCore::handleGroupTextPacket(const MeshPacket& packet, const RxMetadata& meta) {
@@ -337,8 +375,11 @@ void MeshCore::processRebroadcasts() {
     auto it = _pendingRebroadcasts.begin();
     while (it != _pendingRebroadcasts.end()) {
         if (now >= it->sendAt) {
-            _radio.send(it->data, it->len);
-            _txCount++;
+            // Use queued send for throttling (respects radio queue)
+            RadioResult result = _radio.queueSend(it->data, it->len);
+            if (result == RadioResult::OK) {
+                _txCount++;
+            }
             it = _pendingRebroadcasts.erase(it);
         } else {
             ++it;
@@ -364,7 +405,8 @@ void MeshCore::scheduleRawRebroadcast(const uint8_t* data, size_t len) {
 
 void MeshCore::updateNode(uint8_t pathHash, const char* name, const uint8_t* publicKey,
                           const RxMetadata& meta, uint8_t hops, uint8_t role,
-                          uint32_t advertTimestamp) {
+                          uint32_t advertTimestamp, bool hasLocation,
+                          float latitude, float longitude) {
     // Look for existing node
     for (auto& node : _nodes) {
         if (node.pathHash == pathHash) {
@@ -387,6 +429,12 @@ void MeshCore::updateNode(uint8_t pathHash, const char* name, const uint8_t* pub
             // Store Unix timestamp from ADVERT if provided
             if (advertTimestamp > 0) {
                 node.advertTimestamp = advertTimestamp;
+            }
+            // Update location if provided
+            if (hasLocation) {
+                node.hasLocation = true;
+                node.latitude = latitude;
+                node.longitude = longitude;
             }
 
             if (_onNode) {
@@ -420,6 +468,9 @@ void MeshCore::updateNode(uint8_t pathHash, const char* name, const uint8_t* pub
     node.lastSnr = meta.snr;
     node.hopCount = hops;
     node.role = role;
+    node.hasLocation = hasLocation;
+    node.latitude = latitude;
+    node.longitude = longitude;
 
     _nodes.push_back(node);
 
@@ -479,7 +530,8 @@ bool MeshCore::sendPacket(MeshPacket& packet) {
         return false;
     }
 
-    RadioResult result = _radio.send(buffer, len);
+    // Use queued send for throttling
+    RadioResult result = _radio.queueSend(buffer, len);
     if (result == RadioResult::OK) {
         _txCount++;
         return true;
@@ -501,26 +553,37 @@ bool MeshCore::sendAnnounce() {
     memcpy(packet.payload + offset, _identity.getPublicKey(), PUB_KEY_SIZE);
     offset += PUB_KEY_SIZE;
 
-    // Timestamp (offset 32, 4 bytes)
+    // Timestamp (offset 32, 4 bytes) - use Unix time if available, else uptime
     uint32_t timestamp = millis() / 1000;
     memcpy(packet.payload + offset, &timestamp, 4);
     offset += 4;
 
-    // Prepare app_data (node name)
+    // Build app_data: [flags:1][name:variable]
+    // Flags: 0x81 = has_name (0x80) + client role (0x01)
+    constexpr size_t MAX_ADVERT_DATA = 32;
+    uint8_t appData[MAX_ADVERT_DATA];
+    size_t appDataLen = 0;
+
+    // Flags byte: 0x81 = client (0x01) + has name (0x80)
+    appData[appDataLen++] = 0x81;
+
+    // Node name
     const char* name = _identity.getNodeName();
     size_t nameLen = strlen(name);
-    if (nameLen > MAX_NODE_NAME) nameLen = MAX_NODE_NAME;
+    if (nameLen > MAX_ADVERT_DATA - 1) nameLen = MAX_ADVERT_DATA - 1;
+    memcpy(appData + appDataLen, name, nameLen);
+    appDataLen += nameLen;
 
-    // Build message to sign: pub_key + timestamp + app_data (name)
+    // Build message to sign: pub_key + timestamp + app_data
     // This is the MeshCore reference format
-    uint8_t signedMessage[PUB_KEY_SIZE + 4 + MAX_NODE_NAME];
+    uint8_t signedMessage[PUB_KEY_SIZE + 4 + MAX_ADVERT_DATA];
     size_t msgLen = 0;
     memcpy(signedMessage + msgLen, _identity.getPublicKey(), PUB_KEY_SIZE);
     msgLen += PUB_KEY_SIZE;
     memcpy(signedMessage + msgLen, &timestamp, 4);
     msgLen += 4;
-    memcpy(signedMessage + msgLen, name, nameLen);
-    msgLen += nameLen;
+    memcpy(signedMessage + msgLen, appData, appDataLen);
+    msgLen += appDataLen;
 
     // Generate signature (offset 36, 64 bytes)
     uint8_t signature[ED25519_SIGNATURE_SIZE];
@@ -531,9 +594,9 @@ bool MeshCore::sendAnnounce() {
     memcpy(packet.payload + offset, signature, ED25519_SIGNATURE_SIZE);
     offset += ED25519_SIGNATURE_SIZE;
 
-    // App data - node name (offset 100, variable)
-    memcpy(packet.payload + offset, name, nameLen);
-    offset += nameLen;
+    // App data (offset 100, variable)
+    memcpy(packet.payload + offset, appData, appDataLen);
+    offset += appDataLen;
 
     packet.payloadLen = offset;
 

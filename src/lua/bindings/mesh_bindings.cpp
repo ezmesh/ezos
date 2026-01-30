@@ -4,6 +4,7 @@
 #include "../lua_bindings.h"
 #include "../../mesh/meshcore.h"
 #include "../../mesh/identity.h"
+#include <deque>
 
 // External reference to the global mesh instance
 extern MeshCore* mesh;
@@ -13,6 +14,21 @@ static int nodeCallbackRef = LUA_NOREF;
 static int groupPacketCallbackRef = LUA_NOREF;
 static int packetCallbackRef = LUA_NOREF;
 static lua_State* callbackState = nullptr;
+
+// Packet queue for polling-based access (avoids callback complexity)
+struct QueuedPacket {
+    uint8_t routeType;
+    uint8_t payloadType;
+    uint8_t version;
+    std::vector<uint8_t> path;
+    std::vector<uint8_t> payload;
+    float rssi;
+    float snr;
+    uint32_t timestamp;
+};
+static std::deque<QueuedPacket> packetQueue;
+static constexpr size_t MAX_PACKET_QUEUE = 32;
+static bool packetQueueEnabled = false;
 
 // @lua tdeck.mesh.is_initialized() -> boolean
 // @brief Check if mesh networking is initialized
@@ -157,6 +173,16 @@ LUA_FUNCTION(l_mesh_get_nodes) {
             lua_setfield(L, -2, "pub_key_hex");
         }
 
+        // Location (if available)
+        lua_pushboolean(L, node.hasLocation);
+        lua_setfield(L, -2, "has_location");
+        if (node.hasLocation) {
+            lua_pushnumber(L, node.latitude);
+            lua_setfield(L, -2, "lat");
+            lua_pushnumber(L, node.longitude);
+            lua_setfield(L, -2, "lon");
+        }
+
         lua_rawseti(L, -2, idx++);
     }
 
@@ -262,6 +288,16 @@ LUA_FUNCTION(l_mesh_on_node_discovered) {
                         pubKeyToHex(node.publicKey, hexKey);
                         lua_pushstring(callbackState, hexKey);
                         lua_setfield(callbackState, -2, "pub_key_hex");
+                    }
+
+                    // Location (if available)
+                    lua_pushboolean(callbackState, node.hasLocation);
+                    lua_setfield(callbackState, -2, "has_location");
+                    if (node.hasLocation) {
+                        lua_pushnumber(callbackState, node.latitude);
+                        lua_setfield(callbackState, -2, "lat");
+                        lua_pushnumber(callbackState, node.longitude);
+                        lua_setfield(callbackState, -2, "lon");
                     }
 
                     if (lua_pcall(callbackState, 1, 0, 0) != LUA_OK) {
@@ -487,6 +523,116 @@ LUA_FUNCTION(l_mesh_get_public_key) {
     return 1;
 }
 
+// @lua tdeck.mesh.get_public_key_hex() -> string
+// @brief Get this node's public key as hex string
+// @return 64-character hex string
+LUA_FUNCTION(l_mesh_get_public_key_hex) {
+    if (!mesh) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    char hexKey[ED25519_PUBLIC_KEY_SIZE * 2 + 1];
+    pubKeyToHex(mesh->getIdentity().getPublicKey(), hexKey);
+    lua_pushstring(L, hexKey);
+    return 1;
+}
+
+// @lua tdeck.mesh.ed25519_sign(data) -> signature
+// @brief Sign data with this node's private key
+// @param data Binary string to sign
+// @return 64-byte Ed25519 signature as binary string, or nil on error
+LUA_FUNCTION(l_mesh_ed25519_sign) {
+    LUA_CHECK_ARGC(L, 1);
+
+    size_t dataLen;
+    const char* data = luaL_checklstring(L, 1, &dataLen);
+
+    if (!mesh) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    uint8_t signature[ED25519_SIGNATURE_SIZE];
+    bool ok = mesh->getIdentity().sign(reinterpret_cast<const uint8_t*>(data), dataLen, signature);
+
+    if (!ok) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    lua_pushlstring(L, reinterpret_cast<char*>(signature), ED25519_SIGNATURE_SIZE);
+    return 1;
+}
+
+// @lua tdeck.mesh.ed25519_verify(data, signature, pub_key) -> boolean
+// @brief Verify an Ed25519 signature
+// @param data Binary string that was signed
+// @param signature 64-byte Ed25519 signature
+// @param pub_key 32-byte Ed25519 public key
+// @return true if signature is valid
+LUA_FUNCTION(l_mesh_ed25519_verify) {
+    LUA_CHECK_ARGC(L, 3);
+
+    size_t dataLen, sigLen, keyLen;
+    const char* data = luaL_checklstring(L, 1, &dataLen);
+    const char* signature = luaL_checklstring(L, 2, &sigLen);
+    const char* pubKey = luaL_checklstring(L, 3, &keyLen);
+
+    // Validate signature and key sizes
+    if (sigLen != ED25519_SIGNATURE_SIZE || keyLen != ED25519_PUBLIC_KEY_SIZE) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    bool valid = Identity::verify(
+        reinterpret_cast<const uint8_t*>(data), dataLen,
+        reinterpret_cast<const uint8_t*>(signature),
+        reinterpret_cast<const uint8_t*>(pubKey)
+    );
+
+    lua_pushboolean(L, valid);
+    return 1;
+}
+
+// @lua tdeck.mesh.calc_shared_secret(other_pub_key) -> string|nil
+// @brief Calculate ECDH shared secret with another node
+// @param other_pub_key 32-byte Ed25519 public key of the other party
+// @return 32-byte shared secret as binary string, or nil on error
+LUA_FUNCTION(l_mesh_calc_shared_secret) {
+    LUA_CHECK_ARGC(L, 1);
+
+    size_t keyLen;
+    const char* otherPubKey = luaL_checklstring(L, 1, &keyLen);
+
+    if (keyLen != ED25519_PUBLIC_KEY_SIZE) {
+        lua_pushnil(L);
+        lua_pushstring(L, "Public key must be 32 bytes");
+        return 2;
+    }
+
+    if (!mesh) {
+        lua_pushnil(L);
+        lua_pushstring(L, "Mesh not initialized");
+        return 2;
+    }
+
+    uint8_t sharedSecret[32];
+    bool ok = mesh->getIdentity().calcSharedSecret(
+        reinterpret_cast<const uint8_t*>(otherPubKey),
+        sharedSecret
+    );
+
+    if (!ok) {
+        lua_pushnil(L);
+        lua_pushstring(L, "Failed to calculate shared secret");
+        return 2;
+    }
+
+    lua_pushlstring(L, reinterpret_cast<char*>(sharedSecret), 32);
+    return 1;
+}
+
 // @lua tdeck.mesh.build_packet(route_type, payload_type, payload, path) -> string|nil
 // @brief Build a raw mesh packet for transmission
 // @param route_type Route type constant (FLOOD=1, DIRECT=2)
@@ -579,7 +725,7 @@ LUA_FUNCTION(l_mesh_make_header) {
 }
 
 // @lua tdeck.mesh.send_raw(data) -> boolean
-// @brief Send raw packet data directly via radio
+// @brief Send raw packet data directly via radio (bypasses queue, immediate)
 // @param data Binary string of serialized packet
 // @return true if sent successfully
 LUA_FUNCTION(l_mesh_send_raw) {
@@ -604,6 +750,256 @@ LUA_FUNCTION(l_mesh_send_raw) {
     return 1;
 }
 
+// @lua tdeck.mesh.queue_send(data) -> boolean
+// @brief Queue packet for transmission (throttled, non-blocking)
+// @param data Binary string of serialized packet
+// @return true if queued successfully, false if queue full or error
+LUA_FUNCTION(l_mesh_queue_send) {
+    LUA_CHECK_ARGC(L, 1);
+
+    size_t dataLen;
+    const char* data = luaL_checklstring(L, 1, &dataLen);
+
+    if (!mesh) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    Radio* radio = mesh->getRadio();
+    if (!radio) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    RadioResult result = radio->queueSend(reinterpret_cast<const uint8_t*>(data), dataLen);
+    lua_pushboolean(L, result == RadioResult::OK);
+    return 1;
+}
+
+// @lua tdeck.mesh.get_tx_queue_size() -> integer
+// @brief Get number of packets waiting in transmit queue
+// @return Queue size
+LUA_FUNCTION(l_mesh_get_tx_queue_size) {
+    if (!mesh) {
+        lua_pushinteger(L, 0);
+        return 1;
+    }
+
+    Radio* radio = mesh->getRadio();
+    lua_pushinteger(L, radio ? radio->getQueueSize() : 0);
+    return 1;
+}
+
+// @lua tdeck.mesh.get_tx_queue_capacity() -> integer
+// @brief Get maximum transmit queue capacity
+// @return Max queue size
+LUA_FUNCTION(l_mesh_get_tx_queue_capacity) {
+    if (!mesh) {
+        lua_pushinteger(L, 0);
+        return 1;
+    }
+
+    Radio* radio = mesh->getRadio();
+    lua_pushinteger(L, radio ? radio->getQueueCapacity() : 0);
+    return 1;
+}
+
+// @lua tdeck.mesh.is_tx_queue_full() -> boolean
+// @brief Check if transmit queue is full
+// @return true if queue is full
+LUA_FUNCTION(l_mesh_is_tx_queue_full) {
+    if (!mesh) {
+        lua_pushboolean(L, true);
+        return 1;
+    }
+
+    Radio* radio = mesh->getRadio();
+    lua_pushboolean(L, radio ? radio->isQueueFull() : true);
+    return 1;
+}
+
+// @lua tdeck.mesh.clear_tx_queue()
+// @brief Clear all packets from transmit queue
+LUA_FUNCTION(l_mesh_clear_tx_queue) {
+    if (mesh) {
+        Radio* radio = mesh->getRadio();
+        if (radio) {
+            radio->clearQueue();
+        }
+    }
+    return 0;
+}
+
+// @lua tdeck.mesh.set_tx_throttle(ms)
+// @brief Set minimum interval between transmissions
+// @param ms Milliseconds between transmissions (default 100)
+LUA_FUNCTION(l_mesh_set_tx_throttle) {
+    LUA_CHECK_ARGC(L, 1);
+    uint32_t ms = luaL_checkinteger(L, 1);
+
+    if (mesh) {
+        Radio* radio = mesh->getRadio();
+        if (radio) {
+            radio->setThrottleInterval(ms);
+        }
+    }
+    return 0;
+}
+
+// @lua tdeck.mesh.get_tx_throttle() -> integer
+// @brief Get current throttle interval
+// @return Milliseconds between transmissions
+LUA_FUNCTION(l_mesh_get_tx_throttle) {
+    if (!mesh) {
+        lua_pushinteger(L, 0);
+        return 1;
+    }
+
+    Radio* radio = mesh->getRadio();
+    lua_pushinteger(L, radio ? radio->getThrottleInterval() : 0);
+    return 1;
+}
+
+// =============================================================================
+// Packet Queue (polling-based API - safer than callbacks)
+// =============================================================================
+
+// @lua tdeck.mesh.enable_packet_queue(enabled)
+// @brief Enable or disable packet queuing for polling
+// @param enabled Boolean to enable/disable
+// @note When enabled, incoming packets are queued instead of using callbacks
+LUA_FUNCTION(l_mesh_enable_packet_queue) {
+    LUA_CHECK_ARGC(L, 1);
+    bool enable = lua_toboolean(L, 1);
+
+    if (enable && !packetQueueEnabled) {
+        // Enable: set up internal callback that queues packets
+        packetQueueEnabled = true;
+        packetQueue.clear();
+
+        if (mesh) {
+            mesh->setPacketCallback([](const ParsedPacket& pkt) -> std::pair<bool, bool> {
+                // Queue the packet (copy data since pkt pointers are temporary)
+                if (packetQueue.size() < MAX_PACKET_QUEUE) {
+                    QueuedPacket qp;
+                    qp.routeType = pkt.routeType;
+                    qp.payloadType = pkt.payloadType;
+                    qp.version = pkt.version;
+                    qp.path.assign(pkt.path, pkt.path + pkt.pathLen);
+                    qp.payload.assign(pkt.payload, pkt.payload + pkt.payloadLen);
+                    qp.rssi = pkt.rssi;
+                    qp.snr = pkt.snr;
+                    qp.timestamp = pkt.timestamp;
+                    packetQueue.push_back(std::move(qp));
+                }
+                // Don't handle in C++, don't rebroadcast (Lua will decide)
+                return {false, false};
+            });
+        }
+    } else if (!enable && packetQueueEnabled) {
+        // Disable: clear callback and queue
+        packetQueueEnabled = false;
+        packetQueue.clear();
+        if (mesh) {
+            mesh->setPacketCallback(nullptr);
+        }
+    }
+
+    return 0;
+}
+
+// @lua tdeck.mesh.has_packets() -> boolean
+// @brief Check if packets are available in the queue
+// @return true if one or more packets are queued
+LUA_FUNCTION(l_mesh_has_packets) {
+    lua_pushboolean(L, !packetQueue.empty());
+    return 1;
+}
+
+// @lua tdeck.mesh.packet_count() -> integer
+// @brief Get number of packets in queue
+// @return Number of queued packets
+LUA_FUNCTION(l_mesh_packet_count) {
+    lua_pushinteger(L, packetQueue.size());
+    return 1;
+}
+
+// @lua tdeck.mesh.pop_packet() -> table|nil
+// @brief Get and remove the next packet from queue
+// @return Packet table or nil if queue is empty
+LUA_FUNCTION(l_mesh_pop_packet) {
+    if (packetQueue.empty()) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    // Get front packet
+    QueuedPacket& pkt = packetQueue.front();
+
+    // Create packet table
+    lua_newtable(L);
+
+    lua_pushinteger(L, pkt.routeType);
+    lua_setfield(L, -2, "route_type");
+
+    lua_pushinteger(L, pkt.payloadType);
+    lua_setfield(L, -2, "payload_type");
+
+    lua_pushinteger(L, pkt.version);
+    lua_setfield(L, -2, "version");
+
+    lua_pushlstring(L, reinterpret_cast<const char*>(pkt.path.data()), pkt.path.size());
+    lua_setfield(L, -2, "path");
+
+    lua_pushlstring(L, reinterpret_cast<const char*>(pkt.payload.data()), pkt.payload.size());
+    lua_setfield(L, -2, "payload");
+
+    lua_pushnumber(L, pkt.rssi);
+    lua_setfield(L, -2, "rssi");
+
+    lua_pushnumber(L, pkt.snr);
+    lua_setfield(L, -2, "snr");
+
+    lua_pushinteger(L, pkt.timestamp);
+    lua_setfield(L, -2, "timestamp");
+
+    // Remove from queue
+    packetQueue.pop_front();
+
+    return 1;
+}
+
+// @lua tdeck.mesh.clear_packet_queue()
+// @brief Clear all packets from the queue
+LUA_FUNCTION(l_mesh_clear_packet_queue) {
+    packetQueue.clear();
+    return 0;
+}
+
+// @lua tdeck.mesh.set_path_check(enabled)
+// @brief Enable or disable path check for flood routing
+// @param enabled Boolean - when true, packets with our hash in path are skipped
+// @note Disabling this can help debug packet delivery issues but may cause loops
+LUA_FUNCTION(l_mesh_set_path_check) {
+    LUA_CHECK_ARGC(L, 1);
+    bool enabled = lua_toboolean(L, 1);
+
+    if (mesh) {
+        mesh->setPathCheckEnabled(enabled);
+    }
+
+    return 0;
+}
+
+// @lua tdeck.mesh.get_path_check() -> boolean
+// @brief Get current path check setting
+// @return true if path check is enabled
+LUA_FUNCTION(l_mesh_get_path_check) {
+    bool enabled = mesh ? mesh->isPathCheckEnabled() : true;
+    lua_pushboolean(L, enabled);
+    return 1;
+}
+
 // Function table for tdeck.mesh
 static const luaL_Reg mesh_funcs[] = {
     {"is_initialized",       l_mesh_is_initialized},
@@ -624,10 +1020,31 @@ static const luaL_Reg mesh_funcs[] = {
     {"schedule_rebroadcast", l_mesh_schedule_rebroadcast},
     {"get_path_hash",        l_mesh_get_path_hash},
     {"get_public_key",       l_mesh_get_public_key},
+    {"get_public_key_hex",   l_mesh_get_public_key_hex},
+    {"ed25519_sign",         l_mesh_ed25519_sign},
+    {"ed25519_verify",       l_mesh_ed25519_verify},
+    {"calc_shared_secret",   l_mesh_calc_shared_secret},
     {"build_packet",         l_mesh_build_packet},
     {"parse_header",         l_mesh_parse_header},
     {"make_header",          l_mesh_make_header},
     {"send_raw",             l_mesh_send_raw},
+    // Transmit queue (throttled sending)
+    {"queue_send",           l_mesh_queue_send},
+    {"get_tx_queue_size",    l_mesh_get_tx_queue_size},
+    {"get_tx_queue_capacity", l_mesh_get_tx_queue_capacity},
+    {"is_tx_queue_full",     l_mesh_is_tx_queue_full},
+    {"clear_tx_queue",       l_mesh_clear_tx_queue},
+    {"set_tx_throttle",      l_mesh_set_tx_throttle},
+    {"get_tx_throttle",      l_mesh_get_tx_throttle},
+    // Packet queue (polling-based API for RX)
+    {"enable_packet_queue",  l_mesh_enable_packet_queue},
+    {"has_packets",          l_mesh_has_packets},
+    {"packet_count",         l_mesh_packet_count},
+    {"pop_packet",           l_mesh_pop_packet},
+    {"clear_packet_queue",   l_mesh_clear_packet_queue},
+    // Path check setting
+    {"set_path_check",       l_mesh_set_path_check},
+    {"get_path_check",       l_mesh_get_path_check},
     {nullptr, nullptr}
 };
 

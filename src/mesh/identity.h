@@ -7,7 +7,8 @@
 constexpr size_t MAX_NODE_NAME = 16;
 
 // Ed25519 key sizes
-constexpr size_t ED25519_PRIVATE_KEY_SIZE = 32;
+// Note: rweather/Crypto uses 64-byte private keys (32-byte seed + 32-byte derived)
+constexpr size_t ED25519_PRIVATE_KEY_SIZE = 64;
 constexpr size_t ED25519_PUBLIC_KEY_SIZE = 32;
 constexpr size_t ED25519_SIGNATURE_SIZE = 64;
 
@@ -56,6 +57,15 @@ public:
 
     // Reset identity (generates new keypair, clears name)
     bool reset();
+
+    // Calculate shared secret with another node using ECDH (X25519)
+    // Converts Ed25519 keys to X25519 internally
+    // sharedSecret must be 32 bytes
+    bool calcSharedSecret(const uint8_t* otherEd25519PubKey, uint8_t* sharedSecret) const;
+
+    // Static helper: Convert Ed25519 public key to X25519 public key
+    // Both arrays must be 32 bytes
+    static bool ed25519PubKeyToX25519(const uint8_t* ed25519PubKey, uint8_t* x25519PubKey);
 
 private:
     char _nodeName[MAX_NODE_NAME + 1];

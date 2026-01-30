@@ -4,7 +4,7 @@
 local Contacts = {
     -- Saved contacts (user-added): { pub_key_hex = { name, path_hash, notes, added_time } }
     saved = {},
-    -- Discovered node cache: { pub_key_hex = { name, path_hash, last_seen, rssi, role, advert_timestamp } }
+    -- Discovered node cache: { pub_key_hex = { name, path_hash, last_seen, rssi, role, advert_timestamp, lat, lon, has_location } }
     discovered = {},
     -- Settings
     auto_time_sync = true,  -- Sync time from trusted contacts when time is unset
@@ -176,6 +176,9 @@ function Contacts.get_discovered()
                     role = cached.role,
                     advert_timestamp = cached.advert_timestamp,
                     is_cached = true,  -- Mark as from cache, not live
+                    has_location = cached.has_location,
+                    lat = cached.lat,
+                    lon = cached.lon,
                 }
 
                 -- Enrich with saved contact info
@@ -211,6 +214,9 @@ function Contacts._handle_node_discovered(node)
         rssi = node.rssi,
         role = node.role,
         advert_timestamp = node.advert_timestamp,
+        has_location = node.has_location or false,
+        lat = node.lat,
+        lon = node.lon,
     }
 
     -- Trim cache if too large
@@ -220,9 +226,15 @@ function Contacts._handle_node_discovered(node)
     if Contacts.auto_time_sync then
         Contacts._check_auto_time_sync(node)
     end
+
+    -- Notify DirectMessages service about node discovery
+    -- (for retrying pending TXT_MSG packets from newly discovered nodes)
+    if _G.DirectMessages and _G.DirectMessages._on_node_discovered then
+        _G.DirectMessages._on_node_discovered(node)
+    end
 end
 
--- Check if we should auto-sync time from this contact
+-- Check if we should auto-sync time from this contact's ADVERT
 function Contacts._check_auto_time_sync(node)
     -- Only sync if time is not set
     local current_time = tdeck.system.get_time_unix()
@@ -253,11 +265,6 @@ function Contacts._check_auto_time_sync(node)
         local contact_name = Contacts.saved[pub_key_hex].name
         print("[Contacts] Auto time sync from " .. contact_name)
         tdeck.storage.set_pref("lastTimeSet", corrected_time)
-
-        -- Show notification if available
-        if _G.MessageBox then
-            _G.MessageBox.show("Time synced from " .. contact_name, 2000)
-        end
     end
 end
 
@@ -309,10 +316,9 @@ function Contacts._save()
     local data = {
         version = 1,
         saved = {},
-        discovered = {},
     }
 
-    -- Save contacts
+    -- Save contacts only (discovered nodes are not persisted)
     for pub_key_hex, info in pairs(Contacts.saved) do
         table.insert(data.saved, {
             pub_key = pub_key_hex,
@@ -320,19 +326,6 @@ function Contacts._save()
             path_hash = info.path_hash,
             notes = info.notes,
             added_time = info.added_time,
-        })
-    end
-
-    -- Save discovered cache
-    for pub_key_hex, info in pairs(Contacts.discovered) do
-        table.insert(data.discovered, {
-            pub_key = pub_key_hex,
-            name = info.name,
-            path_hash = info.path_hash,
-            last_seen = info.last_seen,
-            rssi = info.rssi,
-            role = info.role,
-            advert_timestamp = info.advert_timestamp,
         })
     end
 
@@ -367,7 +360,7 @@ function Contacts._load()
         return
     end
 
-    -- Load saved contacts
+    -- Load saved contacts only (discovered nodes are not persisted)
     Contacts.saved = {}
     for _, contact in ipairs(data.saved or {}) do
         if contact.pub_key then
@@ -380,26 +373,20 @@ function Contacts._load()
         end
     end
 
-    -- Load discovered cache
+    -- Discovered nodes start empty (populated at runtime from mesh)
     Contacts.discovered = {}
-    for _, node in ipairs(data.discovered or {}) do
-        if node.pub_key then
-            Contacts.discovered[node.pub_key] = {
-                name = node.name or "Unknown",
-                path_hash = node.path_hash,
-                last_seen = node.last_seen or 0,
-                rssi = node.rssi,
-                role = node.role,
-                advert_timestamp = node.advert_timestamp,
-            }
-        end
-    end
 end
 
 -- Set auto time sync setting
 function Contacts.set_auto_time_sync(enabled)
     Contacts.auto_time_sync = enabled
     tdeck.storage.set_pref("autoTimeSyncContacts", enabled and "true" or "false")
+end
+
+-- Clear discovered node cache (keeps saved contacts)
+function Contacts.clear_discovered()
+    Contacts.discovered = {}
+    print("[Contacts] Discovered node cache cleared")
 end
 
 return Contacts

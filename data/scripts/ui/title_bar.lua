@@ -18,7 +18,7 @@ function TitleBar.draw(display, title, color, underline_color)
     -- Use themed colors if available
     local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
     color = color or colors.WHITE
-    underline_color = underline_color or colors.GREEN
+    underline_color = underline_color or colors.SUCCESS
 
     -- Use small font for title
     display.set_font_size("small")
@@ -42,7 +42,7 @@ end
 -- @return height The height of the title bar area
 function TitleBar.draw_error(display, title)
     local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
-    return TitleBar.draw(display, title, colors.RED, colors.RED)
+    return TitleBar.draw(display, title, colors.ERROR, colors.ERROR)
 end
 
 -- Get the content start Y position (after title bar)

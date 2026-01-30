@@ -1,6 +1,10 @@
 # PlatformIO build directory
 .pio/
 
+# Auto-generated embedded Lua scripts (regenerated on each build)
+src/lua/embedded_lua_scripts.cpp
+src/lua/embedded_lua_scripts.h
+
 # IDE settings
 .idea/
 .vscode/
@@ -11,3 +15,13 @@
 # Python
 __pycache__/
 *.pyc
+venv/
+
+# Large map data files
+*.osm.pbf
+*.pmtiles
+tools/maps/*.tdmap
+tools/maps/*.checkpoint
+
+# Screenshots
+*.png

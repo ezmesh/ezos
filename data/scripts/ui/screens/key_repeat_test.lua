@@ -70,7 +70,7 @@ function KeyRepeatTest:render(display)
     -- Current settings
     local x = fw
     local y = 2 * fh
-    local status_color = self.enabled and colors.GREEN or colors.RED
+    local status_color = self.enabled and colors.SUCCESS or colors.ERROR
     display.draw_text(x, y, "Repeat: " .. (self.enabled and "ON" or "OFF"), status_color)
 
     y = y + fh
@@ -81,15 +81,15 @@ function KeyRepeatTest:render(display)
 
     -- Instructions
     y = y + fh + 4
-    display.draw_text(x, y, "E=Toggle  D/R=Delay  F/T=Rate", colors.TEXT_DIM)
+    display.draw_text(x, y, "E=Toggle  D/R=Delay  F/T=Rate", colors.TEXT_SECONDARY)
 
     -- Separator
     y = y + fh + 2
-    display.fill_rect(4, y, display.width - 8, 1, colors.BORDER)
+    display.fill_rect(4, y, display.width - 8, 1, colors.TEXT_SECONDARY)
 
     -- Key log
     y = y + 6
-    display.draw_text(x, y, "Key Log (delta ms):", colors.TEXT_DIM)
+    display.draw_text(x, y, "Key Log (delta ms):", colors.TEXT_SECONDARY)
     y = y + fh
 
     for i, entry in ipairs(self.key_log) do

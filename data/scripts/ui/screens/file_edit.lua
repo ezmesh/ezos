@@ -260,7 +260,7 @@ function FileEdit:render(display)
     if self.modified then
         title = title .. " *"
     end
-    display.draw_box(0, 0, cols, rows - 1, title, colors.CYAN, colors.WHITE)
+    display.draw_box(0, 0, cols, rows - 1, title, colors.ACCENT, colors.WHITE)
 
     -- Text area
     local visible_rows = rows - 3
@@ -274,7 +274,7 @@ function FileEdit:render(display)
         if line_idx <= #self.lines then
             -- Line number
             local line_num = string.format("%3d ", line_idx)
-            display.draw_text(fw, py, line_num, colors.TEXT_DIM)
+            display.draw_text(fw, py, line_num, colors.TEXT_SECONDARY)
 
             -- Line content
             local line = self.lines[line_idx]
@@ -286,7 +286,7 @@ function FileEdit:render(display)
                 local cursor_x = (line_num_width + self.cursor_col - self.scroll_col) * fw
                 if cursor_x > line_num_width * fw and cursor_x < (cols - 1) * fw then
                     -- Draw cursor as inverse block
-                    display.fill_rect(cursor_x, py, fw, fh, colors.CYAN)
+                    display.fill_rect(cursor_x, py, fw, fh, colors.ACCENT)
                     local char_under = line:sub(self.cursor_col, self.cursor_col)
                     if char_under == "" then char_under = " " end
                     display.draw_text(cursor_x, py, char_under, colors.BLACK)
@@ -294,19 +294,19 @@ function FileEdit:render(display)
             end
         else
             -- Empty line indicator
-            display.draw_text(fw, py, "  ~ ", colors.TEXT_DIM)
+            display.draw_text(fw, py, "  ~ ", colors.TEXT_MUTED)
         end
     end
 
     -- Status bar (only show messages, position is in header)
     local status_y = (rows - 2) * fh
     if self.message and (tdeck.system.millis() - self.message_time) < 2000 then
-        display.draw_text(fw, status_y, self.message, colors.TEXT_DIM)
+        display.draw_text(fw, status_y, self.message, colors.TEXT_SECONDARY)
     else
         self.message = nil
         -- Show cursor position
         local pos = string.format("L%d C%d", self.cursor_row, self.cursor_col)
-        display.draw_text(fw, status_y, pos, colors.TEXT_DIM)
+        display.draw_text(fw, status_y, pos, colors.TEXT_SECONDARY)
     end
 end
 

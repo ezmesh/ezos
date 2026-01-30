@@ -6,7 +6,13 @@ local Messages = {
     selected = 1,
     scroll_offset = 0,
     visible_items = 5,
-    conversations = {}
+    conversations = {},
+    -- Auto-refresh tracking
+    last_refresh = 0,
+    refresh_interval = 1000,  -- Check every 1 second
+    needs_refresh = false,
+    last_count = 0,
+    last_unread = 0,
 }
 
 function Messages:new()
@@ -14,7 +20,12 @@ function Messages:new()
         title = self.title,
         selected = 1,
         scroll_offset = 0,
-        conversations = {}
+        conversations = {},
+        last_refresh = 0,
+        refresh_interval = 1000,
+        needs_refresh = false,
+        last_count = 0,
+        last_unread = 0,
     }
     setmetatable(o, {__index = Messages})
     return o
@@ -22,57 +33,74 @@ end
 
 function Messages:on_enter()
     self:refresh_conversations()
+    -- Store initial counts for change detection
+    self.last_count = #self.conversations
+    self.last_unread = self:_count_unread()
+end
+
+-- Force refresh on next render (called externally when messages arrive)
+function Messages:mark_needs_refresh()
+    self.needs_refresh = true
+end
+
+-- Count total unread messages across all conversations
+function Messages:_count_unread()
+    local total = 0
+    for _, conv in ipairs(self.conversations) do
+        total = total + (conv.unread_count or 0)
+    end
+    return total
+end
+
+-- Check for new conversations or messages (called during render)
+function Messages:check_new_conversations()
+    local now = tdeck.system.millis()
+    local force = self.needs_refresh
+    self.needs_refresh = false
+
+    -- Throttle unless forced
+    if not force and (now - self.last_refresh < self.refresh_interval) then
+        return false
+    end
+    self.last_refresh = now
+
+    if not _G.DirectMessages then return false end
+
+    -- Get current state
+    local current_convs = _G.DirectMessages.get_conversations()
+    local current_count = #current_convs
+    local current_unread = 0
+    for _, conv in ipairs(current_convs) do
+        current_unread = current_unread + (conv.unread_count or 0)
+    end
+
+    -- Check if anything changed
+    local changed = force or
+                    current_count ~= self.last_count or
+                    current_unread ~= self.last_unread
+
+    if changed then
+        self:refresh_conversations()
+        self.last_count = #self.conversations
+        self.last_unread = self:_count_unread()
+        return true
+    end
+    return false
 end
 
 function Messages:refresh_conversations()
     self.conversations = {}
 
-    if not tdeck.mesh.is_initialized() then
+    -- Use DirectMessages service if available
+    if _G.DirectMessages then
+        self.conversations = _G.DirectMessages.get_conversations()
         return
     end
 
-    -- Get direct messages and group by sender
-    local messages = tdeck.mesh.get_direct_messages()
-    local nodes = tdeck.mesh.get_nodes()
-
-    -- Create a map for quick node lookup
-    local node_map = {}
-    for _, node in ipairs(nodes) do
-        node_map[node.path_hash] = node.name
+    -- Fallback: no DirectMessages service
+    if not tdeck.mesh.is_initialized() then
+        return
     end
-
-    -- Group messages by sender
-    local conv_map = {}
-    for _, msg in ipairs(messages) do
-        local hash = msg.from_hash
-        if not conv_map[hash] then
-            conv_map[hash] = {
-                path_hash = hash,
-                name = node_map[hash] or string.format("%02X", hash % 256),
-                last_message = msg.text,
-                last_timestamp = msg.timestamp,
-                unread_count = msg.is_read and 0 or 1
-            }
-        else
-            local conv = conv_map[hash]
-            if msg.timestamp > conv.last_timestamp then
-                conv.last_message = msg.text
-                conv.last_timestamp = msg.timestamp
-            end
-            if not msg.is_read then
-                conv.unread_count = conv.unread_count + 1
-            end
-        end
-    end
-
-    -- Convert map to array and sort by timestamp
-    for _, conv in pairs(conv_map) do
-        table.insert(self.conversations, conv)
-    end
-
-    table.sort(self.conversations, function(a, b)
-        return a.last_timestamp > b.last_timestamp
-    end)
 end
 
 function Messages:format_time(timestamp)
@@ -93,6 +121,9 @@ end
 function Messages:render(display)
     local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
 
+    -- Check for new conversations or messages
+    self:check_new_conversations()
+
     -- Fill background with theme wallpaper
     if _G.ThemeManager then
         _G.ThemeManager.draw_background(display)
@@ -108,8 +139,8 @@ function Messages:render(display)
     local fh = display.get_font_height()
 
     if #self.conversations == 0 then
-        display.draw_text_centered(6 * fh, "No messages yet", colors.TEXT_DIM)
-        display.draw_text_centered(8 * fh, "Use app menu to compose", colors.TEXT_DIM)
+        display.draw_text_centered(6 * fh, "No messages yet", colors.TEXT_SECONDARY)
+        display.draw_text_centered(8 * fh, "Use app menu to compose", colors.TEXT_SECONDARY)
     else
         local y = 2
         for i = 1, self.visible_items do
@@ -124,42 +155,37 @@ function Messages:render(display)
                 display.fill_rect(display.font_width, py,
                                 (display.cols - 2) * display.font_width,
                                 fh * 2,
-                                colors.SELECTION)
+                                colors.SURFACE_ALT)
                 -- Draw chevron selection indicator (centered in double-height row)
                 local chevron_y = py + math.floor((fh * 2 - 9) / 2)
                 if _G.Icons and _G.Icons.draw_chevron_right then
-                    _G.Icons.draw_chevron_right(display, display.font_width, chevron_y, colors.CYAN, colors.SELECTION)
+                    _G.Icons.draw_chevron_right(display, display.font_width, chevron_y, colors.ACCENT, colors.SURFACE_ALT)
                 else
-                    display.draw_text(display.font_width, py, ">", colors.CYAN)
+                    display.draw_text(display.font_width, py, ">", colors.ACCENT)
                 end
             end
 
             -- Name and time
             local name_color
             if is_selected then
-                name_color = colors.CYAN
+                name_color = colors.ACCENT
             elseif conv.unread_count > 0 then
-                name_color = colors.ORANGE
+                name_color = colors.WARNING
             else
                 name_color = colors.TEXT
             end
 
             display.draw_text(3 * display.font_width, py, conv.name, name_color)
 
-            -- Time ago
-            local time_str = self:format_time(conv.last_timestamp)
-            local time_x = display.cols - 2 - #time_str
-            display.draw_text(time_x * display.font_width, py, time_str, colors.TEXT_DIM)
-
-            -- Unread badge
+            -- Unread badge (right-aligned)
             if conv.unread_count > 0 then
                 local badge = string.format("(%d)", conv.unread_count)
-                local badge_x = time_x - #badge - 1
-                display.draw_text(badge_x * display.font_width, py, badge, colors.ORANGE)
+                local badge_x = display.cols - 2 - #badge
+                display.draw_text(badge_x * display.font_width, py, badge, colors.WARNING)
             end
 
             -- Message preview
-            local preview_color = is_selected and colors.CYAN or colors.TEXT_DIM
+            local preview_color = is_selected and colors.ACCENT or colors.TEXT_SECONDARY
             local max_preview = display.cols - 6
             local preview = conv.last_message
             if #preview > max_preview then
@@ -172,11 +198,11 @@ function Messages:render(display)
 
         -- Scroll indicators
         if self.scroll_offset > 0 then
-            display.draw_text((display.cols - 1) * display.font_width, 2 * fh, "^", colors.TEXT_DIM)
+            display.draw_text((display.cols - 1) * display.font_width, 2 * fh, "^", colors.TEXT_SECONDARY)
         end
         if self.scroll_offset + self.visible_items < #self.conversations then
             display.draw_text((display.cols - 1) * display.font_width,
-                            (2 + self.visible_items * 2 - 1) * fh, "v", colors.TEXT_DIM)
+                            (2 + self.visible_items * 2 - 1) * fh, "v", colors.TEXT_SECONDARY)
         end
     end
 end
@@ -223,14 +249,26 @@ function Messages:open_conversation()
     if #self.conversations == 0 then return end
 
     local conv = self.conversations[self.selected]
-    local ConversationView = load_module("/scripts/ui/screens/conversation_view.lua")
-    ScreenManager.push(ConversationView:new(conv.path_hash, conv.name))
+    local pub_key_hex = conv.pub_key_hex
+    local name = conv.name
+
+    load_module_async("/scripts/ui/screens/dm_conversation.lua", function(DMConversation, err)
+        if DMConversation then
+            ScreenManager.push(DMConversation:new(pub_key_hex, name))
+        end
+    end)
 end
 
 function Messages:compose_new()
-    -- For now, just open broadcast compose
-    local Compose = load_module("/scripts/ui/screens/compose.lua")
-    ScreenManager.push(Compose:new())
+    -- Open contacts screen to select who to message
+    load_module_async("/scripts/ui/screens/contacts.lua", function(ContactsScreen, err)
+        if ContactsScreen then
+            ScreenManager.push(ContactsScreen:new())
+            if _G.MessageBox then
+                _G.MessageBox.show({title = "Select a contact", subtitle = "Press M to message"})
+            end
+        end
+    end)
 end
 
 -- Menu items for app menu integration
@@ -242,14 +280,6 @@ function Messages:get_menu_items()
         label = "Compose",
         action = function()
             self_ref:compose_new()
-        end
-    })
-
-    table.insert(items, {
-        label = "Refresh",
-        action = function()
-            self_ref:refresh_conversations()
-            ScreenManager.invalidate()
         end
     })
 

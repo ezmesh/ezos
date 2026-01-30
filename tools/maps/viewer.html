@@ -355,19 +355,12 @@
         return tileCanvas;
     }
 
-    // Load labels for a tile
-    function getLabelsForTile(zoom, tileX, tileY) {
-        const key = `${zoom}/${tileX}/${tileY}`;
-        if (labelCache.has(key)) return labelCache.get(key);
+    // Load raw labels for a specific label index entry
+    // New v3 format: pixel_x(1) + pixel_y(1) + zoom_min(1) + zoom_max(1) + label_type(1) + text_len(1) + text
+    function loadLabelsFromIndex(idx) {
+        const cacheKey = `raw/${idx.zoomMin}/${idx.tileX}/${idx.tileY}`;
+        if (labelCache.has(cacheKey)) return labelCache.get(cacheKey);
 
-        // Find label index entry for this tile
-        const idx = archive.labelIndex.find(l => l.zoomMin === zoom && l.tileX === tileX && l.tileY === tileY);
-        if (!idx || idx.count === 0) {
-            labelCache.set(key, []);
-            return [];
-        }
-
-        // Read labels
         const labels = [];
         const dv = new DataView(archive.buffer);
         let offset = idx.offset;
@@ -375,14 +368,77 @@
         for (let i = 0; i < idx.count; i++) {
             const pixelX = readU8(dv, offset);
             const pixelY = readU8(dv, offset + 1);
-            const zoomMax = readU8(dv, offset + 2);
-            const labelType = readU8(dv, offset + 3);
-            const textLen = readU8(dv, offset + 4);
-            const textBytes = new Uint8Array(archive.buffer, offset + 5, textLen);
+            const zoomMin = readU8(dv, offset + 2);  // Visibility threshold
+            const zoomMax = readU8(dv, offset + 3);
+            const labelType = readU8(dv, offset + 4);
+            const textLen = readU8(dv, offset + 5);
+            const textBytes = new Uint8Array(archive.buffer, offset + 6, textLen);
             const text = new TextDecoder().decode(textBytes);
 
-            labels.push({ pixelX, pixelY, zoomMax, labelType, text, tileX, tileY, zoomMin: zoom });
-            offset += 5 + textLen;
+            labels.push({ pixelX, pixelY, zoomMin, zoomMax, labelType, text,
+                          tileX: idx.tileX, tileY: idx.tileY, extractionZoom: idx.zoomMin });
+            offset += 6 + textLen;
+        }
+
+        labelCache.set(cacheKey, labels);
+        return labels;
+    }
+
+    // Load labels for a tile
+    // Labels are indexed by extraction_zoom (tile coordinate level)
+    // Each label has its own zoom_min (visibility threshold)
+    function getLabelsForTile(zoom, tileX, tileY) {
+        const key = `${zoom}/${tileX}/${tileY}`;
+        if (labelCache.has(key)) return labelCache.get(key);
+
+        const labels = [];
+        const minDataZoom = archive.header.minZoom;
+        const maxDataZoom = archive.header.maxZoom;
+
+        // Check each zoom level from minZoom to current zoom for parent tiles with labels
+        for (let checkZoom = minDataZoom; checkZoom <= Math.min(maxDataZoom, zoom); checkZoom++) {
+            // Calculate which tile at checkZoom contains the current tile
+            const zoomDiff = zoom - checkZoom;
+            const checkX = tileX >> zoomDiff;
+            const checkY = tileY >> zoomDiff;
+
+            // Binary search for this tile in label index (indexed by extraction_zoom)
+            const idx = archive.labelIndex.find(l =>
+                l.zoomMin === checkZoom && l.tileX === checkX && l.tileY === checkY);
+
+            if (!idx || idx.count === 0) continue;
+
+            // Load labels from this index entry
+            const parentLabels = loadLabelsFromIndex(idx);
+
+            // Scale factor from extraction zoom to current zoom
+            const scale = 1 << zoomDiff;
+
+            // Which sub-tile within the parent are we viewing
+            const subTileX = tileX - (checkX << zoomDiff);
+            const subTileY = tileY - (checkY << zoomDiff);
+
+            for (const label of parentLabels) {
+                // Check visibility: zoom_min <= current_zoom <= zoom_max
+                if (zoom < label.zoomMin || zoom > label.zoomMax) continue;
+
+                // Scale pixel coordinates from extraction zoom to current zoom
+                const scaledPixelX = label.pixelX * scale;
+                const scaledPixelY = label.pixelY * scale;
+
+                // Calculate position within current tile
+                const localX = scaledPixelX - subTileX * TILE_SIZE;
+                const localY = scaledPixelY - subTileY * TILE_SIZE;
+
+                // Only include if the label falls within this tile
+                if (localX >= 0 && localX < TILE_SIZE && localY >= 0 && localY < TILE_SIZE) {
+                    labels.push({
+                        ...label,
+                        pixelX: localX,
+                        pixelY: localY
+                    });
+                }
+            }
         }
 
         labelCache.set(key, labels);

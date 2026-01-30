@@ -60,7 +60,7 @@ function MainLoop.exit_game_mode()
     MainLoop.gc_enabled = true
     MainLoop.mesh_update_interval = MainLoop.mesh_interval_normal
     if _G.StatusBar then _G.StatusBar.enable() end
-    collectgarbage("collect")
+    run_gc("collect", "exit-game-mode")
 end
 
 -- Single update iteration
@@ -73,6 +73,11 @@ function MainLoop.step()
             tdeck.mesh.update()
         end
         MainLoop.last_mesh_update = now
+    end
+
+    -- Process scheduled services and timers
+    if _G.Scheduler then
+        _G.Scheduler.update()
     end
 
     -- Process keyboard input and render via screen manager
@@ -90,7 +95,7 @@ function MainLoop.step()
 
     -- Periodic incremental garbage collection (can be disabled for games)
     if MainLoop.gc_enabled and now - MainLoop.last_gc >= MainLoop.gc_interval then
-        collectgarbage("step", 10)  -- Small incremental step
+        run_gc("step", nil, 10)  -- Small incremental step, no context to reduce log noise
         MainLoop.last_gc = now
     end
 
@@ -99,7 +104,7 @@ function MainLoop.step()
 end
 
 -- Start the Lua main loop
--- This registers with C++ to take over the main loop
+-- Sets global main_loop function that C++ calls each frame
 function MainLoop.start()
     if MainLoop.running then
         tdeck.system.log("[MainLoop] Already running")
@@ -113,28 +118,26 @@ function MainLoop.start()
 
     MainLoop.running = true
 
-    -- Register with C++ to receive main loop control
-    tdeck.system.set_main_loop(function()
+    -- Set global function that C++ will call each frame
+    _G.main_loop = function()
         if MainLoop.running then
             MainLoop.step()
         end
-    end)
+    end
 
-    tdeck.system.log("[MainLoop] Started - Lua now controls main loop")
+    tdeck.system.log("[MainLoop] Started")
 end
 
--- Stop the Lua main loop (revert to C++ control)
+-- Stop the Lua main loop
 function MainLoop.stop()
     if not MainLoop.running then
         return
     end
 
     MainLoop.running = false
+    _G.main_loop = nil
 
-    -- Unregister from C++
-    tdeck.system.set_main_loop(nil)
-
-    tdeck.system.log("[MainLoop] Stopped - C++ regains control")
+    tdeck.system.log("[MainLoop] Stopped")
 end
 
 return MainLoop

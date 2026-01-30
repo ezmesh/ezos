@@ -59,7 +59,7 @@ function ChannelCompose:render(display)
     -- Character count
     local count_str = string.format("%d/%d", #self.text, self.max_length)
     local count_x = display.cols - #count_str - 2
-    local count_color = #self.text > self.max_length - 20 and colors.ORANGE or colors.TEXT_DIM
+    local count_color = #self.text > self.max_length - 20 and colors.WARNING or colors.TEXT_SECONDARY
     display.draw_text(count_x * fw, fh, count_str, count_color)
 
     -- Text area
@@ -68,7 +68,7 @@ function ChannelCompose:render(display)
     local text_area_width_px = (display.cols - 3) * fw
 
     -- Background for text area
-    display.fill_rect(fw, text_area_y * fh, (display.cols - 2) * fw, text_area_height * fh, colors.DARK_GRAY)
+    display.fill_rect(fw, text_area_y * fh, (display.cols - 2) * fw, text_area_height * fh, colors.SURFACE)
 
     -- Render text with word wrap using pixel-based measurement
     local line_num = 0        -- Current line number (0-indexed)
@@ -104,7 +104,7 @@ function ChannelCompose:render(display)
     if self.cursor_visible and line_num < text_area_height then
         local cy = (text_area_y + line_num) * fh
         local cx = 2 * fw + cursor_x_px
-        display.draw_text(cx, cy, "_", colors.CYAN)
+        display.draw_text(cx, cy, "_", colors.ACCENT)
     end
 end
 

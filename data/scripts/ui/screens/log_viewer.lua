@@ -54,7 +54,7 @@ function LogViewer:render(display)
         info = info .. " [AUTO]"
     end
     -- Draw info in top right corner, aligned with title
-    display.draw_text(w - display.text_width(info) - 4, 4, info, colors.TEXT_DIM)
+    display.draw_text(w - display.text_width(info) - 4, 4, info, colors.TEXT_SECONDARY)
 
     -- Log area starts below title bar
     local log_y = _G.ThemeManager and _G.ThemeManager.LIST_START_Y or 31
@@ -72,11 +72,11 @@ function LogViewer:render(display)
         -- Color based on level
         local color = colors.TEXT
         if entry:find(" ERR ") then
-            color = colors.RED
+            color = colors.ERROR
         elseif entry:find(" WRN ") then
-            color = colors.YELLOW
+            color = colors.WARNING
         elseif entry:find(" DBG ") then
-            color = colors.DARK_GRAY
+            color = colors.TEXT_MUTED
         end
 
         -- Truncate for display
@@ -92,13 +92,13 @@ function LogViewer:render(display)
     if total > self.visible_lines then
         local bar_h = math.max(10, (self.visible_lines / total) * (h - log_y - 30))
         local bar_y = log_y + (self.scroll_offset / (total - self.visible_lines)) * (h - log_y - 30 - bar_h)
-        display.fill_rect(w - 4, bar_y, 2, bar_h, colors.DARK_GRAY)
+        display.fill_rect(w - 4, bar_y, 2, bar_h, colors.SURFACE)
     end
 
     -- Help
     local help_y = h - 14
     display.fill_rect(0, help_y - 2, w, 16, colors.BLACK)
-    display.draw_text(4, help_y, "Up/Dn=Scroll  A=Auto  C=Clear  Bksp=Back", colors.TEXT_DIM)
+    display.draw_text(4, help_y, "Up/Dn=Scroll  A=Auto  C=Clear  Bksp=Back", colors.TEXT_SECONDARY)
 
     -- Reset font size
     display.set_font_size("medium")

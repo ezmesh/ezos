@@ -32,6 +32,12 @@ enum class KeyboardMode : uint8_t {
     RAW = 1      // Keyboard sends raw matrix state, host processes keys
 };
 
+// Trackball input mode
+enum class TrackballMode : uint8_t {
+    POLLING = 0,           // Poll GPIO pins each read() call (default)
+    INTERRUPT_DRIVEN = 1   // Use GPIO interrupts, accumulate in ISRs
+};
+
 // Keyboard event structure
 struct KeyEvent {
     char character;         // ASCII character, or 0 if special key
@@ -153,16 +159,9 @@ public:
     bool getAdaptiveScrolling() const { return _adaptiveScrolling; }
     void setAdaptiveScrolling(bool enabled) { _adaptiveScrolling = enabled; }
 
-    // Tick-based scrolling (accumulates movement and emits on fixed clock)
-    bool getTickBasedScrolling() const { return _tickBasedScrolling; }
-    void setTickBasedScrolling(bool enabled) { _tickBasedScrolling = enabled; }
-
-    uint16_t getScrollTickInterval() const { return _scrollTickInterval; }
-    void setScrollTickInterval(uint16_t intervalMs) {
-        if (intervalMs < 20) intervalMs = 20;
-        if (intervalMs > 500) intervalMs = 500;
-        _scrollTickInterval = intervalMs;
-    }
+    // Trackball input mode (polling vs interrupt)
+    TrackballMode getTrackballMode() const { return _trackballMode; }
+    void setTrackballMode(TrackballMode mode);
 
     // Key repeat settings
     bool getKeyRepeatEnabled() const { return _keyRepeatEnabled; }
@@ -210,12 +209,8 @@ private:
     uint32_t _lastScrollTime = 0;         // Timestamp of last scroll event
     int8_t _adaptiveThreshold = 0;        // Current adaptive threshold (0 = use base)
 
-    // Tick-based scrolling state
-    bool _tickBasedScrolling = false;     // Emit events on fixed clock instead of immediately
-    uint16_t _scrollTickInterval = 100;   // Interval between scroll ticks (ms)
-    uint32_t _lastScrollTick = 0;         // Timestamp of last scroll tick
-    int8_t _pendingScrollX = 0;           // Accumulated X movement for tick
-    int8_t _pendingScrollY = 0;           // Accumulated Y movement for tick
+    // Trackball mode
+    TrackballMode _trackballMode = TrackballMode::POLLING;
 
     // Key repeat state
     bool _keyRepeatEnabled = true;        // Enable key repeat

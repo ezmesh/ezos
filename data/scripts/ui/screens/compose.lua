@@ -63,16 +63,16 @@ function Compose:render(display)
     local fh = display.get_font_height()
 
     -- Channel line
-    display.draw_text(fw, 2 * fh, "To:", colors.TEXT_DIM)
-    display.draw_text(5 * fw, 2 * fh, self.channel, colors.CYAN)
+    display.draw_text(fw, 2 * fh, "To:", colors.TEXT_SECONDARY)
+    display.draw_text(5 * fw, 2 * fh, self.channel, colors.ACCENT)
 
     -- Message label
-    display.draw_text(fw, 4 * fh, "Message:", colors.TEXT_DIM)
+    display.draw_text(fw, 4 * fh, "Message:", colors.TEXT_SECONDARY)
 
     -- Character count
     local count_str = string.format("%d/%d", #self.text, self.max_length)
     local count_x = display.cols - 2 - #count_str
-    local count_color = #self.text > self.max_length - 20 and colors.ORANGE or colors.TEXT_DIM
+    local count_color = #self.text > self.max_length - 20 and colors.WARNING or colors.TEXT_SECONDARY
     display.draw_text(count_x * fw, 4 * fh, count_str, count_color)
 
     -- Text area
@@ -82,7 +82,7 @@ function Compose:render(display)
     local text_area_width_px = text_area_width_chars * fw
 
     -- Draw text area background
-    display.fill_rect(fw, text_area_y * fh, text_area_width_px, text_area_height * fh, colors.DARK_GRAY)
+    display.fill_rect(fw, text_area_y * fh, text_area_width_px, text_area_height * fh, colors.SURFACE)
 
     -- Render message with word wrap using pixel-based measurement
     local line_x_px = 0  -- Current x position in pixels on current line
@@ -124,12 +124,12 @@ function Compose:render(display)
     if self.cursor_visible and cursor_y >= self.scroll_offset and cursor_y < self.scroll_offset + text_area_height then
         local cx = fw + cursor_x_px
         local cy = (text_area_y + cursor_y - self.scroll_offset) * fh
-        display.fill_rect(cx, cy, 2, fh, colors.CYAN)
+        display.fill_rect(cx, cy, 2, fh, colors.ACCENT)
     end
 
     -- Scroll indicator
     if self.scroll_offset > 0 then
-        display.draw_text((display.cols - 2) * fw, text_area_y * fh, "^", colors.CYAN)
+        display.draw_text((display.cols - 2) * fw, text_area_y * fh, "^", colors.ACCENT)
     end
 end
 

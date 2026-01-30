@@ -216,6 +216,7 @@ RadioResult Radio::send(const uint8_t* data, size_t len) {
     int state = _radio->transmit(const_cast<uint8_t*>(data), len);
 
     _transmitting = false;
+    _lastTxTime = millis();
 
     if (state != RADIOLIB_ERR_NONE) {
         Serial.printf("TX failed with code: %d\n", state);
@@ -223,6 +224,51 @@ RadioResult Radio::send(const uint8_t* data, size_t len) {
     }
 
     return RadioResult::OK;
+}
+
+RadioResult Radio::queueSend(const uint8_t* data, size_t len) {
+    if (!_initialized) return RadioResult::ERROR_INIT;
+    if (len == 0 || len > 255) return RadioResult::ERROR_PARAM;
+
+    if (_txQueue.size() >= TX_QUEUE_MAX_SIZE) {
+        Serial.println("[Radio] TX queue full, dropping packet");
+        return RadioResult::ERROR_QUEUE_FULL;
+    }
+
+    QueuedTxPacket pkt;
+    memcpy(pkt.data, data, len);
+    pkt.len = len;
+    pkt.queuedAt = millis();
+
+    _txQueue.push_back(pkt);
+    return RadioResult::OK;
+}
+
+void Radio::processQueue() {
+    if (_txQueue.empty()) return;
+    if (_transmitting) return;
+
+    uint32_t now = millis();
+
+    // Respect throttle interval
+    if (now - _lastTxTime < _throttleIntervalMs) {
+        return;
+    }
+
+    // Send the next packet
+    QueuedTxPacket& pkt = _txQueue.front();
+
+    RadioResult result = send(pkt.data, pkt.len);
+    if (result == RadioResult::OK) {
+        _txQueue.pop_front();
+    } else {
+        // On error, still remove to prevent infinite retry
+        Serial.printf("[Radio] Queue send failed, dropping packet\n");
+        _txQueue.pop_front();
+    }
+
+    // Restart receive mode after transmitting
+    startReceive();
 }
 
 RadioResult Radio::startReceive() {

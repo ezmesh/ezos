@@ -199,8 +199,8 @@ function Snake:draw_food(display, x, y)
     local py = self.GRID_Y + y * self.CELL_SIZE
     local size = self.CELL_SIZE - 1
 
-    -- Draw apple with highlight
-    display.fill_rect(px, py, size, size, colors.RED)
+    -- Draw apple with highlight (red color for visual appearance, not semantic)
+    display.fill_rect(px, py, size, size, 0xF800)
     -- Stem
     display.fill_rect(px + math.floor(size/2), py - 1, 2, 2, 0x0400)  -- Dark green stem
     -- Highlight
@@ -216,17 +216,13 @@ function Snake:render(display)
     -- Black background (no wallpaper for games - faster)
     display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
 
-    -- Score at top
+    -- Score at top (centered)
     local score_text = string.format("Score: %d", self.score)
-    display.draw_text(10, 5, score_text, colors.WHITE)
-
-    -- Speed indicator
-    local speed_text = string.format("Speed: %d", 200 - self.speed)
-    display.draw_text(display.width - 80, 5, speed_text, colors.TEXT_DIM)
+    display.draw_text_centered(5, score_text, colors.WHITE)
 
     -- Draw grid border
     local grid_w = self.GRID_SIZE * self.CELL_SIZE
-    display.draw_rect(self.GRID_X - 1, self.GRID_Y - 1, grid_w + 2, grid_w + 2, colors.DARK_GRAY)
+    display.draw_rect(self.GRID_X - 1, self.GRID_Y - 1, grid_w + 2, grid_w + 2, colors.TEXT_SECONDARY)
 
     -- Draw subtle grid background
     for y = 0, self.GRID_SIZE - 1 do
@@ -245,7 +241,7 @@ function Snake:render(display)
     -- Draw snake
     for i, seg in ipairs(self.snake) do
         local is_head = (i == 1)
-        local color = is_head and colors.CYAN or 0x07C0  -- Cyan head, green body
+        local color = is_head and colors.ACCENT or 0x07C0  -- Accent head, green body
         self:draw_cell(display, seg.x, seg.y, color, is_head)
     end
 
@@ -254,17 +250,21 @@ function Snake:render(display)
         -- Semi-transparent overlay
         local msg_y = display.height / 2 - 20
         display.fill_rect(0, msg_y - 10, display.width, 60, 0x0000)
-        display.draw_text_centered(msg_y, "GAME OVER!", colors.RED)
-        display.draw_text_centered(msg_y + 20, "[Enter] Restart  [Q] Quit", colors.TEXT_DIM)
+        display.draw_text_centered(msg_y, "GAME OVER!", colors.ERROR)
+        display.set_font_size("small")
+        display.draw_text_centered(msg_y + 20, "[Enter] Restart  [Q] Quit", colors.TEXT_SECONDARY)
+        display.set_font_size("medium")
     elseif self.paused then
         local msg_y = display.height / 2 - 10
         display.fill_rect(0, msg_y - 10, display.width, 40, 0x0000)
-        display.draw_text_centered(msg_y, "PAUSED", colors.CYAN)
-        display.draw_text_centered(msg_y + 20, "[P] Resume  [Q] Quit", colors.TEXT_DIM)
+        display.draw_text_centered(msg_y, "PAUSED", colors.ACCENT)
+        display.set_font_size("small")
+        display.draw_text_centered(msg_y + 20, "[P] Resume  [Q] Quit", colors.TEXT_SECONDARY)
+        display.set_font_size("medium")
     else
         -- Help bar at bottom
         display.draw_text(10, display.height - 15,
-                        "[Arrows/WASD] Move [P]ause [Q]uit", colors.TEXT_DIM)
+                        "[Arrows/WASD] Move [P]ause [Q]uit", colors.TEXT_SECONDARY)
     end
 
     -- Request continuous redraws for animation
@@ -292,7 +292,7 @@ function Snake:handle_key(key)
         end
     elseif key.special == "ENTER" then
         if self.game_over then
-            collectgarbage("collect")  -- Clean up before restart
+            run_gc("collect", "snake-restart")
             self:reset_game()
             ScreenManager.invalidate()
         end

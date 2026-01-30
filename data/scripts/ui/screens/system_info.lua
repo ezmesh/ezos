@@ -71,7 +71,7 @@ function SystemInfo:render(display)
 
     -- Battery
     local battery = tdeck.system.get_battery_percent()
-    local batt_color = battery > 20 and colors.GREEN or colors.RED
+    local batt_color = battery > 20 and colors.SUCCESS or colors.ERROR
     display.draw_text(x, y, string.format("Battery: %d%%", battery), batt_color)
     y = y + fh
 

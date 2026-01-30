@@ -38,14 +38,17 @@ LABEL_HEADER_FORMAT_V2 = "<BBHHBBB"
 LABEL_HEADER_SIZE_V2 = 9  # Fixed part before text_len
 
 # Label entry format v3 (variable size) - stored per-tile, no tile coords needed
-# pixel_x(1) + pixel_y(1) + zoom_max(1) + label_type(1) + text_len(1) + text(variable)
-# = 5 + text_len bytes (smaller since tile coords are in index)
-LABEL_FORMAT_V3 = "<BBBBB"
-LABEL_SIZE_V3 = 5  # Fixed part including text_len
+# pixel_x(1) + pixel_y(1) + zoom_min(1) + zoom_max(1) + label_type(1) + text_len(1) + text(variable)
+# = 6 + text_len bytes
+# NOTE: zoom_min is visibility threshold (when to start showing), stored per-label
+# The index uses extraction_zoom (tile coordinate level), not zoom_min
+LABEL_FORMAT_V3 = "<BBBBB"  # pixel_x, pixel_y, zoom_min, zoom_max, label_type
+LABEL_SIZE_V3 = 5  # Fixed part before text_len
 
 # Tile-label index entry format v3 (11 bytes per entry, same as tile index)
-# zoom_min(1) + tile_x(2) + tile_y(2) + offset(4) + count(2) = 11 bytes
-# Sorted by (zoom_min, tile_x, tile_y) for binary search
+# zoom(1) + tile_x(2) + tile_y(2) + offset(4) + count(2) = 11 bytes
+# NOTE: 'zoom' is the extraction zoom (tile coordinate level), NOT zoom_min (visibility)
+# Sorted by (zoom, tile_x, tile_y) for binary search
 LABEL_INDEX_FORMAT = "<BHHIH"
 LABEL_INDEX_SIZE = 11
 
@@ -65,7 +68,12 @@ class TileEntry:
 
 
 class LabelEntry:
-    """Represents a text label in the archive."""
+    """Represents a text label in the archive.
+
+    Note: tile_x/tile_y are at extraction_zoom level (or zoom_min for legacy).
+    extraction_zoom is the zoom level where the label was extracted from the vector tile.
+    zoom_min is the minimum zoom level where the label should be visible.
+    """
 
     def __init__(
         self,
@@ -76,7 +84,8 @@ class LabelEntry:
         pixel_x: int,
         pixel_y: int,
         label_type: int,
-        text: str
+        text: str,
+        extraction_zoom: int = None  # Zoom level of tile_x/tile_y coordinates
     ):
         self.zoom_min = zoom_min
         self.zoom_max = zoom_max
@@ -86,27 +95,37 @@ class LabelEntry:
         self.pixel_y = pixel_y
         self.label_type = label_type
         self.text = text
+        # extraction_zoom defaults to zoom_min for backward compatibility
+        self.extraction_zoom = extraction_zoom if extraction_zoom is not None else zoom_min
 
     def pack_v3(self) -> bytes:
-        """Pack label to v3 format (per-tile storage, no tile coords)."""
+        """Pack label to v3 format (per-tile storage, includes zoom_min for visibility)."""
         text_bytes = self.text.encode('utf-8')[:255]
         return struct.pack(
             LABEL_FORMAT_V3,
             self.pixel_x,
             self.pixel_y,
-            self.zoom_max,
+            self.zoom_min,     # Visibility threshold (when to start showing)
+            self.zoom_max,     # Visibility ceiling (when to stop showing)
             self.label_type,
-            len(text_bytes)
-        ) + text_bytes
+        ) + struct.pack('B', len(text_bytes)) + text_bytes
 
     @classmethod
-    def unpack_v3(cls, data: bytes, offset: int, zoom_min: int, tile_x: int, tile_y: int) -> Tuple['LabelEntry', int]:
-        """Unpack label from v3 format, returns (entry, bytes_consumed)."""
-        pixel_x, pixel_y, zoom_max, label_type, text_len = struct.unpack_from(LABEL_FORMAT_V3, data, offset)
-        text_start = offset + LABEL_SIZE_V3
+    def unpack_v3(cls, data: bytes, offset: int, extraction_zoom: int, tile_x: int, tile_y: int) -> Tuple['LabelEntry', int]:
+        """Unpack label from v3 format, returns (entry, bytes_consumed).
+
+        Args:
+            data: Raw bytes
+            offset: Offset into data
+            extraction_zoom: Zoom level of tile coordinates (from index)
+            tile_x, tile_y: Tile coordinates (from index)
+        """
+        pixel_x, pixel_y, zoom_min, zoom_max, label_type = struct.unpack_from(LABEL_FORMAT_V3, data, offset)
+        text_len = data[offset + LABEL_SIZE_V3]
+        text_start = offset + LABEL_SIZE_V3 + 1
         text = data[text_start:text_start + text_len].decode('utf-8', errors='replace')
-        entry = cls(zoom_min, zoom_max, tile_x, tile_y, pixel_x, pixel_y, label_type, text)
-        return entry, LABEL_SIZE_V3 + text_len
+        entry = cls(zoom_min, zoom_max, tile_x, tile_y, pixel_x, pixel_y, label_type, text, extraction_zoom)
+        return entry, LABEL_SIZE_V3 + 1 + text_len
 
     def pack_v2(self) -> bytes:
         """Pack label to v2 format (legacy, one big array)."""
@@ -140,25 +159,29 @@ class LabelEntry:
 
 
 class TileLabelIndex:
-    """Index entry for labels belonging to a specific tile."""
+    """Index entry for labels belonging to a specific tile.
 
-    def __init__(self, zoom_min: int, tile_x: int, tile_y: int, offset: int = 0, count: int = 0):
-        self.zoom_min = zoom_min
+    Note: 'zoom' is the extraction zoom (tile coordinate level), NOT zoom_min (visibility threshold).
+    Labels store their own zoom_min for visibility filtering.
+    """
+
+    def __init__(self, zoom: int, tile_x: int, tile_y: int, offset: int = 0, count: int = 0):
+        self.zoom = zoom      # Extraction zoom (tile coordinate level)
         self.tile_x = tile_x
         self.tile_y = tile_y
         self.offset = offset  # Offset in label data section
         self.count = count    # Number of labels for this tile
 
     def pack(self) -> bytes:
-        return struct.pack(LABEL_INDEX_FORMAT, self.zoom_min, self.tile_x, self.tile_y, self.offset, self.count)
+        return struct.pack(LABEL_INDEX_FORMAT, self.zoom, self.tile_x, self.tile_y, self.offset, self.count)
 
     @classmethod
     def unpack(cls, data: bytes, offset: int = 0) -> 'TileLabelIndex':
-        zoom_min, tile_x, tile_y, lbl_offset, count = struct.unpack_from(LABEL_INDEX_FORMAT, data, offset)
-        return cls(zoom_min, tile_x, tile_y, lbl_offset, count)
+        zoom, tile_x, tile_y, lbl_offset, count = struct.unpack_from(LABEL_INDEX_FORMAT, data, offset)
+        return cls(zoom, tile_x, tile_y, lbl_offset, count)
 
     def __repr__(self):
-        return f"TileLabelIndex(z={self.zoom_min}, tile=({self.tile_x},{self.tile_y}), off={self.offset}, cnt={self.count})"
+        return f"TileLabelIndex(z={self.zoom}, tile=({self.tile_x},{self.tile_y}), off={self.offset}, cnt={self.count})"
 
 
 class TDMAPWriter:
@@ -203,24 +226,29 @@ class TDMAPWriter:
         pixel_x: int,
         pixel_y: int,
         label_type: int,
-        text: str
+        text: str,
+        extraction_zoom: int = None
     ):
         """
         Add a text label to the archive.
 
         Args:
-            zoom_min: Minimum zoom level to show label
+            zoom_min: Minimum zoom level to show label (visibility threshold)
             zoom_max: Maximum zoom level to show label
-            tile_x: Tile X coordinate (at zoom_min)
-            tile_y: Tile Y coordinate (at zoom_min)
+            tile_x: Tile X coordinate (at extraction_zoom level)
+            tile_y: Tile Y coordinate (at extraction_zoom level)
             pixel_x: X position within tile (0-255)
             pixel_y: Y position within tile (0-255)
             label_type: Label type (city, town, road, etc.)
             text: Label text
+            extraction_zoom: Zoom level of tile_x/tile_y (defaults to zoom_min for backward compat)
         """
         if not text or not text.strip():
             return
-        entry = LabelEntry(zoom_min, zoom_max, tile_x, tile_y, pixel_x, pixel_y, label_type, text.strip())
+        entry = LabelEntry(
+            zoom_min, zoom_max, tile_x, tile_y, pixel_x, pixel_y,
+            label_type, text.strip(), extraction_zoom
+        )
         self.labels.append(entry)
 
     def write(self):
@@ -231,11 +259,12 @@ class TDMAPWriter:
         # Sort tiles by zoom, then x, then y for efficient binary search
         self.tiles.sort(key=lambda t: (t[0].zoom, t[0].x, t[0].y))
 
-        # Group labels by (zoom_min, tile_x, tile_y) for per-tile storage
+        # Group labels by (extraction_zoom, tile_x, tile_y) for per-tile storage
+        # NOTE: We index by extraction_zoom (tile coord level), not zoom_min (visibility)
         from collections import defaultdict
         labels_by_tile = defaultdict(list)
         for label in self.labels:
-            key = (label.zoom_min, label.tile_x, label.tile_y)
+            key = (label.extraction_zoom, label.tile_x, label.tile_y)
             labels_by_tile[key].append(label)
 
         # Sort tile keys for binary search on ESP32
@@ -264,15 +293,15 @@ class TDMAPWriter:
         current_label_offset = label_data_offset
 
         for tile_key in sorted_tile_keys:
-            zoom_min, tile_x, tile_y = tile_key
+            extraction_zoom, tile_x, tile_y = tile_key
             tile_labels = labels_by_tile[tile_key]
 
             # Pack labels for this tile
             tile_label_data = b''.join(label.pack_v3() for label in tile_labels)
 
-            # Create index entry
+            # Create index entry (indexed by extraction_zoom, not zoom_min)
             index_entry = TileLabelIndex(
-                zoom_min, tile_x, tile_y,
+                extraction_zoom, tile_x, tile_y,
                 offset=current_label_offset,
                 count=len(tile_labels)
             )
@@ -422,12 +451,12 @@ class TDMAPReader:
                         label_header = f.read(LABEL_SIZE_V3)
                         if len(label_header) < LABEL_SIZE_V3:
                             break
-                        text_len = label_header[4]
+                        text_len = label_header[5]  # After pixel_x, pixel_y, zoom_min, zoom_max, label_type
                         text_data = f.read(text_len)
                         full_data = label_header + text_data
                         label, _ = LabelEntry.unpack_v3(
                             full_data, 0,
-                            idx_entry.zoom_min, idx_entry.tile_x, idx_entry.tile_y
+                            idx_entry.zoom, idx_entry.tile_x, idx_entry.tile_y
                         )
                         self.labels.append(label)
 
@@ -500,15 +529,19 @@ class TDMAPReader:
         """
         Get labels for a tile using v3 per-tile index (lazy loading).
         This method reads directly from disk, suitable for ESP32-like lazy loading.
+
+        Labels are indexed by extraction_zoom (tile coordinate level).
+        We check all zoom levels from min_zoom to current zoom for parent tiles
+        that might contain labels visible at current zoom.
         """
         if self.version < 3:
             return self.get_labels_for_tile(zoom, x, y)
 
         result = []
 
-        # For each zoom level from 0 to current zoom, check if there are labels
-        # that should be visible (labels are stored at their zoom_min)
-        for check_zoom in range(0, zoom + 1):
+        # Check each zoom level from min_zoom to current zoom for labels
+        # Labels are indexed by their extraction_zoom (tile coordinate level)
+        for check_zoom in range(self.min_zoom, zoom + 1):
             # Calculate which tile at check_zoom contains the current view
             zoom_diff = zoom - check_zoom
             check_x = x >> zoom_diff
@@ -526,28 +559,28 @@ class TDMAPReader:
                     label_header = f.read(LABEL_SIZE_V3)
                     if len(label_header) < LABEL_SIZE_V3:
                         break
-                    text_len = label_header[4]
+                    text_len = label_header[5]  # After pixel_x, pixel_y, zoom_min, zoom_max, label_type
                     text_data = f.read(text_len)
                     full_data = label_header + text_data
                     label, _ = LabelEntry.unpack_v3(
                         full_data, 0,
-                        idx_entry.zoom_min, idx_entry.tile_x, idx_entry.tile_y
+                        idx_entry.zoom, idx_entry.tile_x, idx_entry.tile_y
                     )
-                    # Check if label is visible at current zoom
-                    if zoom <= label.zoom_max:
+                    # Check if label is visible at current zoom (zoom_min <= zoom <= zoom_max)
+                    if label.zoom_min <= zoom <= label.zoom_max:
                         result.append(label)
 
         return result
 
     def _find_label_index(self, zoom: int, x: int, y: int) -> Optional[TileLabelIndex]:
-        """Binary search for a tile in the label index."""
+        """Binary search for a tile in the label index (by extraction_zoom, tile_x, tile_y)."""
         target = (zoom, x, y)
         lo, hi = 0, len(self.label_index) - 1
 
         while lo <= hi:
             mid = (lo + hi) // 2
             entry = self.label_index[mid]
-            current = (entry.zoom_min, entry.tile_x, entry.tile_y)
+            current = (entry.zoom, entry.tile_x, entry.tile_y)
 
             if current == target:
                 return entry

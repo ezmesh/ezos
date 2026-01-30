@@ -26,8 +26,8 @@ local ColorPicker = {
 
 -- Theme color names for palette
 ColorPicker.PALETTE_COLORS = {
-    "CYAN", "GREEN", "ORANGE", "RED", "YELLOW",
-    "TEXT", "TEXT_DIM", "DARK_GRAY", "SELECTION"
+    "ACCENT", "SUCCESS", "WARNING", "ERROR", "INFO",
+    "TEXT", "TEXT_SECONDARY", "SURFACE", "SURFACE_ALT"
 }
 
 -- Convert RGB888 to RGB565
@@ -140,7 +140,7 @@ function ColorPicker:render(display)
     local preview_h = 48
     local preview_color = self:get_rgb565()
     display.fill_rect(preview_x, preview_y, preview_w, preview_h, preview_color)
-    display.draw_rect(preview_x - 1, preview_y - 1, preview_w + 2, preview_h + 2, colors.TEXT_DIM)
+    display.draw_rect(preview_x - 1, preview_y - 1, preview_w + 2, preview_h + 2, colors.TEXT_SECONDARY)
 
     -- RGB sliders
     local sliders = {
@@ -157,16 +157,16 @@ function ColorPicker:render(display)
 
         -- Selection highlight
         if is_selected then
-            local outline_color = self.editing and colors.ORANGE or colors.CYAN
+            local outline_color = self.editing and colors.WARNING or colors.ACCENT
             display.draw_rect(label_x - 2, y - 2, slider_x + slider_w + 40, row_height - 2, outline_color)
         end
 
         -- Label
-        local label_color = is_selected and colors.CYAN or colors.TEXT
+        local label_color = is_selected and colors.ACCENT or colors.TEXT
         display.draw_text(label_x, y, slider.label, label_color)
 
         -- Slider track
-        display.fill_rect(slider_x, y + 3, slider_w, 8, colors.DARK_GRAY)
+        display.fill_rect(slider_x, y + 3, slider_w, 8, colors.SURFACE)
 
         -- Slider fill
         local fill_w = math.floor(slider.value * slider_w / 255)
@@ -182,11 +182,11 @@ function ColorPicker:render(display)
     local is_hex_selected = in_slider_mode and (self.slider_field == 4)
 
     if is_hex_selected then
-        local outline_color = self.editing and colors.ORANGE or colors.CYAN
+        local outline_color = self.editing and colors.WARNING or colors.ACCENT
         display.draw_rect(label_x - 2, hex_y - 2, 160, row_height - 2, outline_color)
     end
 
-    display.draw_text(label_x, hex_y, "Hex", is_hex_selected and colors.CYAN or colors.TEXT)
+    display.draw_text(label_x, hex_y, "Hex", is_hex_selected and colors.ACCENT or colors.TEXT)
     local hex_str = self.editing and is_hex_selected and ("#" .. self.hex_buffer .. "_") or self:get_hex_string()
     display.draw_text(slider_x, hex_y, hex_str, colors.TEXT)
 
@@ -197,11 +197,11 @@ function ColorPicker:render(display)
         local is_auto_selected = in_slider_mode and (self.slider_field == 5)
 
         if is_auto_selected then
-            display.draw_rect(label_x - 2, auto_y - 2, 100, row_height - 2, colors.CYAN)
+            display.draw_rect(label_x - 2, auto_y - 2, 100, row_height - 2, colors.ACCENT)
         end
 
         local auto_value = self.is_auto and "[X] Auto" or "[ ] Auto"
-        display.draw_text(label_x, auto_y, auto_value, is_auto_selected and colors.CYAN or colors.TEXT)
+        display.draw_text(label_x, auto_y, auto_value, is_auto_selected and colors.ACCENT or colors.TEXT)
     end
 
     -- Theme color palette section
@@ -211,7 +211,7 @@ function ColorPicker:render(display)
     local swatches_per_row = 5
 
     display.set_font_size("small")
-    display.draw_text(label_x, palette_y, "Theme Colors:", colors.TEXT_DIM)
+    display.draw_text(label_x, palette_y, "Theme Colors:", colors.TEXT_SECONDARY)
     palette_y = palette_y + 14
 
     for i, color_name in ipairs(self.PALETTE_COLORS) do
@@ -228,9 +228,9 @@ function ColorPicker:render(display)
 
         -- Selection border
         if is_selected then
-            display.draw_rect(sx - 2, sy - 2, swatch_size + 4, swatch_size + 4, colors.CYAN)
+            display.draw_rect(sx - 2, sy - 2, swatch_size + 4, swatch_size + 4, colors.ACCENT)
         else
-            display.draw_rect(sx, sy, swatch_size, swatch_size, colors.TEXT_DIM)
+            display.draw_rect(sx, sy, swatch_size, swatch_size, colors.TEXT_SECONDARY)
         end
     end
 
@@ -238,8 +238,8 @@ function ColorPicker:render(display)
     display.set_font_size("small")
     local mode_y = h - 20
     local mode_text = self.mode == "slider" and "TAB: Palette" or "TAB: Sliders"
-    display.draw_text(label_x, mode_y, mode_text, colors.TEXT_DIM)
-    display.draw_text(w - 80, mode_y, "S: Apply", colors.CYAN)
+    display.draw_text(label_x, mode_y, mode_text, colors.TEXT_SECONDARY)
+    display.draw_text(w - 80, mode_y, "S: Apply", colors.ACCENT)
 end
 
 function ColorPicker:handle_key(key)

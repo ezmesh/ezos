@@ -222,7 +222,7 @@ function Tetris:render(display)
     -- Draw border
     display.fill_rect(board_x - 2, board_y - 2,
                      self.BOARD_W * self.CELL_SIZE + 4,
-                     self.BOARD_H * self.CELL_SIZE + 4, colors.DARK_GRAY)
+                     self.BOARD_H * self.CELL_SIZE + 4, colors.SURFACE)
     display.fill_rect(board_x, board_y,
                      self.BOARD_W * self.CELL_SIZE,
                      self.BOARD_H * self.CELL_SIZE, colors.BLACK)
@@ -251,15 +251,15 @@ function Tetris:render(display)
 
     -- Score and level
     local info_x = board_x + self.BOARD_W * self.CELL_SIZE + 15
-    display.draw_text(info_x, 20, "Score", colors.TEXT_DIM)
+    display.draw_text(info_x, 20, "Score", colors.TEXT_SECONDARY)
     display.draw_text(info_x, 35, tostring(self.score), colors.WHITE)
-    display.draw_text(info_x, 55, "Level", colors.TEXT_DIM)
+    display.draw_text(info_x, 55, "Level", colors.TEXT_SECONDARY)
     display.draw_text(info_x, 70, tostring(self.level), colors.WHITE)
-    display.draw_text(info_x, 90, "Lines", colors.TEXT_DIM)
+    display.draw_text(info_x, 90, "Lines", colors.TEXT_SECONDARY)
     display.draw_text(info_x, 105, tostring(self.lines), colors.WHITE)
 
     -- Next piece preview
-    display.draw_text(info_x, 130, "Next", colors.TEXT_DIM)
+    display.draw_text(info_x, 130, "Next", colors.TEXT_SECONDARY)
     if self.next_piece then
         local preview_y = 145
         local shape = self.next_piece.shapes[1]
@@ -271,21 +271,21 @@ function Tetris:render(display)
     end
 
     if self.game_over then
-        display.draw_text_centered(h / 2 - 10, "GAME OVER", colors.RED)
-        display.draw_text_centered(h / 2 + 10, "[Enter] Restart", colors.TEXT_DIM)
+        display.draw_text_centered(h / 2 - 10, "GAME OVER", colors.ERROR)
+        display.draw_text_centered(h / 2 + 10, "[Enter] Restart", colors.TEXT_SECONDARY)
     elseif self.paused then
-        display.draw_text_centered(h / 2, "PAUSED", colors.YELLOW)
+        display.draw_text_centered(h / 2, "PAUSED", colors.WARNING)
     end
 
     local help_y = h - 15
-    display.draw_text(5, help_y, "[Arrows] Move  [Space] Drop  [Q] Quit", colors.TEXT_DIM)
+    display.draw_text(5, help_y, "[Arrows] Move  [Space] Drop  [Q] Quit", colors.TEXT_SECONDARY)
 end
 
 function Tetris:handle_key(key)
     if self.game_over then
         if key.special == "ENTER" then
             -- Clean up before restart
-            collectgarbage("collect")
+            run_gc("collect", "tetris-restart")
             -- Restart
             for y = 1, self.BOARD_H do
                 for x = 1, self.BOARD_W do

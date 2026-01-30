@@ -316,7 +316,9 @@ def render_vector_tile(tile_data: bytes, zoom: int) -> Image.Image:
                 color, width = STYLE["boundary_admin"]
                 render_line(draw, geom, extent, color, width)
 
-    return img
+    # MVT coordinates use Y-up (geographic) convention within tiles,
+    # but PIL uses Y-down (screen) convention, so flip vertically
+    return img.transpose(Image.FLIP_TOP_BOTTOM)
 
 
 def extract_labels(tile_data: bytes, zoom: int, tile_x: int, tile_y: int) -> List[dict]:
@@ -406,7 +408,8 @@ def extract_labels(tile_data: bytes, zoom: int, tile_x: int, tile_y: int) -> Lis
                     "pixel_x": px,
                     "pixel_y": py,
                     "label_type": label_type,
-                    "text": name[:50]  # Limit length
+                    "text": name[:50],  # Limit length
+                    "extraction_zoom": zoom,  # Tile coordinate level
                 })
 
     # Extract water labels
@@ -452,7 +455,8 @@ def extract_labels(tile_data: bytes, zoom: int, tile_x: int, tile_y: int) -> Lis
                 "pixel_x": px,
                 "pixel_y": py,
                 "label_type": LABEL_TYPE_WATER,
-                "text": name[:50]
+                "text": name[:50],
+                "extraction_zoom": zoom,  # Tile coordinate level
             })
 
     return labels
@@ -816,7 +820,8 @@ def convert_pmtiles(
                     label["pixel_x"],
                     label["pixel_y"],
                     label["label_type"],
-                    label["text"]
+                    label["text"],
+                    extraction_zoom=label.get("extraction_zoom")  # May be None for old checkpoints
                 )
 
             print(f"Resumed: {processed:,} tiles already processed, {labels_extracted:,} labels")
@@ -888,6 +893,8 @@ def convert_pmtiles(
                                 label_key = (label["text"], label["tile_x"], label["tile_y"])
                                 if label_key not in seen_labels:
                                     seen_labels.add(label_key)
+                                    # extraction_zoom is the tile's zoom level (where tile_x/tile_y are valid)
+                                    extraction_zoom = label.get("extraction_zoom", z)
                                     writer.add_label(
                                         label["zoom_min"],
                                         label["zoom_max"],
@@ -896,7 +903,8 @@ def convert_pmtiles(
                                         label["pixel_x"],
                                         label["pixel_y"],
                                         label["label_type"],
-                                        label["text"]
+                                        label["text"],
+                                        extraction_zoom=extraction_zoom
                                     )
                                     labels_extracted += 1
                                     checkpoint.add_label(label, label_key)

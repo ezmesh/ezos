@@ -47,17 +47,17 @@ function ErrorScreen:render(display)
 
     -- Source
     if #self.source > 0 then
-        display.draw_text(x, y, "Source:", colors.TEXT_DIM)
+        display.draw_text(x, y, "Source:", colors.TEXT_SECONDARY)
         y = y + fh
 
         -- Truncate source path if too wide
         local src = TextUtils.truncate(self.source, max_width_px, display)
-        display.draw_text(x, y, src, colors.ORANGE)
+        display.draw_text(x, y, src, colors.WARNING)
         y = y + fh * 2
     end
 
     -- Error message
-    display.draw_text(x, y, "Error:", colors.TEXT_DIM)
+    display.draw_text(x, y, "Error:", colors.TEXT_SECONDARY)
     y = y + fh
 
     -- Word wrap error message using pixel-based measurement
@@ -65,7 +65,7 @@ function ErrorScreen:render(display)
 
     for _, line in ipairs(lines) do
         if y < (display.rows - 4) * fh then
-            display.draw_text(x, y, line, colors.RED)
+            display.draw_text(x, y, line, colors.ERROR)
             y = y + fh
         end
     end
@@ -73,7 +73,7 @@ function ErrorScreen:render(display)
     -- Stack trace (if available and space allows)
     if #self.stack_trace > 0 and y < (display.rows - 5) * fh then
         y = y + fh
-        display.draw_text(x, y, "Stack:", colors.TEXT_DIM)
+        display.draw_text(x, y, "Stack:", colors.TEXT_SECONDARY)
         y = y + fh
 
         local stack_lines = {}
@@ -86,7 +86,7 @@ function ErrorScreen:render(display)
             if i > self.scroll_offset then
                 -- Truncate line if too wide
                 local display_line = TextUtils.truncate(line, max_width_px, display)
-                display.draw_text(x, y, display_line, colors.TEXT_DIM)
+                display.draw_text(x, y, display_line, colors.TEXT_MUTED)
                 y = y + fh
             end
         end
@@ -94,7 +94,7 @@ function ErrorScreen:render(display)
 
     -- Options
     y = (display.rows - 3) * fh
-    display.draw_text(x, y, "[R]etry [F]iles [Q]uit [X]Restart", colors.TEXT_DIM)
+    display.draw_text(x, y, "[R]etry [F]iles [Q]uit [X]Restart", colors.TEXT_SECONDARY)
 end
 
 function ErrorScreen:handle_key(key)

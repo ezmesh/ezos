@@ -108,7 +108,7 @@ function AppMenu.hide()
 
     -- Nil out global so it can be garbage collected
     _G.AppMenu = nil
-    collectgarbage("collect")
+    run_gc("collect", "app-menu-close")
 
     if _G.ScreenManager then
         _G.ScreenManager.invalidate()
@@ -173,7 +173,7 @@ function AppMenu.render(display)
 
     -- Background
     display.fill_rect(0, y - 1, w, bar_h + 1, colors.BLACK)
-    display.fill_rect(0, y - 2, w, 1, colors.CYAN)
+    display.fill_rect(0, y - 2, w, 1, colors.ACCENT)
 
     local positions = AppMenu.calculate_item_positions(display)
     AppMenu.adjust_scroll(display)
@@ -187,10 +187,10 @@ function AppMenu.render(display)
         if x + pos.width > 0 and x < w then
             if is_sel then
                 local pad = 6
-                display.fill_rect(x - pad, y + 1, pos.width + pad * 2, fh + 6, colors.SELECTION)
+                display.fill_rect(x - pad, y + 1, pos.width + pad * 2, fh + 6, colors.SURFACE_ALT)
             end
 
-            local color = is_sel and colors.CYAN or colors.TEXT_DIM
+            local color = is_sel and colors.ACCENT or colors.TEXT_SECONDARY
             display.draw_text(x, y + 4, item.label, color)
         end
     end
@@ -198,17 +198,17 @@ function AppMenu.render(display)
     -- Scroll indicators (8-bit chevron icons with black background)
     local chevron_y = y + math.floor((bar_h - 9) / 2)
     if AppMenu.scroll_offset > 0 then
-        draw_chevron_left(display, 1, chevron_y, colors.CYAN)
+        draw_chevron_left(display, 1, chevron_y, colors.ACCENT)
     end
     if positions.total_width - AppMenu.scroll_offset > w then
-        draw_chevron_right(display, w - 10, chevron_y, colors.CYAN)
+        draw_chevron_right(display, w - 10, chevron_y, colors.ACCENT)
     end
 end
 
 function AppMenu.handle_key(key)
     if not AppMenu.active then return false end
 
-    if key.special == "BACKSPACE" or key.special == "ESCAPE" then
+    if key.special == "ESCAPE" or key.character == "q" then
         AppMenu.hide()
         return true
     end

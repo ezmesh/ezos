@@ -6,11 +6,8 @@ local Bitmap = {}
 -- Default transparent color (magenta in RGB565)
 Bitmap.TRANSPARENT = 0xF81F
 
--- Load a bitmap from file
--- Returns: {width, height, data} or nil on error
--- size can be a number (for square images) or {width, height} table
-function Bitmap.load(path, size)
-    local data = tdeck.storage.read_file(path)
+-- Internal: parse bitmap data and return bitmap table
+local function parse_bitmap_data(data, path, size)
     if not data then
         tdeck.system.log("Bitmap: Failed to load " .. path)
         return nil
@@ -50,6 +47,36 @@ function Bitmap.load(path, size)
         height = height,
         data = data
     }
+end
+
+-- Load a bitmap from file (synchronous)
+-- Returns: {width, height, data} or nil on error
+-- size can be a number (for square images) or {width, height} table
+function Bitmap.load(path, size)
+    local data = tdeck.storage.read_file(path)
+    return parse_bitmap_data(data, path, size)
+end
+
+-- Load a bitmap asynchronously (must be called from a coroutine)
+-- Returns: {width, height, data} or nil on error
+function Bitmap.load_async(path, size)
+    local data = async_read(path)
+    return parse_bitmap_data(data, path, size)
+end
+
+-- Load a bitmap with callback (non-blocking)
+-- callback(bitmap) is called when loading completes
+function Bitmap.load_with_callback(path, size, callback)
+    local function do_load()
+        local data = async_read(path)
+        local bitmap = parse_bitmap_data(data, path, size)
+        if callback then
+            callback(bitmap)
+        end
+    end
+
+    local co = coroutine.create(do_load)
+    coroutine.resume(co)
 end
 
 -- Load bitmap with size from path pattern (e.g., /icons/24x24/actions/go-home.rgb565)

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <deque>
 #include <RadioLib.h>
 #include "../config.h"
 
@@ -15,7 +16,15 @@ enum class RadioResult {
     ERROR_CRC,
     ERROR_BUSY,
     ERROR_PARAM,
+    ERROR_QUEUE_FULL,
     NO_DATA
+};
+
+// Queued packet for transmission
+struct QueuedTxPacket {
+    uint8_t data[256];
+    size_t len;
+    uint32_t queuedAt;  // When packet was queued (for stats/debugging)
 };
 
 // Radio configuration structure
@@ -64,8 +73,24 @@ public:
     // Get current configuration
     const RadioConfig& getConfig() const { return _config; }
 
-    // Transmission (blocking)
+    // Transmission (blocking, bypasses queue)
     RadioResult send(const uint8_t* data, size_t len);
+
+    // Queued transmission (non-blocking, respects throttle)
+    RadioResult queueSend(const uint8_t* data, size_t len);
+
+    // Process the transmit queue (call from main loop)
+    void processQueue();
+
+    // Queue status
+    size_t getQueueSize() const { return _txQueue.size(); }
+    size_t getQueueCapacity() const { return TX_QUEUE_MAX_SIZE; }
+    bool isQueueFull() const { return _txQueue.size() >= TX_QUEUE_MAX_SIZE; }
+    void clearQueue() { _txQueue.clear(); }
+
+    // Throttle settings
+    void setThrottleInterval(uint32_t ms) { _throttleIntervalMs = ms; }
+    uint32_t getThrottleInterval() const { return _throttleIntervalMs; }
 
     // Reception
     // Start listening for packets (non-blocking)
@@ -109,6 +134,13 @@ private:
 
     float _lastRssi = 0;
     float _lastSnr = 0;
+
+    // Transmit queue and throttling
+    static constexpr size_t TX_QUEUE_MAX_SIZE = 16;
+    static constexpr uint32_t TX_THROTTLE_DEFAULT_MS = 100;  // Minimum ms between transmissions
+    std::deque<QueuedTxPacket> _txQueue;
+    uint32_t _lastTxTime = 0;
+    uint32_t _throttleIntervalMs = TX_THROTTLE_DEFAULT_MS;
 
     // Interrupt flag (set by ISR)
     static volatile bool _rxFlag;

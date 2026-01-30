@@ -14,12 +14,15 @@ local MainMenu = {
     items = {
         {label = "Messages",  description = "View conversations", icon_path = "messages",  unread = 0, enabled = true},
         {label = "Channels",  description = "Group messaging",    icon_path = "channels",  unread = 0, enabled = true},
-        {label = "Contacts",  description = "Known nodes",        icon_path = "contacts",  unread = 0, enabled = true},
+        {label = "Contacts",  description = "Saved contacts",      icon_path = "contacts",  unread = 0, enabled = true},
+        {label = "Nodes",     description = "All heard nodes",    icon_path = "contacts",  unread = 0, enabled = true},
         {label = "Node Info", description = "Device status",      icon_path = "info",      unread = 0, enabled = true},
         {label = "Map",       description = "Offline maps",       icon_path = "map",       unread = 0, enabled = true},
+        {label = "Packets",   description = "Live packet view",   icon_path = "packets",   unread = 0, enabled = true},
         {label = "Settings",  description = "Configuration",      icon_path = "settings",  unread = 0, enabled = true},
-        {label = "Files",     description = "File browser",       icon_path = "files",     unread = 0, enabled = true},
-        {label = "Testing",   description = "Diagnostics",        icon_path = "testing",   unread = 0, enabled = true},
+        {label = "Storage",   description = "Disk space info",    icon_path = "files",     unread = 0, enabled = true},
+        {label = "Files",     description = "File browser",       icon_path = "files",     unread = 0, enabled = false},
+        {label = "Diagnostics", description = "Testing tools",     icon_path = "testing",   unread = 0, enabled = true},
         {label = "Games",     description = "Play games",         icon_path = "games",     unread = 0, enabled = true}
     }
 }
@@ -48,6 +51,15 @@ function MainMenu:on_enter()
     -- Ensure keyboard is in normal mode (safety reset in case a screen didn't clean up)
     tdeck.keyboard.set_mode("normal")
 
+    -- Update title with node name and path hash
+    if tdeck.mesh.is_initialized() then
+        local node_name = tdeck.mesh.get_node_name() or "Node"
+        local path_hash = tdeck.mesh.get_path_hash() or 0
+        self.title = string.format("%s (%02X)", node_name, path_hash)
+    else
+        self.title = "MeshCore"
+    end
+
     -- Lazy-load Icons module if not already loaded
     if not _G.Icons then
         _G.Icons = dofile("/scripts/ui/icons.lua")
@@ -66,6 +78,11 @@ function MainMenu:on_enter()
         end
     end
 
+    -- Update direct messages unread count
+    if _G.DirectMessages and _G.DirectMessages.get_unread_total then
+        self.items[1].unread = _G.DirectMessages.get_unread_total()
+    end
+
     -- Update channel unread count from Lua Channels service
     if _G.Channels then
         local channels = _G.Channels.get_all()
@@ -76,9 +93,10 @@ function MainMenu:on_enter()
         self.items[2].unread = total_unread
     end
 
-    -- Update node count from mesh
-    if tdeck.mesh.is_initialized() then
-        self.items[3].unread = tdeck.mesh.get_node_count()
+    -- Update saved contacts count
+    if _G.Contacts and _G.Contacts.get_saved then
+        local saved = _G.Contacts.get_saved()
+        self.items[3].unread = #saved
     end
 end
 
@@ -87,7 +105,7 @@ function MainMenu:on_leave()
     -- They will be rebuilt from the template in on_enter
     self.items = {}
     -- Force garbage collection before loading new screen
-    collectgarbage("collect")
+    run_gc("collect", "main-menu-leave")
 end
 
 function MainMenu:adjust_scroll()
@@ -134,14 +152,27 @@ function MainMenu:render(display)
         local y = list_start_y + i * self.ROW_HEIGHT
         local is_selected = (item_idx == self.selected)
 
+        -- Check if item is disabled
+        local is_disabled = (item.enabled == false)
+
         -- Selection outline (rounded rect) - narrower to leave room for scrollbar
+        -- Use dimmer outline for disabled items
         if is_selected then
-            display.draw_round_rect(4, y - 1, w - 12 - scrollbar_width, self.ROW_HEIGHT - 6, 6, colors.CYAN)
+            local outline_color = is_disabled and colors.SURFACE or colors.ACCENT
+            display.draw_round_rect(4, y - 1, w - 12 - scrollbar_width, self.ROW_HEIGHT - 6, 6, outline_color)
         end
 
         -- Draw icon using Icons module
+        -- Use dimmer color for disabled items
         local icon_y = y + (self.ROW_HEIGHT - self.ICON_SIZE) / 2 - 4
-        local icon_color = is_selected and colors.CYAN or colors.WHITE
+        local icon_color
+        if is_disabled then
+            icon_color = colors.SURFACE
+        elseif is_selected then
+            icon_color = colors.ACCENT
+        else
+            icon_color = colors.WHITE
+        end
         if item.icon_path and _G.Icons then
             _G.Icons.draw(item.icon_path, display, icon_margin, icon_y, self.ICON_SIZE, icon_color)
         else
@@ -150,22 +181,38 @@ function MainMenu:render(display)
         end
 
         -- Label (main text) - use medium font
+        -- Use dimmer color for disabled items
         display.set_font_size("medium")
-        local label_color = is_selected and colors.CYAN or colors.WHITE
+        local label_color
+        if is_disabled then
+            label_color = colors.SURFACE
+        elseif is_selected then
+            label_color = colors.ACCENT
+        else
+            label_color = colors.WHITE
+        end
         local label_y = y + 4
         display.draw_text(text_x, label_y, item.label, label_color)
 
         -- Unread badge next to label (use text_width for accurate positioning)
-        if item.unread and item.unread > 0 then
+        -- Don't show badge for disabled items
+        if not is_disabled and item.unread and item.unread > 0 then
             local badge = string.format("(%d)", item.unread)
             local label_width = display.text_width(item.label)
             local badge_x = text_x + label_width + 6
-            display.draw_text(badge_x, label_y, badge, colors.ORANGE)
+            display.draw_text(badge_x, label_y, badge, colors.WARNING)
         end
 
         -- Description (secondary text) - use small font
         display.set_font_size("small")
-        local desc_color = is_selected and colors.TEXT_DIM or colors.DARK_GRAY
+        local desc_color
+        if is_disabled then
+            desc_color = colors.SURFACE
+        elseif is_selected then
+            desc_color = colors.TEXT_SECONDARY
+        else
+            desc_color = colors.TEXT_MUTED
+        end
         local desc_y = y + 4 + 18  -- After medium font height
         display.draw_text(text_x, desc_y, item.description, desc_color)
     end
@@ -180,7 +227,7 @@ function MainMenu:render(display)
         local sb_height = self.VISIBLE_ROWS * self.ROW_HEIGHT - 6
 
         -- Track (background) with rounded corners
-        display.fill_round_rect(sb_x, sb_top, 4, sb_height, 2, colors.DARK_GRAY)
+        display.fill_round_rect(sb_x, sb_top, 4, sb_height, 2, colors.SURFACE)
 
         -- Thumb (current position) with rounded corners
         local thumb_height = math.max(12, math.floor(sb_height * self.VISIBLE_ROWS / #self.items))
@@ -188,7 +235,7 @@ function MainMenu:render(display)
         local thumb_range = sb_height - thumb_height
         local thumb_y = sb_top + math.floor(self.scroll_offset * thumb_range / scroll_range)
 
-        display.fill_round_rect(sb_x, thumb_y, 4, thumb_height, 2, colors.CYAN)
+        display.fill_round_rect(sb_x, thumb_y, 4, thumb_height, 2, colors.ACCENT)
     end
 end
 
@@ -262,39 +309,44 @@ function MainMenu:activate_selected()
     local item = self.items[self.selected]
     if not item or not item.enabled then return end
 
-    -- Force garbage collection before loading new screen
-    collectgarbage("collect")
-
     local label = item.label
 
-    if label == "Messages" then
-        local Screen = load_module("/scripts/ui/screens/messages.lua")
-        ScreenManager.push(Screen:new())
-    elseif label == "Channels" then
-        local Screen = load_module("/scripts/ui/screens/channels.lua")
-        ScreenManager.push(Screen:new())
-    elseif label == "Contacts" then
-        local Screen = load_module("/scripts/ui/screens/contacts.lua")
-        ScreenManager.push(Screen:new())
-    elseif label == "Node Info" then
-        local Screen = load_module("/scripts/ui/screens/node_info.lua")
-        ScreenManager.push(Screen:new())
-    elseif label == "Map" then
-        local Screen = load_module("/scripts/ui/screens/map_viewer.lua")
-        ScreenManager.push(Screen:new())
-    elseif label == "Settings" then
-        local Screen = load_module("/scripts/ui/screens/settings.lua")
-        ScreenManager.push(Screen:new())
-    elseif label == "Files" then
-        local Screen = load_module("/scripts/ui/screens/files.lua")
-        ScreenManager.push(Screen:new("/"))
-    elseif label == "Testing" then
-        local Screen = load_module("/scripts/ui/screens/testing_menu.lua")
-        ScreenManager.push(Screen:new())
-    elseif label == "Games" then
-        local Screen = load_module("/scripts/ui/screens/games_menu.lua")
-        ScreenManager.push(Screen:new())
-    end
+    -- Map labels to screen paths and constructors
+    local screens = {
+        ["Messages"]  = {path = "/scripts/ui/screens/messages.lua"},
+        ["Channels"]  = {path = "/scripts/ui/screens/channels.lua"},
+        ["Contacts"]  = {path = "/scripts/ui/screens/contacts.lua"},
+        ["Nodes"]     = {path = "/scripts/ui/screens/nodes.lua"},
+        ["Node Info"] = {path = "/scripts/ui/screens/node_info.lua"},
+        ["Map"]       = {path = "/scripts/ui/screens/map_viewer.lua"},
+        ["Packets"]   = {path = "/scripts/ui/screens/packets.lua"},
+        ["Settings"]  = {path = "/scripts/ui/screens/settings.lua"},
+        ["Storage"]   = {path = "/scripts/ui/screens/storage.lua"},
+        ["Files"]     = {path = "/scripts/ui/screens/files.lua", arg = "/"},
+        ["Diagnostics"] = {path = "/scripts/ui/screens/testing_menu.lua"},
+        ["Games"]     = {path = "/scripts/ui/screens/games_menu.lua"},
+    }
+
+    local screen_info = screens[label]
+    if not screen_info then return end
+
+    -- Load module asynchronously (loading indicator shown automatically)
+    load_module_async(screen_info.path, function(Screen, err)
+        if err then
+            tdeck.system.log("[MainMenu] Load error: " .. err)
+            if _G.MessageBox then
+                _G.MessageBox.show({title = "Load failed", body = err})
+            end
+            return
+        end
+        if Screen then
+            if screen_info.arg then
+                ScreenManager.push(Screen:new(screen_info.arg))
+            else
+                ScreenManager.push(Screen:new())
+            end
+        end
+    end)
 end
 
 function MainMenu:set_message_count(count)

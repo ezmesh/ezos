@@ -74,7 +74,7 @@ function ConversationView:render(display)
     local fh = display.get_font_height()
 
     if #self.messages == 0 then
-        display.draw_text_centered(6 * fh, "No messages", colors.TEXT_DIM)
+        display.draw_text_centered(6 * fh, "No messages", colors.TEXT_SECONDARY)
     else
         local y = 2
         local max_y = 2 + self.visible_lines
@@ -86,8 +86,8 @@ function ConversationView:render(display)
 
             -- Sender short ID
             local short_id = string.format("%02X", msg.from_hash % 256)
-            display.draw_text(fw, py, short_id, colors.TEXT_DIM)
-            display.draw_text(4 * fw, py, ":", colors.TEXT_DIM)
+            display.draw_text(fw, py, short_id, colors.TEXT_SECONDARY)
+            display.draw_text(4 * fw, py, ":", colors.TEXT_SECONDARY)
 
             -- Message text (truncated using pixel measurement)
             local max_text_px = display.width - (8 * fw)
@@ -100,10 +100,10 @@ function ConversationView:render(display)
 
         -- Scroll indicators
         if self.scroll_offset > 0 then
-            display.draw_text((display.cols - 1) * fw, 2 * fh, "^", colors.CYAN)
+            display.draw_text((display.cols - 1) * fw, 2 * fh, "^", colors.ACCENT)
         end
         if self.scroll_offset + self.visible_lines < #self.messages then
-            display.draw_text((display.cols - 1) * fw, (max_y - 1) * fh, "v", colors.CYAN)
+            display.draw_text((display.cols - 1) * fw, (max_y - 1) * fh, "v", colors.ACCENT)
         end
     end
 end
@@ -137,8 +137,11 @@ function ConversationView:scroll_down()
 end
 
 function ConversationView:reply()
-    local Compose = load_module("/scripts/ui/screens/compose.lua")
-    ScreenManager.push(Compose:new())
+    load_module_async("/scripts/ui/screens/compose.lua", function(Compose, err)
+        if Compose then
+            ScreenManager.push(Compose:new())
+        end
+    end)
 end
 
 return ConversationView

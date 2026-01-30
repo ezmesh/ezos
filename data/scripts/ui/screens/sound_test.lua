@@ -55,7 +55,7 @@ function SoundTest:render(display)
         local key_x = x + (i - 1) * 4 * fw
 
         -- Key background
-        local key_color = is_selected and colors.CYAN or colors.WHITE
+        local key_color = is_selected and colors.ACCENT or colors.WHITE
         display.fill_rect(key_x, y, 3 * fw, 3 * fh, key_color)
 
         -- Key label
@@ -67,9 +67,9 @@ function SoundTest:render(display)
 
     -- Status
     if self.playing then
-        display.draw_text(x, y, "Playing: " .. self.note_names[self.selected], colors.GREEN)
+        display.draw_text(x, y, "Playing: " .. self.note_names[self.selected], colors.SUCCESS)
     else
-        display.draw_text(x, y, "Press ENTER to play", colors.TEXT_DIM)
+        display.draw_text(x, y, "Press ENTER to play", colors.TEXT_SECONDARY)
     end
 
     y = y + fh * 2

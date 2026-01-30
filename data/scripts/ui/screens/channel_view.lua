@@ -158,8 +158,8 @@ function ChannelView:render(display)
     end
 
     if #self.messages == 0 then
-        display.draw_text_centered(6 * fh, "No messages yet", colors.TEXT_DIM)
-        display.draw_text_centered(8 * fh, "Use app menu to compose", colors.TEXT_DIM)
+        display.draw_text_centered(6 * fh, "No messages yet", colors.TEXT_SECONDARY)
+        display.draw_text_centered(8 * fh, "Use app menu to compose", colors.TEXT_SECONDARY)
     else
         -- Render wrapped lines with scroll offset
         local screen_row = 2  -- Start row on screen
@@ -182,20 +182,20 @@ function ChannelView:render(display)
 
                     if line_idx == 1 then
                         -- First line: show prefix (verify icon + sender)
-                        local verify_color = entry.verified and colors.GREEN or colors.YELLOW
+                        local verify_color = entry.verified and colors.SUCCESS or colors.WARNING
                         display.draw_text(fw, py, entry.verified and "+" or "?", verify_color)
 
                         local id_text = entry.is_ours and "You" or
                             string.format("%02X", self.messages[entry.msg_index].from_hash % 256)
-                        display.draw_text(3 * fw, py, id_text, colors.TEXT_DIM)
-                        display.draw_text(7 * fw, py, ":", colors.TEXT_DIM)
+                        display.draw_text(3 * fw, py, id_text, colors.TEXT_SECONDARY)
+                        display.draw_text(7 * fw, py, ":", colors.TEXT_SECONDARY)
 
                         -- Message text
-                        local text_color = entry.is_ours and colors.CYAN or colors.TEXT
+                        local text_color = entry.is_ours and colors.ACCENT or colors.TEXT
                         display.draw_text(9 * fw, py, line_text, text_color)
                     else
                         -- Continuation line: indent to align with text
-                        local text_color = entry.is_ours and colors.CYAN or colors.TEXT
+                        local text_color = entry.is_ours and colors.ACCENT or colors.TEXT
                         display.draw_text(9 * fw, py, line_text, text_color)
                     end
 
@@ -212,11 +212,11 @@ function ChannelView:render(display)
         local total_lines = self:count_total_lines()
         local line_height = math.floor(fh * 1.5)
         if self.scroll_offset > 0 then
-            display.draw_text((display.cols - 1) * fw, 2 * fh, "^", colors.CYAN)
+            display.draw_text((display.cols - 1) * fw, 2 * fh, "^", colors.ACCENT)
         end
         if self.scroll_offset + self.visible_lines < total_lines then
             local bottom_y = 2 * fh + (self.visible_lines - 1) * line_height
-            display.draw_text((display.cols - 1) * fw, bottom_y, "v", colors.CYAN)
+            display.draw_text((display.cols - 1) * fw, bottom_y, "v", colors.ACCENT)
         end
     end
 end
@@ -251,8 +251,12 @@ function ChannelView:scroll_down()
 end
 
 function ChannelView:compose()
-    local Compose = load_module("/scripts/ui/screens/channel_compose.lua")
-    ScreenManager.push(Compose:new(self.channel_name))
+    local ch_name = self.channel_name
+    load_module_async("/scripts/ui/screens/channel_compose.lua", function(Compose, err)
+        if Compose then
+            ScreenManager.push(Compose:new(ch_name))
+        end
+    end)
 end
 
 return ChannelView

@@ -5,27 +5,99 @@ local function mem()
     return math.floor(tdeck.system.get_free_heap() / 1024)
 end
 
+-- Global GC helper that logs memory before/after
+-- @param mode "collect" (full) or "step" (incremental)
+-- @param context Optional string describing why GC is being called
+-- @param arg Optional argument for step mode
+function _G.run_gc(mode, context, arg)
+    local before = mem()
+    if mode == "step" then
+        collectgarbage("step", arg or 10)
+    else
+        collectgarbage("collect")
+    end
+    local after = mem()
+    local freed = after - before
+    local ctx = context and (" [" .. context .. "]") or ""
+    if freed ~= 0 then
+        tdeck.system.log(string.format("[GC]%s %dKB -> %dKB (%+dKB)", ctx, before, after, freed))
+    end
+end
+
 -- Global helper to load modules with GC before and after
--- This helps reduce memory fragmentation from dofile parsing
+-- Uses dofile() - no caching, allows modules to be garbage collected
 -- Tracks loaded modules for potential unloading
 _G.loaded_modules = {}
 
 function _G.load_module(path)
-    collectgarbage("collect")
+    run_gc("collect", "pre-load " .. path)
     local result = dofile(path)
-    collectgarbage("collect")
-    -- Track the module
+    run_gc("collect", "post-load " .. path)
     _G.loaded_modules[path] = true
     return result
+end
+
+-- Async version of load_module that doesn't block the main loop
+-- Note: async_read returns instantly for embedded scripts (no actual I/O)
+-- callback(result, err) is called when loading completes
+function _G.load_module_async(path, callback)
+    -- Show loading indicator
+    if _G.StatusBar then _G.StatusBar.show_loading(true) end
+
+    run_gc("collect", "pre-load-async " .. path)
+
+    local function do_load()
+        -- Read file asynchronously (yields here, resumes when file is read)
+        -- Note: async_read returns instantly for embedded scripts
+        local content = async_read(path)
+
+        -- Hide loading indicator
+        if _G.StatusBar then _G.StatusBar.hide_loading() end
+
+        if not content then
+            run_gc("collect", "post-load-async-fail " .. path)
+            if callback then callback(nil, "Failed to read: " .. path) end
+            return
+        end
+
+        -- Compile the Lua code
+        local chunk, err = load(content, "@" .. path)
+        if not chunk then
+            run_gc("collect", "post-load-async-fail " .. path)
+            if callback then callback(nil, "Parse error: " .. tostring(err)) end
+            return
+        end
+
+        -- Execute the chunk
+        local ok, result = pcall(chunk)
+        if not ok then
+            run_gc("collect", "post-load-async-fail " .. path)
+            if callback then callback(nil, "Execute error: " .. tostring(result)) end
+            return
+        end
+
+        _G.loaded_modules[path] = true
+
+        run_gc("collect", "post-load-async " .. path)
+
+        if callback then callback(result, nil) end
+    end
+
+    -- Start coroutine - it will yield inside async_read
+    -- AsyncIO will resume it when the file is read
+    local co = coroutine.create(do_load)
+    local ok, err = coroutine.resume(co)
+    if not ok then
+        if _G.StatusBar then _G.StatusBar.hide_loading() end
+        if callback then callback(nil, "Coroutine error: " .. tostring(err)) end
+    end
 end
 
 -- Unload a previously loaded module to free memory
 function _G.unload_module(path)
     if _G.loaded_modules[path] then
         _G.loaded_modules[path] = nil
-        -- Clear from package.loaded if present
-        package.loaded[path] = nil
-        collectgarbage("collect")
+        run_gc("collect", "unload " .. path)
     end
 end
 
@@ -84,6 +156,33 @@ _G.Logger = Logger
 -- Icons module is lazy-loaded by main_menu when needed
 _G.Icons = nil
 
+-- Global timer helpers (wraps Scheduler methods for convenience)
+function _G.set_timeout(callback, delay_ms)
+    return Scheduler.set_timer(delay_ms, callback)
+end
+
+function _G.clear_timeout(timer_id)
+    return Scheduler.cancel_timer(timer_id)
+end
+
+function _G.set_interval(callback, interval_ms)
+    return Scheduler.set_interval(interval_ms, callback)
+end
+
+function _G.clear_interval(timer_id)
+    return Scheduler.cancel_timer(timer_id)
+end
+
+-- Global error display function (can be called from C++ or Lua)
+-- Shows the error screen with the given message
+function _G.show_error(message, source)
+    tdeck.system.log("[Error] " .. tostring(message))
+    local ok, ErrorScreen = pcall(dofile, "/scripts/ui/screens/error_screen.lua")
+    if ok and ErrorScreen and _G.ScreenManager then
+        _G.ScreenManager.push(ErrorScreen:new(message, source or "async"))
+    end
+end
+
 -- Initialize theme manager (load wallpaper and icon theme preferences)
 ThemeManager.init()
 
@@ -93,8 +192,12 @@ MainLoop.init(ScreenManager)
 -- Register status bar as an overlay (after MainLoop.init)
 StatusBar.register()
 
--- App menu is lazy-loaded on first shift+shift
-_G.AppMenu = nil
+-- Load AppMenu overlay
+tdeck.system.log("[Boot] Loading AppMenu...")
+local AppMenu = dofile("/scripts/ui/screens/app_menu.lua")
+_G.AppMenu = AppMenu
+AppMenu.init()
+tdeck.system.log("[Boot] AppMenu loaded, free=" .. mem() .. "KB")
 
 -- Load MessageBox overlay
 tdeck.system.log("[Boot] Loading MessageBox...")
@@ -140,16 +243,10 @@ local function apply_saved_settings()
         tdeck.keyboard.set_trackball_sensitivity(tb_sens)
     end
 
-    -- Tick-based scrolling (default: enabled with 20ms interval)
-    local tick_scroll = get_pref("tickScroll", true)
-    if tdeck.keyboard and tdeck.keyboard.set_tick_scrolling then
-        tdeck.keyboard.set_tick_scrolling(tick_scroll)
-    end
-
-    -- Tick scroll interval
-    local tick_interval = get_pref("tickInterval", 20)
-    if tdeck.keyboard and tdeck.keyboard.set_scroll_tick_interval then
-        tdeck.keyboard.set_scroll_tick_interval(tick_interval)
+    -- Trackball mode (polling or interrupt)
+    local tb_mode = get_pref("tbMode", "polling")
+    if tdeck.keyboard and tdeck.keyboard.set_trackball_mode then
+        tdeck.keyboard.set_trackball_mode(tb_mode)
     end
 
     -- Mesh node name (if mesh is initialized)
@@ -166,11 +263,23 @@ local function apply_saved_settings()
         tdeck.radio.set_tx_power(tx_power)
     end
 
+    -- Mesh path check (skip packets where our hash is in path)
+    local path_check = get_pref("pathCheck", true)
+    if tdeck.mesh and tdeck.mesh.set_path_check then
+        tdeck.mesh.set_path_check(path_check)
+    end
+
     -- UI Sounds (lazy-loaded when enabled)
     local ui_sounds = get_pref("uiSoundsEnabled", false)
     if ui_sounds then
         _G.SoundUtils = dofile("/scripts/ui/sound_utils.lua")
         _G.SoundUtils.init()
+    end
+
+    -- Timezone (apply POSIX string directly)
+    local tz_posix = get_pref("timezonePosix", nil)
+    if tz_posix and tdeck.system and tdeck.system.set_timezone then
+        tdeck.system.set_timezone(tz_posix)
     end
 
     tdeck.system.log("[Boot] Settings applied")
@@ -180,15 +289,15 @@ apply_saved_settings()
 
 -- Show splash screen (loads, displays, and unloads itself)
 dofile("/scripts/ui/splash.lua")
-collectgarbage("collect")
+run_gc("collect", "post-splash")
 
--- Load and start built-in services
-tdeck.system.log("[Boot] Loading Builtin, free=" .. mem() .. "KB")
-local Builtin = dofile("/scripts/services/builtin.lua")
-tdeck.system.log("[Boot] Builtin loaded, free=" .. mem() .. "KB")
-if Builtin and Builtin.init_all then
-    Builtin.init_all()
-    tdeck.system.log("[Boot] Builtin.init_all done, free=" .. mem() .. "KB")
+-- Load and start status bar update services
+tdeck.system.log("[Boot] Loading StatusServices, free=" .. mem() .. "KB")
+local StatusServices = dofile("/scripts/services/status_services.lua")
+_G.StatusServices = StatusServices
+tdeck.system.log("[Boot] StatusServices loaded, free=" .. mem() .. "KB")
+if StatusServices and StatusServices.init_all then
+    StatusServices.init_all()
 end
 
 -- Load and initialize Contacts service (handles contact persistence, node cache, auto time sync)
@@ -197,6 +306,21 @@ local Contacts = dofile("/scripts/services/contacts.lua")
 _G.Contacts = Contacts
 Contacts.init()
 tdeck.system.log("[Boot] Contacts initialized, free=" .. mem() .. "KB")
+
+-- Load and initialize DirectMessages service (handles direct messaging over MeshCore)
+tdeck.system.log("[Boot] Loading DirectMessages, free=" .. mem() .. "KB")
+local DirectMessages = dofile("/scripts/services/direct_messages.lua")
+_G.DirectMessages = DirectMessages
+DirectMessages.init()
+tdeck.system.log("[Boot] DirectMessages initialized, free=" .. mem() .. "KB")
+
+-- Load and initialize Screen Timeout service (dims and turns off screen after inactivity)
+tdeck.system.log("[Boot] Loading ScreenTimeout, free=" .. mem() .. "KB")
+local ScreenTimeout = dofile("/scripts/services/screen_timeout.lua")
+_G.ScreenTimeout = ScreenTimeout
+ScreenTimeout.init()
+ScreenTimeout.register()
+tdeck.system.log("[Boot] ScreenTimeout initialized, free=" .. mem() .. "KB")
 
 -- Load and push main menu
 tdeck.system.log("[Boot] Loading MainMenu, free=" .. mem() .. "KB")

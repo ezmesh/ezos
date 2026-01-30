@@ -35,16 +35,16 @@ function ColorTest:render(display)
     local x = 2 * fw
 
     local color_list = {
-        {"GREEN", colors.GREEN},
-        {"CYAN", colors.CYAN},
-        {"RED", colors.RED},
-        {"YELLOW", colors.YELLOW},
-        {"ORANGE", colors.ORANGE},
+        {"SUCCESS", colors.SUCCESS},
+        {"ACCENT", colors.ACCENT},
+        {"ERROR", colors.ERROR},
+        {"WARNING", colors.WARNING},
+        {"INFO", colors.INFO},
         {"BLUE", colors.BLUE},
         {"WHITE", colors.WHITE},
         {"GRAY", colors.GRAY},
         {"TEXT", colors.TEXT},
-        {"TEXT_DIM", colors.TEXT_DIM},
+        {"TEXT_SECONDARY", colors.TEXT_SECONDARY},
     }
 
     for _, c in ipairs(color_list) do

@@ -70,7 +70,9 @@ local MapViewer = {
     LABEL_TYPE_WATER = 5,
 
     -- Label index (v3: per-tile index for lazy loading)
-    label_index = nil,  -- Array of { zoom_min, tile_x, tile_y, offset, count }
+    -- Note: zoom_min in index is actually extraction_zoom (tile coordinate level)
+    -- Each label has its own zoom_min for visibility filtering
+    label_index = nil,  -- Array of { zoom_min (=extraction_zoom), tile_x, tile_y, offset, count }
     label_index_offset = 0,
     label_index_count = 0,
 
@@ -323,24 +325,26 @@ function MapViewer:load_label_index_async(index_offset, index_count)
 end
 
 -- Load labels for a specific tile (v3 format, lazy loading)
-function MapViewer:load_labels_for_tile(zoom_min, tile_x, tile_y)
+-- Index uses extraction_zoom (tile coordinate level), labels have zoom_min for visibility
+function MapViewer:load_labels_for_tile(extraction_zoom, tile_x, tile_y)
     if not self.label_index then return nil end
 
-    local key = string.format("%d/%d/%d", zoom_min, tile_x, tile_y)
+    local key = string.format("%d/%d/%d", extraction_zoom, tile_x, tile_y)
 
     -- Check cache first
     if self.label_cache[key] then
         return self.label_cache[key]
     end
 
-    -- Binary search for tile in label index
+    -- Binary search for tile in label index (indexed by extraction_zoom)
     local lo, hi = 1, #self.label_index
-    local target_key = zoom_min * 0x100000000 + tile_x * 0x10000 + tile_y
+    local target_key = extraction_zoom * 0x100000000 + tile_x * 0x10000 + tile_y
     local index_entry = nil
 
     while lo <= hi do
         local mid = math.floor((lo + hi) / 2)
         local entry = self.label_index[mid]
+        -- Note: entry.zoom_min is actually extraction_zoom in the new format
         local entry_key = entry.zoom_min * 0x100000000 + entry.tile_x * 0x10000 + entry.tile_y
 
         if entry_key == target_key then
@@ -360,8 +364,8 @@ function MapViewer:load_labels_for_tile(zoom_min, tile_x, tile_y)
     end
 
     -- Read labels synchronously (small read, fast)
-    -- Label v3 format: pixel_x:1 + pixel_y:1 + zoom_max:1 + label_type:1 + text_len:1 + text
-    local estimated_size = index_entry.count * 20  -- ~20 bytes avg per label
+    -- New v3 format: pixel_x:1 + pixel_y:1 + zoom_min:1 + zoom_max:1 + label_type:1 + text_len:1 + text
+    local estimated_size = index_entry.count * 25  -- ~25 bytes avg per label
     local label_data = tdeck.storage.read_bytes(self.archive_path, index_entry.offset, estimated_size)
     if not label_data then
         return {}
@@ -371,21 +375,22 @@ function MapViewer:load_labels_for_tile(zoom_min, tile_x, tile_y)
     local offset = 0
 
     for i = 1, index_entry.count do
-        if offset + 5 > #label_data then
+        if offset + 6 > #label_data then
             break
         end
 
         local pixel_x = read_u8(label_data, offset)
         local pixel_y = read_u8(label_data, offset + 1)
-        local zoom_max = read_u8(label_data, offset + 2)
-        local label_type = read_u8(label_data, offset + 3)
-        local text_len = read_u8(label_data, offset + 4)
+        local zoom_min = read_u8(label_data, offset + 2)  -- Visibility threshold
+        local zoom_max = read_u8(label_data, offset + 3)
+        local label_type = read_u8(label_data, offset + 4)
+        local text_len = read_u8(label_data, offset + 5)
 
-        if offset + 5 + text_len > #label_data then
+        if offset + 6 + text_len > #label_data then
             break
         end
 
-        local text = string.sub(label_data, offset + 6, offset + 5 + text_len)
+        local text = string.sub(label_data, offset + 7, offset + 6 + text_len)
 
         table.insert(labels, {
             zoom_min = zoom_min,
@@ -396,9 +401,10 @@ function MapViewer:load_labels_for_tile(zoom_min, tile_x, tile_y)
             pixel_y = pixel_y,
             label_type = label_type,
             text = text,
+            extraction_zoom = extraction_zoom,
         })
 
-        offset = offset + 5 + text_len
+        offset = offset + 6 + text_len
     end
 
     -- Add to cache
@@ -517,10 +523,14 @@ function MapViewer:get_visible_labels(start_tile_x, start_tile_y, tiles_x, tiles
     end
 
     -- v3: load labels per-tile lazily
-    -- Only check current zoom level to minimize SD reads
+    -- Labels are indexed by extraction_zoom (tile coordinate level)
+    -- Each label has its own zoom_min for visibility filtering
     local seen = {}
-    local check_zoom = zoom
-    do
+    local min_data_zoom = self.archive.min_zoom
+    local max_data_zoom = self.archive.max_zoom
+
+    -- Check each zoom level from min_zoom to current zoom for parent tiles with labels
+    for check_zoom = min_data_zoom, math.min(max_data_zoom, zoom) do
         local zoom_diff = zoom - check_zoom
         local scale = 2 ^ zoom_diff
 
@@ -530,14 +540,15 @@ function MapViewer:get_visible_labels(start_tile_x, start_tile_y, tiles_x, tiles
         local src_end_x = math.floor((start_tile_x + tiles_x - 1) / scale)
         local src_end_y = math.floor((start_tile_y + tiles_y - 1) / scale)
 
-        -- Load labels for each source tile that might have labels
+        -- Load labels for each source tile
         for src_x = src_start_x, src_end_x do
             for src_y = src_start_y, src_end_y do
+                -- Load labels indexed by extraction_zoom (check_zoom)
                 local labels = self:load_labels_for_tile(check_zoom, src_x, src_y)
                 if labels then
                     for _, label in ipairs(labels) do
-                        -- Check if label is visible at current zoom
-                        if zoom <= label.zoom_max then
+                        -- Check visibility: zoom_min <= current_zoom <= zoom_max
+                        if zoom >= label.zoom_min and zoom <= label.zoom_max then
                             -- Scale label position to current zoom
                             local label_tile_x = label.tile_x * scale
                             local label_tile_y = label.tile_y * scale

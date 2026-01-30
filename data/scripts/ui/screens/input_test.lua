@@ -44,13 +44,13 @@ function InputTest:render(display)
 
     if self.last_key then
         -- Show last key details
-        display.draw_text(x, y, "Last Key:", colors.TEXT_DIM)
+        display.draw_text(x, y, "Last Key:", colors.TEXT_SECONDARY)
         y = y + fh
 
         if self.last_key.special then
-            display.draw_text(x + 2 * fw, y, "Special: " .. self.last_key.special, colors.CYAN)
+            display.draw_text(x + 2 * fw, y, "Special: " .. self.last_key.special, colors.ACCENT)
         elseif self.last_key.character then
-            display.draw_text(x + 2 * fw, y, "Char: '" .. self.last_key.character .. "'", colors.CYAN)
+            display.draw_text(x + 2 * fw, y, "Char: '" .. self.last_key.character .. "'", colors.ACCENT)
         end
         y = y + fh
 
@@ -64,16 +64,16 @@ function InputTest:render(display)
         if #mods > 0 then
             display.draw_text(x + 2 * fw, y, "Mods: " .. table.concat(mods, " + "), colors.TEXT)
         else
-            display.draw_text(x + 2 * fw, y, "Mods: none", colors.TEXT_DIM)
+            display.draw_text(x + 2 * fw, y, "Mods: none", colors.TEXT_SECONDARY)
         end
         y = y + fh * 2
     else
-        display.draw_text(x, y, "(waiting for input...)", colors.TEXT_DIM)
+        display.draw_text(x, y, "(waiting for input...)", colors.TEXT_SECONDARY)
         y = y + fh * 4
     end
 
     -- Key history
-    display.draw_text(x, y, "History:", colors.TEXT_DIM)
+    display.draw_text(x, y, "History:", colors.TEXT_SECONDARY)
     y = y + fh
 
     for i, key_str in ipairs(self.key_history) do

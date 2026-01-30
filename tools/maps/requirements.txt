@@ -1,2 +1,4 @@
+# PMTiles to TDMAP converter dependencies
+pmtiles>=3.0.0
+mapbox-vector-tile>=2.0.0
 Pillow>=9.0.0
-requests>=2.28.0

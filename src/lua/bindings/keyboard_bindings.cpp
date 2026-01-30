@@ -203,44 +203,34 @@ LUA_FUNCTION(l_keyboard_set_adaptive_scrolling) {
     return 0;
 }
 
-// @lua tdeck.keyboard.get_tick_scrolling() -> boolean
-// @brief Check if tick-based scrolling is enabled
-// @return true if tick-based scrolling is on
-LUA_FUNCTION(l_keyboard_get_tick_scrolling) {
-    bool enabled = keyboard && keyboard->getTickBasedScrolling();
-    lua_pushboolean(L, enabled);
-    return 1;
-}
-
-// @lua tdeck.keyboard.set_tick_scrolling(enabled)
-// @brief Enable or disable tick-based scrolling (smoother, fixed-rate scroll events)
-// @param enabled true to enable, false to disable
-LUA_FUNCTION(l_keyboard_set_tick_scrolling) {
-    LUA_CHECK_ARGC(L, 1);
-    bool enabled = lua_toboolean(L, 1);
-    if (keyboard) {
-        keyboard->setTickBasedScrolling(enabled);
+// @lua tdeck.keyboard.get_trackball_mode() -> string
+// @brief Get current trackball input mode
+// @return "polling" or "interrupt"
+LUA_FUNCTION(l_keyboard_get_trackball_mode) {
+    const char* mode = "polling";
+    if (keyboard && keyboard->getTrackballMode() == TrackballMode::INTERRUPT_DRIVEN) {
+        mode = "interrupt";
     }
-    return 0;
-}
-
-// @lua tdeck.keyboard.get_scroll_tick_interval() -> integer
-// @brief Get scroll tick interval in milliseconds
-// @return Interval in milliseconds (20-500)
-LUA_FUNCTION(l_keyboard_get_scroll_tick_interval) {
-    int interval = keyboard ? keyboard->getScrollTickInterval() : 100;
-    lua_pushinteger(L, interval);
+    lua_pushstring(L, mode);
     return 1;
 }
 
-// @lua tdeck.keyboard.set_scroll_tick_interval(interval_ms)
-// @brief Set scroll tick interval (how often scroll events are emitted)
-// @param interval_ms Interval in milliseconds (20-500)
-LUA_FUNCTION(l_keyboard_set_scroll_tick_interval) {
+// @lua tdeck.keyboard.set_trackball_mode(mode)
+// @brief Set trackball input mode
+// @param mode "polling" or "interrupt"
+LUA_FUNCTION(l_keyboard_set_trackball_mode) {
     LUA_CHECK_ARGC(L, 1);
-    int interval = luaL_checkinteger(L, 1);
+    const char* modeStr = luaL_checkstring(L, 1);
+
+    TrackballMode mode = TrackballMode::POLLING;
+    if (strcmp(modeStr, "interrupt") == 0) {
+        mode = TrackballMode::INTERRUPT_DRIVEN;
+    } else if (strcmp(modeStr, "polling") != 0) {
+        return luaL_error(L, "Invalid mode: %s (expected 'polling' or 'interrupt')", modeStr);
+    }
+
     if (keyboard) {
-        keyboard->setScrollTickInterval(interval);
+        keyboard->setTrackballMode(mode);
     }
     return 0;
 }
@@ -449,10 +439,8 @@ static const luaL_Reg keyboard_funcs[] = {
     {"set_trackball_sensitivity", l_keyboard_set_trackball_sensitivity},
     {"get_adaptive_scrolling",   l_keyboard_get_adaptive_scrolling},
     {"set_adaptive_scrolling",   l_keyboard_set_adaptive_scrolling},
-    {"get_tick_scrolling",       l_keyboard_get_tick_scrolling},
-    {"set_tick_scrolling",       l_keyboard_set_tick_scrolling},
-    {"get_scroll_tick_interval", l_keyboard_get_scroll_tick_interval},
-    {"set_scroll_tick_interval", l_keyboard_set_scroll_tick_interval},
+    {"get_trackball_mode",       l_keyboard_get_trackball_mode},
+    {"set_trackball_mode",       l_keyboard_set_trackball_mode},
     {"get_backlight",            l_keyboard_get_backlight},
     {"set_backlight",            l_keyboard_set_backlight},
     {"get_repeat_enabled",       l_keyboard_get_repeat_enabled},

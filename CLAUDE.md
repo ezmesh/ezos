@@ -81,19 +81,55 @@ Reference implementation: https://github.com/ripplebiz/MeshCore
 - Offset 0: Public key (32 bytes)
 - Offset 32: Timestamp (4 bytes, little-endian)
 - Offset 36: Ed25519 signature (64 bytes)
-- Offset 100: App data (up to 32 bytes) - contains node name and metadata
+- Offset 100: App data (up to 32 bytes) - contains node name, location, and metadata
 
 **Signature Message Format:**
 The signature is computed over: `[pub_key:32][timestamp:4][app_data:variable]`
 
-**App Data Format (Ripple apps):**
-The app_data may have a type prefix byte >= 0x80 (e.g., 0x81) before the actual name string.
+### App Data Structure (within ADVERT)
+All multi-byte integers are little-endian.
+
+| Field | Offset | Size | Type | Description |
+|-------|--------|------|------|-------------|
+| flags | 0 | 1 | uint8 | Bit flags for presence/type |
+| latitude | 1 | 4 | int32_le | Optional: lat × 1,000,000 |
+| longitude | 5 | 4 | int32_le | Optional: lon × 1,000,000 |
+| feature1 | 9 | 2 | uint16_le | Optional: reserved |
+| feature2 | 11 | 2 | uint16_le | Optional: reserved |
+| name | variable | variable | string | UTF-8 node name |
+
+**Flags Byte:**
+| Bit | Value | Meaning |
+|-----|-------|---------|
+| 0-1 | 0x01 | Chat node |
+| 0-1 | 0x02 | Repeater |
+| 0-1 | 0x03 | Room server |
+| 2 | 0x04 | Sensor |
+| 4 | 0x10 | Has location (lat/lon present) |
+| 5 | 0x20 | Has feature1 |
+| 6 | 0x40 | Has feature2 |
+| 7 | 0x80 | Has name |
+
+**Location Encoding:**
+- Latitude/Longitude stored as `int32_le` = decimal degrees × 1,000,000
+- Example: 47.543968° → 47543968, -122.108616° → -122108616
+- Only present when flags bit 4 (0x10) is set
+
+**Device Roles (bits 0-1):**
+- 0x01: Chat client (companion app user)
+- 0x02: Repeater (infrastructure node, often has GPS)
+- 0x03: Room server
 
 ### Key Source Files (ripplebiz/MeshCore)
-- `src/Packet.h` - Packet structure and header format
-- `src/Mesh.cpp` - Packet handling including ADVERT processing
-- `src/Identity.h` - Ed25519 identity class
-- `src/MeshCore.h` - Main constants and definitions
+Direct links to protocol implementation:
+- [src/Packet.h](https://github.com/ripplebiz/MeshCore/blob/main/src/Packet.h) - Packet structure and header format
+- [src/Mesh.cpp](https://github.com/ripplebiz/MeshCore/blob/main/src/Mesh.cpp) - Packet handling including ADVERT processing
+- [src/Identity.h](https://github.com/ripplebiz/MeshCore/blob/main/src/Identity.h) - Ed25519 identity class
+- [src/MeshCore.h](https://github.com/ripplebiz/MeshCore/blob/main/src/MeshCore.h) - Main constants and definitions
+- [src/helpers/AdvertDataHelpers.h](https://github.com/ripplebiz/MeshCore/blob/main/src/helpers/AdvertDataHelpers.h) - ADVERT appdata parsing (location, flags)
+
+Ripple Radio app implementations (companion apps):
+- [src/ripple/Repeater.h](https://github.com/ripplebiz/MeshCore/blob/main/src/ripple/Repeater.h) - Repeater node with GPS location support
 
 ## Settings Save/Restore Pattern
 

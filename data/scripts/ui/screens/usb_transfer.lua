@@ -43,31 +43,31 @@ function USBTransfer:render(display)
     local y = 2 * fh
 
     if not self.sd_available then
-        display.draw_text_centered(y, "No SD Card Detected", colors.ORANGE)
+        display.draw_text_centered(y, "No SD Card Detected", colors.WARNING)
         y = y + 2 * fh
         display.draw_text_centered(y, "Insert SD card and", colors.TEXT)
         y = y + fh
         display.draw_text_centered(y, "press [R] to retry", colors.TEXT)
     elseif self.msc_active then
-        display.draw_text_centered(y, "USB Drive Mode Active", colors.GREEN)
+        display.draw_text_centered(y, "USB Drive Mode Active", colors.SUCCESS)
         y = y + 2 * fh
         display.draw_text_centered(y, "SD card is accessible", colors.TEXT)
         y = y + fh
         display.draw_text_centered(y, "from your computer", colors.TEXT)
         y = y + 2 * fh
-        display.draw_text_centered(y, "Edit files in /scripts/", colors.CYAN)
+        display.draw_text_centered(y, "Edit files in /scripts/", colors.ACCENT)
         y = y + 2 * fh
-        display.draw_text_centered(y, "[S] Stop & Restart", colors.TEXT_DIM)
+        display.draw_text_centered(y, "[S] Stop & Restart", colors.TEXT_SECONDARY)
     else
-        display.draw_text_centered(y, "SD Card Ready", colors.GREEN)
+        display.draw_text_centered(y, "SD Card Ready", colors.SUCCESS)
         y = y + 2 * fh
         display.draw_text_centered(y, "Press [Enter] to start", colors.TEXT)
         y = y + fh
         display.draw_text_centered(y, "USB drive mode", colors.TEXT)
         y = y + 2 * fh
-        display.draw_text_centered(y, "Your computer will see", colors.TEXT_DIM)
+        display.draw_text_centered(y, "Your computer will see", colors.TEXT_SECONDARY)
         y = y + fh
-        display.draw_text_centered(y, "the SD card as a drive", colors.TEXT_DIM)
+        display.draw_text_centered(y, "the SD card as a drive", colors.TEXT_SECONDARY)
     end
 end
 

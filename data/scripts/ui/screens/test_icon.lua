@@ -58,11 +58,11 @@ function TestIcon:render(display)
         -- Show info below
         local info = string.format("%dx%d  %d bytes",
             self.bitmap.width, self.bitmap.height, #self.bitmap.data)
-        display.draw_text_centered(center_y + self.bitmap.height / 2 + 20, info, colors.TEXT_DIM)
-        display.draw_text_centered(center_y + self.bitmap.height / 2 + 40, self.test_path, colors.TEXT_DIM)
+        display.draw_text_centered(center_y + self.bitmap.height / 2 + 20, info, colors.TEXT_SECONDARY)
+        display.draw_text_centered(center_y + self.bitmap.height / 2 + 40, self.test_path, colors.TEXT_SECONDARY)
     elseif self.error_msg then
-        display.draw_text_centered(center_y - 10, self.error_msg, colors.RED)
-        display.draw_text_centered(center_y + 10, "Place RGB565 bitmap at:", colors.TEXT_DIM)
+        display.draw_text_centered(center_y - 10, self.error_msg, colors.ERROR)
+        display.draw_text_centered(center_y + 10, "Place RGB565 bitmap at:", colors.TEXT_SECONDARY)
         display.draw_text_centered(center_y + 30, self.test_path, colors.TEXT)
     else
         display.draw_text_centered(center_y, "Loading...", colors.TEXT)

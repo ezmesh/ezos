@@ -22,13 +22,18 @@ local StatusBar = {
     -- Time format: 1 = 24h, 2 = 12h AM/PM
     time_format = 1,
 
+    -- Loading indicator (uses counter so multiple processes can use it correctly)
+    loading_count = 0,
+    loading_frame = 0,
+    loading_last = 0,
+
     -- Menu hotkey detection
     menu_check_interval = 100,
     menu_last_check = 0,
     menu_triggered = false,
     -- Default hotkey: sym key (column 0, row 2 = 0x04)
     -- Format: matrix bits packed as col0*128^0 + col1*128^1 + ...
-    menu_hotkey = 4,  -- 0x04 in column 0 = sym key
+    menu_hotkey = 139264,  -- LShift (col1=0x40) + RShift (col2=0x08)
     menu_hotkey_loaded = false,
 }
 
@@ -38,6 +43,33 @@ function StatusBar.set_node_count(c) StatusBar.node_count = c or 0 end
 function StatusBar.set_node_id(id) end
 function StatusBar.set_unread(u) StatusBar.has_unread = u or false end
 function StatusBar.set_free_memory(kb) StatusBar.free_mem_kb = kb or 0 end
+
+function StatusBar.show_loading(flush_now)
+    StatusBar.loading_count = StatusBar.loading_count + 1
+    if StatusBar.loading_count == 1 then
+        StatusBar.loading_frame = 0
+        StatusBar.loading_last = 0
+    end
+    if _G.ScreenManager then
+        _G.ScreenManager.invalidate()
+        -- If flush_now is true, force immediate render so spinner is visible
+        -- before a blocking operation starts
+        if flush_now then
+            _G.ScreenManager.render()
+        end
+    end
+end
+
+function StatusBar.hide_loading()
+    if StatusBar.loading_count > 0 then
+        StatusBar.loading_count = StatusBar.loading_count - 1
+    end
+    if _G.ScreenManager then _G.ScreenManager.invalidate() end
+end
+
+function StatusBar.is_loading()
+    return StatusBar.loading_count > 0
+end
 
 function StatusBar.update_memory()
     if tdeck.system.get_free_heap then
@@ -121,9 +153,9 @@ local function draw_sparkline(display, history, idx, x, y, width, height, colors
         if val then
             local h = math.floor(val / (100 / height))
             if h < 1 then h = 1 end
-            local c = colors.GREEN
-            if val > 80 then c = colors.RED
-            elseif val > 60 then c = colors.YELLOW end
+            local c = colors.SUCCESS
+            if val > 80 then c = colors.ERROR
+            elseif val > 60 then c = colors.WARNING end
             display.fill_rect(x + i, y + height - h, 1, h, c)
         end
     end
@@ -131,9 +163,9 @@ end
 
 -- Get color based on battery level (used for both battery and signal)
 local function get_level_color(level, colors)
-    if level <= 20 then return colors.RED
-    elseif level <= 40 then return colors.YELLOW
-    else return colors.GREEN end
+    if level <= 20 then return colors.ERROR
+    elseif level <= 40 then return colors.WARNING
+    else return colors.SUCCESS end
 end
 
 function StatusBar._render_impl(display)
@@ -148,7 +180,7 @@ function StatusBar._render_impl(display)
     local sep_y = y - fh / 2
 
     -- Separator and background
-    display.fill_rect(0, sep_y - 1, display.width, 1, colors.BORDER)
+    display.fill_rect(0, sep_y - 1, display.width, 1, colors.TEXT_SECONDARY)
     display.fill_rect(0, sep_y, display.width, display.height - sep_y, colors.BLACK)
 
     -- Calculate vertical center of status bar area for centering elements
@@ -168,6 +200,47 @@ function StatusBar._render_impl(display)
     local psram_x = heap_x + spark_width + 2
     draw_sparkline(display, StatusBar.psram_history, StatusBar.psram_idx, psram_x, spark_y, spark_width, spark_height, colors)
 
+    -- Loading spinner (after sparklines, animated)
+    if StatusBar.loading_count > 0 then
+        local spinner_size = 10
+        local spinner_x = psram_x + spark_width + 6
+        local spinner_cy = center_y
+        local spinner_cx = spinner_x + math.floor(spinner_size / 2)
+
+        -- Animate the spinner (4 frames, rotate every 100ms)
+        local now = tdeck.system.millis()
+        if now - StatusBar.loading_last >= 100 then
+            StatusBar.loading_last = now
+            StatusBar.loading_frame = (StatusBar.loading_frame + 1) % 4
+            if _G.ScreenManager then _G.ScreenManager.invalidate() end
+        end
+
+        -- Draw spinner as rotating line segments (4 positions)
+        -- Frame 0: | Frame 1: / Frame 2: - Frame 3: \
+        local frame = StatusBar.loading_frame
+        local r = 4  -- radius
+
+        if frame == 0 then
+            -- Vertical |
+            display.fill_rect(spinner_cx, spinner_cy - r, 1, r * 2, colors.ACCENT)
+        elseif frame == 1 then
+            -- Diagonal /
+            for i = 0, r - 1 do
+                display.fill_rect(spinner_cx - r + i + 1, spinner_cy + r - i - 1, 1, 1, colors.ACCENT)
+                display.fill_rect(spinner_cx + i, spinner_cy - i - 1, 1, 1, colors.ACCENT)
+            end
+        elseif frame == 2 then
+            -- Horizontal -
+            display.fill_rect(spinner_cx - r, spinner_cy, r * 2, 1, colors.ACCENT)
+        else
+            -- Diagonal \
+            for i = 0, r - 1 do
+                display.fill_rect(spinner_cx - r + i + 1, spinner_cy - r + i + 1, 1, 1, colors.ACCENT)
+                display.fill_rect(spinner_cx + i, spinner_cy + i, 1, 1, colors.ACCENT)
+            end
+        end
+    end
+
     -- Battery (far right with 2px margin) - 18px wide + 2px nub = 20px total, 10px tall
     local batt_width = 20
     local batt_height = 10
@@ -175,11 +248,11 @@ function StatusBar._render_impl(display)
     local by = center_y - math.floor(batt_height / 2)
 
     -- Battery outline
-    display.fill_rect(batt_x, by, 18, 1, colors.BORDER)
-    display.fill_rect(batt_x, by + 9, 18, 1, colors.BORDER)
-    display.fill_rect(batt_x, by, 1, 10, colors.BORDER)
-    display.fill_rect(batt_x + 17, by, 1, 10, colors.BORDER)
-    display.fill_rect(batt_x + 18, by + 3, 2, 4, colors.BORDER)
+    display.fill_rect(batt_x, by, 18, 1, colors.TEXT_SECONDARY)
+    display.fill_rect(batt_x, by + 9, 18, 1, colors.TEXT_SECONDARY)
+    display.fill_rect(batt_x, by, 1, 10, colors.TEXT_SECONDARY)
+    display.fill_rect(batt_x + 17, by, 1, 10, colors.TEXT_SECONDARY)
+    display.fill_rect(batt_x + 18, by + 3, 2, 4, colors.TEXT_SECONDARY)
 
     -- Battery fill
     local fill = math.floor((StatusBar.battery * 4) / 100)
@@ -187,7 +260,7 @@ function StatusBar._render_impl(display)
     local bc = get_level_color(StatusBar.battery, colors)
 
     for i = 0, 3 do
-        local c = (i < fill) and bc or colors.DARK_GRAY
+        local c = (i < fill) and bc or colors.SURFACE
         display.fill_rect(batt_x + 2 + i * 4, by + 2, 3, 6, c)
     end
 
@@ -206,11 +279,11 @@ function StatusBar._render_impl(display)
             local bh = math.floor((signal_height * (i + 1)) / 4)
             local bx = signal_x + i * 4
             local bar_y = signal_base_y - bh
-            local c = (i < StatusBar.signal_bars) and sc or colors.DARK_GRAY
+            local c = (i < StatusBar.signal_bars) and sc or colors.SURFACE
             display.fill_rect(bx, bar_y, 3, bh, c)
         end
     else
-        display.draw_text(signal_x, y, "!RF", colors.RED)
+        display.draw_text(signal_x, y, "!RF", colors.ERROR)
     end
 
     -- Time display (center of screen)
@@ -241,13 +314,13 @@ function StatusBar._render_impl(display)
     end
 
     -- Center the time on the display using draw_text_centered
-    display.draw_text_centered(y, time_str, colors.TEXT)
+    display.draw_text_centered(y - 3, time_str, colors.TEXT)
 
     -- Unread indicator next to time
     if StatusBar.has_unread then
         local time_width = display.text_width(time_str)
         local time_x = math.floor((display.width - time_width) / 2)
-        display.draw_text(time_x + time_width + 2, y, "*", colors.YELLOW)
+        display.draw_text(time_x + time_width + 2, y, "*", colors.INFO)
     end
 end
 
@@ -269,16 +342,17 @@ end
 function StatusBar.reload_hotkey()
     -- Force reload hotkey from preferences (called after settings change)
     StatusBar.menu_hotkey_loaded = false
-    StatusBar.menu_hotkey = 4  -- Reset to default (sym key)
+    StatusBar.menu_hotkey = 139264  -- Reset to default (LShift + RShift)
     StatusBar.load_hotkey()
 end
 
 function StatusBar.get_matrix_bits(matrix)
     -- Pack 5 columns into a single number matching hotkey format
+    -- Use bit shifts instead of exponentiation to keep values as integers
     local bits = 0
     for col = 1, 5 do
-        local col_byte = matrix[col] or 0
-        bits = bits + (col_byte * (128 ^ (col - 1)))
+        local col_byte = math.floor(matrix[col] or 0)
+        bits = bits | (col_byte << ((col - 1) * 7))
     end
     return bits
 end
@@ -319,11 +393,9 @@ function StatusBar.check_menu_trigger()
     if hotkey_pressed and StatusBar.menu_hotkey > 0 then
         if not StatusBar.menu_triggered then
             StatusBar.menu_triggered = true
-            if not _G.AppMenu then
-                _G.AppMenu = dofile("/scripts/ui/screens/app_menu.lua")
-                _G.AppMenu.init()
+            if _G.AppMenu then
+                _G.AppMenu.show()
             end
-            _G.AppMenu.show()
         end
     else
         StatusBar.menu_triggered = false

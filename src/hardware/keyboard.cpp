@@ -1,6 +1,36 @@
 #include "keyboard.h"
 #include <Arduino.h>
 
+// Volatile counters for trackball interrupt mode
+static volatile int16_t tb_int_up = 0;
+static volatile int16_t tb_int_down = 0;
+static volatile int16_t tb_int_left = 0;
+static volatile int16_t tb_int_right = 0;
+static volatile bool tb_int_click = false;
+static volatile uint32_t tb_int_click_time = 0;
+
+// ISR functions for trackball (must be in IRAM for ESP32)
+static void IRAM_ATTR ISR_trackball_up() {
+    tb_int_up++;
+}
+
+static void IRAM_ATTR ISR_trackball_down() {
+    tb_int_down++;
+}
+
+static void IRAM_ATTR ISR_trackball_left() {
+    tb_int_left++;
+}
+
+static void IRAM_ATTR ISR_trackball_right() {
+    tb_int_right++;
+}
+
+static void IRAM_ATTR ISR_trackball_click() {
+    tb_int_click = true;
+    tb_int_click_time = millis();
+}
+
 // T-Deck keyboard key codes
 // The keyboard controller sends single bytes for key events
 // Upper bit (0x80) indicates key release, lower 7 bits are the key code
@@ -207,61 +237,96 @@ KeyEvent Keyboard::read() {
         }
     }
 
-    // GPIO polling for trackball
-    static bool lastUp = false, lastDown = false, lastLeft = false, lastRight = false;
-    static bool lastClick = false;
-    static bool clickHeld = false;
-    static uint32_t clickStartTime = 0;
-    static bool clickFired = false;
-
-    bool up = (digitalRead(TRACKBALL_UP) == LOW);
-    bool down = (digitalRead(TRACKBALL_DOWN) == LOW);
-    bool left = (digitalRead(TRACKBALL_LEFT) == LOW);
-    bool right = (digitalRead(TRACKBALL_RIGHT) == LOW);
-    bool click = (digitalRead(TRACKBALL_CLICK) == LOW);
-
-    // Log state changes
-    if (up != lastUp || down != lastDown || left != lastLeft || right != lastRight || click != lastClick) {
-        Serial.printf("[TB] up=%d down=%d left=%d right=%d click=%d\n", up, down, left, right, click);
-    }
-
-    // Detect edges for scroll (transitions from HIGH to LOW)
-    bool upEdge = up && !lastUp;
-    bool downEdge = down && !lastDown;
-    bool leftEdge = left && !lastLeft;
-    bool rightEdge = right && !lastRight;
-
-    // Save current state for next edge detection
-    lastUp = up;
-    lastDown = down;
-    lastLeft = left;
-    lastRight = right;
-    lastClick = click;
-
-    // Handle click (30ms debounce)
+    // Trackball handling - supports both polling and interrupt modes
     uint32_t now = millis();
 
-    if (click) {
-        // On one of my devices the trackball click got stuck in a low state, auto triggering clicks, this fixes it...
-        pinMode(TRACKBALL_CLICK, INPUT_PULLUP);
-        if (!clickHeld) {
-            clickHeld = true;
-            clickStartTime = now;
-            clickFired = false;
-        } else if (!clickFired && (now - clickStartTime) >= 30) {
-            clickFired = true;
+    if (_trackballMode == TrackballMode::INTERRUPT_DRIVEN) {
+        // Interrupt mode: read from volatile counters set by ISRs
+        // Atomically read and reset counters
+        noInterrupts();
+        int16_t intUp = tb_int_up;
+        int16_t intDown = tb_int_down;
+        int16_t intLeft = tb_int_left;
+        int16_t intRight = tb_int_right;
+        bool intClick = tb_int_click;
+        tb_int_up = 0;
+        tb_int_down = 0;
+        tb_int_left = 0;
+        tb_int_right = 0;
+        tb_int_click = false;
+        interrupts();
+
+        // Handle click from interrupt
+        if (intClick) {
             return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
         }
-    } else {
-        clickHeld = false;
-        clickFired = false;
-    }
 
-    // Accumulate trackball movement (only on edges)
-    if (upEdge) _trackballY--;
-    if (downEdge) _trackballY++;
-    if (leftEdge) _trackballX--;
-    if (rightEdge) _trackballX++;
+        // Accumulate trackball movement from interrupt counters
+        _trackballY -= intUp;
+        _trackballY += intDown;
+        _trackballX -= intLeft;
+        _trackballX += intRight;
+    } else {
+        // Polling mode: read GPIO pins directly
+        // Initialize last* from actual GPIO state on first call to avoid spurious edges at boot
+        static bool firstPoll = true;
+        static bool lastUp = false, lastDown = false, lastLeft = false, lastRight = false;
+        static bool clickHeld = false;
+        static uint32_t clickStartTime = 0;
+        static bool clickFired = false;
+
+        bool up = (digitalRead(TRACKBALL_UP) == LOW);
+        bool down = (digitalRead(TRACKBALL_DOWN) == LOW);
+        bool left = (digitalRead(TRACKBALL_LEFT) == LOW);
+        bool right = (digitalRead(TRACKBALL_RIGHT) == LOW);
+        bool click = (digitalRead(TRACKBALL_CLICK) == LOW);
+
+        // On first poll, just record state without detecting edges
+        if (firstPoll) {
+            firstPoll = false;
+            lastUp = up;
+            lastDown = down;
+            lastLeft = left;
+            lastRight = right;
+            // Don't generate any events on first poll
+            return KeyEvent::invalid();
+        }
+
+        // Detect edges for scroll (transitions from HIGH to LOW)
+        bool upEdge = up && !lastUp;
+        bool downEdge = down && !lastDown;
+        bool leftEdge = left && !lastLeft;
+        bool rightEdge = right && !lastRight;
+
+        // Save current state for next edge detection
+        lastUp = up;
+        lastDown = down;
+        lastLeft = left;
+        lastRight = right;
+
+        // Handle click (30ms debounce)
+        if (click) {
+            // Re-enable pullup in case it got disabled
+            pinMode(TRACKBALL_CLICK, INPUT_PULLUP);
+            if (!clickHeld) {
+                clickHeld = true;
+                clickStartTime = now;
+                clickFired = false;
+            } else if (!clickFired && (now - clickStartTime) >= 30) {
+                clickFired = true;
+                return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
+            }
+        } else {
+            clickHeld = false;
+            clickFired = false;
+        }
+
+        // Accumulate trackball movement (only on edges)
+        if (upEdge) _trackballY--;
+        if (downEdge) _trackballY++;
+        if (leftEdge) _trackballX--;
+        if (rightEdge) _trackballX++;
+    }
 
     // Calculate effective threshold with adaptive scrolling
     // Adaptive mode: threshold loosens (decreases) when scrolling continuously in same direction
@@ -292,59 +357,7 @@ KeyEvent Keyboard::read() {
         }
     };
 
-    // Tick-based scrolling: accumulate and emit on fixed clock
-    if (_tickBasedScrolling) {
-        uint32_t now = millis();
-
-        // Accumulate movement that exceeds threshold
-        if (_trackballY <= -effectiveThreshold) {
-            _pendingScrollY--;
-            _trackballY = 0;
-        }
-        if (_trackballY >= effectiveThreshold) {
-            _pendingScrollY++;
-            _trackballY = 0;
-        }
-        if (_trackballX <= -effectiveThreshold) {
-            _pendingScrollX--;
-            _trackballX = 0;
-        }
-        if (_trackballX >= effectiveThreshold) {
-            _pendingScrollX++;
-            _trackballX = 0;
-        }
-
-        // Check if tick interval has passed
-        if (now - _lastScrollTick >= _scrollTickInterval) {
-            _lastScrollTick = now;
-
-            // Emit one event per tick, prioritizing Y (vertical) movement
-            if (_pendingScrollY < 0) {
-                _pendingScrollY++;
-                updateAdaptive(-1);
-                return KeyEvent::fromSpecial(SpecialKey::UP, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
-            }
-            if (_pendingScrollY > 0) {
-                _pendingScrollY--;
-                updateAdaptive(1);
-                return KeyEvent::fromSpecial(SpecialKey::DOWN, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
-            }
-            if (_pendingScrollX < 0) {
-                _pendingScrollX++;
-                updateAdaptive(-1);
-                return KeyEvent::fromSpecial(SpecialKey::LEFT, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
-            }
-            if (_pendingScrollX > 0) {
-                _pendingScrollX--;
-                updateAdaptive(1);
-                return KeyEvent::fromSpecial(SpecialKey::RIGHT, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
-            }
-        }
-
-        return KeyEvent::invalid();
-    }
-
-    // Immediate mode: generate directional keys when threshold reached
+    // Generate directional keys when threshold reached
     if (_trackballY <= -effectiveThreshold) {
         _trackballY = 0;
         updateAdaptive(-1);  // Up direction
@@ -698,4 +711,43 @@ uint64_t Keyboard::getRawMatrixBits() {
     }
 
     return bits;
+}
+
+void Keyboard::setTrackballMode(TrackballMode mode) {
+    if (!_initialized || !_trackballFound) return;
+    if (mode == _trackballMode) return;
+
+    // Detach any existing interrupts first
+    detachInterrupt(TRACKBALL_UP);
+    detachInterrupt(TRACKBALL_DOWN);
+    detachInterrupt(TRACKBALL_LEFT);
+    detachInterrupt(TRACKBALL_RIGHT);
+    detachInterrupt(TRACKBALL_CLICK);
+
+    if (mode == TrackballMode::INTERRUPT_DRIVEN) {
+        // Reset interrupt counters
+        tb_int_up = 0;
+        tb_int_down = 0;
+        tb_int_left = 0;
+        tb_int_right = 0;
+        tb_int_click = false;
+
+        // Attach interrupts (falling edge = button pressed, active low)
+        attachInterrupt(digitalPinToInterrupt(TRACKBALL_UP), ISR_trackball_up, FALLING);
+        attachInterrupt(digitalPinToInterrupt(TRACKBALL_DOWN), ISR_trackball_down, FALLING);
+        attachInterrupt(digitalPinToInterrupt(TRACKBALL_LEFT), ISR_trackball_left, FALLING);
+        attachInterrupt(digitalPinToInterrupt(TRACKBALL_RIGHT), ISR_trackball_right, FALLING);
+        attachInterrupt(digitalPinToInterrupt(TRACKBALL_CLICK), ISR_trackball_click, FALLING);
+
+        Serial.println("[Keyboard] Trackball mode: INTERRUPT");
+    } else {
+        // Polling mode - interrupts already detached above
+        Serial.println("[Keyboard] Trackball mode: POLLING");
+    }
+
+    // Reset trackball accumulators
+    _trackballX = 0;
+    _trackballY = 0;
+
+    _trackballMode = mode;
 }

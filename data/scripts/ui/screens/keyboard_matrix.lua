@@ -54,8 +54,8 @@ function KeyboardMatrix:render(display)
 
     -- Show error if raw mode failed
     if self.error_msg then
-        display.draw_text_centered(display.height / 2 - fh, self.error_msg, colors.RED)
-        display.draw_text_centered(display.height / 2 + fh, "Press any key to exit", colors.TEXT_DIM)
+        display.draw_text_centered(display.height / 2 - fh, self.error_msg, colors.ERROR)
+        display.draw_text_centered(display.height / 2 + fh, "Press any key to exit", colors.TEXT_SECONDARY)
         return
     end
 
@@ -69,7 +69,7 @@ function KeyboardMatrix:render(display)
     -- Column headers
     for col = 0, 4 do
         local hx = start_x + col * cell_w
-        display.draw_text(hx, start_y, tostring(col), colors.CYAN)
+        display.draw_text(hx, start_y, tostring(col), colors.ACCENT)
     end
 
     -- Draw matrix grid (7 rows × 5 cols)
@@ -77,7 +77,7 @@ function KeyboardMatrix:render(display)
         local y = start_y + (row + 1) * cell_h
 
         -- Row label
-        display.draw_text(fw, y, tostring(row), colors.CYAN)
+        display.draw_text(fw, y, tostring(row), colors.ACCENT)
 
         for col = 0, 4 do
             local x = start_x + col * cell_w
@@ -89,10 +89,10 @@ function KeyboardMatrix:render(display)
             end
 
             if pressed then
-                display.fill_rect(x - 1, y - 1, cell_w - 2, cell_h - 1, colors.GREEN)
+                display.fill_rect(x - 1, y - 1, cell_w - 2, cell_h - 1, colors.SUCCESS)
                 display.draw_text(x, y, "1", colors.BLACK)
             else
-                display.draw_text(x, y, "0", colors.TEXT_DIM)
+                display.draw_text(x, y, "0", colors.TEXT_SECONDARY)
             end
         end
     end
@@ -106,13 +106,13 @@ function KeyboardMatrix:render(display)
         for col = 1, 5 do
             hex_str = hex_str .. string.format("%02X ", matrix[col] or 0)
         end
-        display.draw_text(fw, info_y, "Bytes: " .. hex_str, colors.TEXT_DIM)
+        display.draw_text(fw, info_y, "Bytes: " .. hex_str, colors.TEXT_SECONDARY)
     else
-        display.draw_text(fw, info_y, "No matrix data", colors.ORANGE)
+        display.draw_text(fw, info_y, "No matrix data", colors.WARNING)
     end
 
     -- Help text
-    display.draw_text(fw, info_y + fh + 2, "ESC to exit", colors.TEXT_DIM)
+    display.draw_text(fw, info_y + fh + 2, "ESC to exit", colors.TEXT_SECONDARY)
 end
 
 function KeyboardMatrix:update()

@@ -17,9 +17,10 @@ local MessageBox = {
 
 -- Show a message box
 -- options: {title, body, buttons = {"OK"} or {"Yes", "No"}, callback = function(button_index)}
+-- If title is nil/empty and body is provided, only body is shown (no default "Alert" title)
 function MessageBox.show(options)
     MessageBox.mode = "alert"
-    MessageBox.title = options.title or "Alert"
+    MessageBox.title = options.title or ""
     MessageBox.body = options.body or ""
     MessageBox.buttons = options.buttons or {"OK"}
     MessageBox.callback = options.callback
@@ -100,33 +101,46 @@ function MessageBox.render(display)
     local fh = display.get_font_height()
     local fw = display.get_font_width()
 
-    -- Box dimensions
+    -- Check if we have a title
+    local has_title = MessageBox.title and #MessageBox.title > 0
+
+    -- Box dimensions (smaller if no title)
     local box_w = math.min(280, w - 20)
-    local box_h = MessageBox.mode == "prompt" and 110 or 90
+    local box_h
+    if MessageBox.mode == "prompt" then
+        box_h = 110
+    elseif has_title then
+        box_h = 90
+    else
+        box_h = 70  -- Smaller box when no title
+    end
     local box_x = math.floor((w - box_w) / 2)
     local box_y = math.floor((h - box_h) / 2)
 
     -- Box background with border
     display.fill_rect(box_x, box_y, box_w, box_h, colors.BLACK)
-    display.draw_rect(box_x, box_y, box_w, box_h, colors.CYAN)
-    display.draw_rect(box_x + 1, box_y + 1, box_w - 2, box_h - 2, colors.BORDER)
+    display.draw_rect(box_x, box_y, box_w, box_h, colors.ACCENT)
+    display.draw_rect(box_x + 1, box_y + 1, box_w - 2, box_h - 2, colors.TEXT_SECONDARY)
 
-    -- Title centered
-    local title_w = display.text_width(MessageBox.title)
-    local title_x = box_x + math.floor((box_w - title_w) / 2)
-    local title_y = box_y + 10
-    display.draw_text(title_x, title_y, MessageBox.title, colors.CYAN)
+    -- Title centered (only if present)
+    local content_y = box_y + 10
+    if has_title then
+        local title_w = display.text_width(MessageBox.title)
+        local title_x = box_x + math.floor((box_w - title_w) / 2)
+        display.draw_text(title_x, content_y, MessageBox.title, colors.ACCENT)
+        content_y = content_y + 25
+    end
 
     if MessageBox.mode == "prompt" then
         -- Input field
         local input_x = box_x + 10
-        local input_y = box_y + 35
+        local input_y = content_y
         local input_w = box_w - 20
         local input_h = 22
 
         -- Input background
         display.fill_rect(input_x, input_y, input_w, input_h, 0x1082)
-        display.draw_rect(input_x, input_y, input_w, input_h, colors.BORDER)
+        display.draw_rect(input_x, input_y, input_w, input_h, colors.TEXT_SECONDARY)
 
         -- Input text
         local max_chars = math.floor((input_w - 8) / fw)
@@ -138,17 +152,32 @@ function MessageBox.render(display)
 
         -- Cursor
         local cursor_x = input_x + 4 + #display_text * fw
-        display.fill_rect(cursor_x, input_y + 4, 2, fh, colors.CYAN)
+        display.fill_rect(cursor_x, input_y + 4, 2, fh, colors.ACCENT)
     else
-        -- Body text
-        local body_y = box_y + 35
+        -- Use small font for body-only messages (no title)
+        if not has_title then
+            display.set_font_size("small")
+            fw = display.get_font_width()
+        end
+
+        -- Body text (centered if no title)
         local body_x = box_x + 10
         local max_chars = math.floor((box_w - 20) / fw)
         local body = MessageBox.body
         if #body > max_chars then
             body = body:sub(1, max_chars - 3) .. "..."
         end
-        display.draw_text(body_x, body_y, body, colors.TEXT)
+        -- Center body text horizontally if no title
+        if not has_title then
+            local body_w = display.text_width(body)
+            body_x = box_x + math.floor((box_w - body_w) / 2)
+        end
+        display.draw_text(body_x, content_y, body, colors.TEXT)
+
+        -- Restore medium font
+        if not has_title then
+            display.set_font_size("medium")
+        end
     end
 
     -- Buttons
@@ -168,14 +197,14 @@ function MessageBox.render(display)
         local is_sel = (i == MessageBox.selected)
 
         if is_sel then
-            display.fill_rect(btn_x, btn_y, btn_w, 22, colors.SELECTION)
-            display.draw_rect(btn_x, btn_y, btn_w, 22, colors.CYAN)
+            display.fill_rect(btn_x, btn_y, btn_w, 22, colors.SURFACE_ALT)
+            display.draw_rect(btn_x, btn_y, btn_w, 22, colors.ACCENT)
         else
-            display.draw_rect(btn_x, btn_y, btn_w, 22, colors.BORDER)
+            display.draw_rect(btn_x, btn_y, btn_w, 22, colors.TEXT_SECONDARY)
         end
 
         local text_x = btn_x + math.floor((btn_w - display.text_width(btn)) / 2)
-        local text_color = is_sel and colors.CYAN or colors.TEXT
+        local text_color = is_sel and colors.ACCENT or colors.TEXT
         display.draw_text(text_x, btn_y + 5, btn, text_color)
 
         btn_x = btn_x + btn_w + btn_spacing

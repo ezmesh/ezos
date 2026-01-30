@@ -21,15 +21,23 @@ function Channels:new()
 end
 
 function Channels:on_enter()
+    -- Ensure Channels service is loaded (lazy-load on first use)
+    if not _G.Channels then
+        _G.Channels = load_module("/scripts/services/channels.lua")
+        if _G.Channels and tdeck.mesh.is_initialized() then
+            _G.Channels.init()
+        end
+    end
     self:refresh_channels()
 end
 
 function Channels:refresh_channels()
     self.channels = {}
 
-    -- Use global Channels service (set by builtin.lua)
+    -- Use global Channels service
     local ChannelsService = _G.Channels
     if not ChannelsService then
+        tdeck.system.log("[Channels] Service not available")
         return
     end
 
@@ -56,8 +64,8 @@ function Channels:render(display)
     local fh = display.get_font_height()
 
     if #self.channels == 0 then
-        display.draw_text_centered(6 * fh, "No channels yet", colors.TEXT_DIM)
-        display.draw_text_centered(8 * fh, "Use app menu to join", colors.TEXT_DIM)
+        display.draw_text_centered(6 * fh, "No channels yet", colors.TEXT_SECONDARY)
+        display.draw_text_centered(8 * fh, "Use app menu to join", colors.TEXT_SECONDARY)
     else
         local y = 2
         for i = 1, self.visible_items do
@@ -69,13 +77,13 @@ function Channels:render(display)
             local py = y * fh
 
             if is_selected then
-                display.fill_rect(fw, py, (display.cols - 2) * fw, fh * 2, colors.SELECTION)
+                display.fill_rect(fw, py, (display.cols - 2) * fw, fh * 2, colors.SURFACE_ALT)
                 -- Draw chevron selection indicator (centered in double-height row)
                 local chevron_y = py + math.floor((fh * 2 - 9) / 2)
                 if _G.Icons and _G.Icons.draw_chevron_right then
-                    _G.Icons.draw_chevron_right(display, fw, chevron_y, colors.CYAN, colors.SELECTION)
+                    _G.Icons.draw_chevron_right(display, fw, chevron_y, colors.ACCENT, colors.SURFACE_ALT)
                 else
-                    display.draw_text(fw, py, ">", colors.CYAN)
+                    display.draw_text(fw, py, ">", colors.ACCENT)
                 end
             end
 
@@ -86,11 +94,11 @@ function Channels:render(display)
 
             local name_color
             if is_selected then
-                name_color = colors.CYAN
+                name_color = colors.ACCENT
             elseif ch.is_joined then
                 name_color = colors.TEXT
             else
-                name_color = colors.TEXT_DIM
+                name_color = colors.TEXT_SECONDARY
             end
 
             display.draw_text(3 * fw, py, name_line, name_color)
@@ -99,7 +107,7 @@ function Channels:render(display)
             if ch.unread_count and ch.unread_count > 0 and ch.is_joined then
                 local badge = string.format("(%d)", ch.unread_count)
                 local badge_x = display.cols - 2 - #badge
-                display.draw_text(badge_x * fw, py, badge, colors.ORANGE)
+                display.draw_text(badge_x * fw, py, badge, colors.WARNING)
             end
 
             -- Activity status line
@@ -117,7 +125,7 @@ function Channels:render(display)
                 status_line = "No activity"
             end
 
-            local status_color = is_selected and colors.CYAN or colors.TEXT_DIM
+            local status_color = is_selected and colors.ACCENT or colors.TEXT_SECONDARY
             display.draw_text(3 * fw, py + fh, status_line, status_color)
 
             y = y + 2
@@ -125,10 +133,10 @@ function Channels:render(display)
 
         -- Scroll indicators
         if self.scroll_offset > 0 then
-            display.draw_text((display.cols - 1) * fw, 2 * fh, "^", colors.TEXT_DIM)
+            display.draw_text((display.cols - 1) * fw, 2 * fh, "^", colors.TEXT_SECONDARY)
         end
         if self.scroll_offset + self.visible_items < #self.channels then
-            display.draw_text((display.cols - 1) * fw, (2 + self.visible_items * 2 - 1) * fh, "v", colors.TEXT_DIM)
+            display.draw_text((display.cols - 1) * fw, (2 + self.visible_items * 2 - 1) * fh, "v", colors.TEXT_SECONDARY)
         end
     end
 end
@@ -180,16 +188,23 @@ function Channels:open_channel()
 
     local ch = self.channels[self.selected]
     if ch.is_joined then
-        local ChannelView = load_module("/scripts/ui/screens/channel_view.lua")
-        ScreenManager.push(ChannelView:new(ch.name))
+        local ch_name = ch.name
+        load_module_async("/scripts/ui/screens/channel_view.lua", function(ChannelView, err)
+            if ChannelView then
+                ScreenManager.push(ChannelView:new(ch_name))
+            end
+        end)
     else
         self:join_new_channel()
     end
 end
 
 function Channels:join_new_channel()
-    local JoinChannel = load_module("/scripts/ui/screens/join_channel.lua")
-    ScreenManager.push(JoinChannel:new())
+    load_module_async("/scripts/ui/screens/join_channel.lua", function(JoinChannel, err)
+        if JoinChannel then
+            ScreenManager.push(JoinChannel:new())
+        end
+    end)
 end
 
 function Channels:toggle_join()

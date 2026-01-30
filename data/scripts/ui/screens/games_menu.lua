@@ -1,98 +1,208 @@
 -- Games Menu Screen
--- Lists available games
+-- Lists available games with main menu style
 
 local GamesMenu = {
     title = "Games",
     selected = 1,
+    scroll_offset = 0,
+
+    -- Layout constants (matching main menu)
+    VISIBLE_ROWS = 4,
+    ROW_HEIGHT = 46,
+    ICON_SIZE = 24,
+
     items = {
-        {label = "Snake",    description = "Classic snake game"},
-        {label = "Tetris",   description = "Falling blocks"},
-        {label = "Breakout", description = "Break the bricks"},
+        {label = "Snake",    description = "Classic snake game",  icon_path = "games"},
+        {label = "Tetris",   description = "Falling blocks",      icon_path = "games"},
+        {label = "Breakout", description = "Break the bricks",    icon_path = "games"},
+        {label = "Poker",    description = "Texas Hold'em",       icon_path = "games"},
     }
 }
+
+-- Safe sound helper
+local function play_sound(name)
+    if _G.SoundUtils and _G.SoundUtils[name] then
+        pcall(_G.SoundUtils[name])
+    end
+end
 
 function GamesMenu:new()
     local o = {
         title = self.title,
         selected = 1,
+        scroll_offset = 0,
         items = {}
     }
     for i, item in ipairs(self.items) do
-        o.items[i] = {label = item.label, description = item.description}
+        o.items[i] = {
+            label = item.label,
+            description = item.description,
+            icon_path = item.icon_path
+        }
     end
     setmetatable(o, {__index = GamesMenu})
     return o
 end
 
+function GamesMenu:on_enter()
+    -- Lazy-load Icons module if not already loaded
+    if not _G.Icons then
+        _G.Icons = dofile("/scripts/ui/icons.lua")
+    end
+end
+
+function GamesMenu:adjust_scroll()
+    -- Keep selected item visible in the window
+    if self.selected <= self.scroll_offset then
+        self.scroll_offset = self.selected - 1
+    elseif self.selected > self.scroll_offset + self.VISIBLE_ROWS then
+        self.scroll_offset = self.selected - self.VISIBLE_ROWS
+    end
+
+    -- Clamp scroll offset
+    self.scroll_offset = math.max(0, self.scroll_offset)
+    self.scroll_offset = math.min(#self.items - self.VISIBLE_ROWS, self.scroll_offset)
+end
+
 function GamesMenu:render(display)
     local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local w = display.width
+    local h = display.height
 
     -- Fill background with theme wallpaper
     if _G.ThemeManager then
         _G.ThemeManager.draw_background(display)
     else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
+        display.fill_rect(0, 0, w, h, colors.BLACK)
     end
 
     -- Title bar
     TitleBar.draw(display, self.title)
 
-    -- Content font
-    display.set_font_size("medium")
-    local fw = display.get_font_width()
-    local fh = display.get_font_height()
+    -- List area starts after title
+    local list_start_y = _G.ThemeManager and _G.ThemeManager.LIST_START_Y or 31
+    local icon_margin = 12
+    local text_x = icon_margin + self.ICON_SIZE + 10
+    local scrollbar_width = 8
 
-    local start_y = 3
-    for i, item in ipairs(self.items) do
-        local y = (start_y + i - 1) * fh
-        local is_selected = (i == self.selected)
+    -- Draw visible menu items
+    for i = 0, self.VISIBLE_ROWS - 1 do
+        local item_idx = self.scroll_offset + i + 1
+        if item_idx > #self.items then break end
 
+        local item = self.items[item_idx]
+        if not item then break end
+        local y = list_start_y + i * self.ROW_HEIGHT
+        local is_selected = (item_idx == self.selected)
+
+        -- Selection outline (rounded rect)
         if is_selected then
-            display.fill_rect(fw, y, (display.cols - 2) * fw, fh, colors.SELECTION)
-            -- Draw chevron selection indicator
-            local chevron_y = y + math.floor((fh - 9) / 2)
-            if _G.Icons and _G.Icons.draw_chevron_right then
-                _G.Icons.draw_chevron_right(display, 2 * fw, chevron_y, colors.CYAN, colors.SELECTION)
-            else
-                display.draw_text(2 * fw, y, ">", colors.CYAN)
-            end
+            display.draw_round_rect(4, y - 1, w - 12 - scrollbar_width, self.ROW_HEIGHT - 6, 6, colors.ACCENT)
         end
 
-        local text_color = is_selected and colors.CYAN or colors.TEXT
-        display.draw_text(4 * fw, y, item.label, text_color)
-        display.draw_text(15 * fw, y, item.description, colors.TEXT_DIM)
+        -- Draw icon using Icons module
+        local icon_y = y + (self.ROW_HEIGHT - self.ICON_SIZE) / 2 - 4
+        local icon_color = is_selected and colors.ACCENT or colors.WHITE
+        if item.icon_path and _G.Icons then
+            _G.Icons.draw(item.icon_path, display, icon_margin, icon_y, self.ICON_SIZE, icon_color)
+        else
+            -- Fallback: colored square outline
+            display.draw_rect(icon_margin, icon_y, self.ICON_SIZE, self.ICON_SIZE, icon_color)
+        end
+
+        -- Label (main text) - use medium font
+        display.set_font_size("medium")
+        local label_color = is_selected and colors.ACCENT or colors.WHITE
+        local label_y = y + 4
+        display.draw_text(text_x, label_y, item.label, label_color)
+
+        -- Description (secondary text) - use small font
+        display.set_font_size("small")
+        local desc_color = is_selected and colors.TEXT_SECONDARY or colors.TEXT_MUTED
+        local desc_y = y + 4 + 18  -- After medium font height
+        display.draw_text(text_x, desc_y, item.description, desc_color)
+    end
+
+    -- Reset to medium font
+    display.set_font_size("medium")
+
+    -- Scrollbar (only show if there are more items than visible)
+    if #self.items > self.VISIBLE_ROWS then
+        local sb_x = w - scrollbar_width - 2
+        local sb_top = list_start_y
+        local sb_height = self.VISIBLE_ROWS * self.ROW_HEIGHT - 6
+
+        -- Track (background) with rounded corners
+        display.fill_round_rect(sb_x, sb_top, 4, sb_height, 2, colors.SURFACE)
+
+        -- Thumb (current position) with rounded corners
+        local thumb_height = math.max(12, math.floor(sb_height * self.VISIBLE_ROWS / #self.items))
+        local scroll_range = #self.items - self.VISIBLE_ROWS
+        local thumb_range = sb_height - thumb_height
+        local thumb_y = sb_top + math.floor(self.scroll_offset * thumb_range / scroll_range)
+
+        display.fill_round_rect(sb_x, thumb_y, 4, thumb_height, 2, colors.ACCENT)
     end
 end
 
 function GamesMenu:handle_key(key)
     if key.special == "UP" then
-        self.selected = self.selected - 1
-        if self.selected < 1 then self.selected = #self.items end
-        ScreenManager.invalidate()
+        if self.selected > 1 then
+            self.selected = self.selected - 1
+            self:adjust_scroll()
+            play_sound("navigate")
+            ScreenManager.invalidate()
+        end
     elseif key.special == "DOWN" then
-        self.selected = self.selected + 1
-        if self.selected > #self.items then self.selected = 1 end
-        ScreenManager.invalidate()
-    elseif key.special == "ENTER" then
+        if self.selected < #self.items then
+            self.selected = self.selected + 1
+            self:adjust_scroll()
+            play_sound("navigate")
+            ScreenManager.invalidate()
+        end
+    elseif key.special == "ENTER" or key.character == " " then
+        play_sound("click")
         self:launch_game()
     elseif key.special == "ESCAPE" or key.character == "q" then
         return "pop"
+    elseif key.character then
+        -- Jump to item by first letter
+        local c = string.upper(key.character)
+        for i, item in ipairs(self.items) do
+            if string.upper(string.sub(item.label, 1, 1)) == c then
+                self.selected = i
+                self:adjust_scroll()
+                play_sound("navigate")
+                ScreenManager.invalidate()
+                break
+            end
+        end
     end
     return "continue"
 end
 
 function GamesMenu:launch_game()
     local item = self.items[self.selected]
-    if item.label == "Snake" then
-        local Game = load_module("/scripts/ui/screens/snake.lua")
-        ScreenManager.push(Game:new())
-    elseif item.label == "Tetris" then
-        local Game = load_module("/scripts/ui/screens/tetris.lua")
-        ScreenManager.push(Game:new())
-    elseif item.label == "Breakout" then
-        local Game = load_module("/scripts/ui/screens/breakout.lua")
-        ScreenManager.push(Game:new())
-    end
+
+    local games = {
+        ["Snake"]    = "/scripts/ui/screens/snake.lua",
+        ["Tetris"]   = "/scripts/ui/screens/tetris.lua",
+        ["Breakout"] = "/scripts/ui/screens/breakout.lua",
+        ["Poker"]    = "/scripts/ui/screens/poker.lua",
+    }
+
+    local path = games[item.label]
+    if not path then return end
+
+    load_module_async(path, function(Game, err)
+        if err then
+            tdeck.system.log("[GamesMenu] Load error: " .. err)
+            return
+        end
+        if Game then
+            ScreenManager.push(Game:new())
+        end
+    end)
 end
 
 -- Menu items for app menu integration

@@ -32,7 +32,7 @@ function Files:new(start_path)
 end
 
 function Files:on_enter()
-    collectgarbage("collect")
+    run_gc("collect", "files-enter")
     self:load_directory(self.current_path)
 end
 
@@ -40,7 +40,7 @@ function Files:on_exit()
     -- Clear entries to free memory
     self.entries = {}
     self.clipboard_path = nil
-    collectgarbage("collect")
+    run_gc("collect", "files-exit")
 end
 
 function Files:show_message(msg)
@@ -155,8 +155,11 @@ function Files:open_entry()
 
         if self:is_text_file(entry.name) then
             -- Open in editor
-            local FileEdit = load_module("/scripts/ui/screens/file_edit.lua")
-            ScreenManager.push(FileEdit:new(path))
+            load_module_async("/scripts/ui/screens/file_edit.lua", function(FileEdit, err)
+                if FileEdit then
+                    ScreenManager.push(FileEdit:new(path))
+                end
+            end)
         else
             self:show_message("Cannot open: " .. entry.name)
         end
@@ -288,13 +291,17 @@ function Files:rename_entry()
 end
 
 function Files:new_file()
-    local FileEdit = load_module("/scripts/ui/screens/file_edit.lua")
     local new_path = self.current_path
     if new_path ~= "/" then
         new_path = new_path .. "/"
     end
     new_path = new_path .. "new.lua"
-    ScreenManager.push(FileEdit:new(new_path))
+
+    load_module_async("/scripts/ui/screens/file_edit.lua", function(FileEdit, err)
+        if FileEdit then
+            ScreenManager.push(FileEdit:new(new_path))
+        end
+    end)
 end
 
 -- Menu items for app menu integration
@@ -322,8 +329,11 @@ function Files:get_menu_items()
                 label = "Edit",
                 action = function()
                     local path = self_ref:get_full_path(entry)
-                    local FileEdit = load_module("/scripts/ui/screens/file_edit.lua")
-                    ScreenManager.push(FileEdit:new(path))
+                    load_module_async("/scripts/ui/screens/file_edit.lua", function(FileEdit, err)
+                        if FileEdit then
+                            ScreenManager.push(FileEdit:new(path))
+                        end
+                    end)
                 end
             })
         end
@@ -428,13 +438,13 @@ function Files:render(display)
 
             -- Selection highlight
             if is_selected then
-                display.fill_rect(fw, py, (display.cols - 2) * fw, fh, colors.SELECTION)
+                display.fill_rect(fw, py, (display.cols - 2) * fw, fh, colors.SURFACE_ALT)
                 -- Draw chevron selection indicator
                 local chevron_y = py + math.floor((fh - 9) / 2)
                 if _G.Icons and _G.Icons.draw_chevron_right then
-                    _G.Icons.draw_chevron_right(display, fw, chevron_y, colors.CYAN, colors.SELECTION)
+                    _G.Icons.draw_chevron_right(display, fw, chevron_y, colors.ACCENT, colors.SURFACE_ALT)
                 else
-                    display.draw_text(fw, py, ">", colors.CYAN)
+                    display.draw_text(fw, py, ">", colors.ACCENT)
                 end
             end
 
@@ -443,10 +453,10 @@ function Files:render(display)
             local name_color = colors.TEXT
             if entry.is_dir then
                 prefix = "/ "
-                name_color = is_selected and colors.CYAN or colors.YELLOW
+                name_color = is_selected and colors.ACCENT or colors.WARNING
             elseif self:is_lua_file(entry.name) then
                 prefix = "* "
-                name_color = is_selected and colors.CYAN or colors.GREEN
+                name_color = is_selected and colors.ACCENT or colors.SUCCESS
             end
 
             -- Name (truncate if needed using pixel measurement)
@@ -461,7 +471,7 @@ function Files:render(display)
                 local size_str = self:format_size(entry.size)
                 local size_width = display.text_width(size_str)
                 local size_x = display.width - size_width - fw
-                display.draw_text(size_x, py, size_str, colors.TEXT_DIM)
+                display.draw_text(size_x, py, size_str, colors.TEXT_SECONDARY)
             end
         end
     end
@@ -469,7 +479,7 @@ function Files:render(display)
     -- Status message only (no help bar - use app menu)
     if self.message and (tdeck.system.millis() - self.message_time) < 2000 then
         local status_y = (display.rows - 2) * fh
-        display.draw_text(fw, status_y, self.message, colors.TEXT_DIM)
+        display.draw_text(fw, status_y, self.message, colors.TEXT_SECONDARY)
     else
         self.message = nil
     end
@@ -506,19 +516,25 @@ function Files:handle_key(key)
             local entry = self.entries[self.selected]
             if not entry.is_dir then
                 local path = self:get_full_path(entry)
-                local FileEdit = load_module("/scripts/ui/screens/file_edit.lua")
-                ScreenManager.push(FileEdit:new(path))
+                load_module_async("/scripts/ui/screens/file_edit.lua", function(FileEdit, err)
+                    if FileEdit then
+                        ScreenManager.push(FileEdit:new(path))
+                    end
+                end)
             end
         end
     elseif key.character == "n" or key.character == "N" then
         -- New file - open editor with path in current directory
-        local FileEdit = load_module("/scripts/ui/screens/file_edit.lua")
         local new_path = self.current_path
         if new_path ~= "/" then
             new_path = new_path .. "/"
         end
         new_path = new_path .. "new.lua"
-        ScreenManager.push(FileEdit:new(new_path))
+        load_module_async("/scripts/ui/screens/file_edit.lua", function(FileEdit, err)
+            if FileEdit then
+                ScreenManager.push(FileEdit:new(new_path))
+            end
+        end)
     elseif key.character == "g" or key.character == "G" then
         -- Go to root
         self:load_directory("/")

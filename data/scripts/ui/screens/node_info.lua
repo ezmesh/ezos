@@ -78,61 +78,67 @@ function NodeInfo:render(display)
     TitleBar.draw(display, self.title)
 
     -- Content font
-    display.set_font_size("medium")
+    display.set_font_size("small")
     local fw = display.get_font_width()
     local fh = display.get_font_height()
 
     local row = 2
-    local label_x = 2
-    local value_x = 12
+    local label_x = 1
+    local value_x = 10
+
+    -- Calculate max chars that fit in value column
+    local max_value_chars = math.floor((display.width - value_x * fw) / fw) - 1
 
     -- Node Name
-    display.draw_text(label_x * fw, row * fh, "Name:", colors.TEXT_DIM)
-    display.draw_text(value_x * fw, row * fh, self.node_name, colors.CYAN)
+    display.draw_text(label_x * fw, row * fh, "Name:", colors.TEXT_SECONDARY)
+    display.draw_text(value_x * fw, row * fh, self.node_name, colors.ACCENT)
     row = row + 1
 
     -- Node ID
     local display_id = self.node_id
-    if #display_id > 30 then
-        display_id = string.sub(display_id, 1, 30) .. "..."
+    if #display_id > max_value_chars then
+        display_id = string.sub(display_id, 1, max_value_chars - 3) .. "..."
     end
-    display.draw_text(label_x * fw, row * fh, "ID:", colors.TEXT_DIM)
+    display.draw_text(label_x * fw, row * fh, "ID:", colors.TEXT_SECONDARY)
     display.draw_text(value_x * fw, row * fh, display_id, colors.TEXT)
     row = row + 1
 
-    -- Public Key (base64 encoded)
-    local display_key = ""
+    -- Public Key (base64 encoded, wrapped to value column)
+    display.draw_text(label_x * fw, row * fh, "PubKey:", colors.TEXT_SECONDARY)
     if self.pub_key and #self.pub_key > 0 then
         local b64_key = tdeck.crypto.base64_encode(self.pub_key)
         if b64_key then
-            -- Show first ~38 chars (fits on screen)
-            if #b64_key > 38 then
-                display_key = string.sub(b64_key, 1, 38) .. "..."
-            else
-                display_key = b64_key
+            -- Wrap pubkey across multiple lines, aligned to value column
+            local pos = 1
+            while pos <= #b64_key do
+                local chunk = string.sub(b64_key, pos, pos + max_value_chars - 1)
+                display.draw_text(value_x * fw, row * fh, chunk, colors.ACCENT)
+                row = row + 1
+                pos = pos + max_value_chars
             end
+        else
+            row = row + 1
         end
+    else
+        row = row + 1
     end
-    display.draw_text(label_x * fw, row * fh, "PubKey:", colors.TEXT_DIM)
-    display.draw_text(value_x * fw, row * fh, display_key, colors.CYAN)
-    row = row + 1
 
     -- Battery
     local batt_str = string.format("%d%%", self.battery)
-    local batt_color = self.battery > 20 and colors.GREEN or colors.RED
-    display.draw_text(label_x * fw, row * fh, "Battery:", colors.TEXT_DIM)
+    local batt_color = self.battery > 20 and colors.SUCCESS or colors.ERROR
+    display.draw_text(label_x * fw, row * fh, "Battery:", colors.TEXT_SECONDARY)
     display.draw_text(value_x * fw, row * fh, batt_str, batt_color)
     row = row + 1
 
     -- TX/RX counts
     local stats_str = string.format("TX:%d RX:%d", self.tx_count, self.rx_count)
-    display.draw_text(label_x * fw, row * fh, "Packets:", colors.TEXT_DIM)
+    display.draw_text(label_x * fw, row * fh, "Packets:", colors.TEXT_SECONDARY)
     display.draw_text(value_x * fw, row * fh, stats_str, colors.TEXT)
     row = row + 1
 
     -- Uptime
     local uptime_str = self:format_uptime()
-    display.draw_text(label_x * fw, row * fh, "Uptime:", colors.TEXT_DIM)
+    display.draw_text(label_x * fw, row * fh, "Uptime:", colors.TEXT_SECONDARY)
     display.draw_text(value_x * fw, row * fh, uptime_str, colors.TEXT)
     row = row + 1
 
@@ -140,7 +146,7 @@ function NodeInfo:render(display)
     local heap_kb = math.floor(tdeck.system.get_free_heap() / 1024)
     local psram_kb = math.floor(tdeck.system.get_free_psram() / 1024)
     local mem_str = string.format("H:%dK P:%dK", heap_kb, psram_kb)
-    display.draw_text(label_x * fw, row * fh, "Memory:", colors.TEXT_DIM)
+    display.draw_text(label_x * fw, row * fh, "Memory:", colors.TEXT_SECONDARY)
     display.draw_text(value_x * fw, row * fh, mem_str, colors.TEXT)
 end
 
@@ -159,10 +165,33 @@ function NodeInfo:get_menu_items()
     local items = {}
 
     table.insert(items, {
+        label = "Send Advert",
+        action = function()
+            if tdeck.mesh.is_initialized() then
+                local ok = tdeck.mesh.send_announce()
+                if ok then
+                    tdeck.system.log("[NodeInfo] Sent ADVERT")
+                    if _G.MessageBox then
+                        _G.MessageBox.show({title = "Advert sent"})
+                    end
+                else
+                    if _G.MessageBox then
+                        _G.MessageBox.show({title = "Failed to send"})
+                    end
+                end
+            end
+            ScreenManager.invalidate()
+        end
+    })
+
+    table.insert(items, {
         label = "Log",
         action = function()
-            local LogViewer = load_module("/scripts/ui/screens/log_viewer.lua")
-            ScreenManager.push(LogViewer:new())
+            load_module_async("/scripts/ui/screens/log_viewer.lua", function(LogViewer, err)
+                if LogViewer then
+                    ScreenManager.push(LogViewer:new())
+                end
+            end)
         end
     })
 

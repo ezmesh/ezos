@@ -48,7 +48,7 @@ function ScreenManager.pop()
 
     -- Clear reference and collect garbage to free memory
     screen = nil
-    collectgarbage("collect")
+    run_gc("collect", "screen-pop")
 
     -- Call on_enter on the screen below (it's coming back into view)
     local current = ScreenManager.peek()
@@ -75,7 +75,7 @@ function ScreenManager.replace(screen)
 
     -- Clear old screen reference and collect garbage
     old = nil
-    collectgarbage("collect")
+    run_gc("collect", "screen-replace")
 
     -- Push new (with on_enter)
     table.insert(ScreenManager.stack, screen)
@@ -123,6 +123,14 @@ function ScreenManager.process_input()
     local key = tdeck.keyboard.read()
     if not key or not key.valid then
         return false
+    end
+
+    -- Notify screen timeout service of activity (may consume key as wake event)
+    if _G.ScreenTimeout and _G.ScreenTimeout.on_activity then
+        if _G.ScreenTimeout.on_activity() then
+            -- Key was consumed to wake screen, don't process further
+            return true
+        end
     end
 
     -- Let overlays process input first (highest z-order first)

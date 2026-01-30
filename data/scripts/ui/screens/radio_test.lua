@@ -82,39 +82,39 @@ function RadioTest:render(display)
     local val_x = 16 * fw
 
     -- Status
-    display.draw_text(x, y, "Status:", colors.TEXT_DIM)
-    local status_color = self.status == "OK" and colors.GREEN or colors.RED
+    display.draw_text(x, y, "Status:", colors.TEXT_SECONDARY)
+    local status_color = self.status == "OK" and colors.SUCCESS or colors.ERROR
     display.draw_text(val_x, y, self.status, status_color)
     y = y + fh * 2
 
     -- RSSI
-    display.draw_text(x, y, "Last RSSI:", colors.TEXT_DIM)
+    display.draw_text(x, y, "Last RSSI:", colors.TEXT_SECONDARY)
     local rssi_str = string.format("%d dBm", self.last_rssi)
     local rssi_color
-    if self.last_rssi > -70 then rssi_color = colors.GREEN
-    elseif self.last_rssi > -100 then rssi_color = colors.YELLOW
-    else rssi_color = colors.RED
+    if self.last_rssi > -70 then rssi_color = colors.SUCCESS
+    elseif self.last_rssi > -100 then rssi_color = colors.WARNING
+    else rssi_color = colors.ERROR
     end
     display.draw_text(val_x, y, rssi_str, rssi_color)
     y = y + fh
 
     -- SNR
-    display.draw_text(x, y, "Last SNR:", colors.TEXT_DIM)
+    display.draw_text(x, y, "Last SNR:", colors.TEXT_SECONDARY)
     local snr_str = string.format("%.1f dB", self.last_snr)
     display.draw_text(val_x, y, snr_str, colors.TEXT)
     y = y + fh * 2
 
     -- Packet counts
-    display.draw_text(x, y, "TX Packets:", colors.TEXT_DIM)
+    display.draw_text(x, y, "TX Packets:", colors.TEXT_SECONDARY)
     display.draw_text(val_x, y, tostring(self.tx_count), colors.TEXT)
     y = y + fh
 
-    display.draw_text(x, y, "RX Packets:", colors.TEXT_DIM)
+    display.draw_text(x, y, "RX Packets:", colors.TEXT_SECONDARY)
     display.draw_text(val_x, y, tostring(self.rx_count), colors.TEXT)
     y = y + fh * 2
 
     -- Signal strength visualization
-    display.draw_text(x, y, "Signal:", colors.TEXT_DIM)
+    display.draw_text(x, y, "Signal:", colors.TEXT_SECONDARY)
     local bars = 0
     if self.last_rssi > -70 then bars = 4
     elseif self.last_rssi > -85 then bars = 3
@@ -123,7 +123,7 @@ function RadioTest:render(display)
     end
 
     local bar_str = string.rep("|", bars) .. string.rep(".", 4 - bars)
-    display.draw_text(val_x, y, bar_str, bars >= 3 and colors.GREEN or (bars >= 2 and colors.YELLOW or colors.RED))
+    display.draw_text(val_x, y, bar_str, bars >= 3 and colors.SUCCESS or (bars >= 2 and colors.WARNING or colors.ERROR))
 end
 
 function RadioTest:handle_key(key)
