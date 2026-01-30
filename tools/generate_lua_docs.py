@@ -385,12 +385,12 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
         }
 
         .quick-ref-list {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 2px 8px;
+            column-count: 3;
+            column-gap: 16px;
         }
 
         .quick-ref-item {
+            display: block;
             font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
             font-size: 11px;
             padding: 2px 4px;
@@ -600,11 +600,11 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
         @media (max-width: 640px) {
             .header-content { flex-direction: column; gap: 16px; }
             .toc-grid { grid-template-columns: 1fr; }
-            .quick-ref-list { grid-template-columns: repeat(2, 1fr); }
+            .quick-ref-list { column-count: 2; }
         }
 
         @media (max-width: 400px) {
-            .quick-ref-list { grid-template-columns: 1fr; }
+            .quick-ref-list { column-count: 1; }
         }
     </style>
 </head>
