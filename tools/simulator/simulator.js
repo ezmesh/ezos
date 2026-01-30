@@ -58,7 +58,39 @@ function setStatus(text, type = 'loading') {
 // Virtual filesystem - load scripts from data/scripts/
 const scriptCache = new Map();
 
+// Base path for scripts - detected automatically
+let scriptBasePath = null;
+
+async function detectBasePath() {
+    // Try different possible paths based on where the server is run from
+    const possiblePaths = [
+        './data/scripts/',           // Server run from project root
+        '../data/scripts/',          // Server run from tools/
+        '../../data/scripts/',       // Server run from tools/simulator/
+        '/data/scripts/',            // Absolute path from root
+    ];
+
+    for (const basePath of possiblePaths) {
+        try {
+            const response = await fetch(`${basePath}boot.lua`, { method: 'HEAD' });
+            if (response.ok) {
+                log(`Script base path: ${basePath}`, 'info');
+                return basePath;
+            }
+        } catch (e) {
+            // Try next path
+        }
+    }
+
+    throw new Error('Could not find data/scripts/ directory. Run server from project root.');
+}
+
 async function loadScript(path) {
+    // Detect base path on first call
+    if (!scriptBasePath) {
+        scriptBasePath = await detectBasePath();
+    }
+
     // Normalize path - remove /scripts/ prefix if present
     let normalizedPath = path;
     if (path.startsWith('/scripts/')) {
@@ -70,8 +102,7 @@ async function loadScript(path) {
     }
 
     try {
-        // Try loading from the data/scripts directory (relative to simulator)
-        const response = await fetch(`../../data/scripts/${normalizedPath}`);
+        const response = await fetch(`${scriptBasePath}${normalizedPath}`);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }

@@ -4,17 +4,28 @@ A browser-based simulator that runs T-Deck OS Lua scripts using Wasmoon (Lua 5.4
 
 ## Quick Start
 
+**Run from project root** (recommended):
+
+```bash
+# From tdeck-os root directory
+python3 -m http.server 3000
+# Open http://localhost:3000/tools/simulator/ in your browser
+```
+
+Or with npm:
+
+```bash
+# From tdeck-os root directory
+npx serve -p 3000
+# Open http://localhost:3000/tools/simulator/ in your browser
+```
+
+The simulator auto-detects the script path, so it also works when served from `tools/simulator/`:
+
 ```bash
 cd tools/simulator
 npm install
 npm start
-# Open http://localhost:3000 in your browser
-```
-
-Or simply serve the directory with any HTTP server:
-
-```bash
-python3 -m http.server 3000
 # Open http://localhost:3000 in your browser
 ```
 
