@@ -11,6 +11,7 @@ namespace RemoteCmd {
     constexpr uint8_t KEY_SPECIAL = 0x04;
     constexpr uint8_t SCREEN_INFO = 0x05;
     constexpr uint8_t WAIT_FRAME_TEXT = 0x06;  // Wait for frame and return rendered text
+    constexpr uint8_t LUA_EXEC = 0x07;         // Execute Lua code and return result
 }
 
 // Response status codes
@@ -62,6 +63,7 @@ private:
     void handleKeySpecial(uint8_t special, uint8_t modifiers);
     void handleScreenInfo();
     void handleWaitFrameText();
+    void handleLuaExec(const uint8_t* code, uint16_t len);
 
     // Text capture state
     bool _waitingForFrame = false;
@@ -74,5 +76,5 @@ private:
     uint8_t _cmd = 0;
     uint16_t _payloadLen = 0;
     uint16_t _payloadPos = 0;
-    uint8_t _payload[256];
+    uint8_t _payload[4096];  // Larger buffer for Lua code execution
 };

@@ -180,6 +180,15 @@ public:
     void fillRect(int x, int y, int w, int h, uint16_t color);
     void drawRect(int x, int y, int w, int h, uint16_t color);
 
+    // Dithered fill for simulating transparency (checkerboard pattern)
+    // density: 0-100, percentage of pixels filled (50 = checkerboard)
+    void fillRectDithered(int x, int y, int w, int h, uint16_t color, int density = 50);
+
+    // Line pattern fills for simulating transparency
+    // spacing: 2 = every other line (50%), 3 = every 3rd line (33%), etc.
+    void fillRectHLines(int x, int y, int w, int h, uint16_t color, int spacing = 2);
+    void fillRectVLines(int x, int y, int w, int h, uint16_t color, int spacing = 2);
+
     // Line drawing
     void drawLine(int x1, int y1, int x2, int y2, uint16_t color);
 

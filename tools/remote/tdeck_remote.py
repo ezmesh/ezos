@@ -3,7 +3,7 @@
 T-Deck Remote Control Client
 
 A command-line tool for controlling T-Deck OS over USB serial.
-Supports screenshot capture, keyboard input injection, and screen queries.
+Supports screenshot capture, keyboard input injection, screen queries, and Lua execution.
 
 Usage:
     python tdeck_remote.py /dev/ttyACM0                    # Test connection (ping)
@@ -12,6 +12,8 @@ Usage:
     python tdeck_remote.py /dev/ttyACM0 -k enter           # Send Enter key
     python tdeck_remote.py /dev/ttyACM0 --info             # Get screen info
     python tdeck_remote.py /dev/ttyACM0 --text             # Capture rendered text
+    python tdeck_remote.py /dev/ttyACM0 -e "1+1"           # Execute Lua expression
+    python tdeck_remote.py /dev/ttyACM0 -e "Debug.memory()" # Call debug function
 """
 
 import serial
@@ -31,6 +33,7 @@ class TDeckRemote:
     CMD_KEY_SPECIAL = 0x04
     CMD_SCREEN_INFO = 0x05
     CMD_WAIT_FRAME_TEXT = 0x06
+    CMD_LUA_EXEC = 0x07
 
     # Response status
     STATUS_OK = 0x00
@@ -214,6 +217,31 @@ class TDeckRemote:
 
         return json.loads(data.decode('utf-8'))
 
+    def lua_exec(self, code):
+        """
+        Execute Lua code on the device and return the result.
+
+        The code is executed in the device's Lua state with access to all
+        tdeck.* APIs. Expression results are automatically returned.
+
+        Args:
+            code: Lua code string to execute
+
+        Returns:
+            The result of the Lua code (parsed from JSON), or None for statements.
+
+        Raises:
+            RuntimeError: If the Lua code fails to compile or execute
+        """
+        self.send_command(self.CMD_LUA_EXEC, code.encode('utf-8'))
+        status, data = self.read_response()
+
+        if status != self.STATUS_OK:
+            error_msg = data.decode('utf-8', errors='replace') if data else "Unknown error"
+            raise RuntimeError(f"Lua execution failed: {error_msg}")
+
+        return json.loads(data.decode('utf-8'))
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -228,6 +256,9 @@ Examples:
   %(prog)s /dev/ttyACM0 -k A --shift       Send shift+a (uppercase A)
   %(prog)s /dev/ttyACM0 --info             Get screen info
   %(prog)s /dev/ttyACM0 --text             Capture all text from next frame
+  %(prog)s /dev/ttyACM0 -e "1+1"           Execute Lua and print result
+  %(prog)s /dev/ttyACM0 -e "Debug.memory()"  Call debug function
+  %(prog)s /dev/ttyACM0 -f script.lua      Execute Lua file
         """
     )
 
@@ -248,6 +279,10 @@ Examples:
                         help='Get screen information')
     parser.add_argument('--text', action='store_true',
                         help='Wait for next frame and capture all rendered text')
+    parser.add_argument('-e', '--exec', metavar='CODE', dest='lua_code',
+                        help='Execute Lua code and print result')
+    parser.add_argument('-f', '--exec-file', metavar='FILE',
+                        help='Execute Lua code from file')
     parser.add_argument('-b', '--baudrate', type=int, default=921600,
                         help='Serial baudrate (default: 921600)')
     parser.add_argument('-t', '--timeout', type=float, default=5,
@@ -289,6 +324,16 @@ Examples:
             print("Waiting for next frame...")
             texts = remote.wait_frame_text()
             print(json.dumps(texts, indent=2))
+
+        elif args.lua_code:
+            result = remote.lua_exec(args.lua_code)
+            print(json.dumps(result, indent=2))
+
+        elif args.exec_file:
+            with open(args.exec_file, 'r') as f:
+                code = f.read()
+            result = remote.lua_exec(code)
+            print(json.dumps(result, indent=2))
 
         else:
             # Default: ping test

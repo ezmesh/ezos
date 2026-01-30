@@ -205,6 +205,75 @@ LUA_FUNCTION(l_display_draw_rect) {
     return 0;
 }
 
+// @lua tdeck.display.fill_rect_dithered(x, y, w, h, color, density)
+// @brief Fill a rectangle with dithered pattern (simulates transparency)
+// @param x X position in pixels
+// @param y Y position in pixels
+// @param w Width in pixels
+// @param h Height in pixels
+// @param color Fill color
+// @param density Percentage of pixels filled (0-100, default 50 for checkerboard)
+LUA_FUNCTION(l_display_fill_rect_dithered) {
+    LUA_CHECK_ARGC_RANGE(L, 5, 6);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int w = luaL_checkinteger(L, 3);
+    int h = luaL_checkinteger(L, 4);
+    uint16_t color = luaL_checkinteger(L, 5);
+    int density = luaL_optinteger(L, 6, 50);
+
+    if (display) {
+        display->fillRectDithered(x, y, w, h, color, density);
+    }
+    return 0;
+}
+
+// @lua tdeck.display.fill_rect_hlines(x, y, w, h, color, spacing)
+// @brief Fill a rectangle with horizontal line pattern
+// @param x X position in pixels
+// @param y Y position in pixels
+// @param w Width in pixels
+// @param h Height in pixels
+// @param color Fill color
+// @param spacing Line spacing (2 = 50%, 3 = 33%, etc., default 2)
+LUA_FUNCTION(l_display_fill_rect_hlines) {
+    LUA_CHECK_ARGC_RANGE(L, 5, 6);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int w = luaL_checkinteger(L, 3);
+    int h = luaL_checkinteger(L, 4);
+    uint16_t color = luaL_checkinteger(L, 5);
+    int spacing = luaL_optinteger(L, 6, 2);
+
+    if (display) {
+        display->fillRectHLines(x, y, w, h, color, spacing);
+    }
+    return 0;
+}
+
+// @lua tdeck.display.fill_rect_vlines(x, y, w, h, color, spacing)
+// @brief Fill a rectangle with vertical line pattern
+// @param x X position in pixels
+// @param y Y position in pixels
+// @param w Width in pixels
+// @param h Height in pixels
+// @param color Fill color
+// @param spacing Line spacing (2 = 50%, 3 = 33%, etc., default 2)
+LUA_FUNCTION(l_display_fill_rect_vlines) {
+    LUA_CHECK_ARGC_RANGE(L, 5, 6);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int w = luaL_checkinteger(L, 3);
+    int h = luaL_checkinteger(L, 4);
+    uint16_t color = luaL_checkinteger(L, 5);
+    int spacing = luaL_optinteger(L, 6, 2);
+
+    if (display) {
+        display->fillRectVLines(x, y, w, h, color, spacing);
+    }
+    return 0;
+}
+
 // @lua tdeck.display.draw_pixel(x, y, color)
 // @brief Draw a single pixel
 // @param x X position in pixels
@@ -916,6 +985,9 @@ static const luaL_Reg display_funcs[] = {
     {"draw_hline",        l_display_draw_hline},
     {"fill_rect",         l_display_fill_rect},
     {"draw_rect",         l_display_draw_rect},
+    {"fill_rect_dithered", l_display_fill_rect_dithered},
+    {"fill_rect_hlines",  l_display_fill_rect_hlines},
+    {"fill_rect_vlines",  l_display_fill_rect_vlines},
     {"draw_pixel",        l_display_draw_pixel},
     {"draw_line",         l_display_draw_line},
     {"draw_circle",       l_display_draw_circle},

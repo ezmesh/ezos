@@ -365,6 +365,97 @@ void Display::drawRect(int x, int y, int w, int h, uint16_t color) {
     _buffer.drawRect(x, y, w, h, color);
 }
 
+void Display::fillRectDithered(int x, int y, int w, int h, uint16_t color, int density) {
+    // Clamp density to 0-100
+    if (density <= 0) return;
+    if (density >= 100) {
+        fillRect(x, y, w, h, color);
+        return;
+    }
+
+    // For 50% density, use simple checkerboard (fastest)
+    if (density == 50) {
+        for (int py = 0; py < h; py++) {
+            for (int px = 0; px < w; px++) {
+                if ((px + py) % 2 == 0) {
+                    _buffer.drawPixel(x + px, y + py, color);
+                }
+            }
+        }
+    }
+    // For 25% density, use sparser pattern
+    else if (density == 25) {
+        for (int py = 0; py < h; py++) {
+            for (int px = 0; px < w; px++) {
+                if ((px % 2 == 0) && (py % 2 == 0)) {
+                    _buffer.drawPixel(x + px, y + py, color);
+                }
+            }
+        }
+    }
+    // For 75% density, use denser pattern
+    else if (density == 75) {
+        for (int py = 0; py < h; py++) {
+            for (int px = 0; px < w; px++) {
+                if (!((px % 2 == 0) && (py % 2 == 0))) {
+                    _buffer.drawPixel(x + px, y + py, color);
+                }
+            }
+        }
+    }
+    // For other densities, use ordered dithering with 4x4 Bayer matrix
+    else {
+        // 4x4 Bayer matrix thresholds (0-15 scaled to 0-100)
+        static const uint8_t bayer[4][4] = {
+            {  0,  8,  2, 10 },
+            { 12,  4, 14,  6 },
+            {  3, 11,  1,  9 },
+            { 15,  7, 13,  5 }
+        };
+
+        for (int py = 0; py < h; py++) {
+            for (int px = 0; px < w; px++) {
+                int threshold = (bayer[py % 4][px % 4] * 100) / 16;
+                if (density > threshold) {
+                    _buffer.drawPixel(x + px, y + py, color);
+                }
+            }
+        }
+    }
+}
+
+void Display::fillRectHLines(int x, int y, int w, int h, uint16_t color, int spacing) {
+    // Fill with horizontal lines at given spacing
+    // spacing=2 means every other line (50%), spacing=3 means every 3rd line (33%), etc.
+    if (spacing <= 0) spacing = 1;
+    if (spacing == 1) {
+        fillRect(x, y, w, h, color);
+        return;
+    }
+
+    for (int py = 0; py < h; py++) {
+        if (py % spacing == 0) {
+            _buffer.drawFastHLine(x, y + py, w, color);
+        }
+    }
+}
+
+void Display::fillRectVLines(int x, int y, int w, int h, uint16_t color, int spacing) {
+    // Fill with vertical lines at given spacing
+    // spacing=2 means every other line (50%), spacing=3 means every 3rd line (33%), etc.
+    if (spacing <= 0) spacing = 1;
+    if (spacing == 1) {
+        fillRect(x, y, w, h, color);
+        return;
+    }
+
+    for (int px = 0; px < w; px++) {
+        if (px % spacing == 0) {
+            _buffer.drawFastVLine(x + px, y, h, color);
+        }
+    }
+}
+
 void Display::drawBitmap(int x, int y, int w, int h, const uint16_t* data) {
     if (!data) return;
     _buffer.pushImage(x, y, w, h, data);

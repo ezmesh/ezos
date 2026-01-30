@@ -398,6 +398,11 @@ local function boot_sequence()
     ScreenTimeout.register()
     tdeck.system.log("[Boot] ScreenTimeout initialized, free=" .. mem() .. "KB")
 
+    -- Load Debug utilities (for remote control debugging)
+    tdeck.system.log("[Boot] Loading Debug, free=" .. mem() .. "KB")
+    load_module("/scripts/services/debug.lua")
+    tdeck.system.log("[Boot] Debug loaded, free=" .. mem() .. "KB")
+
     -- Load and push main menu
     tdeck.system.log("[Boot] Loading MainMenu, free=" .. mem() .. "KB")
     local MainMenu = load_module("/scripts/ui/screens/main_menu.lua")
