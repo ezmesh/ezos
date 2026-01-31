@@ -54,7 +54,7 @@ end
 
 -- Check for new conversations or messages (called during render)
 function Messages:check_new_conversations()
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     local force = self.needs_refresh
     self.needs_refresh = false
 
@@ -98,13 +98,13 @@ function Messages:refresh_conversations()
     end
 
     -- Fallback: no DirectMessages service
-    if not tdeck.mesh.is_initialized() then
+    if not ez.mesh.is_initialized() then
         return
     end
 end
 
 function Messages:format_time(timestamp)
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     local diff = math.floor((now - timestamp) / 1000)
 
     if diff < 60 then

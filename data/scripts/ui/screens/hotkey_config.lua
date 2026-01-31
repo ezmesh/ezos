@@ -49,15 +49,15 @@ end
 function HotkeyConfig:on_exit()
     self.recording = false
     self.capture_input = false
-    tdeck.keyboard.set_mode("normal")
+    ez.keyboard.set_mode("normal")
 end
 
 function HotkeyConfig:start_recording()
     self.recording = true
     self.capture_input = true  -- Prevent ScreenManager from reading keyboard
-    self.countdown_start = tdeck.system.millis()
+    self.countdown_start = ez.system.millis()
     self.current_matrix = nil
-    tdeck.keyboard.set_mode("raw")
+    ez.keyboard.set_mode("raw")
     if _G.SoundUtils and _G.SoundUtils.is_enabled() then
         _G.SoundUtils.click()
     end
@@ -67,13 +67,13 @@ end
 function HotkeyConfig:stop_recording()
     self.recording = false
     self.capture_input = false
-    tdeck.keyboard.set_mode("normal")
+    ez.keyboard.set_mode("normal")
     ScreenManager.invalidate()
 end
 
 function HotkeyConfig:load_current()
-    if tdeck.storage and tdeck.storage.get_pref then
-        local saved = tdeck.storage.get_pref(self.pref_key, nil)
+    if ez.storage and ez.storage.get_pref then
+        local saved = ez.storage.get_pref(self.pref_key, nil)
         if saved then
             self.recorded_matrix = saved
         end
@@ -81,12 +81,12 @@ function HotkeyConfig:load_current()
 end
 
 function HotkeyConfig:save_hotkey(matrix_bits)
-    if tdeck.storage and tdeck.storage.set_pref then
+    if ez.storage and ez.storage.set_pref then
         if matrix_bits then
-            tdeck.storage.set_pref(self.pref_key, matrix_bits)
+            ez.storage.set_pref(self.pref_key, matrix_bits)
         else
             -- Clear/reset to default
-            tdeck.storage.set_pref(self.pref_key, nil)
+            ez.storage.set_pref(self.pref_key, nil)
         end
     end
     self.recorded_matrix = matrix_bits
@@ -106,7 +106,7 @@ function HotkeyConfig:save_hotkey(matrix_bits)
 end
 
 function HotkeyConfig:get_matrix_bits()
-    local matrix = tdeck.keyboard.read_raw_matrix()
+    local matrix = ez.keyboard.read_raw_matrix()
     if not matrix then return 0 end
 
     -- Pack 5 columns x 7 rows into a single number
@@ -192,7 +192,7 @@ function HotkeyConfig:render(display)
 
     if self.recording then
         -- Recording mode
-        local elapsed = tdeck.system.millis() - self.countdown_start
+        local elapsed = ez.system.millis() - self.countdown_start
         local remaining = math.ceil((self.RECORD_TIMEOUT - elapsed) / 1000)
 
         if elapsed >= self.RECORD_TIMEOUT then

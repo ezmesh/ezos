@@ -45,7 +45,7 @@ end
 
 function Files:show_message(msg)
     self.message = msg
-    self.message_time = tdeck.system.millis()
+    self.message_time = ez.system.millis()
 end
 
 function Files:load_directory(path)
@@ -64,7 +64,7 @@ function Files:load_directory(path)
     end
 
     -- List directory contents
-    local items = tdeck.storage.list_dir(path)
+    local items = ez.storage.list_dir(path)
     if items then
         -- Sort: directories first, then files
         local dirs = {}
@@ -205,7 +205,7 @@ function Files:delete_entry()
 
     local path = self:get_full_path(entry)
 
-    if tdeck.storage.delete(path) then
+    if ez.storage.delete(path) then
         self:show_message("Deleted: " .. entry.name)
         self:load_directory(self.current_path)
     else
@@ -251,21 +251,21 @@ function Files:paste_entry()
     dest_path = dest_path .. src_name
 
     -- Read source file
-    local content = tdeck.storage.read_file(self.clipboard_path)
+    local content = ez.storage.read_file(self.clipboard_path)
     if not content then
         self:show_message("Read failed!")
         return
     end
 
     -- Write to destination
-    if not tdeck.storage.write_file(dest_path, content) then
+    if not ez.storage.write_file(dest_path, content) then
         self:show_message("Write failed!")
         return
     end
 
     -- If cut mode, delete source
     if self.clipboard_mode == "cut" then
-        tdeck.storage.delete(self.clipboard_path)
+        ez.storage.delete(self.clipboard_path)
         self.clipboard_path = nil
         self.clipboard_mode = nil
     end
@@ -465,7 +465,7 @@ function Files:render(display)
     end
 
     -- Status message only (no help bar - use app menu)
-    if self.message and (tdeck.system.millis() - self.message_time) < 2000 then
+    if self.message and (ez.system.millis() - self.message_time) < 2000 then
         local status_y = (display.rows - 2) * fh
         display.draw_text(fw, status_y, self.message, colors.TEXT_SECONDARY)
     else

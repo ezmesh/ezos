@@ -28,14 +28,14 @@ function RadioTest:on_enter()
 end
 
 function RadioTest:refresh_status()
-    if tdeck.radio and tdeck.radio.is_initialized then
-        if tdeck.radio.is_initialized() then
+    if ez.radio and ez.radio.is_initialized then
+        if ez.radio.is_initialized() then
             self.status = "OK"
-            if tdeck.radio.get_last_rssi then
-                self.last_rssi = tdeck.radio.get_last_rssi()
+            if ez.radio.get_last_rssi then
+                self.last_rssi = ez.radio.get_last_rssi()
             end
-            if tdeck.radio.get_last_snr then
-                self.last_snr = tdeck.radio.get_last_snr()
+            if ez.radio.get_last_snr then
+                self.last_snr = ez.radio.get_last_snr()
             end
         else
             self.status = "NOT INITIALIZED"
@@ -44,13 +44,13 @@ function RadioTest:refresh_status()
         self.status = "NO RADIO API"
     end
 
-    if tdeck.mesh and tdeck.mesh.is_initialized then
-        if tdeck.mesh.is_initialized() then
-            if tdeck.mesh.get_tx_count then
-                self.tx_count = tdeck.mesh.get_tx_count()
+    if ez.mesh and ez.mesh.is_initialized then
+        if ez.mesh.is_initialized() then
+            if ez.mesh.get_tx_count then
+                self.tx_count = ez.mesh.get_tx_count()
             end
-            if tdeck.mesh.get_rx_count then
-                self.rx_count = tdeck.mesh.get_rx_count()
+            if ez.mesh.get_rx_count then
+                self.rx_count = ez.mesh.get_rx_count()
             end
         end
     end

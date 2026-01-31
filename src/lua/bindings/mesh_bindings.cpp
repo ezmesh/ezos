@@ -1,4 +1,4 @@
-// tdeck.mesh module bindings
+// ez.mesh module bindings
 // Provides mesh networking functions
 
 #include "../lua_bindings.h"
@@ -36,7 +36,7 @@ static std::deque<QueuedPacket> packetQueue;
 static constexpr size_t MAX_PACKET_QUEUE = 32;
 static bool packetQueueEnabled = false;
 
-// @lua tdeck.mesh.is_initialized() -> boolean
+// @lua ez.mesh.is_initialized() -> boolean
 // @brief Check if mesh networking is initialized
 // @return true if mesh is ready
 LUA_FUNCTION(l_mesh_is_initialized) {
@@ -44,7 +44,7 @@ LUA_FUNCTION(l_mesh_is_initialized) {
     return 1;
 }
 
-// @lua tdeck.mesh.update()
+// @lua ez.mesh.update()
 // @brief Process incoming mesh packets
 // @note Call this regularly in your main loop to receive messages
 LUA_FUNCTION(l_mesh_update) {
@@ -54,7 +54,7 @@ LUA_FUNCTION(l_mesh_update) {
     return 0;
 }
 
-// @lua tdeck.mesh.get_node_id() -> string
+// @lua ez.mesh.get_node_id() -> string
 // @brief Get this node's full ID
 // @return 6-byte hex string
 LUA_FUNCTION(l_mesh_get_node_id) {
@@ -69,7 +69,7 @@ LUA_FUNCTION(l_mesh_get_node_id) {
     return 1;
 }
 
-// @lua tdeck.mesh.get_short_id() -> string
+// @lua ez.mesh.get_short_id() -> string
 // @brief Get this node's short ID
 // @return 3-byte hex string (6 chars)
 LUA_FUNCTION(l_mesh_get_short_id) {
@@ -84,7 +84,7 @@ LUA_FUNCTION(l_mesh_get_short_id) {
     return 1;
 }
 
-// @lua tdeck.mesh.get_node_name() -> string
+// @lua ez.mesh.get_node_name() -> string
 // @brief Get this node's display name
 // @return Node name string
 LUA_FUNCTION(l_mesh_get_node_name) {
@@ -97,7 +97,7 @@ LUA_FUNCTION(l_mesh_get_node_name) {
     return 1;
 }
 
-// @lua tdeck.mesh.set_node_name(name) -> boolean
+// @lua ez.mesh.set_node_name(name) -> boolean
 // @brief Set this node's display name
 // @param name New node name
 // @return true if successful
@@ -120,7 +120,7 @@ LUA_FUNCTION(l_mesh_set_node_name) {
 // Helper function to convert public key bytes to hex string (alias for compatibility)
 #define pubKeyToHex pubKeyToHexStr
 
-// @lua tdeck.mesh.get_nodes() -> table
+// @lua ez.mesh.get_nodes() -> table
 // @brief Get list of discovered mesh nodes
 // @return Array of node tables with path_hash, name, rssi, snr, last_seen, hops, pub_key_hex
 LUA_FUNCTION(l_mesh_get_nodes) {
@@ -190,7 +190,7 @@ LUA_FUNCTION(l_mesh_get_nodes) {
     return 1;
 }
 
-// @lua tdeck.mesh.get_node_count() -> integer
+// @lua ez.mesh.get_node_count() -> integer
 // @brief Get number of known nodes
 // @return Node count
 LUA_FUNCTION(l_mesh_get_node_count) {
@@ -199,7 +199,7 @@ LUA_FUNCTION(l_mesh_get_node_count) {
     return 1;
 }
 
-// @lua tdeck.mesh.send_announce() -> boolean
+// @lua ez.mesh.send_announce() -> boolean
 // @brief Broadcast node announcement
 // @return true if sent successfully
 LUA_FUNCTION(l_mesh_send_announce) {
@@ -213,7 +213,7 @@ LUA_FUNCTION(l_mesh_send_announce) {
     return 1;
 }
 
-// @lua tdeck.mesh.get_tx_count() -> integer
+// @lua ez.mesh.get_tx_count() -> integer
 // @brief Get total packets transmitted
 // @return Transmit count
 LUA_FUNCTION(l_mesh_get_tx_count) {
@@ -222,7 +222,7 @@ LUA_FUNCTION(l_mesh_get_tx_count) {
     return 1;
 }
 
-// @lua tdeck.mesh.get_rx_count() -> integer
+// @lua ez.mesh.get_rx_count() -> integer
 // @brief Get total packets received
 // @return Receive count
 LUA_FUNCTION(l_mesh_get_rx_count) {
@@ -333,7 +333,7 @@ static void pushPacketTable(lua_State* L, const ParsedPacket& pkt) {
     lua_setfield(L, -2, "timestamp");
 }
 
-// @lua tdeck.mesh.on_node_discovered(callback)
+// @lua ez.mesh.on_node_discovered(callback)
 // @brief Set callback for node discovery (DEPRECATED - use bus.subscribe("mesh/node_discovered") instead)
 // @param callback Function(node_table) called when node discovered
 // @note node_table contains: path_hash, name, rssi, snr, role, advert_timestamp, age_seconds, pub_key_hex (if available)
@@ -380,7 +380,7 @@ LUA_FUNCTION(l_mesh_on_node_discovered) {
     return 0;
 }
 
-// @lua tdeck.mesh.on_group_packet(callback)
+// @lua ez.mesh.on_group_packet(callback)
 // @brief Set callback for raw group packets (DEPRECATED - use bus.subscribe("mesh/group_packet") instead)
 // @param callback Function(packet_table) called with {channel_hash, data, sender_hash, rssi, snr}
 // @note When this callback is set, Lua takes over channel handling
@@ -431,7 +431,7 @@ LUA_FUNCTION(l_mesh_on_group_packet) {
     return 0;
 }
 
-// @lua tdeck.mesh.send_group_packet(channel_hash, encrypted_data) -> boolean
+// @lua ez.mesh.send_group_packet(channel_hash, encrypted_data) -> boolean
 // @brief Send raw encrypted group packet
 // @param channel_hash Single byte channel identifier
 // @param encrypted_data Pre-encrypted payload (MAC + ciphertext)
@@ -454,7 +454,7 @@ LUA_FUNCTION(l_mesh_send_group_packet) {
     return 1;
 }
 
-// @lua tdeck.mesh.on_packet(callback)
+// @lua ez.mesh.on_packet(callback)
 // @brief Set callback for ALL incoming packets (DEPRECATED - use bus.subscribe("mesh/packet") instead)
 // @param callback Function(packet_table) returning handled, rebroadcast booleans
 // @note packet_table contains: route_type, payload_type, version, path (binary), payload (binary), rssi, snr, timestamp
@@ -544,7 +544,7 @@ LUA_FUNCTION(l_mesh_on_packet) {
     return 0;
 }
 
-// @lua tdeck.mesh.schedule_rebroadcast(data)
+// @lua ez.mesh.schedule_rebroadcast(data)
 // @brief Schedule raw packet data for rebroadcast
 // @param data Binary string of raw packet bytes
 LUA_FUNCTION(l_mesh_schedule_rebroadcast) {
@@ -560,7 +560,7 @@ LUA_FUNCTION(l_mesh_schedule_rebroadcast) {
     return 0;
 }
 
-// @lua tdeck.mesh.get_path_hash() -> integer
+// @lua ez.mesh.get_path_hash() -> integer
 // @brief Get this node's path hash (first byte of public key)
 // @return Path hash as integer (0-255)
 LUA_FUNCTION(l_mesh_get_path_hash) {
@@ -573,7 +573,7 @@ LUA_FUNCTION(l_mesh_get_path_hash) {
     return 1;
 }
 
-// @lua tdeck.mesh.get_public_key() -> string
+// @lua ez.mesh.get_public_key() -> string
 // @brief Get this node's public key as binary string
 // @return 32-byte Ed25519 public key
 LUA_FUNCTION(l_mesh_get_public_key) {
@@ -587,7 +587,7 @@ LUA_FUNCTION(l_mesh_get_public_key) {
     return 1;
 }
 
-// @lua tdeck.mesh.get_public_key_hex() -> string
+// @lua ez.mesh.get_public_key_hex() -> string
 // @brief Get this node's public key as hex string
 // @return 64-character hex string
 LUA_FUNCTION(l_mesh_get_public_key_hex) {
@@ -602,7 +602,7 @@ LUA_FUNCTION(l_mesh_get_public_key_hex) {
     return 1;
 }
 
-// @lua tdeck.mesh.ed25519_sign(data) -> signature
+// @lua ez.mesh.ed25519_sign(data) -> signature
 // @brief Sign data with this node's private key
 // @param data Binary string to sign
 // @return 64-byte Ed25519 signature as binary string, or nil on error
@@ -629,7 +629,7 @@ LUA_FUNCTION(l_mesh_ed25519_sign) {
     return 1;
 }
 
-// @lua tdeck.mesh.ed25519_verify(data, signature, pub_key) -> boolean
+// @lua ez.mesh.ed25519_verify(data, signature, pub_key) -> boolean
 // @brief Verify an Ed25519 signature
 // @param data Binary string that was signed
 // @param signature 64-byte Ed25519 signature
@@ -659,7 +659,7 @@ LUA_FUNCTION(l_mesh_ed25519_verify) {
     return 1;
 }
 
-// @lua tdeck.mesh.calc_shared_secret(other_pub_key) -> string|nil
+// @lua ez.mesh.calc_shared_secret(other_pub_key) -> string|nil
 // @brief Calculate ECDH shared secret with another node
 // @param other_pub_key 32-byte Ed25519 public key of the other party
 // @return 32-byte shared secret as binary string, or nil on error
@@ -697,7 +697,7 @@ LUA_FUNCTION(l_mesh_calc_shared_secret) {
     return 1;
 }
 
-// @lua tdeck.mesh.build_packet(route_type, payload_type, payload, path) -> string|nil
+// @lua ez.mesh.build_packet(route_type, payload_type, payload, path) -> string|nil
 // @brief Build a raw mesh packet for transmission
 // @param route_type Route type constant (FLOOD=1, DIRECT=2)
 // @param payload_type Payload type constant (ADVERT=4, GRP_TXT=5, etc.)
@@ -754,7 +754,7 @@ LUA_FUNCTION(l_mesh_build_packet) {
     return 1;
 }
 
-// @lua tdeck.mesh.parse_header(header_byte) -> route_type, payload_type, version
+// @lua ez.mesh.parse_header(header_byte) -> route_type, payload_type, version
 // @brief Parse a packet header byte into components
 // @param header_byte Single byte header value
 // @return route_type, payload_type, version as integers
@@ -768,7 +768,7 @@ LUA_FUNCTION(l_mesh_parse_header) {
     return 3;
 }
 
-// @lua tdeck.mesh.make_header(route_type, payload_type, version) -> integer
+// @lua ez.mesh.make_header(route_type, payload_type, version) -> integer
 // @brief Create a packet header byte from components
 // @param route_type Route type constant
 // @param payload_type Payload type constant
@@ -788,7 +788,7 @@ LUA_FUNCTION(l_mesh_make_header) {
     return 1;
 }
 
-// @lua tdeck.mesh.send_raw(data) -> boolean
+// @lua ez.mesh.send_raw(data) -> boolean
 // @brief Send raw packet data directly via radio (bypasses queue, immediate)
 // @param data Binary string of serialized packet
 // @return true if sent successfully
@@ -814,7 +814,7 @@ LUA_FUNCTION(l_mesh_send_raw) {
     return 1;
 }
 
-// @lua tdeck.mesh.queue_send(data) -> boolean
+// @lua ez.mesh.queue_send(data) -> boolean
 // @brief Queue packet for transmission (throttled, non-blocking)
 // @param data Binary string of serialized packet
 // @return true if queued successfully, false if queue full or error
@@ -840,7 +840,7 @@ LUA_FUNCTION(l_mesh_queue_send) {
     return 1;
 }
 
-// @lua tdeck.mesh.get_tx_queue_size() -> integer
+// @lua ez.mesh.get_tx_queue_size() -> integer
 // @brief Get number of packets waiting in transmit queue
 // @return Queue size
 LUA_FUNCTION(l_mesh_get_tx_queue_size) {
@@ -854,7 +854,7 @@ LUA_FUNCTION(l_mesh_get_tx_queue_size) {
     return 1;
 }
 
-// @lua tdeck.mesh.get_tx_queue_capacity() -> integer
+// @lua ez.mesh.get_tx_queue_capacity() -> integer
 // @brief Get maximum transmit queue capacity
 // @return Max queue size
 LUA_FUNCTION(l_mesh_get_tx_queue_capacity) {
@@ -868,7 +868,7 @@ LUA_FUNCTION(l_mesh_get_tx_queue_capacity) {
     return 1;
 }
 
-// @lua tdeck.mesh.is_tx_queue_full() -> boolean
+// @lua ez.mesh.is_tx_queue_full() -> boolean
 // @brief Check if transmit queue is full
 // @return true if queue is full
 LUA_FUNCTION(l_mesh_is_tx_queue_full) {
@@ -882,7 +882,7 @@ LUA_FUNCTION(l_mesh_is_tx_queue_full) {
     return 1;
 }
 
-// @lua tdeck.mesh.clear_tx_queue()
+// @lua ez.mesh.clear_tx_queue()
 // @brief Clear all packets from transmit queue
 LUA_FUNCTION(l_mesh_clear_tx_queue) {
     if (mesh) {
@@ -894,7 +894,7 @@ LUA_FUNCTION(l_mesh_clear_tx_queue) {
     return 0;
 }
 
-// @lua tdeck.mesh.set_tx_throttle(ms)
+// @lua ez.mesh.set_tx_throttle(ms)
 // @brief Set minimum interval between transmissions
 // @param ms Milliseconds between transmissions (default 100)
 LUA_FUNCTION(l_mesh_set_tx_throttle) {
@@ -910,7 +910,7 @@ LUA_FUNCTION(l_mesh_set_tx_throttle) {
     return 0;
 }
 
-// @lua tdeck.mesh.get_tx_throttle() -> integer
+// @lua ez.mesh.get_tx_throttle() -> integer
 // @brief Get current throttle interval
 // @return Milliseconds between transmissions
 LUA_FUNCTION(l_mesh_get_tx_throttle) {
@@ -928,7 +928,7 @@ LUA_FUNCTION(l_mesh_get_tx_throttle) {
 // Packet Queue (polling-based API - safer than callbacks)
 // =============================================================================
 
-// @lua tdeck.mesh.enable_packet_queue(enabled)
+// @lua ez.mesh.enable_packet_queue(enabled)
 // @brief Enable or disable packet queuing for polling
 // @param enabled Boolean to enable/disable
 // @note When enabled, incoming packets are queued instead of using callbacks
@@ -972,7 +972,7 @@ LUA_FUNCTION(l_mesh_enable_packet_queue) {
     return 0;
 }
 
-// @lua tdeck.mesh.has_packets() -> boolean
+// @lua ez.mesh.has_packets() -> boolean
 // @brief Check if packets are available in the queue
 // @return true if one or more packets are queued
 LUA_FUNCTION(l_mesh_has_packets) {
@@ -980,7 +980,7 @@ LUA_FUNCTION(l_mesh_has_packets) {
     return 1;
 }
 
-// @lua tdeck.mesh.packet_count() -> integer
+// @lua ez.mesh.packet_count() -> integer
 // @brief Get number of packets in queue
 // @return Number of queued packets
 LUA_FUNCTION(l_mesh_packet_count) {
@@ -988,7 +988,7 @@ LUA_FUNCTION(l_mesh_packet_count) {
     return 1;
 }
 
-// @lua tdeck.mesh.pop_packet() -> table|nil
+// @lua ez.mesh.pop_packet() -> table|nil
 // @brief Get and remove the next packet from queue
 // @return Packet table or nil if queue is empty
 LUA_FUNCTION(l_mesh_pop_packet) {
@@ -1033,14 +1033,14 @@ LUA_FUNCTION(l_mesh_pop_packet) {
     return 1;
 }
 
-// @lua tdeck.mesh.clear_packet_queue()
+// @lua ez.mesh.clear_packet_queue()
 // @brief Clear all packets from the queue
 LUA_FUNCTION(l_mesh_clear_packet_queue) {
     packetQueue.clear();
     return 0;
 }
 
-// @lua tdeck.mesh.set_path_check(enabled)
+// @lua ez.mesh.set_path_check(enabled)
 // @brief Enable or disable path check for flood routing
 // @param enabled Boolean - when true, packets with our hash in path are skipped
 // @note Disabling this can help debug packet delivery issues but may cause loops
@@ -1055,7 +1055,7 @@ LUA_FUNCTION(l_mesh_set_path_check) {
     return 0;
 }
 
-// @lua tdeck.mesh.get_path_check() -> boolean
+// @lua ez.mesh.get_path_check() -> boolean
 // @brief Get current path check setting
 // @return true if path check is enabled
 LUA_FUNCTION(l_mesh_get_path_check) {
@@ -1064,7 +1064,7 @@ LUA_FUNCTION(l_mesh_get_path_check) {
     return 1;
 }
 
-// @lua tdeck.mesh.set_announce_interval(ms)
+// @lua ez.mesh.set_announce_interval(ms)
 // @brief Set auto-announce interval in milliseconds (0 = disabled)
 // @param ms Integer - interval in milliseconds (0 to disable)
 LUA_FUNCTION(l_mesh_set_announce_interval) {
@@ -1079,7 +1079,7 @@ LUA_FUNCTION(l_mesh_set_announce_interval) {
     return 0;
 }
 
-// @lua tdeck.mesh.get_announce_interval() -> integer
+// @lua ez.mesh.get_announce_interval() -> integer
 // @brief Get current auto-announce interval
 // @return Interval in milliseconds (0 = disabled)
 LUA_FUNCTION(l_mesh_get_announce_interval) {
@@ -1088,7 +1088,7 @@ LUA_FUNCTION(l_mesh_get_announce_interval) {
     return 1;
 }
 
-// Function table for tdeck.mesh
+// Function table for ez.mesh
 static const luaL_Reg mesh_funcs[] = {
     {"is_initialized",       l_mesh_is_initialized},
     {"update",               l_mesh_update},
@@ -1205,5 +1205,5 @@ void registerMeshModule(lua_State* L) {
 
     lua_pop(L, 2);  // Pop mesh and tdeck
 
-    Serial.println("[LuaRuntime] Registered tdeck.mesh");
+    Serial.println("[LuaRuntime] Registered ez.mesh");
 }

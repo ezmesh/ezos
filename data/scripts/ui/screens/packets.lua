@@ -50,12 +50,12 @@ end
 
 function Packets:on_enter()
     -- Enable packet queue for polling
-    if tdeck.mesh and tdeck.mesh.enable_packet_queue then
-        tdeck.mesh.enable_packet_queue(true)
+    if ez.mesh and ez.mesh.enable_packet_queue then
+        ez.mesh.enable_packet_queue(true)
         self.queue_enabled = true
-        tdeck.system.log("[Packets] Packet queue enabled")
+        ez.system.log("[Packets] Packet queue enabled")
     else
-        tdeck.system.log("[Packets] ERROR: tdeck.mesh.enable_packet_queue not available")
+        ez.system.log("[Packets] ERROR: ez.mesh.enable_packet_queue not available")
     end
 
     -- Register update callback to poll packets
@@ -74,20 +74,20 @@ function Packets:on_leave()
     end
 
     -- Disable packet queue
-    if self.queue_enabled and tdeck.mesh and tdeck.mesh.enable_packet_queue then
-        tdeck.mesh.enable_packet_queue(false)
+    if self.queue_enabled and ez.mesh and ez.mesh.enable_packet_queue then
+        ez.mesh.enable_packet_queue(false)
         self.queue_enabled = false
     end
 end
 
 function Packets:poll_packets()
     if self.paused then return end
-    if not tdeck.mesh or not tdeck.mesh.has_packets then return end
+    if not ez.mesh or not ez.mesh.has_packets then return end
 
     -- Process all available packets
     local processed = 0
-    while tdeck.mesh.has_packets() and processed < 10 do
-        local pkt = tdeck.mesh.pop_packet()
+    while ez.mesh.has_packets() and processed < 10 do
+        local pkt = ez.mesh.pop_packet()
         if pkt then
             self:add_packet(pkt)
             processed = processed + 1
@@ -127,7 +127,7 @@ function Packets:add_packet(pkt)
         rssi = pkt.rssi,
         hex = hex_str,
         len = #payload,
-        time = tdeck.system.millis(),
+        time = ez.system.millis(),
     }
 
     table.insert(self.packets, entry)
@@ -187,7 +187,7 @@ function Packets:render(display)
         display.set_font_size("small")
         display.draw_text_centered(h / 2 - 8, "Waiting for packets...", colors.TEXT_SECONDARY)
         display.set_font_size("tiny")
-        local queue_count = tdeck.mesh and tdeck.mesh.packet_count and tdeck.mesh.packet_count() or 0
+        local queue_count = ez.mesh and ez.mesh.packet_count and ez.mesh.packet_count() or 0
         display.draw_text_centered(h / 2 + 8, string.format("Queue: %d  [P]ause [Q]uit", queue_count), colors.TEXT_MUTED)
         return
     end

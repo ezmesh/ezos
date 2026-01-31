@@ -40,10 +40,10 @@ Theme.ELLIPSIS = "..."
 
 -- Get colors from display module (must be called after display is initialized)
 function Theme.get_colors()
-    if not tdeck or not tdeck.display then
+    if not tdeck or not ez.display then
         return nil
     end
-    return tdeck.display.colors
+    return ez.display.colors
 end
 
 -- Helper to get visible content height in rows

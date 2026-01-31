@@ -253,7 +253,7 @@ function MapViewer:load_archive_async()
 
     local function do_load()
         -- Check if archive exists
-        if not tdeck.storage.exists(self_ref.archive_path) then
+        if not ez.storage.exists(self_ref.archive_path) then
             if _G.StatusBar then _G.StatusBar.hide_loading() end
             self_ref.error_msg = "Map file not found:\n" .. self_ref.archive_path
             self_ref.loading = false
@@ -700,7 +700,7 @@ function MapViewer:get_tile(zoom, x, y)
 end
 
 function MapViewer:on_enter()
-    tdeck.keyboard.set_mode("normal")
+    ez.keyboard.set_mode("normal")
 
     -- Initialize pan tracking
     self.last_center_x = self.center_x
@@ -710,10 +710,10 @@ function MapViewer:on_enter()
 
     -- Load preferences
     local old_theme = self.theme
-    if tdeck.storage and tdeck.storage.get_pref then
-        self.theme = tdeck.storage.get_pref("mapTheme", "light")
+    if ez.storage and ez.storage.get_pref then
+        self.theme = ez.storage.get_pref("mapTheme", "light")
         -- Pan speed: 1-5 setting maps to 0.05-0.25 tile units
-        local speed_setting = tdeck.storage.get_pref("mapPanSpeed", 2)
+        local speed_setting = ez.storage.get_pref("mapPanSpeed", 2)
         self.pan_speed = speed_setting * 0.05
     end
 
@@ -1054,10 +1054,10 @@ function MapViewer:draw_markers(display, colors, start_tile_x, start_tile_y, pix
     end
 
     -- Draw mesh node markers (blue dots for repeaters with location)
-    if tdeck.mesh and tdeck.mesh.is_initialized and tdeck.mesh.is_initialized() then
-        local nodes = tdeck.mesh.get_nodes() or {}
+    if ez.mesh and ez.mesh.is_initialized and ez.mesh.is_initialized() then
+        local nodes = ez.mesh.get_nodes() or {}
         -- Use mesh ROLE constants with fallback for simulator compatibility
-        local ROLE = tdeck.mesh.ROLE or { CHAT = 1, REPEATER = 2, ROUTER = 3, GATEWAY = 4 }
+        local ROLE = ez.mesh.ROLE or { CHAT = 1, REPEATER = 2, ROUTER = 3, GATEWAY = 4 }
         for _, node in ipairs(nodes) do
             -- Only draw repeaters/routers with valid location
             if node.has_location and node.lat and node.lon then
@@ -1076,8 +1076,8 @@ function MapViewer:draw_markers(display, colors, start_tile_x, start_tile_y, pix
     end
 
     -- Draw GPS location marker (green dot)
-    if tdeck.gps and tdeck.gps.get_location then
-        local loc = tdeck.gps.get_location()
+    if ez.gps and ez.gps.get_location then
+        local loc = ez.gps.get_location()
         if loc and loc.valid and loc.lat and loc.lon then
             local sx, sy = lat_lon_to_screen(loc.lat, loc.lon)
             -- Only draw if on screen

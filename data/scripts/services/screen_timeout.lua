@@ -18,20 +18,20 @@ local ScreenTimeout = {
 }
 
 function ScreenTimeout.init()
-    ScreenTimeout.last_activity = tdeck.system.millis()
+    ScreenTimeout.last_activity = ez.system.millis()
     ScreenTimeout.state = "active"
     ScreenTimeout.load_settings()
 
     -- Get current brightness as saved value
-    if tdeck.storage and tdeck.storage.get_pref then
-        ScreenTimeout.saved_brightness = tdeck.storage.get_pref("brightness", 200)
+    if ez.storage and ez.storage.get_pref then
+        ScreenTimeout.saved_brightness = ez.storage.get_pref("brightness", 200)
     end
 end
 
 function ScreenTimeout.load_settings()
-    if tdeck.storage and tdeck.storage.get_pref then
-        ScreenTimeout.dim_timeout = tdeck.storage.get_pref("screenDimTimeout", 5)
-        ScreenTimeout.off_timeout = tdeck.storage.get_pref("screenOffTimeout", 10)
+    if ez.storage and ez.storage.get_pref then
+        ScreenTimeout.dim_timeout = ez.storage.get_pref("screenDimTimeout", 5)
+        ScreenTimeout.off_timeout = ez.storage.get_pref("screenOffTimeout", 10)
     end
 end
 
@@ -39,7 +39,7 @@ function ScreenTimeout.on_activity()
     local was_off = (ScreenTimeout.state == "off")
     local was_dimmed = (ScreenTimeout.state == "dimmed")
 
-    ScreenTimeout.last_activity = tdeck.system.millis()
+    ScreenTimeout.last_activity = ez.system.millis()
 
     -- Wake screen if it was dimmed or off
     if was_off or was_dimmed then
@@ -62,8 +62,8 @@ function ScreenTimeout.wake()
         end
 
         -- Restore brightness
-        if tdeck.display and tdeck.display.set_brightness then
-            tdeck.display.set_brightness(ScreenTimeout.saved_brightness)
+        if ez.display and ez.display.set_brightness then
+            ez.display.set_brightness(ScreenTimeout.saved_brightness)
         end
         ScreenTimeout.state = "active"
 
@@ -78,13 +78,13 @@ end
 function ScreenTimeout.dim()
     if ScreenTimeout.state == "active" then
         -- Save current brightness before dimming
-        if tdeck.storage and tdeck.storage.get_pref then
-            ScreenTimeout.saved_brightness = tdeck.storage.get_pref("brightness", 200)
+        if ez.storage and ez.storage.get_pref then
+            ScreenTimeout.saved_brightness = ez.storage.get_pref("brightness", 200)
         end
 
         -- Set dim brightness
-        if tdeck.display and tdeck.display.set_brightness then
-            tdeck.display.set_brightness(ScreenTimeout.dim_brightness)
+        if ez.display and ez.display.set_brightness then
+            ez.display.set_brightness(ScreenTimeout.dim_brightness)
         end
         ScreenTimeout.state = "dimmed"
     end
@@ -94,21 +94,21 @@ function ScreenTimeout.turn_off()
     if ScreenTimeout.state ~= "off" then
         -- Save brightness if not already saved (in case we skipped dim)
         if ScreenTimeout.state == "active" then
-            if tdeck.storage and tdeck.storage.get_pref then
-                ScreenTimeout.saved_brightness = tdeck.storage.get_pref("brightness", 200)
+            if ez.storage and ez.storage.get_pref then
+                ScreenTimeout.saved_brightness = ez.storage.get_pref("brightness", 200)
             end
         end
 
         -- Turn off display
-        if tdeck.display and tdeck.display.set_brightness then
-            tdeck.display.set_brightness(0)
+        if ez.display and ez.display.set_brightness then
+            ez.display.set_brightness(0)
         end
         ScreenTimeout.state = "off"
     end
 end
 
 function ScreenTimeout.update()
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
 
     -- Only check periodically
     if now - ScreenTimeout.last_check < ScreenTimeout.check_interval then

@@ -15,7 +15,7 @@ local Channels = {
     MAX_MESSAGE_TEXT = 100,
 }
 
-local crypto = tdeck.crypto
+local crypto = ez.crypto
 
 -- Initialize the channels service
 function Channels.init()
@@ -28,8 +28,8 @@ function Channels.init()
     end
 
     -- Subscribe to group packets via message bus
-    if tdeck.bus and tdeck.bus.subscribe then
-        tdeck.bus.subscribe("mesh/group_packet", function(topic, packet)
+    if ez.bus and ez.bus.subscribe then
+        ez.bus.subscribe("mesh/group_packet", function(topic, packet)
             -- packet is a table with channel_hash, data, sender_hash, rssi, snr
             Channels._handle_group_packet(packet)
         end)
@@ -170,8 +170,8 @@ function Channels.send(channel, text)
     end
     
     -- Build plaintext: [timestamp:4][flags:1][sender: text\0]
-    local timestamp = tdeck.system.millis() // 1000
-    local sender = tdeck.mesh.get_node_name() or "Unknown"
+    local timestamp = ez.system.millis() // 1000
+    local sender = ez.mesh.get_node_name() or "Unknown"
     local content = sender .. ": " .. text .. "\0"
     
     -- Pack timestamp as little-endian uint32 + flags byte
@@ -199,7 +199,7 @@ function Channels.send(channel, text)
     local encrypted = mac .. ciphertext
     
     -- Send via mesh
-    local ok = tdeck.mesh.send_group_packet(info.hash, encrypted)
+    local ok = ez.mesh.send_group_packet(info.hash, encrypted)
     if not ok then
         print("[Channels] Failed to send packet")
         return false
@@ -209,9 +209,9 @@ function Channels.send(channel, text)
     Channels._store_message(channel, {
         sender = sender,
         text = text,
-        timestamp = tdeck.system.millis(),
+        timestamp = ez.system.millis(),
         is_ours = true,
-        sender_hash = tdeck.mesh.get_path_hash(),
+        sender_hash = ez.mesh.get_path_hash(),
     })
     
     return true
@@ -274,7 +274,7 @@ function Channels._handle_group_packet(packet)
     
     -- Check for duplicate (same text within 30 seconds)
     local msgs = Channels.messages[channel_name] or {}
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     for i = #msgs, math.max(1, #msgs - 10), -1 do
         local m = msgs[i]
         if m.text == text and m.sender == sender and (now - m.timestamp) < 30000 then
@@ -304,14 +304,14 @@ function Channels._handle_group_packet(packet)
         info.last_activity = now
 
         -- Publish unread count change event
-        if tdeck.bus and tdeck.bus.post then
-            tdeck.bus.post("channel/unread", channel_name .. ":" .. info.unread)
+        if ez.bus and ez.bus.post then
+            ez.bus.post("channel/unread", channel_name .. ":" .. info.unread)
         end
     end
 
     -- Publish channel message event
-    if tdeck.bus and tdeck.bus.post then
-        tdeck.bus.post("channel/message", {
+    if ez.bus and ez.bus.post then
+        ez.bus.post("channel/message", {
             channel = channel_name,
             sender = msg.sender or "",
             text = text
@@ -420,20 +420,20 @@ function Channels._save()
         end
     end
     
-    local json = tdeck.storage.json_encode(data)
+    local json = ez.storage.json_encode(data)
     if json then
-        tdeck.storage.write("/channels.json", json)
+        ez.storage.write("/channels.json", json)
     end
 end
 
 -- Load channels from storage
 function Channels._load()
-    local json = tdeck.storage.read("/channels.json")
+    local json = ez.storage.read("/channels.json")
     if not json then
         return
     end
     
-    local data = tdeck.storage.json_decode(json)
+    local data = ez.storage.json_decode(json)
     if not data or data.version ~= 1 then
         return
     end

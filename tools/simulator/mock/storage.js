@@ -51,7 +51,7 @@ export function createStorageModule() {
         // Read entire file
         read(path) {
             try {
-                const cached = localStorage.getItem(`tdeck_file_${path}`);
+                const cached = localStorage.getItem(`ez_file_${path}`);
                 // Return undefined instead of null (Wasmoon handles undefined better)
                 return cached === null ? undefined : cached;
             } catch (e) {
@@ -62,7 +62,7 @@ export function createStorageModule() {
         // Write entire file
         write(path, content) {
             try {
-                localStorage.setItem(`tdeck_file_${path}`, content);
+                localStorage.setItem(`ez_file_${path}`, content);
                 return true;
             } catch (e) {
                 return false;
@@ -101,7 +101,7 @@ export function createStorageModule() {
                 return true;
             }
             try {
-                const cached = localStorage.getItem(`tdeck_file_${path}`);
+                const cached = localStorage.getItem(`ez_file_${path}`);
                 return cached !== null;
             } catch (e) {
                 return false;
@@ -111,7 +111,7 @@ export function createStorageModule() {
         // Remove a file
         remove(path) {
             try {
-                localStorage.removeItem(`tdeck_file_${path}`);
+                localStorage.removeItem(`ez_file_${path}`);
                 return true;
             } catch (e) {
                 return false;
@@ -142,10 +142,10 @@ export function createStorageModule() {
         // Rename/move a file
         rename(oldPath, newPath) {
             try {
-                const content = localStorage.getItem(`tdeck_file_${oldPath}`);
+                const content = localStorage.getItem(`ez_file_${oldPath}`);
                 if (content !== null) {
-                    localStorage.setItem(`tdeck_file_${newPath}`, content);
-                    localStorage.removeItem(`tdeck_file_${oldPath}`);
+                    localStorage.setItem(`ez_file_${newPath}`, content);
+                    localStorage.removeItem(`ez_file_${oldPath}`);
                     return true;
                 }
                 return false;
@@ -162,7 +162,7 @@ export function createStorageModule() {
                 return binaryData.length;
             }
             try {
-                const content = localStorage.getItem(`tdeck_file_${path}`);
+                const content = localStorage.getItem(`ez_file_${path}`);
                 return content ? content.length : 0;
             } catch (e) {
                 return 0;
@@ -172,7 +172,7 @@ export function createStorageModule() {
         // Preferences using localStorage
         get_pref(key, defaultValue) {
             try {
-                const value = localStorage.getItem(`tdeck_pref_${key}`);
+                const value = localStorage.getItem(`ez_pref_${key}`);
                 if (value === null) {
                     // Return undefined (becomes nil in Lua) if no default, otherwise return default
                     // But if defaultValue is null (from Lua nil), return undefined
@@ -191,7 +191,7 @@ export function createStorageModule() {
 
         set_pref(key, value) {
             try {
-                localStorage.setItem(`tdeck_pref_${key}`, JSON.stringify(value));
+                localStorage.setItem(`ez_pref_${key}`, JSON.stringify(value));
                 return true;
             } catch (e) {
                 return false;
@@ -200,7 +200,7 @@ export function createStorageModule() {
 
         delete_pref(key) {
             try {
-                localStorage.removeItem(`tdeck_pref_${key}`);
+                localStorage.removeItem(`ez_pref_${key}`);
                 return true;
             } catch (e) {
                 return false;
@@ -217,7 +217,7 @@ export function createStorageModule() {
             try {
                 const keys = Object.keys(localStorage);
                 for (const key of keys) {
-                    if (key.startsWith('tdeck_pref_')) {
+                    if (key.startsWith('ez_pref_')) {
                         localStorage.removeItem(key);
                     }
                 }

@@ -19,7 +19,7 @@ function MainLoop.init(screen_manager)
     MainLoop.screen_manager = screen_manager
     MainLoop.running = false
     MainLoop.update_callbacks = {}
-    tdeck.system.log("[MainLoop] Initialized")
+    ez.system.log("[MainLoop] Initialized")
 end
 
 -- Register an update callback (called each frame)
@@ -65,12 +65,12 @@ end
 
 -- Single update iteration
 function MainLoop.step()
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
 
     -- Update mesh networking periodically (slower during games)
     if now - MainLoop.last_mesh_update >= MainLoop.mesh_update_interval then
-        if tdeck.mesh.is_initialized() then
-            tdeck.mesh.update()
+        if ez.mesh.is_initialized() then
+            ez.mesh.update()
         end
         MainLoop.last_mesh_update = now
     end
@@ -89,7 +89,7 @@ function MainLoop.step()
     for name, callback in pairs(MainLoop.update_callbacks) do
         local ok, err = pcall(callback)
         if not ok then
-            tdeck.system.log("[MainLoop] Update callback '" .. name .. "' error: " .. tostring(err))
+            ez.system.log("[MainLoop] Update callback '" .. name .. "' error: " .. tostring(err))
         end
     end
 
@@ -100,19 +100,19 @@ function MainLoop.step()
     end
 
     -- Yield to allow C++ background tasks and process timers
-    tdeck.system.yield(10)
+    ez.system.yield(10)
 end
 
 -- Start the Lua main loop
 -- Sets global main_loop function that C++ calls each frame
 function MainLoop.start()
     if MainLoop.running then
-        tdeck.system.log("[MainLoop] Already running")
+        ez.system.log("[MainLoop] Already running")
         return
     end
 
     if not MainLoop.screen_manager then
-        tdeck.system.log("[MainLoop] Error: screen_manager not set")
+        ez.system.log("[MainLoop] Error: screen_manager not set")
         return
     end
 
@@ -125,7 +125,7 @@ function MainLoop.start()
         end
     end
 
-    tdeck.system.log("[MainLoop] Started")
+    ez.system.log("[MainLoop] Started")
 end
 
 -- Stop the Lua main loop
@@ -137,7 +137,7 @@ function MainLoop.stop()
     MainLoop.running = false
     _G.main_loop = nil
 
-    tdeck.system.log("[MainLoop] Stopped")
+    ez.system.log("[MainLoop] Stopped")
 end
 
 return MainLoop

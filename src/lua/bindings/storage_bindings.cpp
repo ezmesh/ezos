@@ -1,4 +1,4 @@
-// tdeck.storage module bindings
+// ez.storage module bindings
 // Provides file I/O for LittleFS and SD card
 
 #include "../lua_bindings.h"
@@ -53,7 +53,7 @@ static fs::FS* getFS(const char* path, const char** adjustedPath) {
     return &LittleFS;
 }
 
-// @lua tdeck.storage.read_bytes(path, offset, length) -> string
+// @lua ez.storage.read_bytes(path, offset, length) -> string
 // @brief Read bytes from file at specific offset (for random access)
 // @param path File path (prefix /sd/ for SD card)
 // @param offset Byte offset to start reading from
@@ -124,7 +124,7 @@ LUA_FUNCTION(l_storage_read_bytes) {
     return 1;
 }
 
-// @lua tdeck.storage.file_size(path) -> integer
+// @lua ez.storage.file_size(path) -> integer
 // @brief Get file size in bytes
 // @param path File path (prefix /sd/ for SD card)
 // @return File size or nil with error message
@@ -154,7 +154,7 @@ LUA_FUNCTION(l_storage_file_size) {
     return 1;
 }
 
-// @lua tdeck.storage.read_file(path) -> string
+// @lua ez.storage.read_file(path) -> string
 // @brief Read entire file contents
 // @param path File path (prefix /sd/ for SD card)
 // @return File content or nil, error_message
@@ -208,7 +208,7 @@ LUA_FUNCTION(l_storage_read_file) {
     return 1;
 }
 
-// @lua tdeck.storage.write_file(path, content) -> boolean
+// @lua ez.storage.write_file(path, content) -> boolean
 // @brief Write content to file (creates/overwrites)
 // @param path File path
 // @param content Content to write
@@ -247,7 +247,7 @@ LUA_FUNCTION(l_storage_write_file) {
     return 1;
 }
 
-// @lua tdeck.storage.append_file(path, content) -> boolean
+// @lua ez.storage.append_file(path, content) -> boolean
 // @brief Append content to file
 // @param path File path
 // @param content Content to append
@@ -286,7 +286,7 @@ LUA_FUNCTION(l_storage_append_file) {
     return 1;
 }
 
-// @lua tdeck.storage.exists(path) -> boolean
+// @lua ez.storage.exists(path) -> boolean
 // @brief Check if file or directory exists
 // @param path Path to check
 // @return true if exists
@@ -305,7 +305,7 @@ LUA_FUNCTION(l_storage_exists) {
     return 1;
 }
 
-// @lua tdeck.storage.remove(path) -> boolean
+// @lua ez.storage.remove(path) -> boolean
 // @brief Delete a file
 // @param path File path to delete
 // @return true if deleted
@@ -324,7 +324,7 @@ LUA_FUNCTION(l_storage_remove) {
     return 1;
 }
 
-// @lua tdeck.storage.rename(old_path, new_path) -> boolean
+// @lua ez.storage.rename(old_path, new_path) -> boolean
 // @brief Rename or move a file
 // @param old_path Current path
 // @param new_path New path
@@ -348,7 +348,7 @@ LUA_FUNCTION(l_storage_rename) {
     return 1;
 }
 
-// @lua tdeck.storage.mkdir(path) -> boolean
+// @lua ez.storage.mkdir(path) -> boolean
 // @brief Create directory
 // @param path Directory path
 // @return true if created
@@ -367,7 +367,7 @@ LUA_FUNCTION(l_storage_mkdir) {
     return 1;
 }
 
-// @lua tdeck.storage.rmdir(path) -> boolean
+// @lua ez.storage.rmdir(path) -> boolean
 // @brief Remove empty directory
 // @param path Directory path
 // @return true if removed
@@ -386,7 +386,7 @@ LUA_FUNCTION(l_storage_rmdir) {
     return 1;
 }
 
-// @lua tdeck.storage.list_dir(path) -> table
+// @lua ez.storage.list_dir(path) -> table
 // @brief List directory contents
 // @param path Directory path (default "/")
 // @return Array of tables with name, is_dir, size
@@ -430,7 +430,7 @@ LUA_FUNCTION(l_storage_list_dir) {
     return 1;
 }
 
-// @lua tdeck.storage.get_pref(key, default) -> string
+// @lua ez.storage.get_pref(key, default) -> string
 // @brief Get preference value
 // @param key Preference key
 // @param default Default value if not found
@@ -457,7 +457,7 @@ LUA_FUNCTION(l_storage_get_pref) {
     return 1;
 }
 
-// @lua tdeck.storage.set_pref(key, value) -> boolean
+// @lua ez.storage.set_pref(key, value) -> boolean
 // @brief Set preference value
 // @param key Preference key
 // @param value Value to store
@@ -487,7 +487,7 @@ LUA_FUNCTION(l_storage_set_pref) {
     return 1;
 }
 
-// @lua tdeck.storage.remove_pref(key) -> boolean
+// @lua ez.storage.remove_pref(key) -> boolean
 // @brief Remove a preference
 // @param key Preference key to remove
 // @return true if removed
@@ -500,7 +500,7 @@ LUA_FUNCTION(l_storage_remove_pref) {
     return 1;
 }
 
-// @lua tdeck.storage.clear_prefs() -> boolean
+// @lua ez.storage.clear_prefs() -> boolean
 // @brief Clear all preferences
 // @return true if cleared
 LUA_FUNCTION(l_storage_clear_prefs) {
@@ -509,7 +509,7 @@ LUA_FUNCTION(l_storage_clear_prefs) {
     return 1;
 }
 
-// @lua tdeck.storage.is_sd_available() -> boolean
+// @lua ez.storage.is_sd_available() -> boolean
 // @brief Check if SD card is mounted
 // @return true if SD card available
 LUA_FUNCTION(l_storage_is_sd_available) {
@@ -517,7 +517,7 @@ LUA_FUNCTION(l_storage_is_sd_available) {
     return 1;
 }
 
-// @lua tdeck.storage.get_sd_info() -> table
+// @lua ez.storage.get_sd_info() -> table
 // @brief Get SD card info
 // @return Table with total_bytes, used_bytes, free_bytes or nil
 LUA_FUNCTION(l_storage_get_sd_info) {
@@ -543,7 +543,7 @@ LUA_FUNCTION(l_storage_get_sd_info) {
     return 1;
 }
 
-// @lua tdeck.storage.get_flash_info() -> table
+// @lua ez.storage.get_flash_info() -> table
 // @brief Get flash storage info
 // @return Table with total_bytes, used_bytes, free_bytes
 LUA_FUNCTION(l_storage_get_flash_info) {
@@ -662,7 +662,7 @@ static void jsonToLua(lua_State* L, JsonVariantConst json) {
     }
 }
 
-// @lua tdeck.storage.json_encode(value) -> string
+// @lua ez.storage.json_encode(value) -> string
 // @brief Encode Lua value to JSON string
 // @param value Lua table, string, number, boolean, or nil
 // @return JSON string or nil on error
@@ -679,7 +679,7 @@ LUA_FUNCTION(l_storage_json_encode) {
     return 1;
 }
 
-// @lua tdeck.storage.json_decode(json_string) -> value
+// @lua ez.storage.json_decode(json_string) -> value
 // @brief Decode JSON string to Lua value
 // @param json_string JSON string
 // @return Lua value or nil on error
@@ -700,7 +700,7 @@ LUA_FUNCTION(l_storage_json_decode) {
     return 1;
 }
 
-// Function table for tdeck.storage
+// Function table for ez.storage
 static const luaL_Reg storage_funcs[] = {
     {"read_file",       l_storage_read_file},
     {"read_bytes",      l_storage_read_bytes},
@@ -731,5 +731,5 @@ static const luaL_Reg storage_funcs[] = {
 // Register the storage module
 void registerStorageModule(lua_State* L) {
     lua_register_module(L, "storage", storage_funcs);
-    Serial.println("[LuaRuntime] Registered tdeck.storage");
+    Serial.println("[LuaRuntime] Registered ez.storage");
 }

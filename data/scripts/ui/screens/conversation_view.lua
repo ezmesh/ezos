@@ -31,11 +31,11 @@ end
 function ConversationView:refresh_messages()
     self.messages = {}
 
-    if not tdeck.mesh.is_initialized() then
+    if not ez.mesh.is_initialized() then
         return
     end
 
-    local all_messages = tdeck.mesh.get_direct_messages()
+    local all_messages = ez.mesh.get_direct_messages()
 
     -- Filter messages for this conversation
     for _, msg in ipairs(all_messages) do

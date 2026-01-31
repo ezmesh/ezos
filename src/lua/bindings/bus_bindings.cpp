@@ -1,4 +1,4 @@
-// tdeck.bus module bindings
+// ez.bus module bindings
 // Global message bus for C++ and Lua communication
 
 #include "bus_bindings.h"
@@ -262,7 +262,7 @@ void MessageBus::clearAll(lua_State* L) {
 // Lua Bindings
 // =============================================================================
 
-// @lua tdeck.bus.subscribe(topic, callback) -> subscription_id
+// @lua ez.bus.subscribe(topic, callback) -> subscription_id
 // @brief Subscribe to a topic with a callback function
 // @param topic Topic string to subscribe to
 // @param callback Function(topic, data) called when message received
@@ -284,7 +284,7 @@ LUA_FUNCTION(l_bus_subscribe) {
     return 1;
 }
 
-// @lua tdeck.bus.unsubscribe(subscription_id) -> boolean
+// @lua ez.bus.unsubscribe(subscription_id) -> boolean
 // @brief Unsubscribe from a topic
 // @param subscription_id ID returned from subscribe()
 // @return true if subscription was found and removed
@@ -300,7 +300,7 @@ LUA_FUNCTION(l_bus_unsubscribe) {
     return 1;
 }
 
-// @lua tdeck.bus.post(topic, data)
+// @lua ez.bus.post(topic, data)
 // @brief Post a message to a topic
 // @param topic Topic string to post to
 // @param data Message data (string or table)
@@ -324,7 +324,7 @@ LUA_FUNCTION(l_bus_post) {
     return 0;
 }
 
-// @lua tdeck.bus.has_subscribers(topic) -> boolean
+// @lua ez.bus.has_subscribers(topic) -> boolean
 // @brief Check if a topic has any active subscribers
 // @param topic Topic string to check
 // @return true if one or more subscribers exist
@@ -337,7 +337,7 @@ LUA_FUNCTION(l_bus_has_subscribers) {
     return 1;
 }
 
-// @lua tdeck.bus.pending_count() -> integer
+// @lua ez.bus.pending_count() -> integer
 // @brief Get number of messages waiting in queue
 // @return Number of pending messages
 LUA_FUNCTION(l_bus_pending_count) {
@@ -345,7 +345,7 @@ LUA_FUNCTION(l_bus_pending_count) {
     return 1;
 }
 
-// Function table for tdeck.bus
+// Function table for ez.bus
 static const luaL_Reg bus_funcs[] = {
     {"subscribe",       l_bus_subscribe},
     {"unsubscribe",     l_bus_unsubscribe},
@@ -378,5 +378,5 @@ void registerBusModule(lua_State* L) {
     // Set up built-in C++ handlers
     setupBuiltinHandlers();
 
-    Serial.println("[LuaRuntime] Registered tdeck.bus");
+    Serial.println("[LuaRuntime] Registered ez.bus");
 }

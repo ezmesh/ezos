@@ -1,4 +1,4 @@
-// tdeck.keyboard module bindings
+// ez.keyboard module bindings
 // Provides keyboard input functions
 
 #include "../lua_bindings.h"
@@ -66,7 +66,7 @@ static void pushKeyEvent(lua_State* L, KeyEvent key) {
     lua_setfield(L, -2, "valid");
 }
 
-// @lua tdeck.keyboard.available() -> boolean
+// @lua ez.keyboard.available() -> boolean
 // @brief Check if a key is waiting
 // @return true if a key is available to read
 LUA_FUNCTION(l_keyboard_available) {
@@ -75,7 +75,7 @@ LUA_FUNCTION(l_keyboard_available) {
     return 1;
 }
 
-// @lua tdeck.keyboard.read() -> table
+// @lua ez.keyboard.read() -> table
 // @brief Read next key event (non-blocking)
 // @return Key event table or nil if no key available
 LUA_FUNCTION(l_keyboard_read) {
@@ -94,7 +94,7 @@ LUA_FUNCTION(l_keyboard_read) {
     return 1;
 }
 
-// @lua tdeck.keyboard.read_blocking(timeout_ms) -> table
+// @lua ez.keyboard.read_blocking(timeout_ms) -> table
 // @brief Read key with optional timeout (blocking)
 // @param timeout_ms Timeout in milliseconds (0 = forever)
 // @return Key event table or nil on timeout
@@ -116,7 +116,7 @@ LUA_FUNCTION(l_keyboard_read_blocking) {
     return 1;
 }
 
-// @lua tdeck.keyboard.is_shift_held() -> boolean
+// @lua ez.keyboard.is_shift_held() -> boolean
 // @brief Check if Shift is currently held
 // @return true if Shift is held
 LUA_FUNCTION(l_keyboard_is_shift_held) {
@@ -125,7 +125,7 @@ LUA_FUNCTION(l_keyboard_is_shift_held) {
     return 1;
 }
 
-// @lua tdeck.keyboard.is_ctrl_held() -> boolean
+// @lua ez.keyboard.is_ctrl_held() -> boolean
 // @brief Check if Ctrl is currently held
 // @return true if Ctrl is held
 LUA_FUNCTION(l_keyboard_is_ctrl_held) {
@@ -134,7 +134,7 @@ LUA_FUNCTION(l_keyboard_is_ctrl_held) {
     return 1;
 }
 
-// @lua tdeck.keyboard.is_alt_held() -> boolean
+// @lua ez.keyboard.is_alt_held() -> boolean
 // @brief Check if Alt is currently held
 // @return true if Alt is held
 LUA_FUNCTION(l_keyboard_is_alt_held) {
@@ -143,7 +143,7 @@ LUA_FUNCTION(l_keyboard_is_alt_held) {
     return 1;
 }
 
-// @lua tdeck.keyboard.is_fn_held() -> boolean
+// @lua ez.keyboard.is_fn_held() -> boolean
 // @brief Check if Fn is currently held
 // @return true if Fn is held
 LUA_FUNCTION(l_keyboard_is_fn_held) {
@@ -152,7 +152,7 @@ LUA_FUNCTION(l_keyboard_is_fn_held) {
     return 1;
 }
 
-// @lua tdeck.keyboard.has_trackball() -> boolean
+// @lua ez.keyboard.has_trackball() -> boolean
 // @brief Check if device has trackball
 // @return true if trackball is available
 LUA_FUNCTION(l_keyboard_has_trackball) {
@@ -161,7 +161,7 @@ LUA_FUNCTION(l_keyboard_has_trackball) {
     return 1;
 }
 
-// @lua tdeck.keyboard.get_trackball_sensitivity() -> integer
+// @lua ez.keyboard.get_trackball_sensitivity() -> integer
 // @brief Get trackball sensitivity level
 // @return Sensitivity value
 LUA_FUNCTION(l_keyboard_get_trackball_sensitivity) {
@@ -170,7 +170,7 @@ LUA_FUNCTION(l_keyboard_get_trackball_sensitivity) {
     return 1;
 }
 
-// @lua tdeck.keyboard.set_trackball_sensitivity(value)
+// @lua ez.keyboard.set_trackball_sensitivity(value)
 // @brief Set trackball sensitivity level
 // @param value Sensitivity value
 LUA_FUNCTION(l_keyboard_set_trackball_sensitivity) {
@@ -182,7 +182,7 @@ LUA_FUNCTION(l_keyboard_set_trackball_sensitivity) {
     return 0;
 }
 
-// @lua tdeck.keyboard.get_adaptive_scrolling() -> boolean
+// @lua ez.keyboard.get_adaptive_scrolling() -> boolean
 // @brief Check if adaptive scrolling is enabled
 // @return true if adaptive scrolling is on
 LUA_FUNCTION(l_keyboard_get_adaptive_scrolling) {
@@ -191,7 +191,7 @@ LUA_FUNCTION(l_keyboard_get_adaptive_scrolling) {
     return 1;
 }
 
-// @lua tdeck.keyboard.set_adaptive_scrolling(enabled)
+// @lua ez.keyboard.set_adaptive_scrolling(enabled)
 // @brief Enable or disable adaptive scrolling
 // @param enabled true to enable, false to disable
 LUA_FUNCTION(l_keyboard_set_adaptive_scrolling) {
@@ -203,7 +203,7 @@ LUA_FUNCTION(l_keyboard_set_adaptive_scrolling) {
     return 0;
 }
 
-// @lua tdeck.keyboard.get_trackball_mode() -> string
+// @lua ez.keyboard.get_trackball_mode() -> string
 // @brief Get current trackball input mode
 // @return "polling" or "interrupt"
 LUA_FUNCTION(l_keyboard_get_trackball_mode) {
@@ -215,7 +215,7 @@ LUA_FUNCTION(l_keyboard_get_trackball_mode) {
     return 1;
 }
 
-// @lua tdeck.keyboard.set_trackball_mode(mode)
+// @lua ez.keyboard.set_trackball_mode(mode)
 // @brief Set trackball input mode
 // @param mode "polling" or "interrupt"
 LUA_FUNCTION(l_keyboard_set_trackball_mode) {
@@ -235,7 +235,7 @@ LUA_FUNCTION(l_keyboard_set_trackball_mode) {
     return 0;
 }
 
-// @lua tdeck.keyboard.get_backlight() -> integer
+// @lua ez.keyboard.get_backlight() -> integer
 // @brief Get current keyboard backlight level
 // @return Backlight level (0-255, 0 = off)
 LUA_FUNCTION(l_keyboard_get_backlight) {
@@ -244,7 +244,7 @@ LUA_FUNCTION(l_keyboard_get_backlight) {
     return 1;
 }
 
-// @lua tdeck.keyboard.set_backlight(level)
+// @lua ez.keyboard.set_backlight(level)
 // @brief Set keyboard backlight brightness
 // @param level Brightness level (0-255, 0 = off)
 LUA_FUNCTION(l_keyboard_set_backlight) {
@@ -258,7 +258,7 @@ LUA_FUNCTION(l_keyboard_set_backlight) {
     return 0;
 }
 
-// @lua tdeck.keyboard.get_repeat_enabled() -> boolean
+// @lua ez.keyboard.get_repeat_enabled() -> boolean
 // @brief Check if key repeat is enabled
 // @return true if key repeat is enabled
 LUA_FUNCTION(l_keyboard_get_repeat_enabled) {
@@ -267,7 +267,7 @@ LUA_FUNCTION(l_keyboard_get_repeat_enabled) {
     return 1;
 }
 
-// @lua tdeck.keyboard.set_repeat_enabled(enabled)
+// @lua ez.keyboard.set_repeat_enabled(enabled)
 // @brief Enable or disable key repeat
 // @param enabled true to enable, false to disable
 LUA_FUNCTION(l_keyboard_set_repeat_enabled) {
@@ -279,7 +279,7 @@ LUA_FUNCTION(l_keyboard_set_repeat_enabled) {
     return 0;
 }
 
-// @lua tdeck.keyboard.get_repeat_delay() -> integer
+// @lua ez.keyboard.get_repeat_delay() -> integer
 // @brief Get initial delay before key repeat starts
 // @return Delay in milliseconds
 LUA_FUNCTION(l_keyboard_get_repeat_delay) {
@@ -288,7 +288,7 @@ LUA_FUNCTION(l_keyboard_get_repeat_delay) {
     return 1;
 }
 
-// @lua tdeck.keyboard.set_repeat_delay(delay_ms)
+// @lua ez.keyboard.set_repeat_delay(delay_ms)
 // @brief Set initial delay before key repeat starts
 // @param delay_ms Delay in milliseconds (typically 200-800)
 LUA_FUNCTION(l_keyboard_set_repeat_delay) {
@@ -302,7 +302,7 @@ LUA_FUNCTION(l_keyboard_set_repeat_delay) {
     return 0;
 }
 
-// @lua tdeck.keyboard.get_repeat_rate() -> integer
+// @lua ez.keyboard.get_repeat_rate() -> integer
 // @brief Get key repeat rate (interval between repeats)
 // @return Rate in milliseconds
 LUA_FUNCTION(l_keyboard_get_repeat_rate) {
@@ -311,7 +311,7 @@ LUA_FUNCTION(l_keyboard_get_repeat_rate) {
     return 1;
 }
 
-// @lua tdeck.keyboard.set_repeat_rate(rate_ms)
+// @lua ez.keyboard.set_repeat_rate(rate_ms)
 // @brief Set key repeat rate (interval between repeats)
 // @param rate_ms Rate in milliseconds (typically 20-100)
 LUA_FUNCTION(l_keyboard_set_repeat_rate) {
@@ -326,7 +326,7 @@ LUA_FUNCTION(l_keyboard_set_repeat_rate) {
 }
 
 
-// @lua tdeck.keyboard.get_mode() -> string
+// @lua ez.keyboard.get_mode() -> string
 // @brief Get current keyboard input mode
 // @return "normal" or "raw"
 LUA_FUNCTION(l_keyboard_get_mode) {
@@ -338,7 +338,7 @@ LUA_FUNCTION(l_keyboard_get_mode) {
     return 1;
 }
 
-// @lua tdeck.keyboard.set_mode(mode) -> boolean
+// @lua ez.keyboard.set_mode(mode) -> boolean
 // @brief Set keyboard input mode
 // @param mode "normal" or "raw"
 // @return true if mode was set successfully
@@ -358,7 +358,7 @@ LUA_FUNCTION(l_keyboard_set_mode) {
     return 1;
 }
 
-// @lua tdeck.keyboard.read_raw_matrix() -> table|nil
+// @lua ez.keyboard.read_raw_matrix() -> table|nil
 // @brief Read raw key matrix state (only works in raw mode)
 // @return Table of 7 bytes (one per column, 7 bits = rows), or nil on error
 LUA_FUNCTION(l_keyboard_read_raw_matrix) {
@@ -381,7 +381,7 @@ LUA_FUNCTION(l_keyboard_read_raw_matrix) {
     return 1;
 }
 
-// @lua tdeck.keyboard.is_key_pressed(col, row) -> boolean
+// @lua ez.keyboard.is_key_pressed(col, row) -> boolean
 // @brief Check if a specific matrix key is pressed (raw mode)
 // @param col Column index (0-4)
 // @param row Row index (0-6)
@@ -396,7 +396,7 @@ LUA_FUNCTION(l_keyboard_is_key_pressed) {
     return 1;
 }
 
-// @lua tdeck.keyboard.get_raw_matrix_bits() -> integer
+// @lua ez.keyboard.get_raw_matrix_bits() -> integer
 // @brief Get full matrix state as 64-bit integer (raw mode)
 // @return 49-bit value (7 cols × 7 rows), bits 0-6 = col 0, bits 7-13 = col 1, etc.
 LUA_FUNCTION(l_keyboard_get_raw_matrix_bits) {
@@ -406,7 +406,7 @@ LUA_FUNCTION(l_keyboard_get_raw_matrix_bits) {
     return 1;
 }
 
-// @lua tdeck.keyboard.read_raw_code() -> integer|nil
+// @lua ez.keyboard.read_raw_code() -> integer|nil
 // @brief Read raw key code byte directly from I2C (no translation)
 // @return Raw byte (0x00-0xFF) or nil if no key available
 LUA_FUNCTION(l_keyboard_read_raw_code) {
@@ -425,7 +425,7 @@ LUA_FUNCTION(l_keyboard_read_raw_code) {
     return 1;
 }
 
-// Function table for tdeck.keyboard
+// Function table for ez.keyboard
 static const luaL_Reg keyboard_funcs[] = {
     {"available",                l_keyboard_available},
     {"read",                     l_keyboard_read},
@@ -462,5 +462,5 @@ static const luaL_Reg keyboard_funcs[] = {
 // Register the keyboard module
 void registerKeyboardModule(lua_State* L) {
     lua_register_module(L, "keyboard", keyboard_funcs);
-    Serial.println("[LuaRuntime] Registered tdeck.keyboard");
+    Serial.println("[LuaRuntime] Registered ez.keyboard");
 }

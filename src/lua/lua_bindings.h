@@ -39,10 +39,10 @@ inline lua_Number luaL_optnumberdefault(lua_State* L, int idx, lua_Number def) {
     return lua_isnoneornil(L, idx) ? def : luaL_checknumber(L, idx);
 }
 
-// Register a module function table to tdeck.modulename
+// Register a module function table to ez.modulename
 inline void lua_register_module(lua_State* L, const char* name, const luaL_Reg* funcs) {
-    // Get the tdeck table
-    lua_getglobal(L, "tdeck");
+    // Get the ez table
+    lua_getglobal(L, "ez");
 
     // Create new table for the module
     lua_newtable(L);
@@ -110,8 +110,8 @@ class LuaModuleBuilder {
 public:
     LuaModuleBuilder(lua_State* L, const char* moduleName)
         : L(L), name(moduleName) {
-        // Get tdeck table
-        lua_getglobal(L, "tdeck");
+        // Get ez table
+        lua_getglobal(L, "ez");
 
         // Create module table
         lua_newtable(L);

@@ -24,11 +24,11 @@ function ChannelCompose:new(channel_name)
 end
 
 function ChannelCompose:on_enter()
-    self.last_blink = tdeck.system.millis()
+    self.last_blink = ez.system.millis()
 end
 
 function ChannelCompose:update_cursor()
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     if now - self.last_blink > self.blink_interval then
         self.cursor_visible = not self.cursor_visible
         self.last_blink = now
@@ -131,19 +131,19 @@ end
 
 function ChannelCompose:send()
     if #self.text == 0 then
-        tdeck.system.log("Cannot send empty message")
+        ez.system.log("Cannot send empty message")
         return
     end
 
     local ChannelsService = _G.Channels
     if ChannelsService then
         if ChannelsService.send(self.channel_name, self.text) then
-            tdeck.system.log("Sent to " .. self.channel_name .. ": " .. self.text)
+            ez.system.log("Sent to " .. self.channel_name .. ": " .. self.text)
         else
-            tdeck.system.log("Failed to send channel message")
+            ez.system.log("Failed to send channel message")
         end
     else
-        tdeck.system.log("Channels service not available")
+        ez.system.log("Channels service not available")
     end
 end
 

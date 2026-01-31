@@ -1,4 +1,4 @@
-# T-Deck OS Lua API Reference
+# ezOS Lua API Reference
 
 > Auto-generated from source code
 
@@ -6,233 +6,233 @@
 
 | Method | Description |
 |--------|-------------|
-| [`tdeck.audio.beep`](#audio-beep) | Play a series of beeps (blocking) |
-| [`tdeck.audio.get_volume`](#audio-get_volume) | Get current volume level |
-| [`tdeck.audio.is_playing`](#audio-is_playing) | Check if audio is playing |
-| [`tdeck.audio.play_sample`](#audio-play_sample) | Play a PCM sample file from LittleFS |
-| [`tdeck.audio.play_tone`](#audio-play_tone) | Play a tone for specified duration |
-| [`tdeck.audio.set_frequency`](#audio-set_frequency) | Set playback frequency for continuous tones |
-| [`tdeck.audio.set_volume`](#audio-set_volume) | Set audio volume level |
-| [`tdeck.audio.start`](#audio-start) | Start continuous tone at current frequency |
-| [`tdeck.audio.stop`](#audio-stop) | Stop audio playback |
-| [`tdeck.bus.has_subscribers`](#bus-has_subscribers) | Check if a topic has any active subscribers |
-| [`tdeck.bus.pending_count`](#bus-pending_count) | Get number of messages waiting in queue |
-| [`tdeck.bus.post`](#bus-post) | Post a message to a topic |
-| [`tdeck.bus.subscribe`](#bus-subscribe) | Subscribe to a topic with a callback function |
-| [`tdeck.bus.unsubscribe`](#bus-unsubscribe) | Unsubscribe from a topic |
-| [`tdeck.crypto.aes128_ecb_decrypt`](#crypto-aes128_ecb_decrypt) | Decrypt data with AES-128-ECB |
-| [`tdeck.crypto.aes128_ecb_encrypt`](#crypto-aes128_ecb_encrypt) | Encrypt data with AES-128-ECB |
-| [`tdeck.crypto.base64_decode`](#crypto-base64_decode) | Decode base64 string to binary data |
-| [`tdeck.crypto.base64_encode`](#crypto-base64_encode) | Encode binary data to base64 string |
-| [`tdeck.crypto.bytes_to_hex`](#crypto-bytes_to_hex) | Convert binary data to hex string |
-| [`tdeck.crypto.channel_hash`](#crypto-channel_hash) | Compute channel hash from key (SHA256(key)[0]) |
-| [`tdeck.crypto.derive_channel_key`](#crypto-derive_channel_key) | Derive 16-byte channel key from password/name using SHA256 |
-| [`tdeck.crypto.hex_to_bytes`](#crypto-hex_to_bytes) | Convert hex string to binary data |
-| [`tdeck.crypto.hmac_sha256`](#crypto-hmac_sha256) | Compute HMAC-SHA256 |
-| [`tdeck.crypto.public_channel_key`](#crypto-public_channel_key) | Get the well-known #Public channel key |
-| [`tdeck.crypto.random_bytes`](#crypto-random_bytes) | Generate cryptographically secure random bytes |
-| [`tdeck.crypto.sha256`](#crypto-sha256) | Compute SHA-256 hash |
-| [`tdeck.crypto.sha512`](#crypto-sha512) | Compute SHA-512 hash |
-| [`tdeck.display.clear`](#display-clear) | Clear display buffer to black |
-| [`tdeck.display.draw_battery`](#display-draw_battery) | Draw battery indicator icon |
-| [`tdeck.display.draw_bitmap`](#display-draw_bitmap) | Draw a bitmap image from raw RGB565 data |
-| [`tdeck.display.draw_bitmap_1bit`](#display-draw_bitmap_1bit) | Draw a 1-bit bitmap with scaling and colorization |
-| [`tdeck.display.draw_bitmap_transparent`](#display-draw_bitmap_transparent) | Draw a bitmap with transparency |
-| [`tdeck.display.draw_box`](#display-draw_box) | Draw bordered box with optional title |
-| [`tdeck.display.draw_char`](#display-draw_char) | Draw a single character |
-| [`tdeck.display.draw_circle`](#display-draw_circle) | Draw circle outline |
-| [`tdeck.display.draw_hline`](#display-draw_hline) | Draw horizontal line with optional connectors |
-| [`tdeck.display.draw_indexed_bitmap`](#display-draw_indexed_bitmap) | Draw a 3-bit indexed bitmap using a color palette |
-| [`tdeck.display.draw_indexed_bitmap_scaled`](#display-draw_indexed_bitmap_scaled) | Draw a scaled portion of a 3-bit indexed bitmap |
-| [`tdeck.display.draw_line`](#display-draw_line) | Draw a line between two points |
-| [`tdeck.display.draw_pixel`](#display-draw_pixel) | Draw a single pixel |
-| [`tdeck.display.draw_progress`](#display-draw_progress) | Draw a progress bar |
-| [`tdeck.display.draw_rect`](#display-draw_rect) | Draw rectangle outline |
-| [`tdeck.display.draw_round_rect`](#display-draw_round_rect) | Draw rounded rectangle outline |
-| [`tdeck.display.draw_signal`](#display-draw_signal) | Draw signal strength indicator |
-| [`tdeck.display.draw_text`](#display-draw_text) | Draw text at pixel coordinates |
-| [`tdeck.display.draw_text_centered`](#display-draw_text_centered) | Draw horizontally centered text |
-| [`tdeck.display.draw_triangle`](#display-draw_triangle) | Draw triangle outline |
-| [`tdeck.display.fill_circle`](#display-fill_circle) | Draw filled circle |
-| [`tdeck.display.fill_rect`](#display-fill_rect) | Fill a rectangle with color |
-| [`tdeck.display.fill_round_rect`](#display-fill_round_rect) | Draw filled rounded rectangle |
-| [`tdeck.display.fill_triangle`](#display-fill_triangle) | Draw filled triangle |
-| [`tdeck.display.flush`](#display-flush) | Flush buffer to physical display |
-| [`tdeck.display.get_cols`](#display-get_cols) | Get display columns |
-| [`tdeck.display.get_font_height`](#display-get_font_height) | Get font character height |
-| [`tdeck.display.get_font_width`](#display-get_font_width) | Get font character width |
-| [`tdeck.display.get_height`](#display-get_height) | Get display height |
-| [`tdeck.display.get_rows`](#display-get_rows) | Get display rows |
-| [`tdeck.display.get_width`](#display-get_width) | Get display width |
-| [`tdeck.display.rgb`](#display-rgb) | Convert RGB to RGB565 color value |
-| [`tdeck.display.save_screenshot`](#display-save_screenshot) | Save current display contents as BMP screenshot to SD card |
-| [`tdeck.display.set_brightness`](#display-set_brightness) | Set backlight brightness |
-| [`tdeck.display.set_font_size`](#display-set_font_size) | Set font size |
-| [`tdeck.display.text_width`](#display-text_width) | Get pixel width of text string |
-| [`tdeck.keyboard.available`](#keyboard-available) | Check if a key is waiting |
-| [`tdeck.keyboard.get_backlight`](#keyboard-get_backlight) | Get current keyboard backlight level |
-| [`tdeck.keyboard.get_mode`](#keyboard-get_mode) | Get current keyboard input mode |
-| [`tdeck.keyboard.get_raw_matrix_bits`](#keyboard-get_raw_matrix_bits) | Get full matrix state as 64-bit integer (raw mode) |
-| [`tdeck.keyboard.get_repeat_delay`](#keyboard-get_repeat_delay) | Get initial delay before key repeat starts |
-| [`tdeck.keyboard.get_repeat_enabled`](#keyboard-get_repeat_enabled) | Check if key repeat is enabled |
-| [`tdeck.keyboard.get_repeat_rate`](#keyboard-get_repeat_rate) | Get key repeat rate (interval between repeats) |
-| [`tdeck.keyboard.get_trackball_mode`](#keyboard-get_trackball_mode) | Get current trackball input mode |
-| [`tdeck.keyboard.get_trackball_sensitivity`](#keyboard-get_trackball_sensitivity) | Get trackball sensitivity level |
-| [`tdeck.keyboard.has_trackball`](#keyboard-has_trackball) | Check if device has trackball |
-| [`tdeck.keyboard.is_alt_held`](#keyboard-is_alt_held) | Check if Alt is currently held |
-| [`tdeck.keyboard.is_ctrl_held`](#keyboard-is_ctrl_held) | Check if Ctrl is currently held |
-| [`tdeck.keyboard.is_fn_held`](#keyboard-is_fn_held) | Check if Fn is currently held |
-| [`tdeck.keyboard.is_key_pressed`](#keyboard-is_key_pressed) | Check if a specific matrix key is pressed (raw mode) |
-| [`tdeck.keyboard.is_shift_held`](#keyboard-is_shift_held) | Check if Shift is currently held |
-| [`tdeck.keyboard.read`](#keyboard-read) | Read next key event (non-blocking) |
-| [`tdeck.keyboard.read_blocking`](#keyboard-read_blocking) | Read key with optional timeout (blocking) |
-| [`tdeck.keyboard.read_raw_code`](#keyboard-read_raw_code) | Read raw key code byte directly from I2C (no translation) |
-| [`tdeck.keyboard.read_raw_matrix`](#keyboard-read_raw_matrix) | Read raw key matrix state (only works in raw mode) |
-| [`tdeck.keyboard.set_backlight`](#keyboard-set_backlight) | Set keyboard backlight brightness |
-| [`tdeck.keyboard.set_mode`](#keyboard-set_mode) | Set keyboard input mode |
-| [`tdeck.keyboard.set_repeat_delay`](#keyboard-set_repeat_delay) | Set initial delay before key repeat starts |
-| [`tdeck.keyboard.set_repeat_enabled`](#keyboard-set_repeat_enabled) | Enable or disable key repeat |
-| [`tdeck.keyboard.set_repeat_rate`](#keyboard-set_repeat_rate) | Set key repeat rate (interval between repeats) |
-| [`tdeck.keyboard.set_trackball_mode`](#keyboard-set_trackball_mode) | Set trackball input mode |
-| [`tdeck.keyboard.set_trackball_sensitivity`](#keyboard-set_trackball_sensitivity) | Set trackball sensitivity level |
-| [`tdeck.mesh.build_packet`](#mesh-build_packet) | Build a raw mesh packet for transmission |
-| [`tdeck.mesh.calc_shared_secret`](#mesh-calc_shared_secret) | Calculate ECDH shared secret with another node |
-| [`tdeck.mesh.clear_packet_queue`](#mesh-clear_packet_queue) | Clear all packets from the queue |
-| [`tdeck.mesh.clear_tx_queue`](#mesh-clear_tx_queue) | Clear all packets from transmit queue |
-| [`tdeck.mesh.ed25519_sign`](#mesh-ed25519_sign) | Sign data with this node's private key |
-| [`tdeck.mesh.ed25519_verify`](#mesh-ed25519_verify) | Verify an Ed25519 signature |
-| [`tdeck.mesh.enable_packet_queue`](#mesh-enable_packet_queue) | Enable or disable packet queuing for polling |
-| [`tdeck.mesh.get_announce_interval`](#mesh-get_announce_interval) | Get current auto-announce interval |
-| [`tdeck.mesh.get_node_count`](#mesh-get_node_count) | Get number of known nodes |
-| [`tdeck.mesh.get_node_id`](#mesh-get_node_id) | Get this node's full ID |
-| [`tdeck.mesh.get_node_name`](#mesh-get_node_name) | Get this node's display name |
-| [`tdeck.mesh.get_nodes`](#mesh-get_nodes) | Get list of discovered mesh nodes |
-| [`tdeck.mesh.get_path_check`](#mesh-get_path_check) | Get current path check setting |
-| [`tdeck.mesh.get_path_hash`](#mesh-get_path_hash) | Get this node's path hash (first byte of public key) |
-| [`tdeck.mesh.get_public_key`](#mesh-get_public_key) | Get this node's public key as binary string |
-| [`tdeck.mesh.get_public_key_hex`](#mesh-get_public_key_hex) | Get this node's public key as hex string |
-| [`tdeck.mesh.get_rx_count`](#mesh-get_rx_count) | Get total packets received |
-| [`tdeck.mesh.get_short_id`](#mesh-get_short_id) | Get this node's short ID |
-| [`tdeck.mesh.get_tx_count`](#mesh-get_tx_count) | Get total packets transmitted |
-| [`tdeck.mesh.get_tx_queue_capacity`](#mesh-get_tx_queue_capacity) | Get maximum transmit queue capacity |
-| [`tdeck.mesh.get_tx_queue_size`](#mesh-get_tx_queue_size) | Get number of packets waiting in transmit queue |
-| [`tdeck.mesh.get_tx_throttle`](#mesh-get_tx_throttle) | Get current throttle interval |
-| [`tdeck.mesh.has_packets`](#mesh-has_packets) | Check if packets are available in the queue |
-| [`tdeck.mesh.is_initialized`](#mesh-is_initialized) | Check if mesh networking is initialized |
-| [`tdeck.mesh.is_tx_queue_full`](#mesh-is_tx_queue_full) | Check if transmit queue is full |
-| [`tdeck.mesh.make_header`](#mesh-make_header) | Create a packet header byte from components |
-| [`tdeck.mesh.on_group_packet`](#mesh-on_group_packet) | Set callback for raw group packets (DEPRECATED - use bus.sub... |
-| [`tdeck.mesh.on_node_discovered`](#mesh-on_node_discovered) | Set callback for node discovery (DEPRECATED - use bus.subscr... |
-| [`tdeck.mesh.on_packet`](#mesh-on_packet) | Set callback for ALL incoming packets (DEPRECATED - use bus.... |
-| [`tdeck.mesh.packet_count`](#mesh-packet_count) | Get number of packets in queue |
-| [`tdeck.mesh.parse_header`](#mesh-parse_header) | Parse a packet header byte into components |
-| [`tdeck.mesh.pop_packet`](#mesh-pop_packet) | Get and remove the next packet from queue |
-| [`tdeck.mesh.queue_send`](#mesh-queue_send) | Queue packet for transmission (throttled, non-blocking) |
-| [`tdeck.mesh.schedule_rebroadcast`](#mesh-schedule_rebroadcast) | Schedule raw packet data for rebroadcast |
-| [`tdeck.mesh.send_announce`](#mesh-send_announce) | Broadcast node announcement |
-| [`tdeck.mesh.send_group_packet`](#mesh-send_group_packet) | Send raw encrypted group packet |
-| [`tdeck.mesh.send_raw`](#mesh-send_raw) | Send raw packet data directly via radio (bypasses queue, imm... |
-| [`tdeck.mesh.set_announce_interval`](#mesh-set_announce_interval) | Set auto-announce interval in milliseconds (0 = disabled) |
-| [`tdeck.mesh.set_node_name`](#mesh-set_node_name) | Set this node's display name |
-| [`tdeck.mesh.set_path_check`](#mesh-set_path_check) | Enable or disable path check for flood routing |
-| [`tdeck.mesh.set_tx_throttle`](#mesh-set_tx_throttle) | Set minimum interval between transmissions |
-| [`tdeck.mesh.update`](#mesh-update) | Process incoming mesh packets |
-| [`tdeck.radio.available`](#radio-available) | Check if data is available |
-| [`tdeck.radio.get_config`](#radio-get_config) | Get current radio configuration |
-| [`tdeck.radio.get_last_rssi`](#radio-get_last_rssi) | Get last received signal strength |
-| [`tdeck.radio.get_last_snr`](#radio-get_last_snr) | Get last signal-to-noise ratio |
-| [`tdeck.radio.is_busy`](#radio-is_busy) | Check if radio is busy |
-| [`tdeck.radio.is_initialized`](#radio-is_initialized) | Check if radio is initialized |
-| [`tdeck.radio.is_receiving`](#radio-is_receiving) | Check if in receive mode |
-| [`tdeck.radio.is_transmitting`](#radio-is_transmitting) | Check if currently transmitting |
-| [`tdeck.radio.receive`](#radio-receive) | Receive a packet |
-| [`tdeck.radio.send`](#radio-send) | Transmit data |
-| [`tdeck.radio.set_bandwidth`](#radio-set_bandwidth) | Set radio bandwidth |
-| [`tdeck.radio.set_coding_rate`](#radio-set_coding_rate) | Set LoRa coding rate |
-| [`tdeck.radio.set_frequency`](#radio-set_frequency) | Set radio frequency |
-| [`tdeck.radio.set_spreading_factor`](#radio-set_spreading_factor) | Set LoRa spreading factor |
-| [`tdeck.radio.set_sync_word`](#radio-set_sync_word) | Set sync word |
-| [`tdeck.radio.set_tx_power`](#radio-set_tx_power) | Set transmit power |
-| [`tdeck.radio.sleep`](#radio-sleep) | Put radio into sleep mode |
-| [`tdeck.radio.start_receive`](#radio-start_receive) | Start listening for packets |
-| [`tdeck.radio.wake`](#radio-wake) | Wake radio from sleep |
-| [`tdeck.storage.append_file`](#storage-append_file) | Append content to file |
-| [`tdeck.storage.clear_prefs`](#storage-clear_prefs) | Clear all preferences |
-| [`tdeck.storage.exists`](#storage-exists) | Check if file or directory exists |
-| [`tdeck.storage.file_size`](#storage-file_size) | Get file size in bytes |
-| [`tdeck.storage.get_flash_info`](#storage-get_flash_info) | Get flash storage info |
-| [`tdeck.storage.get_pref`](#storage-get_pref) | Get preference value |
-| [`tdeck.storage.get_sd_info`](#storage-get_sd_info) | Get SD card info |
-| [`tdeck.storage.is_sd_available`](#storage-is_sd_available) | Check if SD card is mounted |
-| [`tdeck.storage.json_decode`](#storage-json_decode) | Decode JSON string to Lua value |
-| [`tdeck.storage.json_encode`](#storage-json_encode) | Encode Lua value to JSON string |
-| [`tdeck.storage.list_dir`](#storage-list_dir) | List directory contents |
-| [`tdeck.storage.mkdir`](#storage-mkdir) | Create directory |
-| [`tdeck.storage.read_bytes`](#storage-read_bytes) | Read bytes from file at specific offset (for random access) |
-| [`tdeck.storage.read_file`](#storage-read_file) | Read entire file contents |
-| [`tdeck.storage.remove`](#storage-remove) | Delete a file |
-| [`tdeck.storage.remove_pref`](#storage-remove_pref) | Remove a preference |
-| [`tdeck.storage.rename`](#storage-rename) | Rename or move a file |
-| [`tdeck.storage.rmdir`](#storage-rmdir) | Remove empty directory |
-| [`tdeck.storage.set_pref`](#storage-set_pref) | Set preference value |
-| [`tdeck.storage.write_file`](#storage-write_file) | Write content to file (creates/overwrites) |
-| [`tdeck.system.cancel_timer`](#system-cancel_timer) | Cancel a scheduled timer |
-| [`tdeck.system.chip_model`](#system-chip_model) | Get ESP32 chip model name |
-| [`tdeck.system.cpu_freq`](#system-cpu_freq) | Get CPU frequency |
-| [`tdeck.system.delay`](#system-delay) | Blocking delay execution |
-| [`tdeck.system.gc`](#system-gc) | Force full garbage collection |
-| [`tdeck.system.gc_step`](#system-gc_step) | Perform incremental garbage collection |
-| [`tdeck.system.get_battery_percent`](#system-get_battery_percent) | Get battery charge level |
-| [`tdeck.system.get_battery_voltage`](#system-get_battery_voltage) | Get battery voltage |
-| [`tdeck.system.get_firmware_info`](#system-get_firmware_info) | Get firmware partition info |
-| [`tdeck.system.get_free_heap`](#system-get_free_heap) | Get free internal RAM |
-| [`tdeck.system.get_free_psram`](#system-get_free_psram) | Get free PSRAM |
-| [`tdeck.system.get_last_error`](#system-get_last_error) | Get last Lua error message |
-| [`tdeck.system.get_lua_memory`](#system-get_lua_memory) | Get memory used by Lua runtime |
-| [`tdeck.system.get_time`](#system-get_time) | Get current wall clock time |
-| [`tdeck.system.get_time_unix`](#system-get_time_unix) | Get current Unix timestamp |
-| [`tdeck.system.get_timezone`](#system-get_timezone) | Get current timezone UTC offset in hours |
-| [`tdeck.system.get_total_heap`](#system-get_total_heap) | Get total heap size |
-| [`tdeck.system.get_total_psram`](#system-get_total_psram) | Get total PSRAM size |
-| [`tdeck.system.is_low_memory`](#system-is_low_memory) | Check if memory is critically low |
-| [`tdeck.system.is_sd_available`](#system-is_sd_available) | Check if SD card is available |
-| [`tdeck.system.is_usb_msc_active`](#system-is_usb_msc_active) | Check if USB MSC mode is active |
-| [`tdeck.system.log`](#system-log) | Log message to serial output |
-| [`tdeck.system.millis`](#system-millis) | Returns milliseconds since boot |
-| [`tdeck.system.reload_scripts`](#system-reload_scripts) | Reload all Lua scripts (hot reload) |
-| [`tdeck.system.restart`](#system-restart) | Restart the device |
-| [`tdeck.system.set_interval`](#system-set_interval) | Schedule a repeating callback |
-| [`tdeck.system.set_time`](#system-set_time) | Set system clock time |
-| [`tdeck.system.set_time_unix`](#system-set_time_unix) | Set system clock from Unix timestamp |
-| [`tdeck.system.set_timer`](#system-set_timer) | Schedule a one-shot callback |
-| [`tdeck.system.set_timezone`](#system-set_timezone) | Set timezone using POSIX TZ string |
-| [`tdeck.system.start_usb_msc`](#system-start_usb_msc) | Start USB Mass Storage mode to access SD card from PC |
-| [`tdeck.system.stop_usb_msc`](#system-stop_usb_msc) | Stop USB Mass Storage mode |
-| [`tdeck.system.uptime`](#system-uptime) | Get device uptime |
-| [`tdeck.system.yield`](#system-yield) | Yield execution to allow C++ background tasks to run |
+| [`ez.audio.beep`](#audio-beep) | Play a series of beeps (blocking) |
+| [`ez.audio.get_volume`](#audio-get_volume) | Get current volume level |
+| [`ez.audio.is_playing`](#audio-is_playing) | Check if audio is playing |
+| [`ez.audio.play_sample`](#audio-play_sample) | Play a PCM sample file from LittleFS |
+| [`ez.audio.play_tone`](#audio-play_tone) | Play a tone for specified duration |
+| [`ez.audio.set_frequency`](#audio-set_frequency) | Set playback frequency for continuous tones |
+| [`ez.audio.set_volume`](#audio-set_volume) | Set audio volume level |
+| [`ez.audio.start`](#audio-start) | Start continuous tone at current frequency |
+| [`ez.audio.stop`](#audio-stop) | Stop audio playback |
+| [`ez.bus.has_subscribers`](#bus-has_subscribers) | Check if a topic has any active subscribers |
+| [`ez.bus.pending_count`](#bus-pending_count) | Get number of messages waiting in queue |
+| [`ez.bus.post`](#bus-post) | Post a message to a topic |
+| [`ez.bus.subscribe`](#bus-subscribe) | Subscribe to a topic with a callback function |
+| [`ez.bus.unsubscribe`](#bus-unsubscribe) | Unsubscribe from a topic |
+| [`ez.crypto.aes128_ecb_decrypt`](#crypto-aes128_ecb_decrypt) | Decrypt data with AES-128-ECB |
+| [`ez.crypto.aes128_ecb_encrypt`](#crypto-aes128_ecb_encrypt) | Encrypt data with AES-128-ECB |
+| [`ez.crypto.base64_decode`](#crypto-base64_decode) | Decode base64 string to binary data |
+| [`ez.crypto.base64_encode`](#crypto-base64_encode) | Encode binary data to base64 string |
+| [`ez.crypto.bytes_to_hex`](#crypto-bytes_to_hex) | Convert binary data to hex string |
+| [`ez.crypto.channel_hash`](#crypto-channel_hash) | Compute channel hash from key (SHA256(key)[0]) |
+| [`ez.crypto.derive_channel_key`](#crypto-derive_channel_key) | Derive 16-byte channel key from password/name using SHA256 |
+| [`ez.crypto.hex_to_bytes`](#crypto-hex_to_bytes) | Convert hex string to binary data |
+| [`ez.crypto.hmac_sha256`](#crypto-hmac_sha256) | Compute HMAC-SHA256 |
+| [`ez.crypto.public_channel_key`](#crypto-public_channel_key) | Get the well-known #Public channel key |
+| [`ez.crypto.random_bytes`](#crypto-random_bytes) | Generate cryptographically secure random bytes |
+| [`ez.crypto.sha256`](#crypto-sha256) | Compute SHA-256 hash |
+| [`ez.crypto.sha512`](#crypto-sha512) | Compute SHA-512 hash |
+| [`ez.display.clear`](#display-clear) | Clear display buffer to black |
+| [`ez.display.draw_battery`](#display-draw_battery) | Draw battery indicator icon |
+| [`ez.display.draw_bitmap`](#display-draw_bitmap) | Draw a bitmap image from raw RGB565 data |
+| [`ez.display.draw_bitmap_1bit`](#display-draw_bitmap_1bit) | Draw a 1-bit bitmap with scaling and colorization |
+| [`ez.display.draw_bitmap_transparent`](#display-draw_bitmap_transparent) | Draw a bitmap with transparency |
+| [`ez.display.draw_box`](#display-draw_box) | Draw bordered box with optional title |
+| [`ez.display.draw_char`](#display-draw_char) | Draw a single character |
+| [`ez.display.draw_circle`](#display-draw_circle) | Draw circle outline |
+| [`ez.display.draw_hline`](#display-draw_hline) | Draw horizontal line with optional connectors |
+| [`ez.display.draw_indexed_bitmap`](#display-draw_indexed_bitmap) | Draw a 3-bit indexed bitmap using a color palette |
+| [`ez.display.draw_indexed_bitmap_scaled`](#display-draw_indexed_bitmap_scaled) | Draw a scaled portion of a 3-bit indexed bitmap |
+| [`ez.display.draw_line`](#display-draw_line) | Draw a line between two points |
+| [`ez.display.draw_pixel`](#display-draw_pixel) | Draw a single pixel |
+| [`ez.display.draw_progress`](#display-draw_progress) | Draw a progress bar |
+| [`ez.display.draw_rect`](#display-draw_rect) | Draw rectangle outline |
+| [`ez.display.draw_round_rect`](#display-draw_round_rect) | Draw rounded rectangle outline |
+| [`ez.display.draw_signal`](#display-draw_signal) | Draw signal strength indicator |
+| [`ez.display.draw_text`](#display-draw_text) | Draw text at pixel coordinates |
+| [`ez.display.draw_text_centered`](#display-draw_text_centered) | Draw horizontally centered text |
+| [`ez.display.draw_triangle`](#display-draw_triangle) | Draw triangle outline |
+| [`ez.display.fill_circle`](#display-fill_circle) | Draw filled circle |
+| [`ez.display.fill_rect`](#display-fill_rect) | Fill a rectangle with color |
+| [`ez.display.fill_round_rect`](#display-fill_round_rect) | Draw filled rounded rectangle |
+| [`ez.display.fill_triangle`](#display-fill_triangle) | Draw filled triangle |
+| [`ez.display.flush`](#display-flush) | Flush buffer to physical display |
+| [`ez.display.get_cols`](#display-get_cols) | Get display columns |
+| [`ez.display.get_font_height`](#display-get_font_height) | Get font character height |
+| [`ez.display.get_font_width`](#display-get_font_width) | Get font character width |
+| [`ez.display.get_height`](#display-get_height) | Get display height |
+| [`ez.display.get_rows`](#display-get_rows) | Get display rows |
+| [`ez.display.get_width`](#display-get_width) | Get display width |
+| [`ez.display.rgb`](#display-rgb) | Convert RGB to RGB565 color value |
+| [`ez.display.save_screenshot`](#display-save_screenshot) | Save current display contents as BMP screenshot to SD card |
+| [`ez.display.set_brightness`](#display-set_brightness) | Set backlight brightness |
+| [`ez.display.set_font_size`](#display-set_font_size) | Set font size |
+| [`ez.display.text_width`](#display-text_width) | Get pixel width of text string |
+| [`ez.keyboard.available`](#keyboard-available) | Check if a key is waiting |
+| [`ez.keyboard.get_backlight`](#keyboard-get_backlight) | Get current keyboard backlight level |
+| [`ez.keyboard.get_mode`](#keyboard-get_mode) | Get current keyboard input mode |
+| [`ez.keyboard.get_raw_matrix_bits`](#keyboard-get_raw_matrix_bits) | Get full matrix state as 64-bit integer (raw mode) |
+| [`ez.keyboard.get_repeat_delay`](#keyboard-get_repeat_delay) | Get initial delay before key repeat starts |
+| [`ez.keyboard.get_repeat_enabled`](#keyboard-get_repeat_enabled) | Check if key repeat is enabled |
+| [`ez.keyboard.get_repeat_rate`](#keyboard-get_repeat_rate) | Get key repeat rate (interval between repeats) |
+| [`ez.keyboard.get_trackball_mode`](#keyboard-get_trackball_mode) | Get current trackball input mode |
+| [`ez.keyboard.get_trackball_sensitivity`](#keyboard-get_trackball_sensitivity) | Get trackball sensitivity level |
+| [`ez.keyboard.has_trackball`](#keyboard-has_trackball) | Check if device has trackball |
+| [`ez.keyboard.is_alt_held`](#keyboard-is_alt_held) | Check if Alt is currently held |
+| [`ez.keyboard.is_ctrl_held`](#keyboard-is_ctrl_held) | Check if Ctrl is currently held |
+| [`ez.keyboard.is_fn_held`](#keyboard-is_fn_held) | Check if Fn is currently held |
+| [`ez.keyboard.is_key_pressed`](#keyboard-is_key_pressed) | Check if a specific matrix key is pressed (raw mode) |
+| [`ez.keyboard.is_shift_held`](#keyboard-is_shift_held) | Check if Shift is currently held |
+| [`ez.keyboard.read`](#keyboard-read) | Read next key event (non-blocking) |
+| [`ez.keyboard.read_blocking`](#keyboard-read_blocking) | Read key with optional timeout (blocking) |
+| [`ez.keyboard.read_raw_code`](#keyboard-read_raw_code) | Read raw key code byte directly from I2C (no translation) |
+| [`ez.keyboard.read_raw_matrix`](#keyboard-read_raw_matrix) | Read raw key matrix state (only works in raw mode) |
+| [`ez.keyboard.set_backlight`](#keyboard-set_backlight) | Set keyboard backlight brightness |
+| [`ez.keyboard.set_mode`](#keyboard-set_mode) | Set keyboard input mode |
+| [`ez.keyboard.set_repeat_delay`](#keyboard-set_repeat_delay) | Set initial delay before key repeat starts |
+| [`ez.keyboard.set_repeat_enabled`](#keyboard-set_repeat_enabled) | Enable or disable key repeat |
+| [`ez.keyboard.set_repeat_rate`](#keyboard-set_repeat_rate) | Set key repeat rate (interval between repeats) |
+| [`ez.keyboard.set_trackball_mode`](#keyboard-set_trackball_mode) | Set trackball input mode |
+| [`ez.keyboard.set_trackball_sensitivity`](#keyboard-set_trackball_sensitivity) | Set trackball sensitivity level |
+| [`ez.mesh.build_packet`](#mesh-build_packet) | Build a raw mesh packet for transmission |
+| [`ez.mesh.calc_shared_secret`](#mesh-calc_shared_secret) | Calculate ECDH shared secret with another node |
+| [`ez.mesh.clear_packet_queue`](#mesh-clear_packet_queue) | Clear all packets from the queue |
+| [`ez.mesh.clear_tx_queue`](#mesh-clear_tx_queue) | Clear all packets from transmit queue |
+| [`ez.mesh.ed25519_sign`](#mesh-ed25519_sign) | Sign data with this node's private key |
+| [`ez.mesh.ed25519_verify`](#mesh-ed25519_verify) | Verify an Ed25519 signature |
+| [`ez.mesh.enable_packet_queue`](#mesh-enable_packet_queue) | Enable or disable packet queuing for polling |
+| [`ez.mesh.get_announce_interval`](#mesh-get_announce_interval) | Get current auto-announce interval |
+| [`ez.mesh.get_node_count`](#mesh-get_node_count) | Get number of known nodes |
+| [`ez.mesh.get_node_id`](#mesh-get_node_id) | Get this node's full ID |
+| [`ez.mesh.get_node_name`](#mesh-get_node_name) | Get this node's display name |
+| [`ez.mesh.get_nodes`](#mesh-get_nodes) | Get list of discovered mesh nodes |
+| [`ez.mesh.get_path_check`](#mesh-get_path_check) | Get current path check setting |
+| [`ez.mesh.get_path_hash`](#mesh-get_path_hash) | Get this node's path hash (first byte of public key) |
+| [`ez.mesh.get_public_key`](#mesh-get_public_key) | Get this node's public key as binary string |
+| [`ez.mesh.get_public_key_hex`](#mesh-get_public_key_hex) | Get this node's public key as hex string |
+| [`ez.mesh.get_rx_count`](#mesh-get_rx_count) | Get total packets received |
+| [`ez.mesh.get_short_id`](#mesh-get_short_id) | Get this node's short ID |
+| [`ez.mesh.get_tx_count`](#mesh-get_tx_count) | Get total packets transmitted |
+| [`ez.mesh.get_tx_queue_capacity`](#mesh-get_tx_queue_capacity) | Get maximum transmit queue capacity |
+| [`ez.mesh.get_tx_queue_size`](#mesh-get_tx_queue_size) | Get number of packets waiting in transmit queue |
+| [`ez.mesh.get_tx_throttle`](#mesh-get_tx_throttle) | Get current throttle interval |
+| [`ez.mesh.has_packets`](#mesh-has_packets) | Check if packets are available in the queue |
+| [`ez.mesh.is_initialized`](#mesh-is_initialized) | Check if mesh networking is initialized |
+| [`ez.mesh.is_tx_queue_full`](#mesh-is_tx_queue_full) | Check if transmit queue is full |
+| [`ez.mesh.make_header`](#mesh-make_header) | Create a packet header byte from components |
+| [`ez.mesh.on_group_packet`](#mesh-on_group_packet) | Set callback for raw group packets (DEPRECATED - use bus.sub... |
+| [`ez.mesh.on_node_discovered`](#mesh-on_node_discovered) | Set callback for node discovery (DEPRECATED - use bus.subscr... |
+| [`ez.mesh.on_packet`](#mesh-on_packet) | Set callback for ALL incoming packets (DEPRECATED - use bus.... |
+| [`ez.mesh.packet_count`](#mesh-packet_count) | Get number of packets in queue |
+| [`ez.mesh.parse_header`](#mesh-parse_header) | Parse a packet header byte into components |
+| [`ez.mesh.pop_packet`](#mesh-pop_packet) | Get and remove the next packet from queue |
+| [`ez.mesh.queue_send`](#mesh-queue_send) | Queue packet for transmission (throttled, non-blocking) |
+| [`ez.mesh.schedule_rebroadcast`](#mesh-schedule_rebroadcast) | Schedule raw packet data for rebroadcast |
+| [`ez.mesh.send_announce`](#mesh-send_announce) | Broadcast node announcement |
+| [`ez.mesh.send_group_packet`](#mesh-send_group_packet) | Send raw encrypted group packet |
+| [`ez.mesh.send_raw`](#mesh-send_raw) | Send raw packet data directly via radio (bypasses queue, imm... |
+| [`ez.mesh.set_announce_interval`](#mesh-set_announce_interval) | Set auto-announce interval in milliseconds (0 = disabled) |
+| [`ez.mesh.set_node_name`](#mesh-set_node_name) | Set this node's display name |
+| [`ez.mesh.set_path_check`](#mesh-set_path_check) | Enable or disable path check for flood routing |
+| [`ez.mesh.set_tx_throttle`](#mesh-set_tx_throttle) | Set minimum interval between transmissions |
+| [`ez.mesh.update`](#mesh-update) | Process incoming mesh packets |
+| [`ez.radio.available`](#radio-available) | Check if data is available |
+| [`ez.radio.get_config`](#radio-get_config) | Get current radio configuration |
+| [`ez.radio.get_last_rssi`](#radio-get_last_rssi) | Get last received signal strength |
+| [`ez.radio.get_last_snr`](#radio-get_last_snr) | Get last signal-to-noise ratio |
+| [`ez.radio.is_busy`](#radio-is_busy) | Check if radio is busy |
+| [`ez.radio.is_initialized`](#radio-is_initialized) | Check if radio is initialized |
+| [`ez.radio.is_receiving`](#radio-is_receiving) | Check if in receive mode |
+| [`ez.radio.is_transmitting`](#radio-is_transmitting) | Check if currently transmitting |
+| [`ez.radio.receive`](#radio-receive) | Receive a packet |
+| [`ez.radio.send`](#radio-send) | Transmit data |
+| [`ez.radio.set_bandwidth`](#radio-set_bandwidth) | Set radio bandwidth |
+| [`ez.radio.set_coding_rate`](#radio-set_coding_rate) | Set LoRa coding rate |
+| [`ez.radio.set_frequency`](#radio-set_frequency) | Set radio frequency |
+| [`ez.radio.set_spreading_factor`](#radio-set_spreading_factor) | Set LoRa spreading factor |
+| [`ez.radio.set_sync_word`](#radio-set_sync_word) | Set sync word |
+| [`ez.radio.set_tx_power`](#radio-set_tx_power) | Set transmit power |
+| [`ez.radio.sleep`](#radio-sleep) | Put radio into sleep mode |
+| [`ez.radio.start_receive`](#radio-start_receive) | Start listening for packets |
+| [`ez.radio.wake`](#radio-wake) | Wake radio from sleep |
+| [`ez.storage.append_file`](#storage-append_file) | Append content to file |
+| [`ez.storage.clear_prefs`](#storage-clear_prefs) | Clear all preferences |
+| [`ez.storage.exists`](#storage-exists) | Check if file or directory exists |
+| [`ez.storage.file_size`](#storage-file_size) | Get file size in bytes |
+| [`ez.storage.get_flash_info`](#storage-get_flash_info) | Get flash storage info |
+| [`ez.storage.get_pref`](#storage-get_pref) | Get preference value |
+| [`ez.storage.get_sd_info`](#storage-get_sd_info) | Get SD card info |
+| [`ez.storage.is_sd_available`](#storage-is_sd_available) | Check if SD card is mounted |
+| [`ez.storage.json_decode`](#storage-json_decode) | Decode JSON string to Lua value |
+| [`ez.storage.json_encode`](#storage-json_encode) | Encode Lua value to JSON string |
+| [`ez.storage.list_dir`](#storage-list_dir) | List directory contents |
+| [`ez.storage.mkdir`](#storage-mkdir) | Create directory |
+| [`ez.storage.read_bytes`](#storage-read_bytes) | Read bytes from file at specific offset (for random access) |
+| [`ez.storage.read_file`](#storage-read_file) | Read entire file contents |
+| [`ez.storage.remove`](#storage-remove) | Delete a file |
+| [`ez.storage.remove_pref`](#storage-remove_pref) | Remove a preference |
+| [`ez.storage.rename`](#storage-rename) | Rename or move a file |
+| [`ez.storage.rmdir`](#storage-rmdir) | Remove empty directory |
+| [`ez.storage.set_pref`](#storage-set_pref) | Set preference value |
+| [`ez.storage.write_file`](#storage-write_file) | Write content to file (creates/overwrites) |
+| [`ez.system.cancel_timer`](#system-cancel_timer) | Cancel a scheduled timer |
+| [`ez.system.chip_model`](#system-chip_model) | Get ESP32 chip model name |
+| [`ez.system.cpu_freq`](#system-cpu_freq) | Get CPU frequency |
+| [`ez.system.delay`](#system-delay) | Blocking delay execution |
+| [`ez.system.gc`](#system-gc) | Force full garbage collection |
+| [`ez.system.gc_step`](#system-gc_step) | Perform incremental garbage collection |
+| [`ez.system.get_battery_percent`](#system-get_battery_percent) | Get battery charge level |
+| [`ez.system.get_battery_voltage`](#system-get_battery_voltage) | Get battery voltage |
+| [`ez.system.get_firmware_info`](#system-get_firmware_info) | Get firmware partition info |
+| [`ez.system.get_free_heap`](#system-get_free_heap) | Get free internal RAM |
+| [`ez.system.get_free_psram`](#system-get_free_psram) | Get free PSRAM |
+| [`ez.system.get_last_error`](#system-get_last_error) | Get last Lua error message |
+| [`ez.system.get_lua_memory`](#system-get_lua_memory) | Get memory used by Lua runtime |
+| [`ez.system.get_time`](#system-get_time) | Get current wall clock time |
+| [`ez.system.get_time_unix`](#system-get_time_unix) | Get current Unix timestamp |
+| [`ez.system.get_timezone`](#system-get_timezone) | Get current timezone UTC offset in hours |
+| [`ez.system.get_total_heap`](#system-get_total_heap) | Get total heap size |
+| [`ez.system.get_total_psram`](#system-get_total_psram) | Get total PSRAM size |
+| [`ez.system.is_low_memory`](#system-is_low_memory) | Check if memory is critically low |
+| [`ez.system.is_sd_available`](#system-is_sd_available) | Check if SD card is available |
+| [`ez.system.is_usb_msc_active`](#system-is_usb_msc_active) | Check if USB MSC mode is active |
+| [`ez.system.log`](#system-log) | Log message to serial output |
+| [`ez.system.millis`](#system-millis) | Returns milliseconds since boot |
+| [`ez.system.reload_scripts`](#system-reload_scripts) | Reload all Lua scripts (hot reload) |
+| [`ez.system.restart`](#system-restart) | Restart the device |
+| [`ez.system.set_interval`](#system-set_interval) | Schedule a repeating callback |
+| [`ez.system.set_time`](#system-set_time) | Set system clock time |
+| [`ez.system.set_time_unix`](#system-set_time_unix) | Set system clock from Unix timestamp |
+| [`ez.system.set_timer`](#system-set_timer) | Schedule a one-shot callback |
+| [`ez.system.set_timezone`](#system-set_timezone) | Set timezone using POSIX TZ string |
+| [`ez.system.start_usb_msc`](#system-start_usb_msc) | Start USB Mass Storage mode to access SD card from PC |
+| [`ez.system.stop_usb_msc`](#system-stop_usb_msc) | Stop USB Mass Storage mode |
+| [`ez.system.uptime`](#system-uptime) | Get device uptime |
+| [`ez.system.yield`](#system-yield) | Yield execution to allow C++ background tasks to run |
 
 ---
 
 ## Table of Contents
 
-- [tdeck.audio](#audio)
-- [tdeck.bus](#bus)
-- [tdeck.crypto](#crypto)
-- [tdeck.display](#display)
-- [tdeck.keyboard](#keyboard)
-- [tdeck.mesh](#mesh)
-- [tdeck.radio](#radio)
-- [tdeck.storage](#storage)
-- [tdeck.system](#system)
+- [ez.audio](#audio)
+- [ez.bus](#bus)
+- [ez.crypto](#crypto)
+- [ez.display](#display)
+- [ez.keyboard](#keyboard)
+- [ez.mesh](#mesh)
+- [ez.radio](#radio)
+- [ez.storage](#storage)
+- [ez.system](#system)
 
 ## audio
 
-### tdeck.audio
+### ez.audio
 
 #### <a name="audio-beep"></a>beep
 
 ```lua
-tdeck.audio.beep(count, frequency, on_ms, off_ms)
+ez.audio.beep(count, frequency, on_ms, off_ms)
 ```
 
 Play a series of beeps (blocking)
@@ -249,7 +249,7 @@ Play a series of beeps (blocking)
 #### <a name="audio-get_volume"></a>get_volume
 
 ```lua
-tdeck.audio.get_volume() -> integer
+ez.audio.get_volume() -> integer
 ```
 
 Get current volume level
@@ -259,7 +259,7 @@ Get current volume level
 #### <a name="audio-is_playing"></a>is_playing
 
 ```lua
-tdeck.audio.is_playing() -> boolean
+ez.audio.is_playing() -> boolean
 ```
 
 Check if audio is playing
@@ -269,7 +269,7 @@ Check if audio is playing
 #### <a name="audio-play_sample"></a>play_sample
 
 ```lua
-tdeck.audio.play_sample(filename) -> boolean
+ez.audio.play_sample(filename) -> boolean
 ```
 
 Play a PCM sample file from LittleFS
@@ -285,7 +285,7 @@ Play a PCM sample file from LittleFS
 #### <a name="audio-play_tone"></a>play_tone
 
 ```lua
-tdeck.audio.play_tone(frequency, duration_ms) -> boolean
+ez.audio.play_tone(frequency, duration_ms) -> boolean
 ```
 
 Play a tone for specified duration
@@ -302,7 +302,7 @@ Play a tone for specified duration
 #### <a name="audio-set_frequency"></a>set_frequency
 
 ```lua
-tdeck.audio.set_frequency(frequency) -> boolean
+ez.audio.set_frequency(frequency) -> boolean
 ```
 
 Set playback frequency for continuous tones
@@ -318,7 +318,7 @@ Set playback frequency for continuous tones
 #### <a name="audio-set_volume"></a>set_volume
 
 ```lua
-tdeck.audio.set_volume(level)
+ez.audio.set_volume(level)
 ```
 
 Set audio volume level
@@ -332,7 +332,7 @@ Set audio volume level
 #### <a name="audio-start"></a>start
 
 ```lua
-tdeck.audio.start()
+ez.audio.start()
 ```
 
 Start continuous tone at current frequency
@@ -340,19 +340,19 @@ Start continuous tone at current frequency
 #### <a name="audio-stop"></a>stop
 
 ```lua
-tdeck.audio.stop()
+ez.audio.stop()
 ```
 
 Stop audio playback
 
 ## bus
 
-### tdeck.bus
+### ez.bus
 
 #### <a name="bus-has_subscribers"></a>has_subscribers
 
 ```lua
-tdeck.bus.has_subscribers(topic) -> boolean
+ez.bus.has_subscribers(topic) -> boolean
 ```
 
 Check if a topic has any active subscribers
@@ -368,7 +368,7 @@ Check if a topic has any active subscribers
 #### <a name="bus-pending_count"></a>pending_count
 
 ```lua
-tdeck.bus.pending_count() -> integer
+ez.bus.pending_count() -> integer
 ```
 
 Get number of messages waiting in queue
@@ -378,7 +378,7 @@ Get number of messages waiting in queue
 #### <a name="bus-post"></a>post
 
 ```lua
-tdeck.bus.post(topic, data)
+ez.bus.post(topic, data)
 ```
 
 Post a message to a topic
@@ -393,7 +393,7 @@ Post a message to a topic
 #### <a name="bus-subscribe"></a>subscribe
 
 ```lua
-tdeck.bus.subscribe(topic, callback) -> subscription_id
+ez.bus.subscribe(topic, callback) -> subscription_id
 ```
 
 Subscribe to a topic with a callback function
@@ -408,7 +408,7 @@ Subscribe to a topic with a callback function
 #### <a name="bus-unsubscribe"></a>unsubscribe
 
 ```lua
-tdeck.bus.unsubscribe(subscription_id) -> boolean
+ez.bus.unsubscribe(subscription_id) -> boolean
 ```
 
 Unsubscribe from a topic
@@ -423,12 +423,12 @@ Unsubscribe from a topic
 
 ## crypto
 
-### tdeck.crypto
+### ez.crypto
 
 #### <a name="crypto-aes128_ecb_decrypt"></a>aes128_ecb_decrypt
 
 ```lua
-tdeck.crypto.aes128_ecb_decrypt(key, ciphertext) -> string
+ez.crypto.aes128_ecb_decrypt(key, ciphertext) -> string
 ```
 
 Decrypt data with AES-128-ECB
@@ -445,7 +445,7 @@ Decrypt data with AES-128-ECB
 #### <a name="crypto-aes128_ecb_encrypt"></a>aes128_ecb_encrypt
 
 ```lua
-tdeck.crypto.aes128_ecb_encrypt(key, plaintext) -> string
+ez.crypto.aes128_ecb_encrypt(key, plaintext) -> string
 ```
 
 Encrypt data with AES-128-ECB
@@ -462,7 +462,7 @@ Encrypt data with AES-128-ECB
 #### <a name="crypto-base64_decode"></a>base64_decode
 
 ```lua
-tdeck.crypto.base64_decode(encoded) -> string
+ez.crypto.base64_decode(encoded) -> string
 ```
 
 Decode base64 string to binary data
@@ -478,7 +478,7 @@ Decode base64 string to binary data
 #### <a name="crypto-base64_encode"></a>base64_encode
 
 ```lua
-tdeck.crypto.base64_encode(data) -> string
+ez.crypto.base64_encode(data) -> string
 ```
 
 Encode binary data to base64 string
@@ -494,7 +494,7 @@ Encode binary data to base64 string
 #### <a name="crypto-bytes_to_hex"></a>bytes_to_hex
 
 ```lua
-tdeck.crypto.bytes_to_hex(data) -> string
+ez.crypto.bytes_to_hex(data) -> string
 ```
 
 Convert binary data to hex string
@@ -510,7 +510,7 @@ Convert binary data to hex string
 #### <a name="crypto-channel_hash"></a>channel_hash
 
 ```lua
-tdeck.crypto.channel_hash(key) -> integer
+ez.crypto.channel_hash(key) -> integer
 ```
 
 Compute channel hash from key (SHA256(key)[0])
@@ -526,7 +526,7 @@ Compute channel hash from key (SHA256(key)[0])
 #### <a name="crypto-derive_channel_key"></a>derive_channel_key
 
 ```lua
-tdeck.crypto.derive_channel_key(input) -> string
+ez.crypto.derive_channel_key(input) -> string
 ```
 
 Derive 16-byte channel key from password/name using SHA256
@@ -542,7 +542,7 @@ Derive 16-byte channel key from password/name using SHA256
 #### <a name="crypto-hex_to_bytes"></a>hex_to_bytes
 
 ```lua
-tdeck.crypto.hex_to_bytes(hex) -> string
+ez.crypto.hex_to_bytes(hex) -> string
 ```
 
 Convert hex string to binary data
@@ -558,7 +558,7 @@ Convert hex string to binary data
 #### <a name="crypto-hmac_sha256"></a>hmac_sha256
 
 ```lua
-tdeck.crypto.hmac_sha256(key, data) -> string
+ez.crypto.hmac_sha256(key, data) -> string
 ```
 
 Compute HMAC-SHA256
@@ -575,7 +575,7 @@ Compute HMAC-SHA256
 #### <a name="crypto-public_channel_key"></a>public_channel_key
 
 ```lua
-tdeck.crypto.public_channel_key() -> string
+ez.crypto.public_channel_key() -> string
 ```
 
 Get the well-known #Public channel key
@@ -585,7 +585,7 @@ Get the well-known #Public channel key
 #### <a name="crypto-random_bytes"></a>random_bytes
 
 ```lua
-tdeck.crypto.random_bytes(count) -> string
+ez.crypto.random_bytes(count) -> string
 ```
 
 Generate cryptographically secure random bytes
@@ -601,7 +601,7 @@ Generate cryptographically secure random bytes
 #### <a name="crypto-sha256"></a>sha256
 
 ```lua
-tdeck.crypto.sha256(data) -> string
+ez.crypto.sha256(data) -> string
 ```
 
 Compute SHA-256 hash
@@ -617,7 +617,7 @@ Compute SHA-256 hash
 #### <a name="crypto-sha512"></a>sha512
 
 ```lua
-tdeck.crypto.sha512(data) -> string
+ez.crypto.sha512(data) -> string
 ```
 
 Compute SHA-512 hash
@@ -632,12 +632,12 @@ Compute SHA-512 hash
 
 ## display
 
-### tdeck.display
+### ez.display
 
 #### <a name="display-clear"></a>clear
 
 ```lua
-tdeck.display.clear()
+ez.display.clear()
 ```
 
 Clear display buffer to black
@@ -645,7 +645,7 @@ Clear display buffer to black
 #### <a name="display-draw_battery"></a>draw_battery
 
 ```lua
-tdeck.display.draw_battery(x, y, percent)
+ez.display.draw_battery(x, y, percent)
 ```
 
 Draw battery indicator icon
@@ -661,7 +661,7 @@ Draw battery indicator icon
 #### <a name="display-draw_bitmap"></a>draw_bitmap
 
 ```lua
-tdeck.display.draw_bitmap(x, y, width, height, data)
+ez.display.draw_bitmap(x, y, width, height, data)
 ```
 
 Draw a bitmap image from raw RGB565 data
@@ -679,7 +679,7 @@ Draw a bitmap image from raw RGB565 data
 #### <a name="display-draw_bitmap_1bit"></a>draw_bitmap_1bit
 
 ```lua
-tdeck.display.draw_bitmap_1bit(x, y, width, height, data, scale, color)
+ez.display.draw_bitmap_1bit(x, y, width, height, data, scale, color)
 ```
 
 Draw a 1-bit bitmap with scaling and colorization
@@ -699,7 +699,7 @@ Draw a 1-bit bitmap with scaling and colorization
 #### <a name="display-draw_bitmap_transparent"></a>draw_bitmap_transparent
 
 ```lua
-tdeck.display.draw_bitmap_transparent(x, y, width, height, data, transparent_color)
+ez.display.draw_bitmap_transparent(x, y, width, height, data, transparent_color)
 ```
 
 Draw a bitmap with transparency
@@ -718,7 +718,7 @@ Draw a bitmap with transparency
 #### <a name="display-draw_box"></a>draw_box
 
 ```lua
-tdeck.display.draw_box(x, y, w, h, title, border_color, title_color)
+ez.display.draw_box(x, y, w, h, title, border_color, title_color)
 ```
 
 Draw bordered box with optional title
@@ -738,7 +738,7 @@ Draw bordered box with optional title
 #### <a name="display-draw_char"></a>draw_char
 
 ```lua
-tdeck.display.draw_char(x, y, char, color)
+ez.display.draw_char(x, y, char, color)
 ```
 
 Draw a single character
@@ -755,7 +755,7 @@ Draw a single character
 #### <a name="display-draw_circle"></a>draw_circle
 
 ```lua
-tdeck.display.draw_circle(x, y, r, color)
+ez.display.draw_circle(x, y, r, color)
 ```
 
 Draw circle outline
@@ -772,7 +772,7 @@ Draw circle outline
 #### <a name="display-draw_hline"></a>draw_hline
 
 ```lua
-tdeck.display.draw_hline(x, y, w, left_connect, right_connect, color)
+ez.display.draw_hline(x, y, w, left_connect, right_connect, color)
 ```
 
 Draw horizontal line with optional connectors
@@ -791,7 +791,7 @@ Draw horizontal line with optional connectors
 #### <a name="display-draw_indexed_bitmap"></a>draw_indexed_bitmap
 
 ```lua
-tdeck.display.draw_indexed_bitmap(x, y, width, height, data, palette)
+ez.display.draw_indexed_bitmap(x, y, width, height, data, palette)
 ```
 
 Draw a 3-bit indexed bitmap using a color palette
@@ -810,7 +810,7 @@ Draw a 3-bit indexed bitmap using a color palette
 #### <a name="display-draw_indexed_bitmap_scaled"></a>draw_indexed_bitmap_scaled
 
 ```lua
-tdeck.display.draw_indexed_bitmap_scaled(x, y, dest_w, dest_h, data, palette, src_x, src_y, src_w, src_h)
+ez.display.draw_indexed_bitmap_scaled(x, y, dest_w, dest_h, data, palette, src_x, src_y, src_w, src_h)
 ```
 
 Draw a scaled portion of a 3-bit indexed bitmap
@@ -833,7 +833,7 @@ Draw a scaled portion of a 3-bit indexed bitmap
 #### <a name="display-draw_line"></a>draw_line
 
 ```lua
-tdeck.display.draw_line(x1, y1, x2, y2, color)
+ez.display.draw_line(x1, y1, x2, y2, color)
 ```
 
 Draw a line between two points
@@ -851,7 +851,7 @@ Draw a line between two points
 #### <a name="display-draw_pixel"></a>draw_pixel
 
 ```lua
-tdeck.display.draw_pixel(x, y, color)
+ez.display.draw_pixel(x, y, color)
 ```
 
 Draw a single pixel
@@ -867,7 +867,7 @@ Draw a single pixel
 #### <a name="display-draw_progress"></a>draw_progress
 
 ```lua
-tdeck.display.draw_progress(x, y, w, h, progress, fg_color, bg_color)
+ez.display.draw_progress(x, y, w, h, progress, fg_color, bg_color)
 ```
 
 Draw a progress bar
@@ -887,7 +887,7 @@ Draw a progress bar
 #### <a name="display-draw_rect"></a>draw_rect
 
 ```lua
-tdeck.display.draw_rect(x, y, w, h, color)
+ez.display.draw_rect(x, y, w, h, color)
 ```
 
 Draw rectangle outline
@@ -905,7 +905,7 @@ Draw rectangle outline
 #### <a name="display-draw_round_rect"></a>draw_round_rect
 
 ```lua
-tdeck.display.draw_round_rect(x, y, w, h, r, color)
+ez.display.draw_round_rect(x, y, w, h, r, color)
 ```
 
 Draw rounded rectangle outline
@@ -913,7 +913,7 @@ Draw rounded rectangle outline
 #### <a name="display-draw_signal"></a>draw_signal
 
 ```lua
-tdeck.display.draw_signal(x, y, bars)
+ez.display.draw_signal(x, y, bars)
 ```
 
 Draw signal strength indicator
@@ -929,7 +929,7 @@ Draw signal strength indicator
 #### <a name="display-draw_text"></a>draw_text
 
 ```lua
-tdeck.display.draw_text(x, y, text, color)
+ez.display.draw_text(x, y, text, color)
 ```
 
 Draw text at pixel coordinates
@@ -946,7 +946,7 @@ Draw text at pixel coordinates
 #### <a name="display-draw_text_centered"></a>draw_text_centered
 
 ```lua
-tdeck.display.draw_text_centered(y, text, color)
+ez.display.draw_text_centered(y, text, color)
 ```
 
 Draw horizontally centered text
@@ -962,7 +962,7 @@ Draw horizontally centered text
 #### <a name="display-draw_triangle"></a>draw_triangle
 
 ```lua
-tdeck.display.draw_triangle(x1, y1, x2, y2, x3, y3, color)
+ez.display.draw_triangle(x1, y1, x2, y2, x3, y3, color)
 ```
 
 Draw triangle outline
@@ -970,7 +970,7 @@ Draw triangle outline
 #### <a name="display-fill_circle"></a>fill_circle
 
 ```lua
-tdeck.display.fill_circle(x, y, r, color)
+ez.display.fill_circle(x, y, r, color)
 ```
 
 Draw filled circle
@@ -987,7 +987,7 @@ Draw filled circle
 #### <a name="display-fill_rect"></a>fill_rect
 
 ```lua
-tdeck.display.fill_rect(x, y, w, h, color)
+ez.display.fill_rect(x, y, w, h, color)
 ```
 
 Fill a rectangle with color
@@ -1005,7 +1005,7 @@ Fill a rectangle with color
 #### <a name="display-fill_round_rect"></a>fill_round_rect
 
 ```lua
-tdeck.display.fill_round_rect(x, y, w, h, r, color)
+ez.display.fill_round_rect(x, y, w, h, r, color)
 ```
 
 Draw filled rounded rectangle
@@ -1013,7 +1013,7 @@ Draw filled rounded rectangle
 #### <a name="display-fill_triangle"></a>fill_triangle
 
 ```lua
-tdeck.display.fill_triangle(x1, y1, x2, y2, x3, y3, color)
+ez.display.fill_triangle(x1, y1, x2, y2, x3, y3, color)
 ```
 
 Draw filled triangle
@@ -1021,7 +1021,7 @@ Draw filled triangle
 #### <a name="display-flush"></a>flush
 
 ```lua
-tdeck.display.flush()
+ez.display.flush()
 ```
 
 Flush buffer to physical display
@@ -1029,7 +1029,7 @@ Flush buffer to physical display
 #### <a name="display-get_cols"></a>get_cols
 
 ```lua
-tdeck.display.get_cols() -> integer
+ez.display.get_cols() -> integer
 ```
 
 Get display columns
@@ -1039,7 +1039,7 @@ Get display columns
 #### <a name="display-get_font_height"></a>get_font_height
 
 ```lua
-tdeck.display.get_font_height() -> integer
+ez.display.get_font_height() -> integer
 ```
 
 Get font character height
@@ -1049,7 +1049,7 @@ Get font character height
 #### <a name="display-get_font_width"></a>get_font_width
 
 ```lua
-tdeck.display.get_font_width() -> integer
+ez.display.get_font_width() -> integer
 ```
 
 Get font character width
@@ -1059,7 +1059,7 @@ Get font character width
 #### <a name="display-get_height"></a>get_height
 
 ```lua
-tdeck.display.get_height() -> integer
+ez.display.get_height() -> integer
 ```
 
 Get display height
@@ -1069,7 +1069,7 @@ Get display height
 #### <a name="display-get_rows"></a>get_rows
 
 ```lua
-tdeck.display.get_rows() -> integer
+ez.display.get_rows() -> integer
 ```
 
 Get display rows
@@ -1079,7 +1079,7 @@ Get display rows
 #### <a name="display-get_width"></a>get_width
 
 ```lua
-tdeck.display.get_width() -> integer
+ez.display.get_width() -> integer
 ```
 
 Get display width
@@ -1089,7 +1089,7 @@ Get display width
 #### <a name="display-rgb"></a>rgb
 
 ```lua
-tdeck.display.rgb(r, g, b) -> integer
+ez.display.rgb(r, g, b) -> integer
 ```
 
 Convert RGB to RGB565 color value
@@ -1107,7 +1107,7 @@ Convert RGB to RGB565 color value
 #### <a name="display-save_screenshot"></a>save_screenshot
 
 ```lua
-tdeck.display.save_screenshot(path) -> boolean
+ez.display.save_screenshot(path) -> boolean
 ```
 
 Save current display contents as BMP screenshot to SD card
@@ -1123,7 +1123,7 @@ Save current display contents as BMP screenshot to SD card
 #### <a name="display-set_brightness"></a>set_brightness
 
 ```lua
-tdeck.display.set_brightness(level)
+ez.display.set_brightness(level)
 ```
 
 Set backlight brightness
@@ -1137,7 +1137,7 @@ Set backlight brightness
 #### <a name="display-set_font_size"></a>set_font_size
 
 ```lua
-tdeck.display.set_font_size(size)
+ez.display.set_font_size(size)
 ```
 
 Set font size
@@ -1151,7 +1151,7 @@ Set font size
 #### <a name="display-text_width"></a>text_width
 
 ```lua
-tdeck.display.text_width(text) -> integer
+ez.display.text_width(text) -> integer
 ```
 
 Get pixel width of text string
@@ -1166,12 +1166,12 @@ Get pixel width of text string
 
 ## keyboard
 
-### tdeck.keyboard
+### ez.keyboard
 
 #### <a name="keyboard-available"></a>available
 
 ```lua
-tdeck.keyboard.available() -> boolean
+ez.keyboard.available() -> boolean
 ```
 
 Check if a key is waiting
@@ -1181,7 +1181,7 @@ Check if a key is waiting
 #### <a name="keyboard-get_backlight"></a>get_backlight
 
 ```lua
-tdeck.keyboard.get_backlight() -> integer
+ez.keyboard.get_backlight() -> integer
 ```
 
 Get current keyboard backlight level
@@ -1191,7 +1191,7 @@ Get current keyboard backlight level
 #### <a name="keyboard-get_mode"></a>get_mode
 
 ```lua
-tdeck.keyboard.get_mode() -> string
+ez.keyboard.get_mode() -> string
 ```
 
 Get current keyboard input mode
@@ -1201,7 +1201,7 @@ Get current keyboard input mode
 #### <a name="keyboard-get_raw_matrix_bits"></a>get_raw_matrix_bits
 
 ```lua
-tdeck.keyboard.get_raw_matrix_bits() -> integer
+ez.keyboard.get_raw_matrix_bits() -> integer
 ```
 
 Get full matrix state as 64-bit integer (raw mode)
@@ -1211,7 +1211,7 @@ Get full matrix state as 64-bit integer (raw mode)
 #### <a name="keyboard-get_repeat_delay"></a>get_repeat_delay
 
 ```lua
-tdeck.keyboard.get_repeat_delay() -> integer
+ez.keyboard.get_repeat_delay() -> integer
 ```
 
 Get initial delay before key repeat starts
@@ -1221,7 +1221,7 @@ Get initial delay before key repeat starts
 #### <a name="keyboard-get_repeat_enabled"></a>get_repeat_enabled
 
 ```lua
-tdeck.keyboard.get_repeat_enabled() -> boolean
+ez.keyboard.get_repeat_enabled() -> boolean
 ```
 
 Check if key repeat is enabled
@@ -1231,7 +1231,7 @@ Check if key repeat is enabled
 #### <a name="keyboard-get_repeat_rate"></a>get_repeat_rate
 
 ```lua
-tdeck.keyboard.get_repeat_rate() -> integer
+ez.keyboard.get_repeat_rate() -> integer
 ```
 
 Get key repeat rate (interval between repeats)
@@ -1241,7 +1241,7 @@ Get key repeat rate (interval between repeats)
 #### <a name="keyboard-get_trackball_mode"></a>get_trackball_mode
 
 ```lua
-tdeck.keyboard.get_trackball_mode() -> string
+ez.keyboard.get_trackball_mode() -> string
 ```
 
 Get current trackball input mode
@@ -1251,7 +1251,7 @@ Get current trackball input mode
 #### <a name="keyboard-get_trackball_sensitivity"></a>get_trackball_sensitivity
 
 ```lua
-tdeck.keyboard.get_trackball_sensitivity() -> integer
+ez.keyboard.get_trackball_sensitivity() -> integer
 ```
 
 Get trackball sensitivity level
@@ -1261,7 +1261,7 @@ Get trackball sensitivity level
 #### <a name="keyboard-has_trackball"></a>has_trackball
 
 ```lua
-tdeck.keyboard.has_trackball() -> boolean
+ez.keyboard.has_trackball() -> boolean
 ```
 
 Check if device has trackball
@@ -1271,7 +1271,7 @@ Check if device has trackball
 #### <a name="keyboard-is_alt_held"></a>is_alt_held
 
 ```lua
-tdeck.keyboard.is_alt_held() -> boolean
+ez.keyboard.is_alt_held() -> boolean
 ```
 
 Check if Alt is currently held
@@ -1281,7 +1281,7 @@ Check if Alt is currently held
 #### <a name="keyboard-is_ctrl_held"></a>is_ctrl_held
 
 ```lua
-tdeck.keyboard.is_ctrl_held() -> boolean
+ez.keyboard.is_ctrl_held() -> boolean
 ```
 
 Check if Ctrl is currently held
@@ -1291,7 +1291,7 @@ Check if Ctrl is currently held
 #### <a name="keyboard-is_fn_held"></a>is_fn_held
 
 ```lua
-tdeck.keyboard.is_fn_held() -> boolean
+ez.keyboard.is_fn_held() -> boolean
 ```
 
 Check if Fn is currently held
@@ -1301,7 +1301,7 @@ Check if Fn is currently held
 #### <a name="keyboard-is_key_pressed"></a>is_key_pressed
 
 ```lua
-tdeck.keyboard.is_key_pressed(col, row) -> boolean
+ez.keyboard.is_key_pressed(col, row) -> boolean
 ```
 
 Check if a specific matrix key is pressed (raw mode)
@@ -1318,7 +1318,7 @@ Check if a specific matrix key is pressed (raw mode)
 #### <a name="keyboard-is_shift_held"></a>is_shift_held
 
 ```lua
-tdeck.keyboard.is_shift_held() -> boolean
+ez.keyboard.is_shift_held() -> boolean
 ```
 
 Check if Shift is currently held
@@ -1328,7 +1328,7 @@ Check if Shift is currently held
 #### <a name="keyboard-read"></a>read
 
 ```lua
-tdeck.keyboard.read() -> table
+ez.keyboard.read() -> table
 ```
 
 Read next key event (non-blocking)
@@ -1338,7 +1338,7 @@ Read next key event (non-blocking)
 #### <a name="keyboard-read_blocking"></a>read_blocking
 
 ```lua
-tdeck.keyboard.read_blocking(timeout_ms) -> table
+ez.keyboard.read_blocking(timeout_ms) -> table
 ```
 
 Read key with optional timeout (blocking)
@@ -1354,7 +1354,7 @@ Read key with optional timeout (blocking)
 #### <a name="keyboard-read_raw_code"></a>read_raw_code
 
 ```lua
-tdeck.keyboard.read_raw_code() -> integer|nil
+ez.keyboard.read_raw_code() -> integer|nil
 ```
 
 Read raw key code byte directly from I2C (no translation)
@@ -1364,7 +1364,7 @@ Read raw key code byte directly from I2C (no translation)
 #### <a name="keyboard-read_raw_matrix"></a>read_raw_matrix
 
 ```lua
-tdeck.keyboard.read_raw_matrix() -> table|nil
+ez.keyboard.read_raw_matrix() -> table|nil
 ```
 
 Read raw key matrix state (only works in raw mode)
@@ -1374,7 +1374,7 @@ Read raw key matrix state (only works in raw mode)
 #### <a name="keyboard-set_backlight"></a>set_backlight
 
 ```lua
-tdeck.keyboard.set_backlight(level)
+ez.keyboard.set_backlight(level)
 ```
 
 Set keyboard backlight brightness
@@ -1388,7 +1388,7 @@ Set keyboard backlight brightness
 #### <a name="keyboard-set_mode"></a>set_mode
 
 ```lua
-tdeck.keyboard.set_mode(mode) -> boolean
+ez.keyboard.set_mode(mode) -> boolean
 ```
 
 Set keyboard input mode
@@ -1404,7 +1404,7 @@ Set keyboard input mode
 #### <a name="keyboard-set_repeat_delay"></a>set_repeat_delay
 
 ```lua
-tdeck.keyboard.set_repeat_delay(delay_ms)
+ez.keyboard.set_repeat_delay(delay_ms)
 ```
 
 Set initial delay before key repeat starts
@@ -1418,7 +1418,7 @@ Set initial delay before key repeat starts
 #### <a name="keyboard-set_repeat_enabled"></a>set_repeat_enabled
 
 ```lua
-tdeck.keyboard.set_repeat_enabled(enabled)
+ez.keyboard.set_repeat_enabled(enabled)
 ```
 
 Enable or disable key repeat
@@ -1432,7 +1432,7 @@ Enable or disable key repeat
 #### <a name="keyboard-set_repeat_rate"></a>set_repeat_rate
 
 ```lua
-tdeck.keyboard.set_repeat_rate(rate_ms)
+ez.keyboard.set_repeat_rate(rate_ms)
 ```
 
 Set key repeat rate (interval between repeats)
@@ -1446,7 +1446,7 @@ Set key repeat rate (interval between repeats)
 #### <a name="keyboard-set_trackball_mode"></a>set_trackball_mode
 
 ```lua
-tdeck.keyboard.set_trackball_mode(mode)
+ez.keyboard.set_trackball_mode(mode)
 ```
 
 Set trackball input mode
@@ -1460,7 +1460,7 @@ Set trackball input mode
 #### <a name="keyboard-set_trackball_sensitivity"></a>set_trackball_sensitivity
 
 ```lua
-tdeck.keyboard.set_trackball_sensitivity(value)
+ez.keyboard.set_trackball_sensitivity(value)
 ```
 
 Set trackball sensitivity level
@@ -1473,12 +1473,12 @@ Set trackball sensitivity level
 
 ## mesh
 
-### tdeck.mesh
+### ez.mesh
 
 #### <a name="mesh-build_packet"></a>build_packet
 
 ```lua
-tdeck.mesh.build_packet(route_type, payload_type, payload, path) -> string|nil
+ez.mesh.build_packet(route_type, payload_type, payload, path) -> string|nil
 ```
 
 Build a raw mesh packet for transmission
@@ -1497,7 +1497,7 @@ Build a raw mesh packet for transmission
 #### <a name="mesh-calc_shared_secret"></a>calc_shared_secret
 
 ```lua
-tdeck.mesh.calc_shared_secret(other_pub_key) -> string|nil
+ez.mesh.calc_shared_secret(other_pub_key) -> string|nil
 ```
 
 Calculate ECDH shared secret with another node
@@ -1513,7 +1513,7 @@ Calculate ECDH shared secret with another node
 #### <a name="mesh-clear_packet_queue"></a>clear_packet_queue
 
 ```lua
-tdeck.mesh.clear_packet_queue()
+ez.mesh.clear_packet_queue()
 ```
 
 Clear all packets from the queue
@@ -1521,7 +1521,7 @@ Clear all packets from the queue
 #### <a name="mesh-clear_tx_queue"></a>clear_tx_queue
 
 ```lua
-tdeck.mesh.clear_tx_queue()
+ez.mesh.clear_tx_queue()
 ```
 
 Clear all packets from transmit queue
@@ -1529,7 +1529,7 @@ Clear all packets from transmit queue
 #### <a name="mesh-ed25519_sign"></a>ed25519_sign
 
 ```lua
-tdeck.mesh.ed25519_sign(data) -> signature
+ez.mesh.ed25519_sign(data) -> signature
 ```
 
 Sign data with this node's private key
@@ -1545,7 +1545,7 @@ Sign data with this node's private key
 #### <a name="mesh-ed25519_verify"></a>ed25519_verify
 
 ```lua
-tdeck.mesh.ed25519_verify(data, signature, pub_key) -> boolean
+ez.mesh.ed25519_verify(data, signature, pub_key) -> boolean
 ```
 
 Verify an Ed25519 signature
@@ -1563,7 +1563,7 @@ Verify an Ed25519 signature
 #### <a name="mesh-enable_packet_queue"></a>enable_packet_queue
 
 ```lua
-tdeck.mesh.enable_packet_queue(enabled)
+ez.mesh.enable_packet_queue(enabled)
 ```
 
 Enable or disable packet queuing for polling
@@ -1577,7 +1577,7 @@ Enable or disable packet queuing for polling
 #### <a name="mesh-get_announce_interval"></a>get_announce_interval
 
 ```lua
-tdeck.mesh.get_announce_interval() -> integer
+ez.mesh.get_announce_interval() -> integer
 ```
 
 Get current auto-announce interval
@@ -1587,7 +1587,7 @@ Get current auto-announce interval
 #### <a name="mesh-get_node_count"></a>get_node_count
 
 ```lua
-tdeck.mesh.get_node_count() -> integer
+ez.mesh.get_node_count() -> integer
 ```
 
 Get number of known nodes
@@ -1597,7 +1597,7 @@ Get number of known nodes
 #### <a name="mesh-get_node_id"></a>get_node_id
 
 ```lua
-tdeck.mesh.get_node_id() -> string
+ez.mesh.get_node_id() -> string
 ```
 
 Get this node's full ID
@@ -1607,7 +1607,7 @@ Get this node's full ID
 #### <a name="mesh-get_node_name"></a>get_node_name
 
 ```lua
-tdeck.mesh.get_node_name() -> string
+ez.mesh.get_node_name() -> string
 ```
 
 Get this node's display name
@@ -1617,7 +1617,7 @@ Get this node's display name
 #### <a name="mesh-get_nodes"></a>get_nodes
 
 ```lua
-tdeck.mesh.get_nodes() -> table
+ez.mesh.get_nodes() -> table
 ```
 
 Get list of discovered mesh nodes
@@ -1627,7 +1627,7 @@ Get list of discovered mesh nodes
 #### <a name="mesh-get_path_check"></a>get_path_check
 
 ```lua
-tdeck.mesh.get_path_check() -> boolean
+ez.mesh.get_path_check() -> boolean
 ```
 
 Get current path check setting
@@ -1637,7 +1637,7 @@ Get current path check setting
 #### <a name="mesh-get_path_hash"></a>get_path_hash
 
 ```lua
-tdeck.mesh.get_path_hash() -> integer
+ez.mesh.get_path_hash() -> integer
 ```
 
 Get this node's path hash (first byte of public key)
@@ -1647,7 +1647,7 @@ Get this node's path hash (first byte of public key)
 #### <a name="mesh-get_public_key"></a>get_public_key
 
 ```lua
-tdeck.mesh.get_public_key() -> string
+ez.mesh.get_public_key() -> string
 ```
 
 Get this node's public key as binary string
@@ -1657,7 +1657,7 @@ Get this node's public key as binary string
 #### <a name="mesh-get_public_key_hex"></a>get_public_key_hex
 
 ```lua
-tdeck.mesh.get_public_key_hex() -> string
+ez.mesh.get_public_key_hex() -> string
 ```
 
 Get this node's public key as hex string
@@ -1667,7 +1667,7 @@ Get this node's public key as hex string
 #### <a name="mesh-get_rx_count"></a>get_rx_count
 
 ```lua
-tdeck.mesh.get_rx_count() -> integer
+ez.mesh.get_rx_count() -> integer
 ```
 
 Get total packets received
@@ -1677,7 +1677,7 @@ Get total packets received
 #### <a name="mesh-get_short_id"></a>get_short_id
 
 ```lua
-tdeck.mesh.get_short_id() -> string
+ez.mesh.get_short_id() -> string
 ```
 
 Get this node's short ID
@@ -1687,7 +1687,7 @@ Get this node's short ID
 #### <a name="mesh-get_tx_count"></a>get_tx_count
 
 ```lua
-tdeck.mesh.get_tx_count() -> integer
+ez.mesh.get_tx_count() -> integer
 ```
 
 Get total packets transmitted
@@ -1697,7 +1697,7 @@ Get total packets transmitted
 #### <a name="mesh-get_tx_queue_capacity"></a>get_tx_queue_capacity
 
 ```lua
-tdeck.mesh.get_tx_queue_capacity() -> integer
+ez.mesh.get_tx_queue_capacity() -> integer
 ```
 
 Get maximum transmit queue capacity
@@ -1707,7 +1707,7 @@ Get maximum transmit queue capacity
 #### <a name="mesh-get_tx_queue_size"></a>get_tx_queue_size
 
 ```lua
-tdeck.mesh.get_tx_queue_size() -> integer
+ez.mesh.get_tx_queue_size() -> integer
 ```
 
 Get number of packets waiting in transmit queue
@@ -1717,7 +1717,7 @@ Get number of packets waiting in transmit queue
 #### <a name="mesh-get_tx_throttle"></a>get_tx_throttle
 
 ```lua
-tdeck.mesh.get_tx_throttle() -> integer
+ez.mesh.get_tx_throttle() -> integer
 ```
 
 Get current throttle interval
@@ -1727,7 +1727,7 @@ Get current throttle interval
 #### <a name="mesh-has_packets"></a>has_packets
 
 ```lua
-tdeck.mesh.has_packets() -> boolean
+ez.mesh.has_packets() -> boolean
 ```
 
 Check if packets are available in the queue
@@ -1737,7 +1737,7 @@ Check if packets are available in the queue
 #### <a name="mesh-is_initialized"></a>is_initialized
 
 ```lua
-tdeck.mesh.is_initialized() -> boolean
+ez.mesh.is_initialized() -> boolean
 ```
 
 Check if mesh networking is initialized
@@ -1747,7 +1747,7 @@ Check if mesh networking is initialized
 #### <a name="mesh-is_tx_queue_full"></a>is_tx_queue_full
 
 ```lua
-tdeck.mesh.is_tx_queue_full() -> boolean
+ez.mesh.is_tx_queue_full() -> boolean
 ```
 
 Check if transmit queue is full
@@ -1757,7 +1757,7 @@ Check if transmit queue is full
 #### <a name="mesh-make_header"></a>make_header
 
 ```lua
-tdeck.mesh.make_header(route_type, payload_type, version) -> integer
+ez.mesh.make_header(route_type, payload_type, version) -> integer
 ```
 
 Create a packet header byte from components
@@ -1775,7 +1775,7 @@ Create a packet header byte from components
 #### <a name="mesh-on_group_packet"></a>on_group_packet
 
 ```lua
-tdeck.mesh.on_group_packet(callback)
+ez.mesh.on_group_packet(callback)
 ```
 
 Set callback for raw group packets (DEPRECATED - use bus.subscribe("mesh/group_packet") instead)
@@ -1789,7 +1789,7 @@ Set callback for raw group packets (DEPRECATED - use bus.subscribe("mesh/group_p
 #### <a name="mesh-on_node_discovered"></a>on_node_discovered
 
 ```lua
-tdeck.mesh.on_node_discovered(callback)
+ez.mesh.on_node_discovered(callback)
 ```
 
 Set callback for node discovery (DEPRECATED - use bus.subscribe("mesh/node_discovered") instead)
@@ -1803,7 +1803,7 @@ Set callback for node discovery (DEPRECATED - use bus.subscribe("mesh/node_disco
 #### <a name="mesh-on_packet"></a>on_packet
 
 ```lua
-tdeck.mesh.on_packet(callback)
+ez.mesh.on_packet(callback)
 ```
 
 Set callback for ALL incoming packets (DEPRECATED - use bus.subscribe("mesh/packet") instead)
@@ -1817,7 +1817,7 @@ Set callback for ALL incoming packets (DEPRECATED - use bus.subscribe("mesh/pack
 #### <a name="mesh-packet_count"></a>packet_count
 
 ```lua
-tdeck.mesh.packet_count() -> integer
+ez.mesh.packet_count() -> integer
 ```
 
 Get number of packets in queue
@@ -1827,7 +1827,7 @@ Get number of packets in queue
 #### <a name="mesh-parse_header"></a>parse_header
 
 ```lua
-tdeck.mesh.parse_header(header_byte) -> route_type, payload_type, version
+ez.mesh.parse_header(header_byte) -> route_type, payload_type, version
 ```
 
 Parse a packet header byte into components
@@ -1843,7 +1843,7 @@ Parse a packet header byte into components
 #### <a name="mesh-pop_packet"></a>pop_packet
 
 ```lua
-tdeck.mesh.pop_packet() -> table|nil
+ez.mesh.pop_packet() -> table|nil
 ```
 
 Get and remove the next packet from queue
@@ -1853,7 +1853,7 @@ Get and remove the next packet from queue
 #### <a name="mesh-queue_send"></a>queue_send
 
 ```lua
-tdeck.mesh.queue_send(data) -> boolean
+ez.mesh.queue_send(data) -> boolean
 ```
 
 Queue packet for transmission (throttled, non-blocking)
@@ -1869,7 +1869,7 @@ Queue packet for transmission (throttled, non-blocking)
 #### <a name="mesh-schedule_rebroadcast"></a>schedule_rebroadcast
 
 ```lua
-tdeck.mesh.schedule_rebroadcast(data)
+ez.mesh.schedule_rebroadcast(data)
 ```
 
 Schedule raw packet data for rebroadcast
@@ -1883,7 +1883,7 @@ Schedule raw packet data for rebroadcast
 #### <a name="mesh-send_announce"></a>send_announce
 
 ```lua
-tdeck.mesh.send_announce() -> boolean
+ez.mesh.send_announce() -> boolean
 ```
 
 Broadcast node announcement
@@ -1893,7 +1893,7 @@ Broadcast node announcement
 #### <a name="mesh-send_group_packet"></a>send_group_packet
 
 ```lua
-tdeck.mesh.send_group_packet(channel_hash, encrypted_data) -> boolean
+ez.mesh.send_group_packet(channel_hash, encrypted_data) -> boolean
 ```
 
 Send raw encrypted group packet
@@ -1910,7 +1910,7 @@ Send raw encrypted group packet
 #### <a name="mesh-send_raw"></a>send_raw
 
 ```lua
-tdeck.mesh.send_raw(data) -> boolean
+ez.mesh.send_raw(data) -> boolean
 ```
 
 Send raw packet data directly via radio (bypasses queue, immediate)
@@ -1926,7 +1926,7 @@ Send raw packet data directly via radio (bypasses queue, immediate)
 #### <a name="mesh-set_announce_interval"></a>set_announce_interval
 
 ```lua
-tdeck.mesh.set_announce_interval(ms)
+ez.mesh.set_announce_interval(ms)
 ```
 
 Set auto-announce interval in milliseconds (0 = disabled)
@@ -1940,7 +1940,7 @@ Set auto-announce interval in milliseconds (0 = disabled)
 #### <a name="mesh-set_node_name"></a>set_node_name
 
 ```lua
-tdeck.mesh.set_node_name(name) -> boolean
+ez.mesh.set_node_name(name) -> boolean
 ```
 
 Set this node's display name
@@ -1956,7 +1956,7 @@ Set this node's display name
 #### <a name="mesh-set_path_check"></a>set_path_check
 
 ```lua
-tdeck.mesh.set_path_check(enabled)
+ez.mesh.set_path_check(enabled)
 ```
 
 Enable or disable path check for flood routing
@@ -1970,7 +1970,7 @@ Enable or disable path check for flood routing
 #### <a name="mesh-set_tx_throttle"></a>set_tx_throttle
 
 ```lua
-tdeck.mesh.set_tx_throttle(ms)
+ez.mesh.set_tx_throttle(ms)
 ```
 
 Set minimum interval between transmissions
@@ -1984,19 +1984,19 @@ Set minimum interval between transmissions
 #### <a name="mesh-update"></a>update
 
 ```lua
-tdeck.mesh.update()
+ez.mesh.update()
 ```
 
 Process incoming mesh packets
 
 ## radio
 
-### tdeck.radio
+### ez.radio
 
 #### <a name="radio-available"></a>available
 
 ```lua
-tdeck.radio.available() -> boolean
+ez.radio.available() -> boolean
 ```
 
 Check if data is available
@@ -2006,7 +2006,7 @@ Check if data is available
 #### <a name="radio-get_config"></a>get_config
 
 ```lua
-tdeck.radio.get_config() -> table
+ez.radio.get_config() -> table
 ```
 
 Get current radio configuration
@@ -2016,7 +2016,7 @@ Get current radio configuration
 #### <a name="radio-get_last_rssi"></a>get_last_rssi
 
 ```lua
-tdeck.radio.get_last_rssi() -> number
+ez.radio.get_last_rssi() -> number
 ```
 
 Get last received signal strength
@@ -2026,7 +2026,7 @@ Get last received signal strength
 #### <a name="radio-get_last_snr"></a>get_last_snr
 
 ```lua
-tdeck.radio.get_last_snr() -> number
+ez.radio.get_last_snr() -> number
 ```
 
 Get last signal-to-noise ratio
@@ -2036,7 +2036,7 @@ Get last signal-to-noise ratio
 #### <a name="radio-is_busy"></a>is_busy
 
 ```lua
-tdeck.radio.is_busy() -> boolean
+ez.radio.is_busy() -> boolean
 ```
 
 Check if radio is busy
@@ -2046,7 +2046,7 @@ Check if radio is busy
 #### <a name="radio-is_initialized"></a>is_initialized
 
 ```lua
-tdeck.radio.is_initialized() -> boolean
+ez.radio.is_initialized() -> boolean
 ```
 
 Check if radio is initialized
@@ -2056,7 +2056,7 @@ Check if radio is initialized
 #### <a name="radio-is_receiving"></a>is_receiving
 
 ```lua
-tdeck.radio.is_receiving() -> boolean
+ez.radio.is_receiving() -> boolean
 ```
 
 Check if in receive mode
@@ -2066,7 +2066,7 @@ Check if in receive mode
 #### <a name="radio-is_transmitting"></a>is_transmitting
 
 ```lua
-tdeck.radio.is_transmitting() -> boolean
+ez.radio.is_transmitting() -> boolean
 ```
 
 Check if currently transmitting
@@ -2076,7 +2076,7 @@ Check if currently transmitting
 #### <a name="radio-receive"></a>receive
 
 ```lua
-tdeck.radio.receive() -> string, number, number
+ez.radio.receive() -> string, number, number
 ```
 
 Receive a packet
@@ -2086,7 +2086,7 @@ Receive a packet
 #### <a name="radio-send"></a>send
 
 ```lua
-tdeck.radio.send(data) -> string
+ez.radio.send(data) -> string
 ```
 
 Transmit data
@@ -2102,7 +2102,7 @@ Transmit data
 #### <a name="radio-set_bandwidth"></a>set_bandwidth
 
 ```lua
-tdeck.radio.set_bandwidth(khz) -> string
+ez.radio.set_bandwidth(khz) -> string
 ```
 
 Set radio bandwidth
@@ -2118,7 +2118,7 @@ Set radio bandwidth
 #### <a name="radio-set_coding_rate"></a>set_coding_rate
 
 ```lua
-tdeck.radio.set_coding_rate(cr) -> string
+ez.radio.set_coding_rate(cr) -> string
 ```
 
 Set LoRa coding rate
@@ -2134,7 +2134,7 @@ Set LoRa coding rate
 #### <a name="radio-set_frequency"></a>set_frequency
 
 ```lua
-tdeck.radio.set_frequency(mhz) -> string
+ez.radio.set_frequency(mhz) -> string
 ```
 
 Set radio frequency
@@ -2150,7 +2150,7 @@ Set radio frequency
 #### <a name="radio-set_spreading_factor"></a>set_spreading_factor
 
 ```lua
-tdeck.radio.set_spreading_factor(sf) -> string
+ez.radio.set_spreading_factor(sf) -> string
 ```
 
 Set LoRa spreading factor
@@ -2166,7 +2166,7 @@ Set LoRa spreading factor
 #### <a name="radio-set_sync_word"></a>set_sync_word
 
 ```lua
-tdeck.radio.set_sync_word(sw) -> string
+ez.radio.set_sync_word(sw) -> string
 ```
 
 Set sync word
@@ -2182,7 +2182,7 @@ Set sync word
 #### <a name="radio-set_tx_power"></a>set_tx_power
 
 ```lua
-tdeck.radio.set_tx_power(dbm) -> string
+ez.radio.set_tx_power(dbm) -> string
 ```
 
 Set transmit power
@@ -2198,7 +2198,7 @@ Set transmit power
 #### <a name="radio-sleep"></a>sleep
 
 ```lua
-tdeck.radio.sleep() -> string
+ez.radio.sleep() -> string
 ```
 
 Put radio into sleep mode
@@ -2208,7 +2208,7 @@ Put radio into sleep mode
 #### <a name="radio-start_receive"></a>start_receive
 
 ```lua
-tdeck.radio.start_receive() -> string
+ez.radio.start_receive() -> string
 ```
 
 Start listening for packets
@@ -2218,7 +2218,7 @@ Start listening for packets
 #### <a name="radio-wake"></a>wake
 
 ```lua
-tdeck.radio.wake() -> string
+ez.radio.wake() -> string
 ```
 
 Wake radio from sleep
@@ -2227,12 +2227,12 @@ Wake radio from sleep
 
 ## storage
 
-### tdeck.storage
+### ez.storage
 
 #### <a name="storage-append_file"></a>append_file
 
 ```lua
-tdeck.storage.append_file(path, content) -> boolean
+ez.storage.append_file(path, content) -> boolean
 ```
 
 Append content to file
@@ -2249,7 +2249,7 @@ Append content to file
 #### <a name="storage-clear_prefs"></a>clear_prefs
 
 ```lua
-tdeck.storage.clear_prefs() -> boolean
+ez.storage.clear_prefs() -> boolean
 ```
 
 Clear all preferences
@@ -2259,7 +2259,7 @@ Clear all preferences
 #### <a name="storage-exists"></a>exists
 
 ```lua
-tdeck.storage.exists(path) -> boolean
+ez.storage.exists(path) -> boolean
 ```
 
 Check if file or directory exists
@@ -2275,7 +2275,7 @@ Check if file or directory exists
 #### <a name="storage-file_size"></a>file_size
 
 ```lua
-tdeck.storage.file_size(path) -> integer
+ez.storage.file_size(path) -> integer
 ```
 
 Get file size in bytes
@@ -2291,7 +2291,7 @@ Get file size in bytes
 #### <a name="storage-get_flash_info"></a>get_flash_info
 
 ```lua
-tdeck.storage.get_flash_info() -> table
+ez.storage.get_flash_info() -> table
 ```
 
 Get flash storage info
@@ -2301,7 +2301,7 @@ Get flash storage info
 #### <a name="storage-get_pref"></a>get_pref
 
 ```lua
-tdeck.storage.get_pref(key, default) -> string
+ez.storage.get_pref(key, default) -> string
 ```
 
 Get preference value
@@ -2318,7 +2318,7 @@ Get preference value
 #### <a name="storage-get_sd_info"></a>get_sd_info
 
 ```lua
-tdeck.storage.get_sd_info() -> table
+ez.storage.get_sd_info() -> table
 ```
 
 Get SD card info
@@ -2328,7 +2328,7 @@ Get SD card info
 #### <a name="storage-is_sd_available"></a>is_sd_available
 
 ```lua
-tdeck.storage.is_sd_available() -> boolean
+ez.storage.is_sd_available() -> boolean
 ```
 
 Check if SD card is mounted
@@ -2338,7 +2338,7 @@ Check if SD card is mounted
 #### <a name="storage-json_decode"></a>json_decode
 
 ```lua
-tdeck.storage.json_decode(json_string) -> value
+ez.storage.json_decode(json_string) -> value
 ```
 
 Decode JSON string to Lua value
@@ -2354,7 +2354,7 @@ Decode JSON string to Lua value
 #### <a name="storage-json_encode"></a>json_encode
 
 ```lua
-tdeck.storage.json_encode(value) -> string
+ez.storage.json_encode(value) -> string
 ```
 
 Encode Lua value to JSON string
@@ -2370,7 +2370,7 @@ Encode Lua value to JSON string
 #### <a name="storage-list_dir"></a>list_dir
 
 ```lua
-tdeck.storage.list_dir(path) -> table
+ez.storage.list_dir(path) -> table
 ```
 
 List directory contents
@@ -2386,7 +2386,7 @@ List directory contents
 #### <a name="storage-mkdir"></a>mkdir
 
 ```lua
-tdeck.storage.mkdir(path) -> boolean
+ez.storage.mkdir(path) -> boolean
 ```
 
 Create directory
@@ -2402,7 +2402,7 @@ Create directory
 #### <a name="storage-read_bytes"></a>read_bytes
 
 ```lua
-tdeck.storage.read_bytes(path, offset, length) -> string
+ez.storage.read_bytes(path, offset, length) -> string
 ```
 
 Read bytes from file at specific offset (for random access)
@@ -2420,7 +2420,7 @@ Read bytes from file at specific offset (for random access)
 #### <a name="storage-read_file"></a>read_file
 
 ```lua
-tdeck.storage.read_file(path) -> string
+ez.storage.read_file(path) -> string
 ```
 
 Read entire file contents
@@ -2436,7 +2436,7 @@ Read entire file contents
 #### <a name="storage-remove"></a>remove
 
 ```lua
-tdeck.storage.remove(path) -> boolean
+ez.storage.remove(path) -> boolean
 ```
 
 Delete a file
@@ -2452,7 +2452,7 @@ Delete a file
 #### <a name="storage-remove_pref"></a>remove_pref
 
 ```lua
-tdeck.storage.remove_pref(key) -> boolean
+ez.storage.remove_pref(key) -> boolean
 ```
 
 Remove a preference
@@ -2468,7 +2468,7 @@ Remove a preference
 #### <a name="storage-rename"></a>rename
 
 ```lua
-tdeck.storage.rename(old_path, new_path) -> boolean
+ez.storage.rename(old_path, new_path) -> boolean
 ```
 
 Rename or move a file
@@ -2485,7 +2485,7 @@ Rename or move a file
 #### <a name="storage-rmdir"></a>rmdir
 
 ```lua
-tdeck.storage.rmdir(path) -> boolean
+ez.storage.rmdir(path) -> boolean
 ```
 
 Remove empty directory
@@ -2501,7 +2501,7 @@ Remove empty directory
 #### <a name="storage-set_pref"></a>set_pref
 
 ```lua
-tdeck.storage.set_pref(key, value) -> boolean
+ez.storage.set_pref(key, value) -> boolean
 ```
 
 Set preference value
@@ -2518,7 +2518,7 @@ Set preference value
 #### <a name="storage-write_file"></a>write_file
 
 ```lua
-tdeck.storage.write_file(path, content) -> boolean
+ez.storage.write_file(path, content) -> boolean
 ```
 
 Write content to file (creates/overwrites)
@@ -2534,12 +2534,12 @@ Write content to file (creates/overwrites)
 
 ## system
 
-### tdeck.system
+### ez.system
 
 #### <a name="system-cancel_timer"></a>cancel_timer
 
 ```lua
-tdeck.system.cancel_timer(timer_id)
+ez.system.cancel_timer(timer_id)
 ```
 
 Cancel a scheduled timer
@@ -2553,7 +2553,7 @@ Cancel a scheduled timer
 #### <a name="system-chip_model"></a>chip_model
 
 ```lua
-tdeck.system.chip_model() -> string
+ez.system.chip_model() -> string
 ```
 
 Get ESP32 chip model name
@@ -2563,7 +2563,7 @@ Get ESP32 chip model name
 #### <a name="system-cpu_freq"></a>cpu_freq
 
 ```lua
-tdeck.system.cpu_freq() -> integer
+ez.system.cpu_freq() -> integer
 ```
 
 Get CPU frequency
@@ -2573,7 +2573,7 @@ Get CPU frequency
 #### <a name="system-delay"></a>delay
 
 ```lua
-tdeck.system.delay(ms)
+ez.system.delay(ms)
 ```
 
 Blocking delay execution
@@ -2587,7 +2587,7 @@ Blocking delay execution
 #### <a name="system-gc"></a>gc
 
 ```lua
-tdeck.system.gc()
+ez.system.gc()
 ```
 
 Force full garbage collection
@@ -2595,7 +2595,7 @@ Force full garbage collection
 #### <a name="system-gc_step"></a>gc_step
 
 ```lua
-tdeck.system.gc_step(steps) -> integer
+ez.system.gc_step(steps) -> integer
 ```
 
 Perform incremental garbage collection
@@ -2611,7 +2611,7 @@ Perform incremental garbage collection
 #### <a name="system-get_battery_percent"></a>get_battery_percent
 
 ```lua
-tdeck.system.get_battery_percent() -> integer
+ez.system.get_battery_percent() -> integer
 ```
 
 Get battery charge level
@@ -2621,7 +2621,7 @@ Get battery charge level
 #### <a name="system-get_battery_voltage"></a>get_battery_voltage
 
 ```lua
-tdeck.system.get_battery_voltage() -> number
+ez.system.get_battery_voltage() -> number
 ```
 
 Get battery voltage
@@ -2631,7 +2631,7 @@ Get battery voltage
 #### <a name="system-get_firmware_info"></a>get_firmware_info
 
 ```lua
-tdeck.system.get_firmware_info() -> table
+ez.system.get_firmware_info() -> table
 ```
 
 Get firmware partition info
@@ -2641,7 +2641,7 @@ Get firmware partition info
 #### <a name="system-get_free_heap"></a>get_free_heap
 
 ```lua
-tdeck.system.get_free_heap() -> integer
+ez.system.get_free_heap() -> integer
 ```
 
 Get free internal RAM
@@ -2651,7 +2651,7 @@ Get free internal RAM
 #### <a name="system-get_free_psram"></a>get_free_psram
 
 ```lua
-tdeck.system.get_free_psram() -> integer
+ez.system.get_free_psram() -> integer
 ```
 
 Get free PSRAM
@@ -2661,7 +2661,7 @@ Get free PSRAM
 #### <a name="system-get_last_error"></a>get_last_error
 
 ```lua
-tdeck.system.get_last_error() -> string
+ez.system.get_last_error() -> string
 ```
 
 Get last Lua error message
@@ -2671,7 +2671,7 @@ Get last Lua error message
 #### <a name="system-get_lua_memory"></a>get_lua_memory
 
 ```lua
-tdeck.system.get_lua_memory() -> integer
+ez.system.get_lua_memory() -> integer
 ```
 
 Get memory used by Lua runtime
@@ -2681,7 +2681,7 @@ Get memory used by Lua runtime
 #### <a name="system-get_time"></a>get_time
 
 ```lua
-tdeck.system.get_time() -> table|nil
+ez.system.get_time() -> table|nil
 ```
 
 Get current wall clock time
@@ -2691,7 +2691,7 @@ Get current wall clock time
 #### <a name="system-get_time_unix"></a>get_time_unix
 
 ```lua
-tdeck.system.get_time_unix() -> integer
+ez.system.get_time_unix() -> integer
 ```
 
 Get current Unix timestamp
@@ -2701,7 +2701,7 @@ Get current Unix timestamp
 #### <a name="system-get_timezone"></a>get_timezone
 
 ```lua
-tdeck.system.get_timezone() -> integer
+ez.system.get_timezone() -> integer
 ```
 
 Get current timezone UTC offset in hours
@@ -2711,7 +2711,7 @@ Get current timezone UTC offset in hours
 #### <a name="system-get_total_heap"></a>get_total_heap
 
 ```lua
-tdeck.system.get_total_heap() -> integer
+ez.system.get_total_heap() -> integer
 ```
 
 Get total heap size
@@ -2721,7 +2721,7 @@ Get total heap size
 #### <a name="system-get_total_psram"></a>get_total_psram
 
 ```lua
-tdeck.system.get_total_psram() -> integer
+ez.system.get_total_psram() -> integer
 ```
 
 Get total PSRAM size
@@ -2731,7 +2731,7 @@ Get total PSRAM size
 #### <a name="system-is_low_memory"></a>is_low_memory
 
 ```lua
-tdeck.system.is_low_memory() -> boolean
+ez.system.is_low_memory() -> boolean
 ```
 
 Check if memory is critically low
@@ -2741,7 +2741,7 @@ Check if memory is critically low
 #### <a name="system-is_sd_available"></a>is_sd_available
 
 ```lua
-tdeck.system.is_sd_available() -> boolean
+ez.system.is_sd_available() -> boolean
 ```
 
 Check if SD card is available
@@ -2751,7 +2751,7 @@ Check if SD card is available
 #### <a name="system-is_usb_msc_active"></a>is_usb_msc_active
 
 ```lua
-tdeck.system.is_usb_msc_active() -> boolean
+ez.system.is_usb_msc_active() -> boolean
 ```
 
 Check if USB MSC mode is active
@@ -2761,7 +2761,7 @@ Check if USB MSC mode is active
 #### <a name="system-log"></a>log
 
 ```lua
-tdeck.system.log(message)
+ez.system.log(message)
 ```
 
 Log message to serial output
@@ -2775,7 +2775,7 @@ Log message to serial output
 #### <a name="system-millis"></a>millis
 
 ```lua
-tdeck.system.millis() -> integer
+ez.system.millis() -> integer
 ```
 
 Returns milliseconds since boot
@@ -2785,7 +2785,7 @@ Returns milliseconds since boot
 #### <a name="system-reload_scripts"></a>reload_scripts
 
 ```lua
-tdeck.system.reload_scripts() -> boolean
+ez.system.reload_scripts() -> boolean
 ```
 
 Reload all Lua scripts (hot reload)
@@ -2795,7 +2795,7 @@ Reload all Lua scripts (hot reload)
 #### <a name="system-restart"></a>restart
 
 ```lua
-tdeck.system.restart()
+ez.system.restart()
 ```
 
 Restart the device
@@ -2803,7 +2803,7 @@ Restart the device
 #### <a name="system-set_interval"></a>set_interval
 
 ```lua
-tdeck.system.set_interval(ms, callback) -> integer
+ez.system.set_interval(ms, callback) -> integer
 ```
 
 Schedule a repeating callback
@@ -2820,7 +2820,7 @@ Schedule a repeating callback
 #### <a name="system-set_time"></a>set_time
 
 ```lua
-tdeck.system.set_time(year, month, day, hour, minute, second) -> boolean
+ez.system.set_time(year, month, day, hour, minute, second) -> boolean
 ```
 
 Set system clock time
@@ -2841,7 +2841,7 @@ Set system clock time
 #### <a name="system-set_time_unix"></a>set_time_unix
 
 ```lua
-tdeck.system.set_time_unix(timestamp) -> boolean
+ez.system.set_time_unix(timestamp) -> boolean
 ```
 
 Set system clock from Unix timestamp
@@ -2857,7 +2857,7 @@ Set system clock from Unix timestamp
 #### <a name="system-set_timer"></a>set_timer
 
 ```lua
-tdeck.system.set_timer(ms, callback) -> integer
+ez.system.set_timer(ms, callback) -> integer
 ```
 
 Schedule a one-shot callback
@@ -2874,7 +2874,7 @@ Schedule a one-shot callback
 #### <a name="system-set_timezone"></a>set_timezone
 
 ```lua
-tdeck.system.set_timezone(tz_string) -> boolean
+ez.system.set_timezone(tz_string) -> boolean
 ```
 
 Set timezone using POSIX TZ string
@@ -2890,7 +2890,7 @@ Set timezone using POSIX TZ string
 #### <a name="system-start_usb_msc"></a>start_usb_msc
 
 ```lua
-tdeck.system.start_usb_msc() -> boolean
+ez.system.start_usb_msc() -> boolean
 ```
 
 Start USB Mass Storage mode to access SD card from PC
@@ -2900,7 +2900,7 @@ Start USB Mass Storage mode to access SD card from PC
 #### <a name="system-stop_usb_msc"></a>stop_usb_msc
 
 ```lua
-tdeck.system.stop_usb_msc()
+ez.system.stop_usb_msc()
 ```
 
 Stop USB Mass Storage mode
@@ -2908,7 +2908,7 @@ Stop USB Mass Storage mode
 #### <a name="system-uptime"></a>uptime
 
 ```lua
-tdeck.system.uptime() -> integer
+ez.system.uptime() -> integer
 ```
 
 Get device uptime
@@ -2918,7 +2918,7 @@ Get device uptime
 #### <a name="system-yield"></a>yield
 
 ```lua
-tdeck.system.yield(ms)
+ez.system.yield(ms)
 ```
 
 Yield execution to allow C++ background tasks to run

@@ -16,11 +16,12 @@ src/lua/embedded_lua_scripts.h
 __pycache__/
 *.pyc
 venv/
+.venv/
 
 # Large map data files
 *.osm.pbf
 *.pmtiles
-tools/maps/*.tdmap
+*.tdmap
 tools/maps/*.checkpoint
 
 # Screenshots

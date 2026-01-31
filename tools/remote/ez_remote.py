@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-T-Deck Remote Control Client
+ezOS Remote Control Client
 
-A command-line tool for controlling T-Deck OS over USB serial.
+A command-line tool for controlling ezOS over USB serial.
 Supports screenshot capture, keyboard input injection, screen queries, log access,
 and Lua code execution.
 
 Usage:
-    python tdeck_remote.py /dev/ttyACM0                    # Test connection (ping)
-    python tdeck_remote.py /dev/ttyACM0 -s screenshot.png  # Take screenshot
-    python tdeck_remote.py /dev/ttyACM0 -k a               # Send character 'a'
-    python tdeck_remote.py /dev/ttyACM0 -k enter           # Send Enter key
-    python tdeck_remote.py /dev/ttyACM0 --info             # Get screen info
-    python tdeck_remote.py /dev/ttyACM0 --text             # Capture rendered text
-    python tdeck_remote.py /dev/ttyACM0 --primitives       # Capture draw primitives
-    python tdeck_remote.py /dev/ttyACM0 --logs             # Get buffered logs
-    python tdeck_remote.py /dev/ttyACM0 --monitor          # Monitor serial output
-    python tdeck_remote.py /dev/ttyACM0 -e "1+1"           # Execute Lua expression
-    python tdeck_remote.py /dev/ttyACM0 -e "Debug.memory()" # Call debug function
+    python ez_remote.py /dev/ttyACM0                    # Test connection (ping)
+    python ez_remote.py /dev/ttyACM0 -s screenshot.png  # Take screenshot
+    python ez_remote.py /dev/ttyACM0 -k a               # Send character 'a'
+    python ez_remote.py /dev/ttyACM0 -k enter           # Send Enter key
+    python ez_remote.py /dev/ttyACM0 --info             # Get screen info
+    python ez_remote.py /dev/ttyACM0 --text             # Capture rendered text
+    python ez_remote.py /dev/ttyACM0 --primitives       # Capture draw primitives
+    python ez_remote.py /dev/ttyACM0 --logs             # Get buffered logs
+    python ez_remote.py /dev/ttyACM0 --monitor          # Monitor serial output
+    python ez_remote.py /dev/ttyACM0 -e "1+1"           # Execute Lua expression
+    python ez_remote.py /dev/ttyACM0 -e "Debug.memory()" # Call debug function
 """
 
 import serial
@@ -27,7 +27,7 @@ import sys
 import json
 
 
-class TDeckRemote:
+class EzRemote:
     """Client for T-Deck remote control protocol."""
 
     # Command codes
@@ -277,7 +277,7 @@ class TDeckRemote:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='T-Deck Remote Control Client',
+        description='ezOS Remote Control Client',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -332,7 +332,7 @@ Examples:
     args = parser.parse_args()
 
     try:
-        remote = TDeckRemote(args.port, args.baudrate, args.timeout)
+        remote = EzRemote(args.port, args.baudrate, args.timeout)
     except serial.SerialException as e:
         print(f"Error opening serial port: {e}", file=sys.stderr)
         return 1

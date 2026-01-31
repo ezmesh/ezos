@@ -1,6 +1,6 @@
 # MeshCore Protocol Documentation
 
-This document describes the MeshCore mesh networking protocol as implemented by Ripple Radio devices and our T-Deck OS firmware.
+This document describes the MeshCore mesh networking protocol as implemented by Ripple Radio devices and our ezOS firmware.
 
 ## Overview
 

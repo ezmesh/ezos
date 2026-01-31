@@ -28,8 +28,8 @@ function Blackjack:on_enter()
     if _G.MainLoop then _G.MainLoop.enter_game_mode() end
 
     -- Load chips
-    if tdeck.storage and tdeck.storage.get_pref then
-        self.chips = tdeck.storage.get_pref("blackjack_chips", 1000)
+    if ez.storage and ez.storage.get_pref then
+        self.chips = ez.storage.get_pref("blackjack_chips", 1000)
     end
 
     self:new_round()
@@ -37,8 +37,8 @@ end
 
 function Blackjack:on_exit()
     if _G.MainLoop then _G.MainLoop.exit_game_mode() end
-    if tdeck.storage and tdeck.storage.set_pref then
-        tdeck.storage.set_pref("blackjack_chips", self.chips)
+    if ez.storage and ez.storage.set_pref then
+        ez.storage.set_pref("blackjack_chips", self.chips)
     end
 end
 

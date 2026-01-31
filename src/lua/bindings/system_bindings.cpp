@@ -1,4 +1,4 @@
-// tdeck.system module bindings
+// ez.system module bindings
 // Provides system utilities: timing, memory info, logging, hot reload
 
 #include "../lua_bindings.h"
@@ -29,7 +29,7 @@ static lua_State* timerLuaState = nullptr;
 // Forward declarations
 void processLuaTimers();
 
-// @lua tdeck.system.millis() -> integer
+// @lua ez.system.millis() -> integer
 // @brief Returns milliseconds since boot
 // @return Milliseconds elapsed since device started
 LUA_FUNCTION(l_system_millis) {
@@ -37,7 +37,7 @@ LUA_FUNCTION(l_system_millis) {
     return 1;
 }
 
-// @lua tdeck.system.delay(ms)
+// @lua ez.system.delay(ms)
 // @brief Blocking delay execution
 // @param ms Delay duration in milliseconds (max 60000)
 LUA_FUNCTION(l_system_delay) {
@@ -49,13 +49,13 @@ LUA_FUNCTION(l_system_delay) {
     return 0;
 }
 
-// @lua tdeck.system.set_timer(ms, callback) -> integer
+// @lua ez.system.set_timer(ms, callback) -> integer
 // @brief Schedule a one-shot callback
 // @param ms Delay before callback fires
 // @param callback Function to call
 // @return Timer ID for cancellation
 // @example
-// tdeck.system.set_timer(1000, function() print("Done!") end)
+// ez.system.set_timer(1000, function() print("Done!") end)
 // @end
 LUA_FUNCTION(l_system_set_timer) {
     LUA_CHECK_ARGC(L, 2);
@@ -92,13 +92,13 @@ LUA_FUNCTION(l_system_set_timer) {
     return 1;
 }
 
-// @lua tdeck.system.set_interval(ms, callback) -> integer
+// @lua ez.system.set_interval(ms, callback) -> integer
 // @brief Schedule a repeating callback
 // @param ms Interval between calls (minimum 10ms)
 // @param callback Function to call repeatedly
 // @return Timer ID for cancellation
 // @example
-// local id = tdeck.system.set_interval(1000, function() print("tick") end)
+// local id = ez.system.set_interval(1000, function() print("tick") end)
 // @end
 LUA_FUNCTION(l_system_set_interval) {
     LUA_CHECK_ARGC(L, 2);
@@ -137,7 +137,7 @@ LUA_FUNCTION(l_system_set_interval) {
     return 1;
 }
 
-// @lua tdeck.system.cancel_timer(timer_id)
+// @lua ez.system.cancel_timer(timer_id)
 // @brief Cancel a scheduled timer
 // @param timer_id ID returned by set_timer or set_interval
 LUA_FUNCTION(l_system_cancel_timer) {
@@ -152,7 +152,7 @@ LUA_FUNCTION(l_system_cancel_timer) {
     return 0;
 }
 
-// @lua tdeck.system.get_battery_percent() -> integer
+// @lua ez.system.get_battery_percent() -> integer
 // @brief Get battery charge level
 // @return Battery percentage (0-100)
 LUA_FUNCTION(l_system_get_battery_percent) {
@@ -169,7 +169,7 @@ LUA_FUNCTION(l_system_get_battery_percent) {
     return 1;
 }
 
-// @lua tdeck.system.get_battery_voltage() -> number
+// @lua ez.system.get_battery_voltage() -> number
 // @brief Get battery voltage
 // @return Estimated battery voltage in volts
 LUA_FUNCTION(l_system_get_battery_voltage) {
@@ -180,7 +180,7 @@ LUA_FUNCTION(l_system_get_battery_voltage) {
     return 1;
 }
 
-// @lua tdeck.system.get_free_heap() -> integer
+// @lua ez.system.get_free_heap() -> integer
 // @brief Get free internal RAM
 // @return Free heap memory in bytes
 LUA_FUNCTION(l_system_get_free_heap) {
@@ -188,7 +188,7 @@ LUA_FUNCTION(l_system_get_free_heap) {
     return 1;
 }
 
-// @lua tdeck.system.get_free_psram() -> integer
+// @lua ez.system.get_free_psram() -> integer
 // @brief Get free PSRAM
 // @return Free PSRAM in bytes
 LUA_FUNCTION(l_system_get_free_psram) {
@@ -196,7 +196,7 @@ LUA_FUNCTION(l_system_get_free_psram) {
     return 1;
 }
 
-// @lua tdeck.system.get_total_heap() -> integer
+// @lua ez.system.get_total_heap() -> integer
 // @brief Get total heap size
 // @return Total heap memory in bytes
 LUA_FUNCTION(l_system_get_total_heap) {
@@ -204,7 +204,7 @@ LUA_FUNCTION(l_system_get_total_heap) {
     return 1;
 }
 
-// @lua tdeck.system.get_total_psram() -> integer
+// @lua ez.system.get_total_psram() -> integer
 // @brief Get total PSRAM size
 // @return Total PSRAM in bytes
 LUA_FUNCTION(l_system_get_total_psram) {
@@ -212,7 +212,7 @@ LUA_FUNCTION(l_system_get_total_psram) {
     return 1;
 }
 
-// @lua tdeck.system.log(message)
+// @lua ez.system.log(message)
 // @brief Log message to serial output
 // @param message Text to log
 LUA_FUNCTION(l_system_log) {
@@ -222,7 +222,7 @@ LUA_FUNCTION(l_system_log) {
     return 0;
 }
 
-// @lua tdeck.system.restart()
+// @lua ez.system.restart()
 // @brief Restart the device
 LUA_FUNCTION(l_system_restart) {
     Serial.println("[Lua] Restart requested");
@@ -231,7 +231,7 @@ LUA_FUNCTION(l_system_restart) {
     return 0;  // Never reached
 }
 
-// @lua tdeck.system.uptime() -> integer
+// @lua ez.system.uptime() -> integer
 // @brief Get device uptime
 // @return Seconds since boot
 LUA_FUNCTION(l_system_uptime) {
@@ -239,11 +239,11 @@ LUA_FUNCTION(l_system_uptime) {
     return 1;
 }
 
-// @lua tdeck.system.get_time() -> table|nil
+// @lua ez.system.get_time() -> table|nil
 // @brief Get current wall clock time
 // @return Table with hour, minute, second, or nil if time not set
 // @example
-// local t = tdeck.system.get_time()
+// local t = ez.system.get_time()
 // if t then print(t.hour .. ":" .. t.minute) end
 // @end
 LUA_FUNCTION(l_system_get_time) {
@@ -282,7 +282,7 @@ LUA_FUNCTION(l_system_get_time) {
     return 1;
 }
 
-// @lua tdeck.system.set_time(year, month, day, hour, minute, second) -> boolean
+// @lua ez.system.set_time(year, month, day, hour, minute, second) -> boolean
 // @brief Set system clock time
 // @param year Full year (e.g., 2024)
 // @param month Month (1-12)
@@ -330,7 +330,7 @@ LUA_FUNCTION(l_system_set_time) {
     return 1;
 }
 
-// @lua tdeck.system.set_time_unix(timestamp) -> boolean
+// @lua ez.system.set_time_unix(timestamp) -> boolean
 // @brief Set system clock from Unix timestamp
 // @param timestamp Unix timestamp (seconds since 1970-01-01)
 // @return true if time was set successfully
@@ -354,7 +354,7 @@ LUA_FUNCTION(l_system_set_time_unix) {
     return 1;
 }
 
-// @lua tdeck.system.get_time_unix() -> integer
+// @lua ez.system.get_time_unix() -> integer
 // @brief Get current Unix timestamp
 // @return Unix timestamp (seconds since 1970-01-01), or 0 if time not set
 LUA_FUNCTION(l_system_get_time_unix) {
@@ -373,14 +373,14 @@ LUA_FUNCTION(l_system_get_time_unix) {
     return 1;
 }
 
-// @lua tdeck.system.set_timezone(tz_string) -> boolean
+// @lua ez.system.set_timezone(tz_string) -> boolean
 // @brief Set timezone using POSIX TZ string
 // @param tz_string POSIX timezone string (e.g., "CET-1CEST,M3.5.0,M10.5.0/3")
 // @return true if timezone was set successfully
 // @example
-// tdeck.system.set_timezone("CET-1CEST,M3.5.0,M10.5.0/3")  -- Amsterdam/Berlin
-// tdeck.system.set_timezone("EST5EDT,M3.2.0,M11.1.0")      -- New York
-// tdeck.system.set_timezone("GMT0BST,M3.5.0/1,M10.5.0")    -- London
+// ez.system.set_timezone("CET-1CEST,M3.5.0,M10.5.0/3")  -- Amsterdam/Berlin
+// ez.system.set_timezone("EST5EDT,M3.2.0,M11.1.0")      -- New York
+// ez.system.set_timezone("GMT0BST,M3.5.0/1,M10.5.0")    -- London
 // @end
 LUA_FUNCTION(l_system_set_timezone) {
     LUA_CHECK_ARGC(L, 1);
@@ -395,7 +395,7 @@ LUA_FUNCTION(l_system_set_timezone) {
     return 1;
 }
 
-// @lua tdeck.system.get_timezone() -> integer
+// @lua ez.system.get_timezone() -> integer
 // @brief Get current timezone UTC offset in hours
 // @return UTC offset in hours
 LUA_FUNCTION(l_system_get_timezone) {
@@ -422,7 +422,7 @@ LUA_FUNCTION(l_system_get_timezone) {
     return 1;
 }
 
-// @lua tdeck.system.chip_model() -> string
+// @lua ez.system.chip_model() -> string
 // @brief Get ESP32 chip model name
 // @return Chip model string
 LUA_FUNCTION(l_system_chip_model) {
@@ -430,7 +430,7 @@ LUA_FUNCTION(l_system_chip_model) {
     return 1;
 }
 
-// @lua tdeck.system.cpu_freq() -> integer
+// @lua ez.system.cpu_freq() -> integer
 // @brief Get CPU frequency
 // @return Frequency in MHz
 LUA_FUNCTION(l_system_cpu_freq) {
@@ -438,7 +438,7 @@ LUA_FUNCTION(l_system_cpu_freq) {
     return 1;
 }
 
-// @lua tdeck.system.reload_scripts() -> boolean
+// @lua ez.system.reload_scripts() -> boolean
 // @brief Reload all Lua scripts (hot reload)
 // @return true if successful
 LUA_FUNCTION(l_system_reload_scripts) {
@@ -447,14 +447,14 @@ LUA_FUNCTION(l_system_reload_scripts) {
     return 1;
 }
 
-// @lua tdeck.system.gc()
+// @lua ez.system.gc()
 // @brief Force full garbage collection
 LUA_FUNCTION(l_system_gc) {
     LuaRuntime::instance().collectGarbage();
     return 0;
 }
 
-// @lua tdeck.system.gc_step(steps) -> integer
+// @lua ez.system.gc_step(steps) -> integer
 // @brief Perform incremental garbage collection
 // @param steps Number of GC steps (default 10)
 // @return Result from lua_gc
@@ -465,7 +465,7 @@ LUA_FUNCTION(l_system_gc_step) {
     return 1;
 }
 
-// @lua tdeck.system.get_lua_memory() -> integer
+// @lua ez.system.get_lua_memory() -> integer
 // @brief Get memory used by Lua runtime
 // @return Memory usage in bytes
 LUA_FUNCTION(l_system_get_lua_memory) {
@@ -473,7 +473,7 @@ LUA_FUNCTION(l_system_get_lua_memory) {
     return 1;
 }
 
-// @lua tdeck.system.is_low_memory() -> boolean
+// @lua ez.system.is_low_memory() -> boolean
 // @brief Check if memory is critically low
 // @return true if less than 32KB available
 LUA_FUNCTION(l_system_is_low_memory) {
@@ -481,7 +481,7 @@ LUA_FUNCTION(l_system_is_low_memory) {
     return 1;
 }
 
-// @lua tdeck.system.get_last_error() -> string
+// @lua ez.system.get_last_error() -> string
 // @brief Get last Lua error message
 // @return Error message or nil if no error
 LUA_FUNCTION(l_system_get_last_error) {
@@ -494,7 +494,7 @@ LUA_FUNCTION(l_system_get_last_error) {
     return 1;
 }
 
-// @lua tdeck.system.start_usb_msc() -> boolean
+// @lua ez.system.start_usb_msc() -> boolean
 // @brief Start USB Mass Storage mode to access SD card from PC
 // @return true if started successfully
 LUA_FUNCTION(l_system_start_usb_msc) {
@@ -502,14 +502,14 @@ LUA_FUNCTION(l_system_start_usb_msc) {
     return 1;
 }
 
-// @lua tdeck.system.stop_usb_msc()
+// @lua ez.system.stop_usb_msc()
 // @brief Stop USB Mass Storage mode
 LUA_FUNCTION(l_system_stop_usb_msc) {
     SDCardUSB::stop();
     return 0;
 }
 
-// @lua tdeck.system.is_usb_msc_active() -> boolean
+// @lua ez.system.is_usb_msc_active() -> boolean
 // @brief Check if USB MSC mode is active
 // @return true if MSC mode is active
 LUA_FUNCTION(l_system_is_usb_msc_active) {
@@ -517,7 +517,7 @@ LUA_FUNCTION(l_system_is_usb_msc_active) {
     return 1;
 }
 
-// @lua tdeck.system.is_sd_available() -> boolean
+// @lua ez.system.is_sd_available() -> boolean
 // @brief Check if SD card is available
 // @return true if SD card is present and accessible
 LUA_FUNCTION(l_system_is_sd_available) {
@@ -525,7 +525,7 @@ LUA_FUNCTION(l_system_is_sd_available) {
     return 1;
 }
 
-// @lua tdeck.system.get_firmware_info() -> table
+// @lua ez.system.get_firmware_info() -> table
 // @brief Get firmware partition info
 // @return Table with partition_size, app_size, free_bytes
 LUA_FUNCTION(l_system_get_firmware_info) {
@@ -565,7 +565,7 @@ LUA_FUNCTION(l_system_get_firmware_info) {
     return 1;
 }
 
-// @lua tdeck.system.yield(ms)
+// @lua ez.system.yield(ms)
 // @brief Yield execution to allow C++ background tasks to run
 // @param ms Optional sleep time in milliseconds (default 1, max 100)
 // @note Call this regularly in Lua main loops to prevent watchdog timeouts
@@ -587,7 +587,7 @@ LUA_FUNCTION(l_system_yield) {
     return 0;
 }
 
-// Function table for tdeck.system
+// Function table for ez.system
 static const luaL_Reg system_funcs[] = {
     {"millis",             l_system_millis},
     {"delay",              l_system_delay},
@@ -752,7 +752,7 @@ void registerSystemModule(lua_State* L) {
     }
     lua_pop(L, 2);  // pop searchers and package
 
-    Serial.println("[LuaRuntime] Registered tdeck.system");
+    Serial.println("[LuaRuntime] Registered ez.system");
 }
 
 // Process pending timers (called from LuaRuntime::update())

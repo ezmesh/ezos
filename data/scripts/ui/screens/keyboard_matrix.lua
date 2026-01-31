@@ -21,7 +21,7 @@ end
 
 function KeyboardMatrix:on_enter()
     -- Try to enable raw mode
-    local ok = tdeck.keyboard.set_mode("raw")
+    local ok = ez.keyboard.set_mode("raw")
     if ok then
         self.raw_mode_ok = true
     else
@@ -31,7 +31,7 @@ function KeyboardMatrix:on_enter()
 end
 
 function KeyboardMatrix:on_exit()
-    tdeck.keyboard.set_mode("normal")
+    ez.keyboard.set_mode("normal")
 end
 
 function KeyboardMatrix:render(display)
@@ -59,7 +59,7 @@ function KeyboardMatrix:render(display)
         return
     end
 
-    local matrix = tdeck.keyboard.read_raw_matrix()
+    local matrix = ez.keyboard.read_raw_matrix()
 
     local start_y = fh + 12
     local start_x = 3 * fw

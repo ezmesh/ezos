@@ -1,4 +1,4 @@
-// tdeck.audio module bindings
+// ez.audio module bindings
 // Provides audio/tone generation functions using I2S
 
 #include "../lua_bindings.h"
@@ -126,7 +126,7 @@ static void stopAudio() {
     }
 }
 
-// @lua tdeck.audio.play_tone(frequency, duration_ms) -> boolean
+// @lua ez.audio.play_tone(frequency, duration_ms) -> boolean
 // @brief Play a tone for specified duration
 // @param frequency Frequency in Hz (20-20000)
 // @param duration_ms Duration in milliseconds
@@ -152,14 +152,14 @@ LUA_FUNCTION(l_audio_play_tone) {
     return 1;
 }
 
-// @lua tdeck.audio.stop()
+// @lua ez.audio.stop()
 // @brief Stop audio playback
 LUA_FUNCTION(l_audio_stop) {
     stopAudio();
     return 0;
 }
 
-// @lua tdeck.audio.is_playing() -> boolean
+// @lua ez.audio.is_playing() -> boolean
 // @brief Check if audio is playing
 // @return true if playing
 LUA_FUNCTION(l_audio_is_playing) {
@@ -167,7 +167,7 @@ LUA_FUNCTION(l_audio_is_playing) {
     return 1;
 }
 
-// @lua tdeck.audio.beep(count, frequency, on_ms, off_ms)
+// @lua ez.audio.beep(count, frequency, on_ms, off_ms)
 // @brief Play a series of beeps (blocking)
 // @param count Number of beeps (default 1)
 // @param frequency Tone frequency in Hz (default 1000)
@@ -202,7 +202,7 @@ LUA_FUNCTION(l_audio_beep) {
     return 0;
 }
 
-// @lua tdeck.audio.set_frequency(frequency) -> boolean
+// @lua ez.audio.set_frequency(frequency) -> boolean
 // @brief Set playback frequency for continuous tones
 // @param frequency Frequency in Hz (20-20000)
 // @return true if valid frequency
@@ -220,7 +220,7 @@ LUA_FUNCTION(l_audio_set_frequency) {
     return 1;
 }
 
-// @lua tdeck.audio.start()
+// @lua ez.audio.start()
 // @brief Start continuous tone at current frequency
 LUA_FUNCTION(l_audio_start) {
     ensureAudioTask();
@@ -229,7 +229,7 @@ LUA_FUNCTION(l_audio_start) {
     return 0;
 }
 
-// @lua tdeck.audio.set_volume(level)
+// @lua ez.audio.set_volume(level)
 // @brief Set audio volume level
 // @param level Volume level 0-100
 LUA_FUNCTION(l_audio_set_volume) {
@@ -239,7 +239,7 @@ LUA_FUNCTION(l_audio_set_volume) {
     return 0;
 }
 
-// @lua tdeck.audio.get_volume() -> integer
+// @lua ez.audio.get_volume() -> integer
 // @brief Get current volume level
 // @return Volume level 0-100
 LUA_FUNCTION(l_audio_get_volume) {
@@ -247,7 +247,7 @@ LUA_FUNCTION(l_audio_get_volume) {
     return 1;
 }
 
-// @lua tdeck.audio.play_sample(filename) -> boolean
+// @lua ez.audio.play_sample(filename) -> boolean
 // @brief Play a PCM sample file from LittleFS
 // @param filename Path to .pcm file (16-bit signed, 22050Hz mono)
 // @return true if played successfully
@@ -313,7 +313,7 @@ LUA_FUNCTION(l_audio_play_sample) {
     return 1;
 }
 
-// Function table for tdeck.audio
+// Function table for ez.audio
 static const luaL_Reg audio_funcs[] = {
     {"play_tone",     l_audio_play_tone},
     {"play_sample",   l_audio_play_sample},
@@ -330,5 +330,5 @@ static const luaL_Reg audio_funcs[] = {
 // Register the audio module
 void registerAudioModule(lua_State* L) {
     lua_register_module(L, "audio", audio_funcs);
-    Serial.println("[LuaRuntime] Registered tdeck.audio");
+    Serial.println("[LuaRuntime] Registered ez.audio");
 }

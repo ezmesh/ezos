@@ -82,7 +82,7 @@ local function get_encryption_key(pub_key_hex)
         return nil
     end
 
-    local secret = tdeck.mesh.calc_shared_secret(pub_key_bytes)
+    local secret = ez.mesh.calc_shared_secret(pub_key_bytes)
     if not secret then
         print("[DirectMessages] Failed to calculate shared secret")
         return nil
@@ -107,13 +107,13 @@ local function encrypt_message(key, plaintext)
     end
 
     -- Encrypt with AES-128-ECB
-    local ciphertext = tdeck.crypto.aes128_ecb_encrypt(key, plaintext)
+    local ciphertext = ez.crypto.aes128_ecb_encrypt(key, plaintext)
     if not ciphertext then
         return nil
     end
 
     -- Compute MAC (first 2 bytes of HMAC-SHA256 of ciphertext)
-    local hmac = tdeck.crypto.hmac_sha256(key, ciphertext)
+    local hmac = ez.crypto.hmac_sha256(key, ciphertext)
     if not hmac then
         return nil
     end
@@ -138,7 +138,7 @@ local function decrypt_message(key, mac_and_ciphertext)
     local ciphertext = mac_and_ciphertext:sub(3)
 
     -- Verify MAC
-    local computed_hmac = tdeck.crypto.hmac_sha256(key, ciphertext)
+    local computed_hmac = ez.crypto.hmac_sha256(key, ciphertext)
     if not computed_hmac then
         return nil
     end
@@ -150,7 +150,7 @@ local function decrypt_message(key, mac_and_ciphertext)
     end
 
     -- Decrypt with AES-128-ECB
-    local decrypted = tdeck.crypto.aes128_ecb_decrypt(key, ciphertext)
+    local decrypted = ez.crypto.aes128_ecb_decrypt(key, ciphertext)
     return decrypted
 end
 
@@ -162,13 +162,13 @@ local function encrypt_req_payload(key, plaintext)
     end
 
     -- Encrypt with AES-128-ECB
-    local ciphertext = tdeck.crypto.aes128_ecb_encrypt(key, plaintext)
+    local ciphertext = ez.crypto.aes128_ecb_encrypt(key, plaintext)
     if not ciphertext then
         return nil
     end
 
     -- Compute 16-byte MAC (first 16 bytes of HMAC-SHA256 of ciphertext)
-    local hmac = tdeck.crypto.hmac_sha256(key, ciphertext)
+    local hmac = ez.crypto.hmac_sha256(key, ciphertext)
     if not hmac then
         return nil
     end
@@ -193,7 +193,7 @@ local function decrypt_req_payload(key, mac_and_ciphertext)
     local ciphertext = mac_and_ciphertext:sub(17)
 
     -- Verify MAC
-    local computed_hmac = tdeck.crypto.hmac_sha256(key, ciphertext)
+    local computed_hmac = ez.crypto.hmac_sha256(key, ciphertext)
     if not computed_hmac then
         return nil
     end
@@ -205,7 +205,7 @@ local function decrypt_req_payload(key, mac_and_ciphertext)
     end
 
     -- Decrypt with AES-128-ECB
-    local decrypted = tdeck.crypto.aes128_ecb_decrypt(key, ciphertext)
+    local decrypted = ez.crypto.aes128_ecb_decrypt(key, ciphertext)
     return decrypted
 end
 
@@ -213,13 +213,13 @@ end
 local function get_conversation_path(pub_key_hex)
     -- Use first 8 chars of pub key as filename
     local short = pub_key_hex:sub(1, 8):upper()
-    if tdeck.storage.is_sd_available() then
+    if ez.storage.is_sd_available() then
         local dir = "/sd/data/messages"
-        if not tdeck.storage.exists("/sd/data") then
-            tdeck.storage.mkdir("/sd/data")
+        if not ez.storage.exists("/sd/data") then
+            ez.storage.mkdir("/sd/data")
         end
-        if not tdeck.storage.exists(dir) then
-            tdeck.storage.mkdir(dir)
+        if not ez.storage.exists(dir) then
+            ez.storage.mkdir(dir)
         end
         return dir .. "/" .. short .. ".json"
     end
@@ -229,7 +229,7 @@ end
 -- Helper: Generate unique message ID
 local function generate_message_id(timestamp, text, sender_hex)
     -- Include millis for uniqueness even with same timestamp/text
-    local millis = tdeck.system.millis()
+    local millis = ez.system.millis()
     local data = tostring(timestamp) .. tostring(millis) .. (text or ""):sub(1, 20) .. (sender_hex or ""):sub(1, 8)
     local hash = 0
     for i = 1, #data do
@@ -299,8 +299,8 @@ local function get_contact_name(pub_key_hex)
     end
 
     -- Check mesh nodes
-    if tdeck.mesh.is_initialized() then
-        local nodes = tdeck.mesh.get_nodes() or {}
+    if ez.mesh.is_initialized() then
+        local nodes = ez.mesh.get_nodes() or {}
         for _, node in ipairs(nodes) do
             if node.pub_key_hex == pub_key_hex then
                 return node.name
@@ -318,8 +318,8 @@ function DirectMessages.init()
     DirectMessages._load_all()
 
     -- Subscribe to incoming packets via message bus
-    if tdeck.bus and tdeck.bus.subscribe then
-        tdeck.bus.subscribe("mesh/packet", function(topic, packet)
+    if ez.bus and ez.bus.subscribe then
+        ez.bus.subscribe("mesh/packet", function(topic, packet)
             -- packet is a table with route_type, payload_type, path, payload, rssi, snr, timestamp
             DirectMessages._handle_packet(packet)
         end)
@@ -342,8 +342,8 @@ function DirectMessages.init()
 
     -- Subscribe to node discovery events via bus
     -- This decouples DirectMessages from Contacts service
-    if tdeck.bus and tdeck.bus.subscribe then
-        tdeck.bus.subscribe("mesh/node_discovered", function(topic, node)
+    if ez.bus and ez.bus.subscribe then
+        ez.bus.subscribe("mesh/node_discovered", function(topic, node)
             -- node is a table with path_hash, name, pub_key_hex, etc.
             DirectMessages._on_node_discovered(node)
         end)
@@ -377,7 +377,7 @@ end
 
 -- Cleanup old pending packets
 function DirectMessages._cleanup_pending_packets()
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     local expired = {}
 
     for hash, pending in pairs(DirectMessages._pending_packets) do
@@ -500,7 +500,7 @@ function DirectMessages.send(recipient_pub_key_hex, text)
     conv.send_counter = (conv.send_counter or 0) + 1
     local counter = conv.send_counter
 
-    local our_pub_key_hex = tdeck.mesh.get_public_key_hex()
+    local our_pub_key_hex = ez.mesh.get_public_key_hex()
     DirectMessages._seq = DirectMessages._seq + 1
 
     local msg = {
@@ -527,7 +527,7 @@ end
 -- Uses FLOOD routing if no path known, DIRECT routing if path is cached
 -- @return true if sent successfully
 function DirectMessages._try_send_message(recipient_pub_key_hex, msg)
-    if not tdeck.mesh.is_initialized() then
+    if not ez.mesh.is_initialized() then
         return false
     end
 
@@ -537,14 +537,14 @@ function DirectMessages._try_send_message(recipient_pub_key_hex, msg)
     local conv = DirectMessages.conversations[recipient_pub_key_hex]
     if msg.counter == 1 and conv and not conv._sent_intro_advert then
         print("[DirectMessages] First message - sending ADVERT to introduce ourselves")
-        if tdeck.mesh.send_announce then
-            tdeck.mesh.send_announce()
+        if ez.mesh.send_announce then
+            ez.mesh.send_announce()
             conv._sent_intro_advert = true
         end
     end
 
     -- Get our path hash and recipient path hash
-    local our_hash = tdeck.mesh.get_path_hash()
+    local our_hash = ez.mesh.get_path_hash()
     local recipient_pub_key = hex_to_bytes(recipient_pub_key_hex)
     if not recipient_pub_key or #recipient_pub_key ~= 32 then
         return false
@@ -555,7 +555,7 @@ function DirectMessages._try_send_message(recipient_pub_key_hex, msg)
     local counter = msg.counter or 0
     local reserved = 0
     local sign_data = pack_uint16_le(counter) .. pack_uint16_le(reserved) .. msg.text
-    local signature = tdeck.mesh.ed25519_sign(sign_data)
+    local signature = ez.mesh.ed25519_sign(sign_data)
     if not signature then
         return false
     end
@@ -580,7 +580,7 @@ function DirectMessages._try_send_message(recipient_pub_key_hex, msg)
     local out_path = conv and conv.out_path
     local route_type
     local path
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
 
     -- Check if route needs refresh (periodic FLOOD to discover better paths)
     local needs_refresh = false
@@ -610,7 +610,7 @@ function DirectMessages._try_send_message(recipient_pub_key_hex, msg)
         end
     end
 
-    local packet_data = tdeck.mesh.build_packet(
+    local packet_data = ez.mesh.build_packet(
         route_type,
         DirectMessages.PAYLOAD_TYPE_TXT_MSG,
         encrypted_payload,
@@ -621,12 +621,12 @@ function DirectMessages._try_send_message(recipient_pub_key_hex, msg)
         return false
     end
 
-    local ok = tdeck.mesh.queue_send(packet_data)
+    local ok = ez.mesh.queue_send(packet_data)
     if ok then
         -- Update sendCount and sent_at timestamp
         msg.sendCount = (msg.sendCount or 0) + 1
         if not msg.sent_at then
-            msg.sent_at = tdeck.system.millis()
+            msg.sent_at = ez.system.millis()
         end
         DirectMessages._save_conversation(recipient_pub_key_hex)
         print("[DirectMessages] Sent #" .. counter .. " to " .. recipient_pub_key_hex:sub(1, 8) .. ": " .. msg.text:sub(1, 20))
@@ -638,7 +638,7 @@ end
 
 -- Process send queue - find unsent messages and try to send them
 function DirectMessages._process_send_queue()
-    if not tdeck.mesh.is_initialized() then
+    if not ez.mesh.is_initialized() then
         return
     end
 
@@ -654,11 +654,11 @@ end
 
 -- Process retries for unacked messages and gap fills
 function DirectMessages._process_retries()
-    if not tdeck.mesh.is_initialized() then
+    if not ez.mesh.is_initialized() then
         return
     end
 
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     local needs_save = {}
     local needs_refresh = false
 
@@ -914,8 +914,8 @@ function DirectMessages.clear_conversation(pub_key_hex)
     DirectMessages.conversations[pub_key_hex] = nil
     -- Delete storage file
     local path = get_conversation_path(pub_key_hex)
-    if tdeck.storage.exists(path) then
-        tdeck.storage.remove(path)
+    if ez.storage.exists(path) then
+        ez.storage.remove(path)
     end
 end
 
@@ -958,12 +958,12 @@ end
 -- @param counter Original message counter
 -- @param text_hash Hash of the message text (for identification)
 function DirectMessages._send_ack(sender_pub_key_hex, counter, text_hash)
-    if not tdeck.mesh.is_initialized() then
+    if not ez.mesh.is_initialized() then
         return false
     end
 
     -- Get our path hash and sender's path hash
-    local our_hash = tdeck.mesh.get_path_hash()
+    local our_hash = ez.mesh.get_path_hash()
     local sender_pub_key = hex_to_bytes(sender_pub_key_hex)
     if not sender_pub_key or #sender_pub_key ~= 32 then
         return false
@@ -977,7 +977,7 @@ function DirectMessages._send_ack(sender_pub_key_hex, counter, text_hash)
     print(string.format("[DirectMessages] _send_ack: counter=%d hash=%08X path=%02X->%02X",
           counter, text_hash, our_hash, sender_hash))
 
-    local packet_data = tdeck.mesh.build_packet(
+    local packet_data = ez.mesh.build_packet(
         DirectMessages.ROUTE_TYPE_DIRECT,
         DirectMessages.PAYLOAD_TYPE_ACK,
         payload,
@@ -988,7 +988,7 @@ function DirectMessages._send_ack(sender_pub_key_hex, counter, text_hash)
         return false
     end
 
-    local ok = tdeck.mesh.queue_send(packet_data)
+    local ok = ez.mesh.queue_send(packet_data)
     if ok then
         print("[DirectMessages] ACK sent to " .. sender_pub_key_hex:sub(1, 8))
     end
@@ -1002,11 +1002,11 @@ end
 -- @param counter Message counter (for piggybacked ACK)
 -- @param text_hash Message text hash (for piggybacked ACK)
 function DirectMessages._send_path_response(sender_pub_key_hex, incoming_path, counter, text_hash)
-    if not tdeck.mesh.is_initialized() then
+    if not ez.mesh.is_initialized() then
         return false
     end
 
-    local our_hash = tdeck.mesh.get_path_hash()
+    local our_hash = ez.mesh.get_path_hash()
     local sender_pub_key = hex_to_bytes(sender_pub_key_hex)
     if not sender_pub_key or #sender_pub_key ~= 32 then
         return false
@@ -1043,7 +1043,7 @@ function DirectMessages._send_path_response(sender_pub_key_hex, incoming_path, c
     print(string.format("[DirectMessages] Sending PATH response: %d hops, ACK counter=%d",
           path_len, counter))
 
-    local packet_data = tdeck.mesh.build_packet(
+    local packet_data = ez.mesh.build_packet(
         DirectMessages.ROUTE_TYPE_DIRECT,
         DirectMessages.PAYLOAD_TYPE_PATH,
         payload,
@@ -1054,7 +1054,7 @@ function DirectMessages._send_path_response(sender_pub_key_hex, incoming_path, c
         return false
     end
 
-    local ok = tdeck.mesh.queue_send(packet_data)
+    local ok = ez.mesh.queue_send(packet_data)
     if ok then
         print("[DirectMessages] PATH+ACK sent to " .. sender_pub_key_hex:sub(1, 8))
     end
@@ -1091,7 +1091,7 @@ function DirectMessages._handle_path(packet)
     local sender_hash = string.byte(path, 1)
 
     -- Ignore PATH from ourselves
-    local our_hash = tdeck.mesh.get_path_hash()
+    local our_hash = ez.mesh.get_path_hash()
     if sender_hash == our_hash then
         return true
     end
@@ -1116,8 +1116,8 @@ function DirectMessages._handle_path(packet)
     end
 
     -- Check live nodes
-    if not sender_pub_key_hex and tdeck.mesh.is_initialized() then
-        local nodes = tdeck.mesh.get_nodes() or {}
+    if not sender_pub_key_hex and ez.mesh.is_initialized() then
+        local nodes = ez.mesh.get_nodes() or {}
         for _, node in ipairs(nodes) do
             if node.path_hash == sender_hash and node.pub_key_hex then
                 sender_pub_key_hex = node.pub_key_hex
@@ -1158,7 +1158,7 @@ function DirectMessages._handle_path(packet)
 
     if should_update then
         conv.out_path = new_out_path
-        conv.route_refreshed_at = tdeck.system.millis()  -- Reset refresh timer
+        conv.route_refreshed_at = ez.system.millis()  -- Reset refresh timer
         DirectMessages._save_conversation(sender_pub_key_hex)
     end
 
@@ -1183,8 +1183,8 @@ function DirectMessages._handle_path(packet)
                         DirectMessages._save_conversation(sender_pub_key_hex)
 
                         -- Publish message acked event
-                        if tdeck.bus and tdeck.bus.post then
-                            tdeck.bus.post("message/acked", msg.id or tostring(ack_counter))
+                        if ez.bus and ez.bus.post then
+                            ez.bus.post("message/acked", msg.id or tostring(ack_counter))
                         end
 
                         -- Refresh UI
@@ -1231,7 +1231,7 @@ function DirectMessages._handle_ack(packet)
     local acker_hash = string.byte(path, 1)
 
     -- Ignore ACKs from ourselves (radio echo)
-    local our_hash = tdeck.mesh.get_path_hash()
+    local our_hash = ez.mesh.get_path_hash()
     if acker_hash == our_hash then
         return true  -- Silently ignore
     end
@@ -1263,8 +1263,8 @@ function DirectMessages._handle_ack(packet)
     end
 
     -- If not found in contacts, check live discovered nodes
-    if not acker_pub_key_hex and tdeck.mesh.is_initialized() then
-        local nodes = tdeck.mesh.get_nodes() or {}
+    if not acker_pub_key_hex and ez.mesh.is_initialized() then
+        local nodes = ez.mesh.get_nodes() or {}
         for _, node in ipairs(nodes) do
             if node.path_hash == acker_hash and node.pub_key_hex then
                 acker_pub_key_hex = node.pub_key_hex
@@ -1294,8 +1294,8 @@ function DirectMessages._handle_ack(packet)
                     DirectMessages._save_conversation(acker_pub_key_hex)
 
                     -- Publish message acked event
-                    if tdeck.bus and tdeck.bus.post then
-                        tdeck.bus.post("message/acked", msg.id or tostring(counter))
+                    if ez.bus and ez.bus.post then
+                        ez.bus.post("message/acked", msg.id or tostring(counter))
                     end
 
                     -- Force refresh on conversation screen or messages list if open
@@ -1336,7 +1336,7 @@ function DirectMessages._handle_req(packet)
     local mac_and_encrypted = payload:sub(3)
 
     -- Check if addressed to us
-    local our_hash = tdeck.mesh.get_path_hash()
+    local our_hash = ez.mesh.get_path_hash()
     if dest_hash ~= our_hash then
         return false  -- Not for us
     end
@@ -1402,7 +1402,7 @@ function DirectMessages._handle_response(packet)
     local mac_and_encrypted = payload:sub(3)
 
     -- Check if addressed to us
-    local our_hash = tdeck.mesh.get_path_hash()
+    local our_hash = ez.mesh.get_path_hash()
     if dest_hash ~= our_hash then
         return false  -- Not for us
     end
@@ -1463,8 +1463,8 @@ function DirectMessages._find_pub_key_by_hash(path_hash)
     end
 
     -- Check mesh nodes
-    if tdeck.mesh.is_initialized() then
-        local nodes = tdeck.mesh.get_nodes() or {}
+    if ez.mesh.is_initialized() then
+        local nodes = ez.mesh.get_nodes() or {}
         for _, node in ipairs(nodes) do
             if node.path_hash == path_hash and node.pub_key_hex then
                 return node.pub_key_hex
@@ -1482,11 +1482,11 @@ end
 -- @param callback Optional callback(response_data, timestamp) for response
 -- @return true if sent
 function DirectMessages.send_request(recipient_pub_key_hex, request_type, request_data, callback)
-    if not tdeck.mesh.is_initialized() then
+    if not ez.mesh.is_initialized() then
         return false
     end
 
-    local our_hash = tdeck.mesh.get_path_hash()
+    local our_hash = ez.mesh.get_path_hash()
     local recipient_pub_key = hex_to_bytes(recipient_pub_key_hex)
     if not recipient_pub_key or #recipient_pub_key ~= 32 then
         return false
@@ -1501,7 +1501,7 @@ function DirectMessages.send_request(recipient_pub_key_hex, request_type, reques
     end
 
     -- Build inner payload: [timestamp:4][request_type:1][request_data:variable]
-    local timestamp = math.floor(tdeck.system.millis() / 1000)
+    local timestamp = math.floor(ez.system.millis() / 1000)
     local inner_payload = pack_uint32_le(timestamp) .. string.char(request_type) .. (request_data or "")
 
     -- Encrypt with 16-byte MAC
@@ -1516,7 +1516,7 @@ function DirectMessages.send_request(recipient_pub_key_hex, request_type, reques
 
     -- Build and send packet (use FLOOD routing for now)
     local path = string.char(our_hash)
-    local packet_data = tdeck.mesh.build_packet(
+    local packet_data = ez.mesh.build_packet(
         DirectMessages.ROUTE_TYPE_FLOOD,
         DirectMessages.PAYLOAD_TYPE_REQ,
         outer_payload,
@@ -1527,7 +1527,7 @@ function DirectMessages.send_request(recipient_pub_key_hex, request_type, reques
         return false
     end
 
-    local ok = tdeck.mesh.queue_send(packet_data)
+    local ok = ez.mesh.queue_send(packet_data)
     if ok then
         print(string.format("[DirectMessages] REQ sent to %s: type=%d",
               recipient_pub_key_hex:sub(1, 8), request_type))
@@ -1535,7 +1535,7 @@ function DirectMessages.send_request(recipient_pub_key_hex, request_type, reques
         if callback then
             DirectMessages._pending_requests[recipient_pub_key_hex] = {
                 callback = callback,
-                timeout = tdeck.system.millis() + 30000,  -- 30 second timeout
+                timeout = ez.system.millis() + 30000,  -- 30 second timeout
                 request_type = request_type,
             }
         end
@@ -1549,11 +1549,11 @@ end
 -- @param response_data Response data (binary string)
 -- @return true if sent
 function DirectMessages.send_response(recipient_pub_key_hex, response_data)
-    if not tdeck.mesh.is_initialized() then
+    if not ez.mesh.is_initialized() then
         return false
     end
 
-    local our_hash = tdeck.mesh.get_path_hash()
+    local our_hash = ez.mesh.get_path_hash()
     local recipient_pub_key = hex_to_bytes(recipient_pub_key_hex)
     if not recipient_pub_key or #recipient_pub_key ~= 32 then
         return false
@@ -1568,7 +1568,7 @@ function DirectMessages.send_response(recipient_pub_key_hex, response_data)
     end
 
     -- Build inner payload: [timestamp:4][response_data:variable]
-    local timestamp = math.floor(tdeck.system.millis() / 1000)
+    local timestamp = math.floor(ez.system.millis() / 1000)
     local inner_payload = pack_uint32_le(timestamp) .. (response_data or "")
 
     -- Encrypt with 16-byte MAC
@@ -1583,7 +1583,7 @@ function DirectMessages.send_response(recipient_pub_key_hex, response_data)
 
     -- Build and send packet (use FLOOD routing)
     local path = string.char(our_hash)
-    local packet_data = tdeck.mesh.build_packet(
+    local packet_data = ez.mesh.build_packet(
         DirectMessages.ROUTE_TYPE_FLOOD,
         DirectMessages.PAYLOAD_TYPE_RESPONSE,
         outer_payload,
@@ -1594,7 +1594,7 @@ function DirectMessages.send_response(recipient_pub_key_hex, response_data)
         return false
     end
 
-    local ok = tdeck.mesh.queue_send(packet_data)
+    local ok = ez.mesh.queue_send(packet_data)
     if ok then
         print(string.format("[DirectMessages] RESPONSE sent to %s",
               recipient_pub_key_hex:sub(1, 8)))
@@ -1731,7 +1731,7 @@ function DirectMessages._handle_packet(packet)
 
     -- For DIRECT routing, check if addressed to us
     local path = packet.path
-    local our_hash = tdeck.mesh.get_path_hash()
+    local our_hash = ez.mesh.get_path_hash()
 
     if packet.route_type == DirectMessages.ROUTE_TYPE_DIRECT then
         -- DIRECT routing: destination is last byte in path
@@ -1784,8 +1784,8 @@ function DirectMessages._handle_packet(packet)
     end
 
     -- If not found in contacts, check live discovered nodes
-    if not sender_pub_key_hex and tdeck.mesh.is_initialized() then
-        local nodes = tdeck.mesh.get_nodes() or {}
+    if not sender_pub_key_hex and ez.mesh.is_initialized() then
+        local nodes = ez.mesh.get_nodes() or {}
         for _, node in ipairs(nodes) do
             if node.path_hash == sender_hash and node.pub_key_hex then
                 sender_pub_key_hex = node.pub_key_hex
@@ -1822,7 +1822,7 @@ function DirectMessages._handle_packet(packet)
         -- Cache the packet in case an ADVERT arrives soon with this sender's public key
         DirectMessages._pending_packets[sender_hash] = {
             packet = packet,
-            received_at = tdeck.system.millis(),
+            received_at = ez.system.millis(),
         }
         return true, false  -- Cannot decrypt yet, but cached for retry
     end
@@ -1848,7 +1848,7 @@ function DirectMessages._handle_packet(packet)
     local verified = false
     if sender_pub_key then
         local sign_data = pack_uint16_le(counter) .. pack_uint16_le(reserved) .. text
-        verified = tdeck.mesh.ed25519_verify(sign_data, signature, sender_pub_key)
+        verified = ez.mesh.ed25519_verify(sign_data, signature, sender_pub_key)
         if not verified then
             print("[DirectMessages] Signature verification FAILED")
         end
@@ -1899,7 +1899,7 @@ function DirectMessages._handle_packet(packet)
                 verified = false,
                 is_read = true,
                 is_gap = true,  -- Mark as gap/missed message
-                created_at = tdeck.system.millis(),  -- For retry timing
+                created_at = ez.system.millis(),  -- For retry timing
                 gap_retry_count = 0,
             }
             table.insert(conv.messages, gap_msg)
@@ -1941,8 +1941,8 @@ function DirectMessages._handle_packet(packet)
     end
 
     -- Publish message received event
-    if tdeck.bus and tdeck.bus.post then
-        tdeck.bus.post("message/received", {
+    if ez.bus and ez.bus.post then
+        ez.bus.post("message/received", {
             from = sender_pub_key_hex:sub(1, 16),
             text = text:sub(1, 50)
         })
@@ -2035,7 +2035,7 @@ function DirectMessages._handle_packet(packet)
 
             if should_update then
                 sender_conv.out_path = new_out_path
-                sender_conv.route_refreshed_at = tdeck.system.millis()  -- Reset refresh timer
+                sender_conv.route_refreshed_at = ez.system.millis()  -- Reset refresh timer
                 DirectMessages._save_conversation(sender_pub_key_hex)
             end
         end
@@ -2115,20 +2115,20 @@ function DirectMessages._save_conversation(pub_key_hex)
         route_refreshed_at = conv.route_refreshed_at or 0,  -- Last FLOOD refresh timestamp
     }
 
-    local json = tdeck.storage.json_encode(data)
+    local json = ez.storage.json_encode(data)
     if json then
         local path = get_conversation_path(pub_key_hex)
-        tdeck.storage.write(path, json)
+        ez.storage.write(path, json)
     end
 end
 
 -- Load a conversation from storage
 function DirectMessages._load_conversation(pub_key_hex)
     local path = get_conversation_path(pub_key_hex)
-    local json = tdeck.storage.read(path)
+    local json = ez.storage.read(path)
     if not json then return nil end
 
-    local data = tdeck.storage.json_decode(json)
+    local data = ez.storage.json_decode(json)
     if not data then return nil end
     -- Accept version 1, 2, 3, or 4
     if data.version ~= 1 and data.version ~= 2 and data.version ~= 3 and data.version ~= 4 then return nil end
@@ -2160,8 +2160,8 @@ function DirectMessages._load_all()
     -- Scan message directories for conversation files
     local dirs = {"/sd/data/messages"}
     for _, dir in ipairs(dirs) do
-        if tdeck.storage.exists(dir) then
-            local files = tdeck.storage.list_dir(dir) or {}
+        if ez.storage.exists(dir) then
+            local files = ez.storage.list_dir(dir) or {}
             for _, entry in ipairs(files) do
                 -- list_dir returns {name, size, is_dir} entries
                 local filename = entry.name or entry[1]
@@ -2170,9 +2170,9 @@ function DirectMessages._load_all()
                     local pub_key_short = filename:match("^(%x%x%x%x%x%x%x%x)%.json$")
                     if pub_key_short then
                         local full_path = dir .. "/" .. filename
-                        local json = tdeck.storage.read(full_path)
+                        local json = ez.storage.read(full_path)
                         if json then
-                            local data = tdeck.storage.json_decode(json)
+                            local data = ez.storage.json_decode(json)
                             if data and (data.version == 1 or data.version == 2 or data.version == 3 or data.version == 4) and data.contact_pub_key then
                                 local pub_key_hex = data.contact_pub_key
                                 local messages = data.messages or {}

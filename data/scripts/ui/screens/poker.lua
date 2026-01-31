@@ -75,7 +75,7 @@ end
 
 function Poker:on_enter()
     if _G.MainLoop then _G.MainLoop.enter_game_mode() end
-    math.randomseed(tdeck.system.millis())
+    math.randomseed(ez.system.millis())
     self:show_message("Press ENTER to deal")
 end
 
@@ -85,7 +85,7 @@ end
 
 function Poker:show_message(msg, duration)
     self.message = msg
-    self.message_timer = tdeck.system.millis() + (duration or 2000)
+    self.message_timer = ez.system.millis() + (duration or 2000)
 end
 
 -- Start a new hand
@@ -431,7 +431,7 @@ end
 -- AI decision making
 function Poker:schedule_ai_action()
     -- Delay AI action for readability
-    self.ai_action_time = tdeck.system.millis() + 800
+    self.ai_action_time = ez.system.millis() + 800
 end
 
 function Poker:ai_take_action()
@@ -624,7 +624,7 @@ function Poker:render(display)
     end
 
     -- Message
-    if self.message ~= "" and tdeck.system.millis() < self.message_timer then
+    if self.message ~= "" and ez.system.millis() < self.message_timer then
         display.set_font_size("medium")
         local msg_w = display.text_width(self.message)
         local msg_x = (w - msg_w) / 2
@@ -819,7 +819,7 @@ end
 
 function Poker:update()
     -- Process AI actions
-    if self.ai_action_time and tdeck.system.millis() >= self.ai_action_time then
+    if self.ai_action_time and ez.system.millis() >= self.ai_action_time then
         self.ai_action_time = nil
         if self.state >= STATE.PREFLOP and self.state <= STATE.RIVER then
             self:ai_take_action()

@@ -94,9 +94,9 @@ function Nodes:refresh_nodes()
     -- Use Contacts service if available (includes cached nodes with 7-day expiry)
     if _G.Contacts and _G.Contacts.get_discovered then
         self.nodes = _G.Contacts.get_discovered()
-    elseif tdeck.mesh.is_initialized() then
+    elseif ez.mesh.is_initialized() then
         -- Fallback to direct mesh query (live nodes only)
-        self.nodes = tdeck.mesh.get_nodes() or {}
+        self.nodes = ez.mesh.get_nodes() or {}
         table.sort(self.nodes, function(a, b)
             return (a.last_seen or 0) > (b.last_seen or 0)
         end)
@@ -123,7 +123,7 @@ end
 
 -- Format last seen timestamp as compact string
 local function format_seen(timestamp)
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     local diff = math.floor((now - timestamp) / 1000)
 
     if diff < 60 then
@@ -139,7 +139,7 @@ end
 
 -- Role abbreviation
 local function role_abbrev(role)
-    local ROLE = tdeck.mesh.ROLE
+    local ROLE = ez.mesh.ROLE
     if role == ROLE.CLIENT then return "C"
     elseif role == ROLE.REPEATER then return "R"
     elseif role == ROLE.ROUTER then return "Rt"
@@ -467,7 +467,7 @@ function Nodes:get_menu_items()
                         -- Get time components from Unix timestamp
                         local date_info = os.date("*t", ts)
                         if date_info then
-                            local ok = tdeck.system.set_time(
+                            local ok = ez.system.set_time(
                                 date_info.year,
                                 date_info.month,
                                 date_info.day,
@@ -481,8 +481,8 @@ function Nodes:get_menu_items()
                                     _G.MessageBox.show({title = "", body = "Clock synced from " .. (selected_node.name or "node")})
                                 end
                                 -- Save sync timestamp
-                                if tdeck.storage and tdeck.storage.set_pref then
-                                    tdeck.storage.set_pref("lastTimeSet", tdeck.system.get_time_unix())
+                                if ez.storage and ez.storage.set_pref then
+                                    ez.storage.set_pref("lastTimeSet", ez.system.get_time_unix())
                                 end
                             else
                                 if _G.SoundUtils then pcall(_G.SoundUtils.error) end

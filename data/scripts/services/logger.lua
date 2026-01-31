@@ -29,7 +29,7 @@ function Logger.init()
 
     -- Load existing log file
     Logger.entries = {}
-    local content = tdeck.storage.read(Logger.file_path)
+    local content = ez.storage.read(Logger.file_path)
     if content then
         for line in content:gmatch("[^\n]+") do
             table.insert(Logger.entries, line)
@@ -51,7 +51,7 @@ function Logger._log(level, msg)
     if level < Logger.level then return end
 
     -- Format: [HH:MM:SS] LVL message
-    local uptime = tdeck.system.uptime()
+    local uptime = ez.system.uptime()
     local h = math.floor(uptime / 3600) % 24
     local m = math.floor(uptime / 60) % 60
     local s = uptime % 60
@@ -66,7 +66,7 @@ function Logger._log(level, msg)
     end
 
     -- Also log to serial
-    tdeck.system.log(line)
+    ez.system.log(line)
 
     -- Add to in-memory buffer
     table.insert(Logger.entries, line)
@@ -82,13 +82,13 @@ function Logger.info(msg) Logger._log(Logger.LEVELS.INFO, msg) end
 function Logger.warn(msg) Logger._log(Logger.LEVELS.WARN, msg) end
 function Logger.error(msg) Logger._log(Logger.LEVELS.ERROR, msg) end
 
--- Alias for compatibility with tdeck.system.log pattern
+-- Alias for compatibility with ez.system.log pattern
 function Logger.log(msg) Logger._log(Logger.LEVELS.INFO, msg) end
 
 -- Save log to file (call periodically or on exit)
 function Logger.save()
     local content = table.concat(Logger.entries, "\n")
-    tdeck.storage.write(Logger.file_path, content)
+    ez.storage.write(Logger.file_path, content)
 end
 
 -- Get all log entries (for viewer)
@@ -99,7 +99,7 @@ end
 -- Clear log
 function Logger.clear()
     Logger.entries = {}
-    tdeck.storage.write(Logger.file_path, "")
+    ez.storage.write(Logger.file_path, "")
     Logger.info("Log cleared")
 end
 

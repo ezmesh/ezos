@@ -1,6 +1,6 @@
 /**
  * Keyboard mock module
- * Maps browser keyboard events to tdeck.keyboard API
+ * Maps browser keyboard events to ez.keyboard API
  */
 
 export function createKeyboardModule(canvas, onKeyCallback) {

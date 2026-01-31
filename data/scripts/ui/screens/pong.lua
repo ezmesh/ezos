@@ -42,17 +42,17 @@ function Pong:on_exit()
 end
 
 function Pong:reset_game()
-    local h = tdeck.display.height
+    local h = ez.display.height
 
     self.player_y = h / 2 - PADDLE_HEIGHT / 2
     self.ai_y = h / 2 - PADDLE_HEIGHT / 2
     self:reset_ball()
-    self.last_update = tdeck.system.millis()
+    self.last_update = ez.system.millis()
 end
 
 function Pong:reset_ball()
-    local w = tdeck.display.width
-    local h = tdeck.display.height
+    local w = ez.display.width
+    local h = ez.display.height
 
     self.ball_x = w / 2 - BALL_SIZE / 2
     self.ball_y = h / 2 - BALL_SIZE / 2
@@ -62,7 +62,7 @@ function Pong:reset_ball()
 end
 
 function Pong:update_ai()
-    local h = tdeck.display.height
+    local h = ez.display.height
     local ai_center = self.ai_y + PADDLE_HEIGHT / 2
     local ball_center = self.ball_y + BALL_SIZE / 2
 
@@ -80,8 +80,8 @@ function Pong:update_ai()
 end
 
 function Pong:update_ball()
-    local w = tdeck.display.width
-    local h = tdeck.display.height
+    local w = ez.display.width
+    local h = ez.display.height
 
     -- Move ball
     self.ball_x = self.ball_x + self.ball_dx
@@ -152,7 +152,7 @@ end
 function Pong:update()
     if self.game_over or self.paused then return end
 
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     if now - self.last_update >= 30 then  -- ~33 FPS
         self:update_ai()
         self:update_ball()
@@ -211,7 +211,7 @@ function Pong:render(display)
 end
 
 function Pong:handle_key(key)
-    local h = tdeck.display.height
+    local h = ez.display.height
 
     if self.game_over then
         if key.special == "ENTER" then

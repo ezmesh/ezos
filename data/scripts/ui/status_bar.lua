@@ -77,22 +77,22 @@ function StatusBar.is_loading()
 end
 
 function StatusBar.update_memory()
-    if tdeck.system.get_free_heap then
-        StatusBar.free_mem_kb = math.floor(tdeck.system.get_free_heap() / 1024)
-        if tdeck.system.get_total_heap then
-            StatusBar.total_mem_kb = math.floor(tdeck.system.get_total_heap() / 1024)
+    if ez.system.get_free_heap then
+        StatusBar.free_mem_kb = math.floor(ez.system.get_free_heap() / 1024)
+        if ez.system.get_total_heap then
+            StatusBar.total_mem_kb = math.floor(ez.system.get_total_heap() / 1024)
         end
     end
 
-    if tdeck.system.get_free_psram then
-        StatusBar.free_psram_kb = math.floor(tdeck.system.get_free_psram() / 1024)
-        if tdeck.system.get_total_psram then
-            StatusBar.total_psram_kb = math.floor(tdeck.system.get_total_psram() / 1024)
+    if ez.system.get_free_psram then
+        StatusBar.free_psram_kb = math.floor(ez.system.get_free_psram() / 1024)
+        if ez.system.get_total_psram then
+            StatusBar.total_psram_kb = math.floor(ez.system.get_total_psram() / 1024)
         end
     end
 
     -- Sample history every 500ms
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     if now - StatusBar.mem_last >= 500 then
         StatusBar.mem_last = now
 
@@ -213,7 +213,7 @@ function StatusBar._render_impl(display)
         local spinner_cx = spinner_x + math.floor(spinner_size / 2)
 
         -- Animate the spinner (4 frames, rotate every 100ms)
-        local now = tdeck.system.millis()
+        local now = ez.system.millis()
         if now - StatusBar.loading_last >= 100 then
             StatusBar.loading_last = now
             StatusBar.loading_frame = (StatusBar.loading_frame + 1) % 4
@@ -293,13 +293,13 @@ function StatusBar._render_impl(display)
 
     -- Time display (center of screen)
     local time_str = "--:--"
-    local t = tdeck.system.get_time and tdeck.system.get_time()
+    local t = ez.system.get_time and ez.system.get_time()
 
     if t then
         -- Load time format preference (1 = 24h, 2 = 12h AM/PM)
         local format = StatusBar.time_format
-        if tdeck.storage and tdeck.storage.get_pref then
-            format = tdeck.storage.get_pref("timeFormat", 1)
+        if ez.storage and ez.storage.get_pref then
+            format = ez.storage.get_pref("timeFormat", 1)
         end
 
         if format == 2 then
@@ -336,8 +336,8 @@ function StatusBar.load_hotkey()
     end
     StatusBar.menu_hotkey_loaded = true
 
-    if tdeck.storage and tdeck.storage.get_pref then
-        local saved = tdeck.storage.get_pref("menuHotkey", nil)
+    if ez.storage and ez.storage.get_pref then
+        local saved = ez.storage.get_pref("menuHotkey", nil)
         if saved and saved > 0 then
             StatusBar.menu_hotkey = saved
         end
@@ -358,8 +358,8 @@ function StatusBar.load_screenshot_hotkey()
     end
     StatusBar.screenshot_hotkey_loaded = true
 
-    if tdeck.storage and tdeck.storage.get_pref then
-        local saved = tdeck.storage.get_pref("screenshotHotkey", nil)
+    if ez.storage and ez.storage.get_pref then
+        local saved = ez.storage.get_pref("screenshotHotkey", nil)
         if saved and saved > 0 then
             StatusBar.screenshot_hotkey = saved
         end
@@ -375,23 +375,23 @@ end
 
 function StatusBar.take_screenshot()
     -- Take a screenshot and save to SD card
-    if tdeck.display and tdeck.display.save_screenshot then
+    if ez.display and ez.display.save_screenshot then
         local filename = "/screenshots/screen_" .. os.time() .. ".bmp"
-        local ok = tdeck.display.save_screenshot(filename)
+        local ok = ez.display.save_screenshot(filename)
         if ok then
-            tdeck.system.log("[Screenshot] Saved: " .. filename)
+            ez.system.log("[Screenshot] Saved: " .. filename)
             if _G.SoundUtils and _G.SoundUtils.is_enabled() then
                 _G.SoundUtils.confirm()
             end
         else
-            tdeck.system.log("[Screenshot] Failed to save")
+            ez.system.log("[Screenshot] Failed to save")
             if _G.SoundUtils and _G.SoundUtils.is_enabled() then
                 _G.SoundUtils.error()
             end
         end
         return ok
     else
-        tdeck.system.log("[Screenshot] Not available")
+        ez.system.log("[Screenshot] Not available")
         return false
     end
 end
@@ -412,7 +412,7 @@ function StatusBar.check_hotkeys()
     local current = _G.ScreenManager and _G.ScreenManager.peek()
     local menu_disabled = current and current.disable_app_menu
 
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     if now - StatusBar.menu_last_check < StatusBar.menu_check_interval then
         return
     end
@@ -422,21 +422,21 @@ function StatusBar.check_hotkeys()
     StatusBar.load_hotkey()
     StatusBar.load_screenshot_hotkey()
 
-    local prev_mode = tdeck.keyboard.get_mode()
-    if not tdeck.keyboard.set_mode("raw") then
+    local prev_mode = ez.keyboard.get_mode()
+    if not ez.keyboard.set_mode("raw") then
         return
     end
 
-    local matrix = tdeck.keyboard.read_raw_matrix()
+    local matrix = ez.keyboard.read_raw_matrix()
     if not matrix then
-        tdeck.keyboard.set_mode(prev_mode)
+        ez.keyboard.set_mode(prev_mode)
         return
     end
 
     -- Get current matrix bits
     local current_bits = StatusBar.get_matrix_bits(matrix)
 
-    tdeck.keyboard.set_mode(prev_mode)
+    ez.keyboard.set_mode(prev_mode)
 
     -- Check menu hotkey (unless disabled by current screen)
     if not menu_disabled then

@@ -83,7 +83,7 @@ function Tetris:on_enter()
     -- Enter game mode (disables GC, slows mesh, hides status bar)
     if _G.MainLoop then _G.MainLoop.enter_game_mode() end
     self:spawn_piece()
-    self.last_drop = tdeck.system.millis()
+    self.last_drop = ez.system.millis()
 end
 
 function Tetris:on_exit()
@@ -347,7 +347,7 @@ end
 function Tetris:update()
     if self.game_over or self.paused then return end
 
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     if now - self.last_drop >= self.drop_interval then
         self:drop()
         self.last_drop = now

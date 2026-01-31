@@ -52,12 +52,12 @@ end
 
 function MainMenu:on_enter()
     -- Ensure keyboard is in normal mode (safety reset in case a screen didn't clean up)
-    tdeck.keyboard.set_mode("normal")
+    ez.keyboard.set_mode("normal")
 
     -- Update title with node name and path hash
-    if tdeck.mesh.is_initialized() then
-        local node_name = tdeck.mesh.get_node_name() or "Node"
-        local path_hash = tdeck.mesh.get_path_hash() or 0
+    if ez.mesh.is_initialized() then
+        local node_name = ez.mesh.get_node_name() or "Node"
+        local path_hash = ez.mesh.get_path_hash() or 0
         self.title = string.format("%s (%02X)", node_name, path_hash)
     else
         self.title = "MeshCore"

@@ -35,8 +35,8 @@ function Contacts:refresh_contacts()
         local saved = _G.Contacts.get_saved()
         -- Enrich with live node data if available
         local live_map = {}
-        if tdeck.mesh.is_initialized() then
-            local live_nodes = tdeck.mesh.get_nodes() or {}
+        if ez.mesh.is_initialized() then
+            local live_nodes = ez.mesh.get_nodes() or {}
             for _, node in ipairs(live_nodes) do
                 if node.pub_key_hex then
                     live_map[node.pub_key_hex] = node
@@ -96,7 +96,7 @@ function Contacts:rssi_to_bars(rssi)
 end
 
 function Contacts:format_last_seen(timestamp)
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     local diff = math.floor((now - timestamp) / 1000)
 
     if diff < 60 then
@@ -111,7 +111,7 @@ function Contacts:format_last_seen(timestamp)
 end
 
 function Contacts:role_to_string(role)
-    local ROLE = tdeck.mesh.ROLE
+    local ROLE = ez.mesh.ROLE
     if role == ROLE.CLIENT then return "Client"
     elseif role == ROLE.REPEATER then return "Repeater"
     elseif role == ROLE.ROUTER then return "Router"
@@ -320,7 +320,7 @@ function Contacts:ping()
     if #self.contacts == 0 then return end
 
     local contact = self.contacts[self.selected]
-    tdeck.system.log("Ping " .. (contact.name or "unknown"))
+    ez.system.log("Ping " .. (contact.name or "unknown"))
     -- TODO: Implement actual ping
 end
 

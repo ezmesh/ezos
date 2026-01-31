@@ -70,7 +70,7 @@ function Components.TextInput:render(display, x, y, focused)
 
     -- Cursor
     if focused then
-        local now = tdeck.system.millis()
+        local now = ez.system.millis()
         if now - self.cursor_blink_time > 500 then
             self.cursor_visible = not self.cursor_visible
             self.cursor_blink_time = now
@@ -587,7 +587,7 @@ function Components.TextArea:render(display, x, y, focused)
 
     -- Cursor
     if focused then
-        local now = tdeck.system.millis()
+        local now = ez.system.millis()
         if now - self.cursor_blink_time > 500 then
             self.cursor_visible = not self.cursor_visible
             self.cursor_blink_time = now

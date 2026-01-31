@@ -12,7 +12,7 @@ local StatusServices = {
 function StatusServices.get_channels()
     if not StatusServices.channels_loaded then
         _G.Channels = load_module("/scripts/services/channels.lua")
-        if tdeck.mesh.is_initialized() then
+        if ez.mesh.is_initialized() then
             _G.Channels.init()
         end
         StatusServices.channels_loaded = true
@@ -24,14 +24,14 @@ end
 -- Updates status bar and warns on low battery
 function StatusServices.init_battery_service()
     Scheduler.register_service("battery", function()
-        local percent = tdeck.system.get_battery_percent()
+        local percent = ez.system.get_battery_percent()
         if StatusBar then
             StatusBar.set_battery(percent)
         end
 
         -- Low battery warning at 10%
         if percent <= 10 then
-            tdeck.system.log("[Battery] Low battery: " .. percent .. "%")
+            ez.system.log("[Battery] Low battery: " .. percent .. "%")
         end
     end, 30000)  -- Every 30 seconds
 end
@@ -40,9 +40,9 @@ end
 -- Updates node count and unread message indicator
 function StatusServices.init_mesh_service()
     -- Subscribe to bus events for immediate updates
-    if tdeck.bus and tdeck.bus.subscribe then
+    if ez.bus and ez.bus.subscribe then
         -- Node count changes
-        tdeck.bus.subscribe("mesh/node_count", function(topic, data)
+        ez.bus.subscribe("mesh/node_count", function(topic, data)
             local count = tonumber(data) or 0
             if StatusBar then
                 StatusBar.set_node_count(count)
@@ -50,7 +50,7 @@ function StatusServices.init_mesh_service()
         end)
 
         -- Channel unread changes (data format: "channel:count")
-        tdeck.bus.subscribe("channel/unread", function(topic, data)
+        ez.bus.subscribe("channel/unread", function(topic, data)
             -- Parse count from "channel:count" format
             local colon = data:find(":")
             if colon then
@@ -64,9 +64,9 @@ function StatusServices.init_mesh_service()
 
     -- Keep polling as fallback (reduced to 10s since bus handles immediate updates)
     Scheduler.register_service("mesh_status", function()
-        if tdeck.mesh.is_initialized() then
+        if ez.mesh.is_initialized() then
             -- Update node count in status bar
-            local count = tdeck.mesh.get_node_count()
+            local count = ez.mesh.get_node_count()
             if StatusBar then
                 StatusBar.set_node_count(count)
             end
@@ -93,11 +93,11 @@ end
 -- Updates radio indicator in status bar
 function StatusServices.init_radio_service()
     Scheduler.register_service("radio_status", function()
-        local ok = tdeck.radio.is_initialized()
+        local ok = ez.radio.is_initialized()
         -- Calculate signal bars based on last RSSI
         local bars = 0
         if ok then
-            local rssi = tdeck.radio.get_last_rssi()
+            local rssi = ez.radio.get_last_rssi()
             if rssi > -70 then
                 bars = 4
             elseif rssi > -85 then
@@ -116,7 +116,7 @@ end
 
 -- Initialize all status services
 function StatusServices.init_all()
-    tdeck.system.log("[StatusServices] Starting status bar update services...")
+    ez.system.log("[StatusServices] Starting status bar update services...")
 
     -- NOTE: Channels service is loaded on-demand via get_channels()
     -- to save memory at boot
@@ -125,7 +125,7 @@ function StatusServices.init_all()
     StatusServices.init_mesh_service()
     StatusServices.init_radio_service()
 
-    tdeck.system.log("[StatusServices] Services started")
+    ez.system.log("[StatusServices] Services started")
 end
 
 -- Stop all status services

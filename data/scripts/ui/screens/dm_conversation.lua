@@ -126,7 +126,7 @@ function DMConversation:scroll_to_bottom()
 end
 
 function DMConversation:check_new_messages()
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     local force = self.needs_refresh
     self.needs_refresh = false
 
@@ -179,7 +179,7 @@ function DMConversation:mark_needs_refresh()
 end
 
 function DMConversation:update_cursor()
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     if now - self.last_blink > self.blink_interval then
         self.cursor_visible = not self.cursor_visible
         self.last_blink = now
@@ -467,15 +467,15 @@ function DMConversation:handle_key(key)
 
     -- Debug: log all key events to help diagnose input issues
     if key.character then
-        tdeck.system.log("[DMConv] key: char='" .. key.character .. "' input_len=" .. #self.input_text .. " sel=" .. tostring(self.selected_msg_index))
+        ez.system.log("[DMConv] key: char='" .. key.character .. "' input_len=" .. #self.input_text .. " sel=" .. tostring(self.selected_msg_index))
     elseif key.special then
-        tdeck.system.log("[DMConv] key: special=" .. key.special .. " input_len=" .. #self.input_text .. " sel=" .. tostring(self.selected_msg_index))
+        ez.system.log("[DMConv] key: special=" .. key.special .. " input_len=" .. #self.input_text .. " sel=" .. tostring(self.selected_msg_index))
     end
 
     if key.special == "ENTER" then
         if self.selected_msg_index then
             -- Open app menu when a message is selected
-            tdeck.system.log("[DMConv] ENTER on selected message #" .. self.selected_msg_index)
+            ez.system.log("[DMConv] ENTER on selected message #" .. self.selected_msg_index)
             if _G.AppMenu then
                 _G.AppMenu.show()
             end
@@ -485,7 +485,7 @@ function DMConversation:handle_key(key)
             -- Empty input, no selection: select the last message for quick interaction
             self.selected_msg_index = #self.messages
             self:scroll_to_selected()
-            tdeck.system.log("[DMConv] ENTER: auto-selected last message #" .. self.selected_msg_index)
+            ez.system.log("[DMConv] ENTER: auto-selected last message #" .. self.selected_msg_index)
         end
     elseif key.special == "BACKSPACE" then
         if self.selected_msg_index then
@@ -669,8 +669,8 @@ function DMConversation:get_menu_items()
         action = function()
             -- Find contact info and show details
             local node = nil
-            if tdeck.mesh.is_initialized() then
-                local nodes = tdeck.mesh.get_nodes() or {}
+            if ez.mesh.is_initialized() then
+                local nodes = ez.mesh.get_nodes() or {}
                 for _, n in ipairs(nodes) do
                     if n.pub_key_hex == self_ref.contact_pub_key then
                         node = n

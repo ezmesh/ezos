@@ -11,15 +11,15 @@ function USBTransfer:new()
     local o = {
         title = self.title,
         msc_active = false,
-        sd_available = tdeck.system.is_sd_available()
+        sd_available = ez.system.is_sd_available()
     }
     setmetatable(o, {__index = USBTransfer})
     return o
 end
 
 function USBTransfer:on_enter()
-    self.sd_available = tdeck.system.is_sd_available()
-    self.msc_active = tdeck.system.is_usb_msc_active()
+    self.sd_available = ez.system.is_sd_available()
+    self.msc_active = ez.system.is_usb_msc_active()
 end
 
 function USBTransfer:render(display)
@@ -82,7 +82,7 @@ function USBTransfer:handle_key(key)
     elseif key.special == "ENTER" then
         if self.sd_available and not self.msc_active then
             -- Start MSC mode
-            if tdeck.system.start_usb_msc() then
+            if ez.system.start_usb_msc() then
                 self.msc_active = true
                 ScreenManager.invalidate()
             end
@@ -91,14 +91,14 @@ function USBTransfer:handle_key(key)
     elseif key.character == "s" or key.character == "S" then
         if self.msc_active then
             -- Stop MSC and restart to reload scripts
-            tdeck.system.stop_usb_msc()
-            tdeck.system.delay(500)
-            tdeck.system.restart()
+            ez.system.stop_usb_msc()
+            ez.system.delay(500)
+            ez.system.restart()
         end
 
     elseif key.character == "r" or key.character == "R" then
         -- Retry SD card detection
-        self.sd_available = tdeck.system.is_sd_available()
+        self.sd_available = ez.system.is_sd_available()
         ScreenManager.invalidate()
     end
 

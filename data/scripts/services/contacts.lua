@@ -15,10 +15,10 @@ local Contacts = {
 
 -- Storage path (prefer SD card for more space)
 local function get_storage_path()
-    if tdeck.storage.is_sd_available() then
+    if ez.storage.is_sd_available() then
         -- Ensure directory exists
-        if not tdeck.storage.exists("/sd/data") then
-            tdeck.storage.mkdir("/sd/data")
+        if not ez.storage.exists("/sd/data") then
+            ez.storage.mkdir("/sd/data")
         end
         return "/sd/data/contacts.json"
     end
@@ -31,12 +31,12 @@ function Contacts.init()
     Contacts._load()
 
     -- Load auto time sync setting
-    local auto_sync = tdeck.storage.get_pref("autoTimeSyncContacts", "true")
+    local auto_sync = ez.storage.get_pref("autoTimeSyncContacts", "true")
     Contacts.auto_time_sync = (auto_sync == "true" or auto_sync == true)
 
     -- Subscribe to node discovery events via message bus
-    if tdeck.bus and tdeck.bus.subscribe then
-        tdeck.bus.subscribe("mesh/node_discovered", function(topic, node)
+    if ez.bus and ez.bus.subscribe then
+        ez.bus.subscribe("mesh/node_discovered", function(topic, node)
             -- node is a table with path_hash, name, rssi, snr, pub_key_hex, etc.
             Contacts._handle_node_discovered(node)
         end)
@@ -88,7 +88,7 @@ function Contacts.add(node, notes)
         name = node.name or "Unknown",
         path_hash = node.path_hash,
         notes = notes or "",
-        added_time = tdeck.system.get_time_unix() or 0,
+        added_time = ez.system.get_time_unix() or 0,
     }
 
     Contacts._save()
@@ -136,8 +136,8 @@ function Contacts.get_discovered()
 
     -- First, get live nodes from mesh
     local live_nodes = {}
-    if tdeck.mesh.is_initialized() then
-        live_nodes = tdeck.mesh.get_nodes() or {}
+    if ez.mesh.is_initialized() then
+        live_nodes = ez.mesh.get_nodes() or {}
     end
 
     -- Add live nodes, marking their pub keys as dominated
@@ -163,7 +163,7 @@ function Contacts.get_discovered()
             -- Check if still valid (not expired)
             local age_days = 0
             if cached.last_seen and cached.last_seen > 0 then
-                local now = tdeck.system.millis()
+                local now = ez.system.millis()
                 age_days = (now - cached.last_seen) / (1000 * 86400)
             end
 
@@ -211,7 +211,7 @@ function Contacts._handle_node_discovered(node)
     Contacts.discovered[pub_key_hex] = {
         name = node.name or "Unknown",
         path_hash = node.path_hash,
-        last_seen = tdeck.system.millis(),
+        last_seen = ez.system.millis(),
         rssi = node.rssi,
         role = node.role,
         advert_timestamp = node.advert_timestamp,
@@ -229,16 +229,16 @@ function Contacts._handle_node_discovered(node)
     end
 
     -- Publish node count change event for status bar
-    if tdeck.bus and tdeck.bus.post then
+    if ez.bus and ez.bus.post then
         local count = Contacts._count_discovered()
-        tdeck.bus.post("mesh/node_count", tostring(count))
+        ez.bus.post("mesh/node_count", tostring(count))
     end
 end
 
 -- Check if we should auto-sync time from this contact's ADVERT
 function Contacts._check_auto_time_sync(node)
     -- Only sync if time is not set
-    local current_time = tdeck.system.get_time_unix()
+    local current_time = ez.system.get_time_unix()
     if current_time and current_time > 1577836800 then
         -- Time already set (after 2020)
         return
@@ -261,11 +261,11 @@ function Contacts._check_auto_time_sync(node)
     local corrected_time = ts + age_seconds
 
     -- Set the time
-    local ok = tdeck.system.set_time_unix(corrected_time)
+    local ok = ez.system.set_time_unix(corrected_time)
     if ok then
         local contact_name = Contacts.saved[pub_key_hex].name
         print("[Contacts] Auto time sync from " .. contact_name)
-        tdeck.storage.set_pref("lastTimeSet", corrected_time)
+        ez.storage.set_pref("lastTimeSet", corrected_time)
     end
 end
 
@@ -330,13 +330,13 @@ function Contacts._save()
         })
     end
 
-    local json = tdeck.storage.json_encode(data)
+    local json = ez.storage.json_encode(data)
     if json then
         local path = get_storage_path()
-        local ok = tdeck.storage.write(path, json)
+        local ok = ez.storage.write(path, json)
         if not ok then
             -- Fallback to flash if SD write failed
-            tdeck.storage.write("/contacts.json", json)
+            ez.storage.write("/contacts.json", json)
         end
     end
 end
@@ -345,18 +345,18 @@ end
 function Contacts._load()
     -- Try SD first, then flash
     local json = nil
-    if tdeck.storage.is_sd_available() then
-        json = tdeck.storage.read("/sd/data/contacts.json")
+    if ez.storage.is_sd_available() then
+        json = ez.storage.read("/sd/data/contacts.json")
     end
     if not json then
-        json = tdeck.storage.read("/contacts.json")
+        json = ez.storage.read("/contacts.json")
     end
 
     if not json then
         return
     end
 
-    local data = tdeck.storage.json_decode(json)
+    local data = ez.storage.json_decode(json)
     if not data or data.version ~= 1 then
         return
     end
@@ -381,7 +381,7 @@ end
 -- Set auto time sync setting
 function Contacts.set_auto_time_sync(enabled)
     Contacts.auto_time_sync = enabled
-    tdeck.storage.set_pref("autoTimeSyncContacts", enabled and "true" or "false")
+    ez.storage.set_pref("autoTimeSyncContacts", enabled and "true" or "false")
 end
 
 -- Clear discovered node cache (keeps saved contacts)

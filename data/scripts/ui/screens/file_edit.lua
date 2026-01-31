@@ -41,7 +41,7 @@ function FileEdit:load_file(path)
     self.file_path = path
     self.lines = {}
 
-    local content = tdeck.storage.read_file(path)
+    local content = ez.storage.read_file(path)
     if content then
         -- Split content into lines
         for line in (content .. "\n"):gmatch("([^\n]*)\n") do
@@ -75,7 +75,7 @@ function FileEdit:save_file()
     end
 
     local content = table.concat(self.lines, "\n")
-    if tdeck.storage.write_file(self.file_path, content) then
+    if ez.storage.write_file(self.file_path, content) then
         self.modified = false
         self:show_message("Saved: " .. self:basename(self.file_path))
         return true
@@ -91,7 +91,7 @@ end
 
 function FileEdit:show_message(msg)
     self.message = msg
-    self.message_time = tdeck.system.millis()
+    self.message_time = ez.system.millis()
 end
 
 function FileEdit:current_line()
@@ -300,7 +300,7 @@ function FileEdit:render(display)
 
     -- Status bar (only show messages, position is in header)
     local status_y = (rows - 2) * fh
-    if self.message and (tdeck.system.millis() - self.message_time) < 2000 then
+    if self.message and (ez.system.millis() - self.message_time) < 2000 then
         display.draw_text(fw, status_y, self.message, colors.TEXT_SECONDARY)
     else
         self.message = nil

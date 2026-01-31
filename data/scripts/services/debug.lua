@@ -11,17 +11,17 @@ function Debug.memory()
     info.lua_kb = math.floor(collectgarbage("count"))
 
     -- System memory (if available)
-    if tdeck.system and tdeck.system.get_free_heap then
-        info.heap_free = tdeck.system.get_free_heap()
+    if ez.system and ez.system.get_free_heap then
+        info.heap_free = ez.system.get_free_heap()
     end
-    if tdeck.system and tdeck.system.get_min_free_heap then
-        info.heap_min = tdeck.system.get_min_free_heap()
+    if ez.system and ez.system.get_min_free_heap then
+        info.heap_min = ez.system.get_min_free_heap()
     end
-    if tdeck.system and tdeck.system.get_psram_free then
-        info.psram_free = tdeck.system.get_psram_free()
+    if ez.system and ez.system.get_psram_free then
+        info.psram_free = ez.system.get_psram_free()
     end
-    if tdeck.system and tdeck.system.get_psram_size then
-        info.psram_total = tdeck.system.get_psram_size()
+    if ez.system and ez.system.get_psram_size then
+        info.psram_total = ez.system.get_psram_size()
     end
 
     return info
@@ -46,18 +46,18 @@ end
 function Debug.mesh()
     local info = {}
 
-    if tdeck.mesh then
-        if tdeck.mesh.is_initialized then
-            info.initialized = tdeck.mesh.is_initialized()
+    if ez.mesh then
+        if ez.mesh.is_initialized then
+            info.initialized = ez.mesh.is_initialized()
         end
-        if tdeck.mesh.get_node_count then
-            info.node_count = tdeck.mesh.get_node_count()
+        if ez.mesh.get_node_count then
+            info.node_count = ez.mesh.get_node_count()
         end
-        if tdeck.mesh.get_tx_count then
-            info.tx_packets = tdeck.mesh.get_tx_count()
+        if ez.mesh.get_tx_count then
+            info.tx_packets = ez.mesh.get_tx_count()
         end
-        if tdeck.mesh.get_rx_count then
-            info.rx_packets = tdeck.mesh.get_rx_count()
+        if ez.mesh.get_rx_count then
+            info.rx_packets = ez.mesh.get_rx_count()
         end
     end
 
@@ -68,15 +68,15 @@ end
 function Debug.radio()
     local info = {}
 
-    if tdeck.radio then
-        if tdeck.radio.is_initialized then
-            info.initialized = tdeck.radio.is_initialized()
+    if ez.radio then
+        if ez.radio.is_initialized then
+            info.initialized = ez.radio.is_initialized()
         end
-        if tdeck.radio.get_last_rssi then
-            info.last_rssi = tdeck.radio.get_last_rssi()
+        if ez.radio.get_last_rssi then
+            info.last_rssi = ez.radio.get_last_rssi()
         end
-        if tdeck.radio.get_last_snr then
-            info.last_snr = tdeck.radio.get_last_snr()
+        if ez.radio.get_last_snr then
+            info.last_snr = ez.radio.get_last_snr()
         end
     end
 
@@ -87,24 +87,24 @@ end
 function Debug.gps()
     local info = {}
 
-    if tdeck.gps then
-        if tdeck.gps.is_initialized then
-            info.initialized = tdeck.gps.is_initialized()
+    if ez.gps then
+        if ez.gps.is_initialized then
+            info.initialized = ez.gps.is_initialized()
         end
-        if tdeck.gps.has_fix then
-            info.has_fix = tdeck.gps.has_fix()
+        if ez.gps.has_fix then
+            info.has_fix = ez.gps.has_fix()
         end
-        if tdeck.gps.get_latitude then
-            info.latitude = tdeck.gps.get_latitude()
+        if ez.gps.get_latitude then
+            info.latitude = ez.gps.get_latitude()
         end
-        if tdeck.gps.get_longitude then
-            info.longitude = tdeck.gps.get_longitude()
+        if ez.gps.get_longitude then
+            info.longitude = ez.gps.get_longitude()
         end
-        if tdeck.gps.get_altitude then
-            info.altitude = tdeck.gps.get_altitude()
+        if ez.gps.get_altitude then
+            info.altitude = ez.gps.get_altitude()
         end
-        if tdeck.gps.get_satellites then
-            info.satellites = tdeck.gps.get_satellites()
+        if ez.gps.get_satellites then
+            info.satellites = ez.gps.get_satellites()
         end
     end
 
@@ -115,26 +115,26 @@ end
 function Debug.system()
     local info = {}
 
-    if tdeck.system then
-        if tdeck.system.get_uptime then
-            info.uptime_ms = tdeck.system.get_uptime()
+    if ez.system then
+        if ez.system.get_uptime then
+            info.uptime_ms = ez.system.get_uptime()
             info.uptime_sec = math.floor(info.uptime_ms / 1000)
         end
-        if tdeck.system.get_cpu_freq then
-            info.cpu_mhz = tdeck.system.get_cpu_freq()
+        if ez.system.get_cpu_freq then
+            info.cpu_mhz = ez.system.get_cpu_freq()
         end
     end
 
     -- Battery info
-    if tdeck.battery then
-        if tdeck.battery.get_voltage then
-            info.battery_mv = tdeck.battery.get_voltage()
+    if ez.battery then
+        if ez.battery.get_voltage then
+            info.battery_mv = ez.battery.get_voltage()
         end
-        if tdeck.battery.get_percentage then
-            info.battery_pct = tdeck.battery.get_percentage()
+        if ez.battery.get_percentage then
+            info.battery_pct = ez.battery.get_percentage()
         end
-        if tdeck.battery.is_charging then
-            info.charging = tdeck.battery.is_charging()
+        if ez.battery.is_charging then
+            info.charging = ez.battery.is_charging()
         end
     end
 

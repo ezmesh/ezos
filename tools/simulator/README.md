@@ -1,6 +1,6 @@
-# T-Deck OS Browser Simulator
+# ezOS Browser Simulator
 
-A browser-based simulator that runs T-Deck OS Lua scripts using Wasmoon (Lua 5.4 compiled to WebAssembly).
+A browser-based simulator that runs ezOS Lua scripts using Wasmoon (Lua 5.4 compiled to WebAssembly).
 
 ## Quick Start
 
@@ -51,7 +51,7 @@ npm start
 
 ## Mock Modules
 
-### tdeck.display
+### ez.display
 Maps to HTML5 Canvas 2D API. Supports all drawing primitives:
 - `clear()`, `flush()`
 - `fill_rect()`, `draw_rect()`, `draw_rounded_rect()`, `fill_rounded_rect()`
@@ -61,14 +61,14 @@ Maps to HTML5 Canvas 2D API. Supports all drawing primitives:
 - `draw_bitmap()`, `draw_indexed_bitmap()`
 - Color constants: `BLACK`, `WHITE`, `RED`, `GREEN`, `BLUE`, etc.
 
-### tdeck.keyboard
+### ez.keyboard
 Maps to browser keyboard events:
 - `available()`, `read()`, `peek()`, `clear()`
 - `is_shift_held()`, `is_ctrl_held()`, `is_alt_held()`
 - Arrow keys mapped to `UP`, `DOWN`, `LEFT`, `RIGHT`
 - Special keys: `ENTER`, `ESCAPE`, `TAB`, `BACKSPACE`
 
-### tdeck.system
+### ez.system
 Time and system functions:
 - `millis()`, `micros()` - Uses `performance.now()`
 - `get_time()` - Returns current date/time components
@@ -76,26 +76,26 @@ Time and system functions:
 - `set_timer()`, `set_interval()`, `cancel_timer()`
 - `log()` - Output to browser console
 
-### tdeck.storage
+### ez.storage
 Uses IndexedDB for files, localStorage for preferences:
 - `read_file()`, `write_file()`, `append_file()`, `exists()`, `delete_file()`
 - `list_dir()`, `mkdir()`, `rmdir()`
 - `get_pref()`, `set_pref()`, `delete_pref()`
 - `json_encode()`, `json_decode()`
 
-### tdeck.mesh
+### ez.mesh
 Simulated mesh network with mock nodes:
 - `is_initialized()`, `get_node_id()`, `get_nodes()`
 - `send_channel_message()`, `send_direct_message()`
 - `join_channel()`, `leave_channel()`, `get_channels()`
 
-### tdeck.gps
+### ez.gps
 Uses browser Geolocation API (with fallback to mock Amsterdam location):
 - `init()`, `is_valid()`, `get_location()`
 - `get_lat()`, `get_lon()`, `get_alt()`, `get_speed()`
 - `distance()`, `bearing()` - Haversine calculations
 
-### tdeck.audio
+### ez.audio
 Uses Web Audio API:
 - `play_tone()`, `beep()`, `play_click()`
 - `play_success()`, `play_error()`, `play_notification()`

@@ -119,8 +119,8 @@ bool LuaRuntime::init() {
     luaL_openlibs(_state);
 
 
-    // Create the tdeck namespace
-    createTdeckNamespace();
+    // Create the ez namespace
+    createEzNamespace();
 
     // Register all hardware modules
     registerAllModules();
@@ -143,10 +143,10 @@ void LuaRuntime::shutdown() {
     }
 }
 
-void LuaRuntime::createTdeckNamespace() {
-    // Create the global 'tdeck' table
+void LuaRuntime::createEzNamespace() {
+    // Create the global 'ez' table
     lua_newtable(_state);
-    lua_setglobal(_state, "tdeck");
+    lua_setglobal(_state, "ez");
 }
 
 

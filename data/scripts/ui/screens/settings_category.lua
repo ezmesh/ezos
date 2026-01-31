@@ -215,8 +215,8 @@ end
 
 function SettingsCategory:load_settings()
     local function get_pref(key, default)
-        if tdeck.storage and tdeck.storage.get_pref then
-            return tdeck.storage.get_pref(key, default)
+        if ez.storage and ez.storage.get_pref then
+            return ez.storage.get_pref(key, default)
         end
         return default
     end
@@ -294,15 +294,15 @@ end
 
 function SettingsCategory:save_setting(setting)
     local function set_pref(key, value)
-        if tdeck.storage and tdeck.storage.set_pref then
-            tdeck.storage.set_pref(key, value)
+        if ez.storage and ez.storage.set_pref then
+            ez.storage.set_pref(key, value)
         end
     end
 
     -- Publish setting changed event
-    if tdeck.bus and tdeck.bus.post then
+    if ez.bus and ez.bus.post then
         local value_str = tostring(setting.value)
-        tdeck.bus.post("settings/changed", setting.name .. "=" .. value_str)
+        ez.bus.post("settings/changed", setting.name .. "=" .. value_str)
     end
 
     if setting.name == "node_name" then
@@ -558,7 +558,7 @@ function SettingsCategory:start_editing()
     local setting = self.settings[self.selected]
 
     if setting.type == "text" then
-        tdeck.system.log("TODO: Text input for " .. setting.name)
+        ez.system.log("TODO: Text input for " .. setting.name)
     elseif setting.type == "button" then
         if setting.name == "usb" then
             spawn_screen("/scripts/ui/screens/usb_transfer.lua")
@@ -613,12 +613,12 @@ function SettingsCategory:adjust_value(delta)
 
     -- Apply changes immediately for certain settings
     if setting.name == "brightness" then
-        if tdeck.display and tdeck.display.set_brightness then
-            tdeck.display.set_brightness(setting.value)
+        if ez.display and ez.display.set_brightness then
+            ez.display.set_brightness(setting.value)
         end
     elseif setting.name == "kb_backlight" then
-        if tdeck.keyboard and tdeck.keyboard.set_backlight then
-            tdeck.keyboard.set_backlight(setting.value)
+        if ez.keyboard and ez.keyboard.set_backlight then
+            ez.keyboard.set_backlight(setting.value)
         end
     elseif setting.name == "wallpaper" then
         if _G.ThemeManager then
@@ -632,40 +632,40 @@ function SettingsCategory:adjust_value(delta)
         local tz_name = setting.options[setting.value]
         local tz_posix = SettingsCategory.TIMEZONE_POSIX[tz_name]
         if tz_posix then
-            if tdeck.system and tdeck.system.set_timezone then
-                tdeck.system.set_timezone(tz_posix)
+            if ez.system and ez.system.set_timezone then
+                ez.system.set_timezone(tz_posix)
             end
-            if tdeck.storage and tdeck.storage.set_pref then
-                tdeck.storage.set_pref("timezonePosix", tz_posix)
+            if ez.storage and ez.storage.set_pref then
+                ez.storage.set_pref("timezonePosix", tz_posix)
             end
         end
     elseif setting.name == "trackball" then
-        if tdeck.keyboard and tdeck.keyboard.set_trackball_sensitivity then
-            tdeck.keyboard.set_trackball_sensitivity(setting.value)
+        if ez.keyboard and ez.keyboard.set_trackball_sensitivity then
+            ez.keyboard.set_trackball_sensitivity(setting.value)
         end
     elseif setting.name == "trackball_mode" then
-        if tdeck.keyboard and tdeck.keyboard.set_trackball_mode then
+        if ez.keyboard and ez.keyboard.set_trackball_mode then
             local mode = (setting.value == 2) and "interrupt" or "polling"
-            tdeck.keyboard.set_trackball_mode(mode)
+            ez.keyboard.set_trackball_mode(mode)
         end
     elseif setting.name == "node_name" then
-        if tdeck.mesh and tdeck.mesh.set_node_name then
-            tdeck.mesh.set_node_name(setting.value)
+        if ez.mesh and ez.mesh.set_node_name then
+            ez.mesh.set_node_name(setting.value)
         end
     elseif setting.name == "tx_power" then
-        if tdeck.radio and tdeck.radio.set_tx_power then
-            tdeck.radio.set_tx_power(setting.value)
+        if ez.radio and ez.radio.set_tx_power then
+            ez.radio.set_tx_power(setting.value)
         end
     elseif setting.name == "path_check" then
-        if tdeck.mesh and tdeck.mesh.set_path_check then
-            tdeck.mesh.set_path_check(setting.value)
+        if ez.mesh and ez.mesh.set_path_check then
+            ez.mesh.set_path_check(setting.value)
         end
     elseif setting.name == "auto_advert" then
-        if tdeck.mesh and tdeck.mesh.set_announce_interval then
+        if ez.mesh and ez.mesh.set_announce_interval then
             -- Convert option index to milliseconds: 1=Off, 2=1h, 3=4h, 4=8h, 5=12h, 6=24h
             local intervals = {0, 3600000, 14400000, 28800000, 43200000, 86400000}
             local ms = intervals[setting.value] or 0
-            tdeck.mesh.set_announce_interval(ms)
+            ez.mesh.set_announce_interval(ms)
         end
     elseif setting.name == "ui_sounds" then
         if setting.value then

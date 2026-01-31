@@ -1,8 +1,8 @@
-# T-Deck OS Project Guidelines
+# ezOS Project Guidelines
 
 ## Overview
 
-T-Deck OS is a complete embedded operating system for the LilyGo T-Deck Plus (ESP32-S3 with LoRa). It combines:
+ezOS is a complete embedded operating system for the LilyGo T-Deck Plus (ESP32-S3 with LoRa). It combines:
 - **C++ firmware** for hardware drivers and mesh networking
 - **Lua scripting** for the entire UI and application logic
 - **MeshCore protocol** for encrypted mesh communication
@@ -12,9 +12,9 @@ T-Deck OS is a complete embedded operating system for the LilyGo T-Deck Plus (ES
 **IMPORTANT:** Never use `stty` or interactive serial monitor commands (`pio device monitor`, `minicom`, etc.) as they block the user's interactive terminal session. The user typically has a serial monitor already open.
 
 Instead, use the remote control tool for debugging:
-- `python tools/remote/tdeck_remote.py /dev/ttyACM0 --logs` - Get buffered log entries
-- `python tools/remote/tdeck_remote.py /dev/ttyACM0 --monitor` - Stream real-time logs
-- `python tools/remote/tdeck_remote.py /dev/ttyACM0 -e "Debug.memory()"` - Query device state
+- `python tools/remote/ez_remote.py /dev/ttyACM0 --logs` - Get buffered log entries
+- `python tools/remote/ez_remote.py /dev/ttyACM0 --monitor` - Stream real-time logs
+- `python tools/remote/ez_remote.py /dev/ttyACM0 -e "Debug.memory()"` - Query device state
 
 For building and flashing:
 - `pio run` - Build firmware
@@ -33,7 +33,7 @@ pio run -t upload
 ## Project Structure
 
 ```
-tdeck-os/
+ezos/
 ├── src/                    # C++ firmware
 │   ├── main.cpp           # Boot sequence, main loop
 │   ├── hardware/          # Display, keyboard, radio, GPS drivers
@@ -113,7 +113,7 @@ Settings must be both saved when changed AND restored at boot.
 - `data/scripts/ui/screens/settings.lua` - Settings UI with definitions, defaults, save logic
 
 **How settings are saved:**
-1. In `save_settings()`: Write to preferences using `tdeck.storage.set_pref(key, value)`
+1. In `save_settings()`: Write to preferences using `ez.storage.set_pref(key, value)`
 2. ThemeManager settings: Saved via `ThemeManager.save()`
 
 **How settings are restored at boot:**
@@ -121,8 +121,8 @@ Settings must be both saved when changed AND restored at boot.
 
 **Adding a new setting:**
 1. Add setting definition to `settings.lua` with name, label, type, default value
-2. Add save logic in `save_settings()` using `tdeck.storage.set_pref()`
-3. Add restore logic in `boot.lua` `apply_saved_settings()` using `tdeck.storage.get_pref()`
+2. Add save logic in `save_settings()` using `ez.storage.set_pref()`
+3. Add restore logic in `boot.lua` `apply_saved_settings()` using `ez.storage.get_pref()`
 
 ## Map Tools (`tools/maps/`)
 
@@ -169,7 +169,7 @@ python pmtiles_to_tdmap.py input.pmtiles -o output.tdmap
 
 ## Simulator (`tools/simulator/`)
 
-Browser-based T-Deck OS simulator using Wasmoon (Lua 5.4 in WebAssembly).
+Browser-based ezOS simulator using Wasmoon (Lua 5.4 in WebAssembly).
 
 ### Running
 
@@ -219,37 +219,37 @@ pip install pyserial pillow
 
 ```bash
 # Test connection
-python tdeck_remote.py /dev/ttyACM0
+python ez_remote.py /dev/ttyACM0
 
 # Screenshots
-python tdeck_remote.py /dev/ttyACM0 -s screenshot.png
+python ez_remote.py /dev/ttyACM0 -s screenshot.png
 
 # Send keys
-python tdeck_remote.py /dev/ttyACM0 -k enter
-python tdeck_remote.py /dev/ttyACM0 -k a
-python tdeck_remote.py /dev/ttyACM0 -k up
-python tdeck_remote.py /dev/ttyACM0 -k c --ctrl
+python ez_remote.py /dev/ttyACM0 -k enter
+python ez_remote.py /dev/ttyACM0 -k a
+python ez_remote.py /dev/ttyACM0 -k up
+python ez_remote.py /dev/ttyACM0 -k c --ctrl
 
 # Screen info
-python tdeck_remote.py /dev/ttyACM0 --info
+python ez_remote.py /dev/ttyACM0 --info
 
 # Capture rendered text (for UI verification)
-python tdeck_remote.py /dev/ttyACM0 --text
+python ez_remote.py /dev/ttyACM0 --text
 
 # Capture draw primitives (for debugging rendering)
-python tdeck_remote.py /dev/ttyACM0 --primitives
+python ez_remote.py /dev/ttyACM0 --primitives
 
 # Get buffered logs
-python tdeck_remote.py /dev/ttyACM0 --logs
+python ez_remote.py /dev/ttyACM0 --logs
 
 # Monitor serial output (real-time logs)
-python tdeck_remote.py /dev/ttyACM0 --monitor
+python ez_remote.py /dev/ttyACM0 --monitor
 
 # Execute Lua code
-python tdeck_remote.py /dev/ttyACM0 -e "1+1"
-python tdeck_remote.py /dev/ttyACM0 -e "Debug.memory()"
-python tdeck_remote.py /dev/ttyACM0 -e "tdeck.system.get_time()"
-python tdeck_remote.py /dev/ttyACM0 -f script.lua
+python ez_remote.py /dev/ttyACM0 -e "1+1"
+python ez_remote.py /dev/ttyACM0 -e "Debug.memory()"
+python ez_remote.py /dev/ttyACM0 -e "ez.system.get_time()"
+python ez_remote.py /dev/ttyACM0 -f script.lua
 ```
 
 ### Capture Modes
@@ -289,9 +289,9 @@ Commands:
 1. **Build firmware**: `pio run`
 2. **Flash to device**: `pio run -t upload`
 3. **Verify with remote control**:
-   - Take screenshot: `python tools/remote/tdeck_remote.py /dev/ttyACM0 -s test.png`
-   - Check logs: `python tools/remote/tdeck_remote.py /dev/ttyACM0 --logs`
-   - Run tests via Lua: `python tools/remote/tdeck_remote.py /dev/ttyACM0 -e "your_test_code"`
+   - Take screenshot: `python tools/remote/ez_remote.py /dev/ttyACM0 -s test.png`
+   - Check logs: `python tools/remote/ez_remote.py /dev/ttyACM0 --logs`
+   - Run tests via Lua: `python tools/remote/ez_remote.py /dev/ttyACM0 -e "your_test_code"`
 
 ### Debugging UI Issues
 
@@ -307,18 +307,18 @@ The `-e` flag executes Lua code on the device and returns JSON results:
 
 ```bash
 # Check system state
-python tdeck_remote.py /dev/ttyACM0 -e "tdeck.system.get_time()"
-python tdeck_remote.py /dev/ttyACM0 -e "Debug.memory()"
+python ez_remote.py /dev/ttyACM0 -e "ez.system.get_time()"
+python ez_remote.py /dev/ttyACM0 -e "Debug.memory()"
 
 # Query settings
-python tdeck_remote.py /dev/ttyACM0 -e "tdeck.storage.get_pref('brightness', 200)"
+python ez_remote.py /dev/ttyACM0 -e "ez.storage.get_pref('brightness', 200)"
 
 # Access services
-python tdeck_remote.py /dev/ttyACM0 -e "Logger.get_entries()"
-python tdeck_remote.py /dev/ttyACM0 -e "ScreenManager.get_stack_depth()"
+python ez_remote.py /dev/ttyACM0 -e "Logger.get_entries()"
+python ez_remote.py /dev/ttyACM0 -e "ScreenManager.get_stack_depth()"
 
 # Inspect globals
-python tdeck_remote.py /dev/ttyACM0 -e "_G.StatusBar.battery"
+python ez_remote.py /dev/ttyACM0 -e "_G.StatusBar.battery"
 ```
 
 ### Testing Changes

@@ -46,8 +46,8 @@ end
 function BusTest:cleanup()
     -- Unsubscribe all active subscriptions
     for _, sub_id in ipairs(self.subscriptions) do
-        if tdeck.bus and tdeck.bus.unsubscribe then
-            tdeck.bus.unsubscribe(sub_id)
+        if ez.bus and ez.bus.unsubscribe then
+            ez.bus.unsubscribe(sub_id)
         end
     end
     self.subscriptions = {}
@@ -66,7 +66,7 @@ function BusTest:run_test_1()
     local test_data = "hello_lua"
 
     -- Subscribe to test topic
-    local sub_id = tdeck.bus.subscribe("test/lua", function(topic, data)
+    local sub_id = ez.bus.subscribe("test/lua", function(topic, data)
         if data == test_data then
             received = true
         end
@@ -76,7 +76,7 @@ function BusTest:run_test_1()
     self:add_log("  Sub id=" .. sub_id)
 
     -- Post message
-    tdeck.bus.post("test/lua", test_data)
+    ez.bus.post("test/lua", test_data)
     self:add_log("  Post: test/lua = " .. test_data)
 
     -- Check result after a short delay (messages are processed next frame)
@@ -98,10 +98,10 @@ function BusTest:run_test_2()
     self:add_log("> Test 2: C++ Echo")
 
     local received = false
-    local ping_data = "ping_" .. tostring(tdeck.system.uptime())
+    local ping_data = "ping_" .. tostring(ez.system.uptime())
 
     -- Subscribe to echo response
-    local sub_id = tdeck.bus.subscribe("bus/echo", function(topic, data)
+    local sub_id = ez.bus.subscribe("bus/echo", function(topic, data)
         if data == ping_data then
             received = true
         end
@@ -110,7 +110,7 @@ function BusTest:run_test_2()
     table.insert(self.subscriptions, sub_id)
 
     -- Post ping (C++ will echo it back)
-    tdeck.bus.post("bus/ping", ping_data)
+    ez.bus.post("bus/ping", ping_data)
     self:add_log("  Ping: " .. ping_data)
 
     -- Check result
@@ -134,10 +134,10 @@ function BusTest:run_test_3()
     local count = 0
 
     -- Subscribe twice to same topic
-    local sub1 = tdeck.bus.subscribe("test/multi", function(topic, data)
+    local sub1 = ez.bus.subscribe("test/multi", function(topic, data)
         count = count + 1
     end)
-    local sub2 = tdeck.bus.subscribe("test/multi", function(topic, data)
+    local sub2 = ez.bus.subscribe("test/multi", function(topic, data)
         count = count + 1
     end)
     table.insert(self.subscriptions, sub1)
@@ -145,7 +145,7 @@ function BusTest:run_test_3()
     self:add_log("  2 subscribers")
 
     -- Post one message
-    tdeck.bus.post("test/multi", "data")
+    ez.bus.post("test/multi", "data")
 
     -- Check both received
     spawn_delay(100, function()
@@ -169,21 +169,21 @@ function BusTest:run_test_4()
     local count = 0
 
     -- Subscribe
-    local sub_id = tdeck.bus.subscribe("test/unsub", function(topic, data)
+    local sub_id = ez.bus.subscribe("test/unsub", function(topic, data)
         count = count + 1
     end)
     self:add_log("  Sub id=" .. sub_id)
 
     -- Post first message
-    tdeck.bus.post("test/unsub", "msg1")
+    ez.bus.post("test/unsub", "msg1")
 
     spawn_delay(50, function()
         -- Unsubscribe
-        local ok = tdeck.bus.unsubscribe(sub_id)
+        local ok = ez.bus.unsubscribe(sub_id)
         self:add_log("  Unsub: " .. tostring(ok))
 
         -- Post second message (should not be received)
-        tdeck.bus.post("test/unsub", "msg2")
+        ez.bus.post("test/unsub", "msg2")
 
         spawn_delay(50, function()
             self:add_log("  Count: " .. count)
@@ -208,21 +208,21 @@ function BusTest:run_test_5()
     local topic_b_count = 0
 
     -- Subscribe to topic A only
-    local sub_a = tdeck.bus.subscribe("test/topic_a", function(topic, data)
+    local sub_a = ez.bus.subscribe("test/topic_a", function(topic, data)
         topic_a_count = topic_a_count + 1
     end)
     table.insert(self.subscriptions, sub_a)
 
     -- Subscribe to topic B only
-    local sub_b = tdeck.bus.subscribe("test/topic_b", function(topic, data)
+    local sub_b = ez.bus.subscribe("test/topic_b", function(topic, data)
         topic_b_count = topic_b_count + 1
     end)
     table.insert(self.subscriptions, sub_b)
 
     -- Post to topic A twice, topic B once
-    tdeck.bus.post("test/topic_a", "a1")
-    tdeck.bus.post("test/topic_a", "a2")
-    tdeck.bus.post("test/topic_b", "b1")
+    ez.bus.post("test/topic_a", "a1")
+    ez.bus.post("test/topic_a", "a2")
+    ez.bus.post("test/topic_b", "b1")
 
     -- Check counts
     spawn_delay(100, function()

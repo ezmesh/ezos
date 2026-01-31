@@ -111,7 +111,7 @@ function ChannelView:scroll_to_bottom()
 end
 
 function ChannelView:check_new_messages()
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     if now - self.last_refresh < self.refresh_interval then
         return
     end

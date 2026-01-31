@@ -11,7 +11,7 @@ local ScreenManager = {
 -- Push a new screen onto the stack
 function ScreenManager.push(screen)
     if not screen then
-        tdeck.system.log("[ScreenManager] Error: attempted to push nil screen")
+        ez.system.log("[ScreenManager] Error: attempted to push nil screen")
         return
     end
 
@@ -25,8 +25,8 @@ function ScreenManager.push(screen)
     table.insert(ScreenManager.stack, screen)
 
     -- Publish screen lifecycle event
-    if tdeck.bus and tdeck.bus.post then
-        tdeck.bus.post("screen/pushed", screen.title or "unknown")
+    if ez.bus and ez.bus.post then
+        ez.bus.post("screen/pushed", screen.title or "unknown")
     end
 
     -- Call on_enter on new screen
@@ -53,8 +53,8 @@ function ScreenManager.pop()
     end
 
     -- Publish screen lifecycle event
-    if tdeck.bus and tdeck.bus.post then
-        tdeck.bus.post("screen/popped", screen_name)
+    if ez.bus and ez.bus.post then
+        ez.bus.post("screen/popped", screen_name)
     end
 
     -- Clear reference and collect garbage to free memory
@@ -74,7 +74,7 @@ end
 -- Replace current screen without stack growth
 function ScreenManager.replace(screen)
     if not screen then
-        tdeck.system.log("[ScreenManager] Error: attempted to replace with nil screen")
+        ez.system.log("[ScreenManager] Error: attempted to replace with nil screen")
         return
     end
 
@@ -86,8 +86,8 @@ function ScreenManager.replace(screen)
     end
 
     -- Publish screen lifecycle event
-    if tdeck.bus and tdeck.bus.post then
-        tdeck.bus.post("screen/replaced", old_name .. ">" .. (screen.title or "unknown"))
+    if ez.bus and ez.bus.post then
+        ez.bus.post("screen/replaced", old_name .. ">" .. (screen.title or "unknown"))
     end
 
     -- Clear old screen reference and collect garbage
@@ -137,7 +137,7 @@ function ScreenManager.process_input()
 
     -- Read the key (non-blocking) - includes keyboard and trackball
     -- Note: Don't use available() as it only checks keyboard I2C, not trackball GPIOs
-    local key = tdeck.keyboard.read()
+    local key = ez.keyboard.read()
     if not key or not key.valid then
         return false
     end
@@ -190,7 +190,7 @@ end
 -- Render current screen and overlays
 function ScreenManager.render()
     -- Skip if not dirty and within frame interval
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     if not ScreenManager.dirty then
         return
     end
@@ -200,7 +200,7 @@ function ScreenManager.render()
         return
     end
 
-    local display = tdeck.display
+    local display = ez.display
 
     -- Render main screen
     local screen = ScreenManager.peek()

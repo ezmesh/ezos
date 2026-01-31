@@ -38,8 +38,8 @@ function Snake:on_enter()
     if _G.MainLoop then _G.MainLoop.enter_game_mode() end
 
     -- Calculate square playfield based on display size
-    local h = tdeck.display.height
-    local w = tdeck.display.width
+    local h = ez.display.height
+    local w = ez.display.width
 
     -- Use height as the constraint for square grid, leave room for score
     local available_h = h - 40  -- Reserve space for score and help text
@@ -76,7 +76,7 @@ function Snake:reset_game()
     self.paused = false
     self.score = 0
     self.speed = 150
-    self.last_move = tdeck.system.millis()
+    self.last_move = ez.system.millis()
 
     self:spawn_food()
 end
@@ -168,7 +168,7 @@ function Snake:update()
         return
     end
 
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     if now - self.last_move >= self.speed then
         self.last_move = now
         self:move_snake()

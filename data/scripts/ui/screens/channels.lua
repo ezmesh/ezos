@@ -24,7 +24,7 @@ function Channels:on_enter()
     -- Ensure Channels service is loaded (lazy-load on first use)
     if not _G.Channels then
         _G.Channels = load_module("/scripts/services/channels.lua")
-        if _G.Channels and tdeck.mesh.is_initialized() then
+        if _G.Channels and ez.mesh.is_initialized() then
             _G.Channels.init()
         end
     end
@@ -37,7 +37,7 @@ function Channels:refresh_channels()
     -- Use global Channels service
     local ChannelsService = _G.Channels
     if not ChannelsService then
-        tdeck.system.log("[Channels] Service not available")
+        ez.system.log("[Channels] Service not available")
         return
     end
 
@@ -113,7 +113,7 @@ function Channels:render(display)
             -- Activity status line
             local status_line
             if ch.last_activity and ch.last_activity > 0 then
-                local ago = math.floor((tdeck.system.millis() - ch.last_activity) / 1000)
+                local ago = math.floor((ez.system.millis() - ch.last_activity) / 1000)
                 if ago < 60 then
                     status_line = "Active now"
                 elseif ago < 3600 then

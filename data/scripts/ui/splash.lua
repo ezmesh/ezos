@@ -2,7 +2,7 @@
 -- Shows splash while loading essential UI modules (Icons)
 
 local function show()
-    local d = tdeck.display
+    local d = ez.display
     local cx, cy = 160, 115
     -- Colors: orange fur, darker shade, cream inner ear, white, black
     local ORANGE = 0xFD20      -- Main fur
@@ -66,7 +66,7 @@ local function show()
 end
 
 local function wait_for_modules()
-    local start_time = tdeck.system.millis()
+    local start_time = ez.system.millis()
     local MIN_DISPLAY_MS = 800  -- Minimum time to show splash
     local MAX_WAIT_MS = 5000    -- Maximum time to wait for modules
 
@@ -74,22 +74,22 @@ local function wait_for_modules()
     show()
 
     -- Load Icons module (the main thing we're waiting for)
-    tdeck.system.log("[Splash] Loading Icons...")
+    ez.system.log("[Splash] Loading Icons...")
     local ok, Icons = pcall(load_module, "/scripts/ui/icons.lua")
     if ok and Icons then
         _G.Icons = Icons
-        tdeck.system.log("[Splash] Icons loaded")
+        ez.system.log("[Splash] Icons loaded")
     else
-        tdeck.system.log("[Splash] Icons failed to load: " .. tostring(Icons))
+        ez.system.log("[Splash] Icons failed to load: " .. tostring(Icons))
     end
 
     -- Ensure minimum display time
-    local elapsed = tdeck.system.millis() - start_time
+    local elapsed = ez.system.millis() - start_time
     if elapsed < MIN_DISPLAY_MS then
-        tdeck.system.delay(MIN_DISPLAY_MS - elapsed)
+        ez.system.delay(MIN_DISPLAY_MS - elapsed)
     end
 
-    tdeck.system.log("[Splash] Done, waited " .. (tdeck.system.millis() - start_time) .. "ms")
+    ez.system.log("[Splash] Done, waited " .. (ez.system.millis() - start_time) .. "ms")
 end
 
 -- Execute immediately

@@ -56,18 +56,18 @@ end
 
 function StorageInfo:refresh_info()
     -- Get LittleFS info
-    if tdeck.storage and tdeck.storage.get_flash_info then
-        self.flash_info = tdeck.storage.get_flash_info()
+    if ez.storage and ez.storage.get_flash_info then
+        self.flash_info = ez.storage.get_flash_info()
     end
 
     -- Get SD card info
-    if tdeck.storage and tdeck.storage.get_sd_info then
-        self.sd_info = tdeck.storage.get_sd_info()
+    if ez.storage and ez.storage.get_sd_info then
+        self.sd_info = ez.storage.get_sd_info()
     end
 
     -- Get firmware info
-    if tdeck.system and tdeck.system.get_firmware_info then
-        self.firmware_info = tdeck.system.get_firmware_info()
+    if ez.system and ez.system.get_firmware_info then
+        self.firmware_info = ez.system.get_firmware_info()
     end
 
     if _G.ScreenManager then

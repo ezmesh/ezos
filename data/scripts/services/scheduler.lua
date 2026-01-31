@@ -14,7 +14,7 @@ local Scheduler = {
 -- @param immediate: if true, run immediately on registration
 function Scheduler.register_service(name, callback, interval_ms, immediate)
     if type(callback) ~= "function" then
-        tdeck.system.log("[Scheduler] Invalid callback for service: " .. name)
+        ez.system.log("[Scheduler] Invalid callback for service: " .. name)
         return false
     end
 
@@ -23,13 +23,13 @@ function Scheduler.register_service(name, callback, interval_ms, immediate)
     Scheduler.services[name] = {
         callback = callback,
         interval = interval_ms,
-        last_run = immediate and 0 or tdeck.system.millis(),
+        last_run = immediate and 0 or ez.system.millis(),
         enabled = true,
         run_count = 0,
         errors = 0
     }
 
-    tdeck.system.log("[Scheduler] Registered service: " .. name .. " (interval: " .. interval_ms .. "ms)")
+    ez.system.log("[Scheduler] Registered service: " .. name .. " (interval: " .. interval_ms .. "ms)")
     return true
 end
 
@@ -37,7 +37,7 @@ end
 function Scheduler.unregister_service(name)
     if Scheduler.services[name] then
         Scheduler.services[name] = nil
-        tdeck.system.log("[Scheduler] Unregistered service: " .. name)
+        ez.system.log("[Scheduler] Unregistered service: " .. name)
         return true
     end
     return false
@@ -93,7 +93,7 @@ function Scheduler.set_timer(delay_ms, callback)
 
     Scheduler.timers[id] = {
         callback = callback,
-        fire_at = tdeck.system.millis() + delay_ms,
+        fire_at = ez.system.millis() + delay_ms,
         repeating = false
     }
 
@@ -110,7 +110,7 @@ function Scheduler.set_interval(interval_ms, callback)
 
     Scheduler.timers[id] = {
         callback = callback,
-        fire_at = tdeck.system.millis() + interval_ms,
+        fire_at = ez.system.millis() + interval_ms,
         interval = interval_ms,
         repeating = true
     }
@@ -130,7 +130,7 @@ end
 -- Process all pending services and timers
 -- Call this from the main loop
 function Scheduler.update()
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
 
     -- Process services
     for name, service in pairs(Scheduler.services) do
@@ -142,7 +142,7 @@ function Scheduler.update()
                 service.run_count = service.run_count + 1
             else
                 service.errors = service.errors + 1
-                tdeck.system.log("[Scheduler] Service error in " .. name .. ": " .. tostring(err))
+                ez.system.log("[Scheduler] Service error in " .. name .. ": " .. tostring(err))
             end
         end
     end
@@ -160,7 +160,7 @@ function Scheduler.update()
         if timer then
             local ok, err = pcall(timer.callback)
             if not ok then
-                tdeck.system.log("[Scheduler] Timer error: " .. tostring(err))
+                ez.system.log("[Scheduler] Timer error: " .. tostring(err))
             end
 
             if timer.repeating then

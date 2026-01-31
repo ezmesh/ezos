@@ -1,4 +1,4 @@
-// tdeck.display module bindings
+// ez.display module bindings
 // Provides display drawing functions and properties
 
 #include "../lua_bindings.h"
@@ -7,7 +7,7 @@
 // External reference to the global display instance
 extern Display* display;
 
-// @lua tdeck.display.clear()
+// @lua ez.display.clear()
 // @brief Clear display buffer to black
 LUA_FUNCTION(l_display_clear) {
     if (display) {
@@ -16,7 +16,7 @@ LUA_FUNCTION(l_display_clear) {
     return 0;
 }
 
-// @lua tdeck.display.flush()
+// @lua ez.display.flush()
 // @brief Flush buffer to physical display
 LUA_FUNCTION(l_display_flush) {
     if (display) {
@@ -25,7 +25,7 @@ LUA_FUNCTION(l_display_flush) {
     return 0;
 }
 
-// @lua tdeck.display.set_brightness(level)
+// @lua ez.display.set_brightness(level)
 // @brief Set backlight brightness
 // @param level Brightness level (0-255)
 LUA_FUNCTION(l_display_set_brightness) {
@@ -38,7 +38,7 @@ LUA_FUNCTION(l_display_set_brightness) {
     return 0;
 }
 
-// @lua tdeck.display.set_font_size(size)
+// @lua ez.display.set_font_size(size)
 // @brief Set font size
 // @param size Font size string: "tiny", "small", "medium", or "large"
 LUA_FUNCTION(l_display_set_font_size) {
@@ -60,7 +60,7 @@ LUA_FUNCTION(l_display_set_font_size) {
     return 0;
 }
 
-// @lua tdeck.display.draw_text(x, y, text, color)
+// @lua ez.display.draw_text(x, y, text, color)
 // @brief Draw text at pixel coordinates
 // @param x X position in pixels
 // @param y Y position in pixels
@@ -79,7 +79,7 @@ LUA_FUNCTION(l_display_draw_text) {
     return 0;
 }
 
-// @lua tdeck.display.draw_text_centered(y, text, color)
+// @lua ez.display.draw_text_centered(y, text, color)
 // @brief Draw horizontally centered text
 // @param y Y position in pixels
 // @param text Text string to draw
@@ -96,7 +96,7 @@ LUA_FUNCTION(l_display_draw_text_centered) {
     return 0;
 }
 
-// @lua tdeck.display.draw_char(x, y, char, color)
+// @lua ez.display.draw_char(x, y, char, color)
 // @brief Draw a single character
 // @param x X position in pixels
 // @param y Y position in pixels
@@ -115,7 +115,7 @@ LUA_FUNCTION(l_display_draw_char) {
     return 0;
 }
 
-// @lua tdeck.display.draw_box(x, y, w, h, title, border_color, title_color)
+// @lua ez.display.draw_box(x, y, w, h, title, border_color, title_color)
 // @brief Draw bordered box with optional title
 // @param x X position in character cells
 // @param y Y position in character cells
@@ -140,7 +140,7 @@ LUA_FUNCTION(l_display_draw_box) {
     return 0;
 }
 
-// @lua tdeck.display.draw_hline(x, y, w, left_connect, right_connect, color)
+// @lua ez.display.draw_hline(x, y, w, left_connect, right_connect, color)
 // @brief Draw horizontal line with optional connectors
 // @param x X position in character cells
 // @param y Y position in character cells
@@ -163,7 +163,7 @@ LUA_FUNCTION(l_display_draw_hline) {
     return 0;
 }
 
-// @lua tdeck.display.fill_rect(x, y, w, h, color)
+// @lua ez.display.fill_rect(x, y, w, h, color)
 // @brief Fill a rectangle with color
 // @param x X position in pixels
 // @param y Y position in pixels
@@ -184,7 +184,7 @@ LUA_FUNCTION(l_display_fill_rect) {
     return 0;
 }
 
-// @lua tdeck.display.draw_rect(x, y, w, h, color)
+// @lua ez.display.draw_rect(x, y, w, h, color)
 // @brief Draw rectangle outline
 // @param x X position in pixels
 // @param y Y position in pixels
@@ -205,7 +205,7 @@ LUA_FUNCTION(l_display_draw_rect) {
     return 0;
 }
 
-// @lua tdeck.display.fill_rect_dithered(x, y, w, h, color, density)
+// @lua ez.display.fill_rect_dithered(x, y, w, h, color, density)
 // @brief Fill a rectangle with dithered pattern (simulates transparency)
 // @param x X position in pixels
 // @param y Y position in pixels
@@ -228,7 +228,7 @@ LUA_FUNCTION(l_display_fill_rect_dithered) {
     return 0;
 }
 
-// @lua tdeck.display.fill_rect_hlines(x, y, w, h, color, spacing)
+// @lua ez.display.fill_rect_hlines(x, y, w, h, color, spacing)
 // @brief Fill a rectangle with horizontal line pattern
 // @param x X position in pixels
 // @param y Y position in pixels
@@ -251,7 +251,7 @@ LUA_FUNCTION(l_display_fill_rect_hlines) {
     return 0;
 }
 
-// @lua tdeck.display.fill_rect_vlines(x, y, w, h, color, spacing)
+// @lua ez.display.fill_rect_vlines(x, y, w, h, color, spacing)
 // @brief Fill a rectangle with vertical line pattern
 // @param x X position in pixels
 // @param y Y position in pixels
@@ -274,7 +274,7 @@ LUA_FUNCTION(l_display_fill_rect_vlines) {
     return 0;
 }
 
-// @lua tdeck.display.draw_pixel(x, y, color)
+// @lua ez.display.draw_pixel(x, y, color)
 // @brief Draw a single pixel
 // @param x X position in pixels
 // @param y Y position in pixels
@@ -291,7 +291,7 @@ LUA_FUNCTION(l_display_draw_pixel) {
     return 0;
 }
 
-// @lua tdeck.display.draw_line(x1, y1, x2, y2, color)
+// @lua ez.display.draw_line(x1, y1, x2, y2, color)
 // @brief Draw a line between two points
 // @param x1 Start X position
 // @param y1 Start Y position
@@ -312,7 +312,7 @@ LUA_FUNCTION(l_display_draw_line) {
     return 0;
 }
 
-// @lua tdeck.display.draw_circle(x, y, r, color)
+// @lua ez.display.draw_circle(x, y, r, color)
 // @brief Draw circle outline
 // @param x Center X position
 // @param y Center Y position
@@ -331,7 +331,7 @@ LUA_FUNCTION(l_display_draw_circle) {
     return 0;
 }
 
-// @lua tdeck.display.fill_circle(x, y, r, color)
+// @lua ez.display.fill_circle(x, y, r, color)
 // @brief Draw filled circle
 // @param x Center X position
 // @param y Center Y position
@@ -350,7 +350,7 @@ LUA_FUNCTION(l_display_fill_circle) {
     return 0;
 }
 
-// @lua tdeck.display.draw_triangle(x1, y1, x2, y2, x3, y3, color)
+// @lua ez.display.draw_triangle(x1, y1, x2, y2, x3, y3, color)
 // @brief Draw triangle outline
 LUA_FUNCTION(l_display_draw_triangle) {
     LUA_CHECK_ARGC_RANGE(L, 6, 7);
@@ -368,7 +368,7 @@ LUA_FUNCTION(l_display_draw_triangle) {
     return 0;
 }
 
-// @lua tdeck.display.fill_triangle(x1, y1, x2, y2, x3, y3, color)
+// @lua ez.display.fill_triangle(x1, y1, x2, y2, x3, y3, color)
 // @brief Draw filled triangle
 LUA_FUNCTION(l_display_fill_triangle) {
     LUA_CHECK_ARGC_RANGE(L, 6, 7);
@@ -386,7 +386,7 @@ LUA_FUNCTION(l_display_fill_triangle) {
     return 0;
 }
 
-// @lua tdeck.display.draw_round_rect(x, y, w, h, r, color)
+// @lua ez.display.draw_round_rect(x, y, w, h, r, color)
 // @brief Draw rounded rectangle outline
 LUA_FUNCTION(l_display_draw_round_rect) {
     LUA_CHECK_ARGC_RANGE(L, 5, 6);
@@ -403,7 +403,7 @@ LUA_FUNCTION(l_display_draw_round_rect) {
     return 0;
 }
 
-// @lua tdeck.display.fill_round_rect(x, y, w, h, r, color)
+// @lua ez.display.fill_round_rect(x, y, w, h, r, color)
 // @brief Draw filled rounded rectangle
 LUA_FUNCTION(l_display_fill_round_rect) {
     LUA_CHECK_ARGC_RANGE(L, 5, 6);
@@ -420,7 +420,7 @@ LUA_FUNCTION(l_display_fill_round_rect) {
     return 0;
 }
 
-// @lua tdeck.display.draw_progress(x, y, w, h, progress, fg_color, bg_color)
+// @lua ez.display.draw_progress(x, y, w, h, progress, fg_color, bg_color)
 // @brief Draw a progress bar
 // @param x X position in pixels
 // @param y Y position in pixels
@@ -447,7 +447,7 @@ LUA_FUNCTION(l_display_draw_progress) {
     return 0;
 }
 
-// @lua tdeck.display.draw_battery(x, y, percent)
+// @lua ez.display.draw_battery(x, y, percent)
 // @brief Draw battery indicator icon
 // @param x X position in pixels
 // @param y Y position in pixels
@@ -465,7 +465,7 @@ LUA_FUNCTION(l_display_draw_battery) {
     return 0;
 }
 
-// @lua tdeck.display.draw_signal(x, y, bars)
+// @lua ez.display.draw_signal(x, y, bars)
 // @brief Draw signal strength indicator
 // @param x X position in pixels
 // @param y Y position in pixels
@@ -483,7 +483,7 @@ LUA_FUNCTION(l_display_draw_signal) {
     return 0;
 }
 
-// @lua tdeck.display.text_width(text) -> integer
+// @lua ez.display.text_width(text) -> integer
 // @brief Get pixel width of text string
 // @param text Text string to measure
 // @return Width in pixels
@@ -499,7 +499,7 @@ LUA_FUNCTION(l_display_text_width) {
     return 1;
 }
 
-// @lua tdeck.display.rgb(r, g, b) -> integer
+// @lua ez.display.rgb(r, g, b) -> integer
 // @brief Convert RGB to RGB565 color value
 // @param r Red component (0-255)
 // @param g Green component (0-255)
@@ -521,7 +521,7 @@ LUA_FUNCTION(l_display_rgb) {
     return 1;
 }
 
-// @lua tdeck.display.get_width() -> integer
+// @lua ez.display.get_width() -> integer
 // @brief Get display width
 // @return Width in pixels
 LUA_FUNCTION(l_display_get_width) {
@@ -529,7 +529,7 @@ LUA_FUNCTION(l_display_get_width) {
     return 1;
 }
 
-// @lua tdeck.display.get_height() -> integer
+// @lua ez.display.get_height() -> integer
 // @brief Get display height
 // @return Height in pixels
 LUA_FUNCTION(l_display_get_height) {
@@ -537,7 +537,7 @@ LUA_FUNCTION(l_display_get_height) {
     return 1;
 }
 
-// @lua tdeck.display.get_cols() -> integer
+// @lua ez.display.get_cols() -> integer
 // @brief Get display columns
 // @return Number of character columns
 LUA_FUNCTION(l_display_get_cols) {
@@ -545,7 +545,7 @@ LUA_FUNCTION(l_display_get_cols) {
     return 1;
 }
 
-// @lua tdeck.display.get_rows() -> integer
+// @lua ez.display.get_rows() -> integer
 // @brief Get display rows
 // @return Number of character rows
 LUA_FUNCTION(l_display_get_rows) {
@@ -553,7 +553,7 @@ LUA_FUNCTION(l_display_get_rows) {
     return 1;
 }
 
-// @lua tdeck.display.get_font_width() -> integer
+// @lua ez.display.get_font_width() -> integer
 // @brief Get font character width
 // @return Character width in pixels
 LUA_FUNCTION(l_display_get_font_width) {
@@ -561,7 +561,7 @@ LUA_FUNCTION(l_display_get_font_width) {
     return 1;
 }
 
-// @lua tdeck.display.get_font_height() -> integer
+// @lua ez.display.get_font_height() -> integer
 // @brief Get font character height
 // @return Character height in pixels
 LUA_FUNCTION(l_display_get_font_height) {
@@ -569,7 +569,7 @@ LUA_FUNCTION(l_display_get_font_height) {
     return 1;
 }
 
-// @lua tdeck.display.draw_bitmap(x, y, width, height, data)
+// @lua ez.display.draw_bitmap(x, y, width, height, data)
 // @brief Draw a bitmap image from raw RGB565 data
 // @param x X position
 // @param y Y position
@@ -598,7 +598,7 @@ LUA_FUNCTION(l_display_draw_bitmap) {
     return 0;
 }
 
-// @lua tdeck.display.draw_bitmap_transparent(x, y, width, height, data, transparent_color)
+// @lua ez.display.draw_bitmap_transparent(x, y, width, height, data, transparent_color)
 // @brief Draw a bitmap with transparency
 // @param x X position
 // @param y Y position
@@ -629,7 +629,7 @@ LUA_FUNCTION(l_display_draw_bitmap_transparent) {
     return 0;
 }
 
-// @lua tdeck.display.draw_indexed_bitmap(x, y, width, height, data, palette)
+// @lua ez.display.draw_indexed_bitmap(x, y, width, height, data, palette)
 // @brief Draw a 3-bit indexed bitmap using a color palette
 // @param x X position
 // @param y Y position
@@ -769,7 +769,7 @@ LUA_FUNCTION(l_display_draw_indexed_bitmap) {
     return 0;
 }
 
-// @lua tdeck.display.draw_indexed_bitmap_scaled(x, y, dest_w, dest_h, data, palette, src_x, src_y, src_w, src_h)
+// @lua ez.display.draw_indexed_bitmap_scaled(x, y, dest_w, dest_h, data, palette, src_x, src_y, src_w, src_h)
 // @brief Draw a scaled portion of a 3-bit indexed bitmap
 // @param x Destination X position
 // @param y Destination Y position
@@ -890,7 +890,7 @@ LUA_FUNCTION(l_display_draw_indexed_bitmap_scaled) {
     return 0;
 }
 
-// @lua tdeck.display.save_screenshot(path) -> boolean
+// @lua ez.display.save_screenshot(path) -> boolean
 // @brief Save current display contents as BMP screenshot to SD card
 // @param path File path on SD card (e.g., "/screenshots/screen_001.bmp")
 // @return true if saved successfully, false on error
@@ -911,7 +911,7 @@ LUA_FUNCTION(l_display_save_screenshot) {
     return 1;
 }
 
-// @lua tdeck.display.draw_bitmap_1bit(x, y, width, height, data, scale, color)
+// @lua ez.display.draw_bitmap_1bit(x, y, width, height, data, scale, color)
 // @brief Draw a 1-bit bitmap with scaling and colorization
 // @param x X position
 // @param y Y position
@@ -972,7 +972,7 @@ LUA_FUNCTION(l_display_draw_bitmap_1bit) {
     return 0;
 }
 
-// Function table for tdeck.display
+// Function table for ez.display
 static const luaL_Reg display_funcs[] = {
     {"clear",             l_display_clear},
     {"flush",             l_display_flush},
@@ -1021,7 +1021,7 @@ void registerDisplayModule(lua_State* L) {
     // Register main functions
     lua_register_module(L, "display", display_funcs);
 
-    // Add color constants as tdeck.display.colors subtable
+    // Add color constants as ez.display.colors subtable
     lua_getglobal(L, "tdeck");
     lua_getfield(L, -1, "display");
 
@@ -1078,5 +1078,5 @@ void registerDisplayModule(lua_State* L) {
     // Pop display table and tdeck table
     lua_pop(L, 2);
 
-    Serial.println("[LuaRuntime] Registered tdeck.display");
+    Serial.println("[LuaRuntime] Registered ez.display");
 }

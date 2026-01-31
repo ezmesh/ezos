@@ -1,4 +1,4 @@
-// tdeck.crypto module bindings
+// ez.crypto module bindings
 // Provides cryptographic primitives for Lua
 
 #include "../lua_bindings.h"
@@ -15,7 +15,7 @@
 // AES block size
 constexpr size_t AES_BLOCK_SIZE = 16;
 
-// @lua tdeck.crypto.sha256(data) -> string
+// @lua ez.crypto.sha256(data) -> string
 // @brief Compute SHA-256 hash
 // @param data Binary string to hash
 // @return 32-byte hash as binary string
@@ -38,7 +38,7 @@ LUA_FUNCTION(l_crypto_sha256) {
     return 1;
 }
 
-// @lua tdeck.crypto.sha512(data) -> string
+// @lua ez.crypto.sha512(data) -> string
 // @brief Compute SHA-512 hash
 // @param data Binary string to hash
 // @return 64-byte hash as binary string
@@ -61,7 +61,7 @@ LUA_FUNCTION(l_crypto_sha512) {
     return 1;
 }
 
-// @lua tdeck.crypto.hmac_sha256(key, data) -> string
+// @lua ez.crypto.hmac_sha256(key, data) -> string
 // @brief Compute HMAC-SHA256
 // @param key Binary string key
 // @param data Binary string to authenticate
@@ -122,7 +122,7 @@ LUA_FUNCTION(l_crypto_hmac_sha256) {
     return 1;
 }
 
-// @lua tdeck.crypto.aes128_ecb_encrypt(key, plaintext) -> string
+// @lua ez.crypto.aes128_ecb_encrypt(key, plaintext) -> string
 // @brief Encrypt data with AES-128-ECB
 // @param key 16-byte key
 // @param plaintext Data to encrypt (will be zero-padded to block boundary)
@@ -184,7 +184,7 @@ LUA_FUNCTION(l_crypto_aes128_ecb_encrypt) {
     return 1;
 }
 
-// @lua tdeck.crypto.aes128_ecb_decrypt(key, ciphertext) -> string
+// @lua ez.crypto.aes128_ecb_decrypt(key, ciphertext) -> string
 // @brief Decrypt data with AES-128-ECB
 // @param key 16-byte key
 // @param ciphertext Data to decrypt (must be multiple of 16 bytes)
@@ -243,7 +243,7 @@ LUA_FUNCTION(l_crypto_aes128_ecb_decrypt) {
     return 1;
 }
 
-// @lua tdeck.crypto.random_bytes(count) -> string
+// @lua ez.crypto.random_bytes(count) -> string
 // @brief Generate cryptographically secure random bytes
 // @param count Number of bytes to generate
 // @return Random bytes as binary string
@@ -265,7 +265,7 @@ LUA_FUNCTION(l_crypto_random_bytes) {
     return 1;
 }
 
-// @lua tdeck.crypto.channel_hash(key) -> integer
+// @lua ez.crypto.channel_hash(key) -> integer
 // @brief Compute channel hash from key (SHA256(key)[0])
 // @param key 16-byte channel key
 // @return Single byte hash as integer (0-255)
@@ -288,7 +288,7 @@ LUA_FUNCTION(l_crypto_channel_hash) {
     return 1;
 }
 
-// @lua tdeck.crypto.derive_channel_key(input) -> string
+// @lua ez.crypto.derive_channel_key(input) -> string
 // @brief Derive 16-byte channel key from password/name using SHA256
 // @param input Password or channel name string
 // @return 16-byte key as binary string
@@ -312,7 +312,7 @@ LUA_FUNCTION(l_crypto_derive_channel_key) {
     return 1;
 }
 
-// @lua tdeck.crypto.public_channel_key() -> string
+// @lua ez.crypto.public_channel_key() -> string
 // @brief Get the well-known #Public channel key
 // @return 16-byte key as binary string
 LUA_FUNCTION(l_crypto_public_channel_key) {
@@ -326,7 +326,7 @@ LUA_FUNCTION(l_crypto_public_channel_key) {
     return 1;
 }
 
-// @lua tdeck.crypto.bytes_to_hex(data) -> string
+// @lua ez.crypto.bytes_to_hex(data) -> string
 // @brief Convert binary data to hex string
 // @param data Binary string
 // @return Hex string (lowercase)
@@ -347,7 +347,7 @@ LUA_FUNCTION(l_crypto_bytes_to_hex) {
     return 1;
 }
 
-// @lua tdeck.crypto.hex_to_bytes(hex) -> string
+// @lua ez.crypto.hex_to_bytes(hex) -> string
 // @brief Convert hex string to binary data
 // @param hex Hex string (case-insensitive)
 // @return Binary string, or nil on error
@@ -392,7 +392,7 @@ LUA_FUNCTION(l_crypto_hex_to_bytes) {
     return 1;
 }
 
-// @lua tdeck.crypto.base64_encode(data) -> string
+// @lua ez.crypto.base64_encode(data) -> string
 // @brief Encode binary data to base64 string
 // @param data Binary string to encode
 // @return Base64 encoded string
@@ -424,7 +424,7 @@ LUA_FUNCTION(l_crypto_base64_encode) {
     return 1;
 }
 
-// @lua tdeck.crypto.base64_decode(encoded) -> string
+// @lua ez.crypto.base64_decode(encoded) -> string
 // @brief Decode base64 string to binary data
 // @param encoded Base64 encoded string
 // @return Binary string, or nil on error
@@ -455,7 +455,7 @@ LUA_FUNCTION(l_crypto_base64_decode) {
     return 1;
 }
 
-// Function table for tdeck.crypto
+// Function table for ez.crypto
 static const luaL_Reg crypto_funcs[] = {
     {"sha256",              l_crypto_sha256},
     {"sha512",              l_crypto_sha512},
@@ -476,5 +476,5 @@ static const luaL_Reg crypto_funcs[] = {
 // Register the crypto module
 void registerCryptoModule(lua_State* L) {
     lua_register_module(L, "crypto", crypto_funcs);
-    Serial.println("[LuaRuntime] Registered tdeck.crypto");
+    Serial.println("[LuaRuntime] Registered ez.crypto");
 }

@@ -1,5 +1,5 @@
 /**
- * T-Deck OS Browser Simulator
+ * ezOS Browser Simulator
  * Runs Lua scripts using Wasmoon (Lua 5.4 via WebAssembly)
  */
 
@@ -279,9 +279,9 @@ async function initLua() {
     lua.global.set('_crypto', cryptoMod);
     lua.global.set('_bus', bus);
 
-    // Create the tdeck namespace in Lua to avoid JS object nesting issues
+    // Create the ez namespace in Lua to avoid JS object nesting issues
     await lua.doString(`
-        tdeck = {
+        ez = {
             display = _display,
             keyboard = _keyboard,
             system = _system,

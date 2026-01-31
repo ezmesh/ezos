@@ -160,17 +160,17 @@ end
 -- Sync timezone from current GPS location
 -- Returns true if timezone was updated, false otherwise
 function TimezoneSync.sync_from_gps()
-    if not tdeck.gps or not tdeck.gps.has_fix then
+    if not ez.gps or not ez.gps.has_fix then
         return false
     end
 
-    if not tdeck.gps.has_fix() then
-        tdeck.system.log("[TimezoneSync] No GPS fix, skipping")
+    if not ez.gps.has_fix() then
+        ez.system.log("[TimezoneSync] No GPS fix, skipping")
         return false
     end
 
-    local lat = tdeck.gps.get_latitude()
-    local lon = tdeck.gps.get_longitude()
+    local lat = ez.gps.get_latitude()
+    local lon = ez.gps.get_longitude()
 
     if not lat or not lon then
         return false
@@ -189,12 +189,12 @@ function TimezoneSync.sync_from_gps()
     local tz_posix = TIMEZONE_POSIX[nearest_city]
 
     if not tz_posix then
-        tdeck.system.log("[TimezoneSync] No POSIX string for " .. nearest_city)
+        ez.system.log("[TimezoneSync] No POSIX string for " .. nearest_city)
         return false
     end
 
     -- Get current timezone to check if it's different
-    local current_tz = tdeck.storage.get_pref("timezonePosix", "UTC0")
+    local current_tz = ez.storage.get_pref("timezonePosix", "UTC0")
     if current_tz == tz_posix then
         -- Already set to this timezone
         TimezoneSync.synced = true
@@ -204,20 +204,20 @@ function TimezoneSync.sync_from_gps()
     end
 
     -- Apply the new timezone
-    if tdeck.system and tdeck.system.set_timezone then
-        tdeck.system.set_timezone(tz_posix)
+    if ez.system and ez.system.set_timezone then
+        ez.system.set_timezone(tz_posix)
     end
 
     -- Save to preferences
     local tz_index = get_timezone_index(nearest_city)
-    tdeck.storage.set_pref("timezone", tz_index)
-    tdeck.storage.set_pref("timezonePosix", tz_posix)
+    ez.storage.set_pref("timezone", tz_index)
+    ez.storage.set_pref("timezonePosix", tz_posix)
 
     TimezoneSync.synced = true
     TimezoneSync.last_sync_lat = lat
     TimezoneSync.last_sync_lon = lon
 
-    tdeck.system.log(string.format("[TimezoneSync] Set timezone to %s (%.0f km away)", nearest_city, dist))
+    ez.system.log(string.format("[TimezoneSync] Set timezone to %s (%.0f km away)", nearest_city, dist))
 
     -- Show toast notification
     if _G.Toast and _G.Toast.show then
@@ -240,13 +240,13 @@ end
 -- Initialize the service
 function TimezoneSync.init()
     -- Load setting from preferences
-    local enabled = tdeck.storage.get_pref("autoTimezoneGps", false)
+    local enabled = ez.storage.get_pref("autoTimezoneGps", false)
     TimezoneSync.enabled = (enabled == true or enabled == "true")
 
     if TimezoneSync.enabled then
         -- Start periodic checks (every 30 seconds)
         TimezoneSync.check_interval = set_interval(check_gps_timezone, 30000)
-        tdeck.system.log("[TimezoneSync] Enabled, checking GPS periodically")
+        ez.system.log("[TimezoneSync] Enabled, checking GPS periodically")
 
         -- Try to sync immediately if GPS already has a fix
         TimezoneSync.sync_from_gps()

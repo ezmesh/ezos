@@ -1,6 +1,8 @@
-# T-Deck OS
+# ezOS
 
 A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 with LoRa), featuring encrypted mesh networking, offline maps, and a Lua-scripted user interface.
+
+**Made by [ezmesh](https://ezme.sh)**
 
 ![T-Deck Plus](https://www.lilygo.cc/cdn/shop/files/T-Deck_Plus_1.jpg?v=1713168247&width=800)
 
@@ -34,8 +36,8 @@ Requires [PlatformIO](https://platformio.org/).
 
 ```bash
 # Clone
-git clone https://github.com/your-repo/tdeck-os.git
-cd tdeck-os
+git clone https://github.com/xtr-dev/ezmesh-ezos.git
+cd ezmesh-ezos
 
 # Build
 pio run
@@ -66,7 +68,7 @@ pio run -t upload
 ## Project Structure
 
 ```
-tdeck-os/
+ezos/
 ├── src/                    # C++ firmware
 │   ├── hardware/          # Display, keyboard, radio, GPS
 │   ├── mesh/              # MeshCore protocol
@@ -111,22 +113,22 @@ Copy the `.tdmap` file to `/sd/maps/world.tdmap` on the SD card.
 
 ### Remote Control
 
-Control T-Deck over USB serial:
+Control the device over USB serial:
 
 ```bash
 cd tools/remote
 pip install pyserial pillow
 
 # Screenshot
-python tdeck_remote.py /dev/ttyACM0 -s screenshot.png
+python ez_remote.py /dev/ttyACM0 -s screenshot.png
 
 # Send key
-python tdeck_remote.py /dev/ttyACM0 -k enter
+python ez_remote.py /dev/ttyACM0 -k enter
 ```
 
 ## Mesh Networking
 
-T-Deck OS implements the [MeshCore](https://github.com/ripplebiz/MeshCore) protocol:
+ezOS implements the [MeshCore](https://github.com/ripplebiz/MeshCore) protocol:
 
 - **Identity**: Ed25519 keypairs, 6-byte node IDs
 - **Routing**: Flood and direct routing modes

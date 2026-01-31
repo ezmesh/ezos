@@ -36,26 +36,26 @@ local FALLBACK_TONES = {
 
 -- Initialize from saved preferences
 function SoundUtils.init()
-    local enabled = tdeck.storage.get_pref("uiSoundsEnabled")
+    local enabled = ez.storage.get_pref("uiSoundsEnabled")
     if enabled ~= nil then
         SoundUtils.enabled = enabled
     end
 
-    local vol = tdeck.storage.get_pref("uiSoundsVolume")
+    local vol = ez.storage.get_pref("uiSoundsVolume")
     if vol then
         SoundUtils.volume = vol
     end
 
     -- Apply volume to audio system
-    if tdeck.audio and tdeck.audio.set_volume then
-        tdeck.audio.set_volume(SoundUtils.volume)
+    if ez.audio and ez.audio.set_volume then
+        ez.audio.set_volume(SoundUtils.volume)
     end
 end
 
 -- Enable/disable sounds
 function SoundUtils.set_enabled(enabled)
     SoundUtils.enabled = enabled
-    tdeck.storage.set_pref("uiSoundsEnabled", enabled)
+    ez.storage.set_pref("uiSoundsEnabled", enabled)
 end
 
 function SoundUtils.is_enabled()
@@ -66,10 +66,10 @@ end
 function SoundUtils.set_volume(level)
     level = math.max(0, math.min(100, level))
     SoundUtils.volume = level
-    tdeck.storage.set_pref("uiSoundsVolume", level)
+    ez.storage.set_pref("uiSoundsVolume", level)
 
-    if tdeck.audio and tdeck.audio.set_volume then
-        tdeck.audio.set_volume(level)
+    if ez.audio and ez.audio.set_volume then
+        ez.audio.set_volume(level)
     end
 end
 
@@ -80,27 +80,27 @@ end
 -- Play a named sound
 function SoundUtils.play(sound_name)
     if not SoundUtils.enabled then return end
-    if not tdeck.audio then return end
+    if not ez.audio then return end
 
     -- Apply volume before playing
-    if tdeck.audio.set_volume then
-        tdeck.audio.set_volume(SoundUtils.volume)
+    if ez.audio.set_volume then
+        ez.audio.set_volume(SoundUtils.volume)
     end
 
     -- Try PCM sample first
-    if SoundUtils.use_samples and tdeck.audio.play_sample then
+    if SoundUtils.use_samples and ez.audio.play_sample then
         local filename = SOUND_FILES[sound_name]
         if filename then
-            local ok = tdeck.audio.play_sample(filename)
+            local ok = ez.audio.play_sample(filename)
             if ok then return end
         end
     end
 
     -- Fallback to tone generation
-    if tdeck.audio.play_tone then
+    if ez.audio.play_tone then
         local tone = FALLBACK_TONES[sound_name]
         if tone then
-            tdeck.audio.play_tone(tone[1], tone[2])
+            ez.audio.play_tone(tone[1], tone[2])
         end
     end
 end

@@ -176,7 +176,7 @@ end
 
 function Minesweeper:render(display)
     local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
 
     if not self.game_over and not self.first_click then
         self.time_elapsed = math.floor((now - self.time_start) / 1000)
@@ -270,7 +270,7 @@ function Minesweeper:handle_key(key)
         if not self.game_over then
             if self.first_click then
                 self.first_click = false
-                self.time_start = tdeck.system.millis()
+                self.time_start = ez.system.millis()
                 self:place_mines(self.cursor_x, self.cursor_y)
             end
             self:reveal(self.cursor_x, self.cursor_y)

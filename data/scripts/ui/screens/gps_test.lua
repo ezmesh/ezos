@@ -30,20 +30,20 @@ end
 
 function GPSTest:on_enter()
     -- Initialize GPS if not already done
-    if tdeck.gps and tdeck.gps.init then
-        tdeck.gps.init()
+    if ez.gps and ez.gps.init then
+        ez.gps.init()
     end
     self:refresh()
 end
 
 function GPSTest:refresh()
-    if not tdeck.gps then
+    if not ez.gps then
         self.initialized = false
         return
     end
 
     -- Get stats
-    local stats = tdeck.gps.get_stats()
+    local stats = ez.gps.get_stats()
     if stats then
         self.initialized = stats.initialized
         self.chars_processed = stats.chars or 0
@@ -52,14 +52,14 @@ function GPSTest:refresh()
     end
 
     -- Get satellite info
-    local sat = tdeck.gps.get_satellites()
+    local sat = ez.gps.get_satellites()
     if sat then
         self.satellites = sat.count or 0
         self.hdop = sat.hdop or 99.9
     end
 
     -- Get location
-    local loc = tdeck.gps.get_location()
+    local loc = ez.gps.get_location()
     if loc then
         self.has_fix = loc.valid or false
         self.latitude = loc.lat or 0
@@ -68,14 +68,14 @@ function GPSTest:refresh()
     end
 
     -- Get movement
-    local mov = tdeck.gps.get_movement()
+    local mov = ez.gps.get_movement()
     if mov then
         self.speed = mov.speed or 0
         self.course = mov.course or 0
     end
 
     -- Get time
-    local t = tdeck.gps.get_time()
+    local t = ez.gps.get_time()
     if t then
         self.gps_time = t
         self.time_synced = t.synced or false
@@ -191,8 +191,8 @@ function GPSTest:handle_key(key)
 
     -- Manual time sync
     if key.character == "s" or key.character == "S" then
-        if tdeck.gps and tdeck.gps.sync_time then
-            local success = tdeck.gps.sync_time()
+        if ez.gps and ez.gps.sync_time then
+            local success = ez.gps.sync_time()
             if success then
                 print("[GPS] Time synced manually")
             else

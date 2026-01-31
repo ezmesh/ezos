@@ -63,8 +63,8 @@ function Game2048:on_enter()
     self.GRID_Y = 28
 
     -- Load best score
-    if tdeck.storage and tdeck.storage.get_pref then
-        self.best_score = tdeck.storage.get_pref("2048_best", 0)
+    if ez.storage and ez.storage.get_pref then
+        self.best_score = ez.storage.get_pref("2048_best", 0)
     end
 
     self:reset_game()
@@ -73,8 +73,8 @@ end
 function Game2048:on_exit()
     if _G.MainLoop then _G.MainLoop.exit_game_mode() end
     -- Save best score
-    if tdeck.storage and tdeck.storage.set_pref and self.score > self.best_score then
-        tdeck.storage.set_pref("2048_best", self.score)
+    if ez.storage and ez.storage.set_pref and self.score > self.best_score then
+        ez.storage.set_pref("2048_best", self.score)
     end
 end
 

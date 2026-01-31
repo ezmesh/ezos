@@ -14,9 +14,9 @@ local KeyRepeatTest = {
 function KeyRepeatTest:new()
     local o = {
         title = self.title,
-        enabled = tdeck.keyboard.get_repeat_enabled(),
-        delay = tdeck.keyboard.get_repeat_delay(),
-        rate = tdeck.keyboard.get_repeat_rate(),
+        enabled = ez.keyboard.get_repeat_enabled(),
+        delay = ez.keyboard.get_repeat_delay(),
+        rate = ez.keyboard.get_repeat_rate(),
         key_log = {},
         last_key_time = 0,
     }
@@ -26,18 +26,18 @@ end
 
 function KeyRepeatTest:on_enter()
     -- Read current settings
-    self.enabled = tdeck.keyboard.get_repeat_enabled()
-    self.delay = tdeck.keyboard.get_repeat_delay()
-    self.rate = tdeck.keyboard.get_repeat_rate()
+    self.enabled = ez.keyboard.get_repeat_enabled()
+    self.delay = ez.keyboard.get_repeat_delay()
+    self.rate = ez.keyboard.get_repeat_rate()
 end
 
 function KeyRepeatTest:on_exit()
     -- Disable key repeat when leaving (safety)
-    tdeck.keyboard.set_repeat_enabled(false)
+    ez.keyboard.set_repeat_enabled(false)
 end
 
 function KeyRepeatTest:add_log(text)
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     local delta = now - self.last_key_time
     self.last_key_time = now
 
@@ -109,7 +109,7 @@ function KeyRepeatTest:handle_key(key)
     -- Toggle enable
     if c == "E" then
         self.enabled = not self.enabled
-        tdeck.keyboard.set_repeat_enabled(self.enabled)
+        ez.keyboard.set_repeat_enabled(self.enabled)
         self:add_log("Repeat " .. (self.enabled and "ENABLED" or "DISABLED"))
         ScreenManager.invalidate()
         return "continue"
@@ -118,7 +118,7 @@ function KeyRepeatTest:handle_key(key)
     -- Decrease delay
     if c == "D" then
         self.delay = math.max(100, self.delay - 50)
-        tdeck.keyboard.set_repeat_delay(self.delay)
+        ez.keyboard.set_repeat_delay(self.delay)
         self:add_log("Delay: " .. self.delay)
         ScreenManager.invalidate()
         return "continue"
@@ -127,7 +127,7 @@ function KeyRepeatTest:handle_key(key)
     -- Increase delay
     if c == "R" then
         self.delay = math.min(1000, self.delay + 50)
-        tdeck.keyboard.set_repeat_delay(self.delay)
+        ez.keyboard.set_repeat_delay(self.delay)
         self:add_log("Delay: " .. self.delay)
         ScreenManager.invalidate()
         return "continue"
@@ -136,7 +136,7 @@ function KeyRepeatTest:handle_key(key)
     -- Decrease rate
     if c == "F" then
         self.rate = math.max(20, self.rate - 10)
-        tdeck.keyboard.set_repeat_rate(self.rate)
+        ez.keyboard.set_repeat_rate(self.rate)
         self:add_log("Rate: " .. self.rate)
         ScreenManager.invalidate()
         return "continue"
@@ -145,7 +145,7 @@ function KeyRepeatTest:handle_key(key)
     -- Increase rate
     if c == "T" then
         self.rate = math.min(200, self.rate + 10)
-        tdeck.keyboard.set_repeat_rate(self.rate)
+        ez.keyboard.set_repeat_rate(self.rate)
         self:add_log("Rate: " .. self.rate)
         ScreenManager.invalidate()
         return "continue"

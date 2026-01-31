@@ -1,8 +1,8 @@
-# Browser-Based T-Deck OS Simulator
+# Browser-Based ezOS Simulator
 
 ## Overview
 
-A browser-based simulator that runs the same Lua scripts as the T-Deck firmware, enabling development and testing without physical hardware. The simulator would mock the `tdeck.*` API bindings and render the UI to an HTML5 canvas.
+A browser-based simulator that runs the same Lua scripts as the T-Deck firmware, enabling development and testing without physical hardware. The simulator would mock the `ez.*` API bindings and render the UI to an HTML5 canvas.
 
 ## Motivation
 
@@ -60,7 +60,7 @@ await lua.doString('print(sum(10, 20))');
 
 Based on analysis of `src/lua/bindings/*.cpp`, these modules need browser implementations:
 
-### tdeck.display (~35 functions)
+### ez.display (~35 functions)
 
 Maps to HTML5 Canvas 2D API.
 
@@ -91,7 +91,7 @@ function rgb565ToCSS(color) {
 }
 ```
 
-### tdeck.keyboard (~25 functions)
+### ez.keyboard (~25 functions)
 
 Maps to browser keyboard events.
 
@@ -122,7 +122,7 @@ function translateKey(event) {
 }
 ```
 
-### tdeck.system (~30 functions)
+### ez.system (~30 functions)
 
 | Function | Browser Implementation |
 |----------|----------------------|
@@ -138,7 +138,7 @@ function translateKey(event) {
 | `yield(ms)` | Integration with `requestAnimationFrame` |
 | `restart()` | `location.reload()` |
 
-### tdeck.storage (~20 functions)
+### ez.storage (~20 functions)
 
 Use IndexedDB for persistence, with in-memory fallback.
 
@@ -153,7 +153,7 @@ Use IndexedDB for persistence, with in-memory fallback.
 | `json_encode(value)` | `JSON.stringify()` |
 | `json_decode(str)` | `JSON.parse()` |
 
-### tdeck.crypto (~15 functions)
+### ez.crypto (~15 functions)
 
 Use Web Crypto API.
 
@@ -170,7 +170,7 @@ Use Web Crypto API.
 
 **Note**: Web Crypto doesn't support ECB mode directly. May need a pure JS AES implementation or use CBC with single block.
 
-### tdeck.mesh (~50 functions) - Simulated
+### ez.mesh (~50 functions) - Simulated
 
 Create a mock mesh network for testing.
 
@@ -193,7 +193,7 @@ const mockMesh = {
 };
 ```
 
-### tdeck.radio (~20 functions) - Stubbed
+### ez.radio (~20 functions) - Stubbed
 
 Most functions return mock values or no-op.
 
@@ -211,7 +211,7 @@ const mockRadio = {
 };
 ```
 
-### tdeck.audio (~10 functions)
+### ez.audio (~10 functions)
 
 Use Web Audio API.
 
@@ -232,7 +232,7 @@ function playTone(frequency, durationMs) {
 }
 ```
 
-### tdeck.gps (~10 functions) - Browser Geolocation
+### ez.gps (~10 functions) - Browser Geolocation
 
 Can use actual browser geolocation for testing location features.
 
@@ -272,9 +272,9 @@ const mockGPS = {
 │  ┌──────┴──────────────────┴────────────────────┴────────┐  │
 │  │                  Mock Layer (JavaScript)               │  │
 │  │                                                        │  │
-│  │  tdeck.display   tdeck.keyboard   tdeck.system        │  │
-│  │  tdeck.storage   tdeck.mesh       tdeck.crypto        │  │
-│  │  tdeck.radio     tdeck.audio      tdeck.gps           │  │
+│  │  ez.display   ez.keyboard   ez.system        │  │
+│  │  ez.storage   ez.mesh       ez.crypto        │  │
+│  │  ez.radio     ez.audio      ez.gps           │  │
 │  └────────────────────────┬──────────────────────────────┘  │
 │                           │                                  │
 │  ┌────────────────────────┴──────────────────────────────┐  │
@@ -397,8 +397,8 @@ keyboard.read_blocking = () => {
 
 // Lua wrapper that handles the coroutine dance
 const blockingWrapper = `
-local real_read_blocking = tdeck.keyboard.read_blocking
-tdeck.keyboard.read_blocking = function()
+local real_read_blocking = ez.keyboard.read_blocking
+ez.keyboard.read_blocking = function()
   while true do
     local result = real_read_blocking()
     if type(result) == "table" and result.__await_key then
@@ -470,14 +470,14 @@ If modifying Lua code is acceptable, replace blocking patterns with polling:
 
 ```lua
 -- Instead of:
-local key = tdeck.keyboard.read_blocking()
+local key = ez.keyboard.read_blocking()
 
 -- Use:
 local function wait_for_key()
-  while not tdeck.keyboard.available() do
-    tdeck.system.yield(10)
+  while not ez.keyboard.available() do
+    ez.system.yield(10)
   end
-  return tdeck.keyboard.read()
+  return ez.keyboard.read()
 end
 local key = wait_for_key()
 ```
@@ -918,9 +918,9 @@ tools/simulator/
 
 ### Phase 1: Core Framework
 - [ ] Set up Wasmoon
-- [ ] Implement `tdeck.display` basics (clear, fill_rect, draw_text)
-- [ ] Implement `tdeck.keyboard` (available, read)
-- [ ] Implement `tdeck.system` (millis, log, yield)
+- [ ] Implement `ez.display` basics (clear, fill_rect, draw_text)
+- [ ] Implement `ez.keyboard` (available, read)
+- [ ] Implement `ez.system` (millis, log, yield)
 - [ ] Virtual filesystem with dofile override
 - [ ] Get boot.lua to start without errors
 

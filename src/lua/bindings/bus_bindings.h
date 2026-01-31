@@ -1,4 +1,4 @@
-// tdeck.bus module bindings
+// ez.bus module bindings
 // Global message bus for C++ and Lua communication
 
 #pragma once

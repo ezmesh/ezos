@@ -20,8 +20,8 @@ function SoundTest:new()
 end
 
 function SoundTest:on_exit()
-    if tdeck.audio and tdeck.audio.stop then
-        tdeck.audio.stop()
+    if ez.audio and ez.audio.stop then
+        ez.audio.stop()
     end
 end
 
@@ -104,9 +104,9 @@ function SoundTest:handle_key(key)
 end
 
 function SoundTest:play_note()
-    if tdeck.audio and tdeck.audio.play_tone then
+    if ez.audio and ez.audio.play_tone then
         local freq = self.frequencies[self.selected]
-        tdeck.audio.play_tone(freq, 500)
+        ez.audio.play_tone(freq, 500)
         self.playing = true
         ScreenManager.invalidate()
 
@@ -116,18 +116,18 @@ function SoundTest:play_note()
 end
 
 function SoundTest:stop()
-    if tdeck.audio and tdeck.audio.stop then
-        tdeck.audio.stop()
+    if ez.audio and ez.audio.stop then
+        ez.audio.stop()
         self.playing = false
         ScreenManager.invalidate()
     end
 end
 
 function SoundTest:beep()
-    if tdeck.audio and tdeck.audio.beep then
-        tdeck.audio.beep()
-    elseif tdeck.audio and tdeck.audio.play_tone then
-        tdeck.audio.play_tone(1000, 100)
+    if ez.audio and ez.audio.beep then
+        ez.audio.beep()
+    elseif ez.audio and ez.audio.play_tone then
+        ez.audio.play_tone(1000, 100)
     end
 end
 

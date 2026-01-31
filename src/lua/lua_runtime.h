@@ -57,7 +57,7 @@ public:
     // Release a reference
     void releaseRef(int ref);
 
-    // Register all tdeck.* modules
+    // Register all ez.* modules
     void registerAllModules();
 
     // Get memory usage info
@@ -101,8 +101,8 @@ private:
     // Report error to callback and serial
     void reportError(const char* error);
 
-    // Create the tdeck global table
-    void createTdeckNamespace();
+    // Create the ez global table
+    void createEzNamespace();
 
 };
 

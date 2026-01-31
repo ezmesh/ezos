@@ -32,16 +32,16 @@ function NodeInfo:on_enter()
 end
 
 function NodeInfo:refresh_info()
-    if tdeck.mesh.is_initialized() then
-        self.node_id = tdeck.mesh.get_node_id() or ""
-        self.node_name = tdeck.mesh.get_node_name and tdeck.mesh.get_node_name() or "MeshNode"
-        self.pub_key = tdeck.mesh.get_public_key and tdeck.mesh.get_public_key() or ""
-        self.tx_count = tdeck.mesh.get_tx_count and tdeck.mesh.get_tx_count() or 0
-        self.rx_count = tdeck.mesh.get_rx_count and tdeck.mesh.get_rx_count() or 0
+    if ez.mesh.is_initialized() then
+        self.node_id = ez.mesh.get_node_id() or ""
+        self.node_name = ez.mesh.get_node_name and ez.mesh.get_node_name() or "MeshNode"
+        self.pub_key = ez.mesh.get_public_key and ez.mesh.get_public_key() or ""
+        self.tx_count = ez.mesh.get_tx_count and ez.mesh.get_tx_count() or 0
+        self.rx_count = ez.mesh.get_rx_count and ez.mesh.get_rx_count() or 0
     end
 
-    self.battery = tdeck.system.get_battery_percent()
-    self.uptime_seconds = math.floor(tdeck.system.uptime())
+    self.battery = ez.system.get_battery_percent()
+    self.uptime_seconds = math.floor(ez.system.uptime())
 end
 
 function NodeInfo:format_uptime()
@@ -106,7 +106,7 @@ function NodeInfo:render(display)
     -- Public Key (base64 encoded, wrapped to value column)
     display.draw_text(label_x * fw, row * fh, "PubKey:", colors.TEXT_SECONDARY)
     if self.pub_key and #self.pub_key > 0 then
-        local b64_key = tdeck.crypto.base64_encode(self.pub_key)
+        local b64_key = ez.crypto.base64_encode(self.pub_key)
         if b64_key then
             -- Wrap pubkey across multiple lines, aligned to value column
             local pos = 1
@@ -143,8 +143,8 @@ function NodeInfo:render(display)
     row = row + 1
 
     -- Free memory (Heap / PSRAM)
-    local heap_kb = math.floor(tdeck.system.get_free_heap() / 1024)
-    local psram_kb = math.floor(tdeck.system.get_free_psram() / 1024)
+    local heap_kb = math.floor(ez.system.get_free_heap() / 1024)
+    local psram_kb = math.floor(ez.system.get_free_psram() / 1024)
     local mem_str = string.format("H:%dK P:%dK", heap_kb, psram_kb)
     display.draw_text(label_x * fw, row * fh, "Memory:", colors.TEXT_SECONDARY)
     display.draw_text(value_x * fw, row * fh, mem_str, colors.TEXT)
@@ -167,10 +167,10 @@ function NodeInfo:get_menu_items()
     table.insert(items, {
         label = "Send Advert",
         action = function()
-            if tdeck.mesh.is_initialized() then
-                local ok = tdeck.mesh.send_announce()
+            if ez.mesh.is_initialized() then
+                local ok = ez.mesh.send_announce()
                 if ok then
-                    tdeck.system.log("[NodeInfo] Sent ADVERT")
+                    ez.system.log("[NodeInfo] Sent ADVERT")
                     if _G.MessageBox then
                         _G.MessageBox.show({title = "Advert sent"})
                     end

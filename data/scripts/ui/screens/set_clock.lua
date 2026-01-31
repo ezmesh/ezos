@@ -35,7 +35,7 @@ end
 
 function TimeSync:on_enter()
     -- Get current time if set
-    local t = tdeck.system.get_time()
+    local t = ez.system.get_time()
     if t then
         self.manual.year = t.year
         self.manual.month = t.month
@@ -65,7 +65,7 @@ function TimeSync:render(display)
 
     -- Current time display
     display.set_font_size("small")
-    local t = tdeck.system.get_time()
+    local t = ez.system.get_time()
     local time_str = "Current: Not set"
     if t then
         time_str = string.format("Current: %04d-%02d-%02d %02d:%02d:%02d",
@@ -194,7 +194,7 @@ function TimeSync:set_field_value(field, value)
 end
 
 function TimeSync:apply_time()
-    local ok = tdeck.system.set_time(
+    local ok = ez.system.set_time(
         self.manual.year,
         self.manual.month,
         self.manual.day,
@@ -206,7 +206,7 @@ function TimeSync:apply_time()
     if ok then
         if _G.SoundUtils then pcall(_G.SoundUtils.confirm) end
         -- Save to preferences
-        tdeck.storage.set_pref("lastTimeSet", tdeck.system.get_time_unix())
+        ez.storage.set_pref("lastTimeSet", ez.system.get_time_unix())
         if _G.MessageBox then
             _G.MessageBox.show({title = "Clock set"})
         end

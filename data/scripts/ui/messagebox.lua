@@ -42,7 +42,7 @@ function MessageBox.hide()
         _G.Overlays.disable("messagebox")
     end
     -- Restore keyboard mode
-    tdeck.keyboard.set_mode("normal")
+    ez.keyboard.set_mode("normal")
     if _G.ScreenManager then
         _G.ScreenManager.invalidate()
     end

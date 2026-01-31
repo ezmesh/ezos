@@ -30,11 +30,11 @@ function Compose:new()
 end
 
 function Compose:on_enter()
-    self.last_blink = tdeck.system.millis()
+    self.last_blink = ez.system.millis()
 end
 
 function Compose:update_cursor()
-    local now = tdeck.system.millis()
+    local now = ez.system.millis()
     if now - self.last_blink > self.blink_interval then
         self.cursor_visible = not self.cursor_visible
         self.last_blink = now
@@ -197,14 +197,14 @@ end
 
 function Compose:update_scroll()
     -- Calculate which line the cursor is on using pixel-based measurement
-    local fw = tdeck.display.get_font_width()
-    local text_area_width_px = (tdeck.display.get_cols() - 4) * fw
+    local fw = ez.display.get_font_width()
+    local text_area_width_px = (ez.display.get_cols() - 4) * fw
     local cursor_line = 0
     local line_x_px = 0
 
     for i = 1, self.cursor_pos do
         local c = string.sub(self.text, i, i)
-        local char_width = tdeck.display.text_width(c)
+        local char_width = ez.display.text_width(c)
 
         if c == "\n" or line_x_px + char_width > text_area_width_px then
             cursor_line = cursor_line + 1
@@ -229,9 +229,9 @@ function Compose:send()
 
     -- Use Lua Channels service to send message
     if _G.Channels and _G.Channels.send(self.channel, self.text) then
-        tdeck.system.log("Sent to " .. self.channel .. ": " .. self.text)
+        ez.system.log("Sent to " .. self.channel .. ": " .. self.text)
     else
-        tdeck.system.log("Failed to send message")
+        ez.system.log("Failed to send message")
     end
 end
 

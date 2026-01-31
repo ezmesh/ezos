@@ -1,20 +1,20 @@
 #include "gps_bindings.h"
 #include "../../hardware/gps.h"
 
-// tdeck.gps.init() -> boolean
+// ez.gps.init() -> boolean
 static int l_gps_init(lua_State* L) {
     bool success = GPS::instance().init();
     lua_pushboolean(L, success);
     return 1;
 }
 
-// tdeck.gps.update() - call from main loop
+// ez.gps.update() - call from main loop
 static int l_gps_update(lua_State* L) {
     GPS::instance().update();
     return 0;
 }
 
-// tdeck.gps.get_location() -> {lat, lon, alt, valid, age} or nil
+// ez.gps.get_location() -> {lat, lon, alt, valid, age} or nil
 static int l_gps_get_location(lua_State* L) {
     GPS& gps = GPS::instance();
 
@@ -43,7 +43,7 @@ static int l_gps_get_location(lua_State* L) {
     return 1;
 }
 
-// tdeck.gps.get_time() -> {hour, min, sec, year, month, day, valid, synced} or nil
+// ez.gps.get_time() -> {hour, min, sec, year, month, day, valid, synced} or nil
 static int l_gps_get_time(lua_State* L) {
     GPS& gps = GPS::instance();
 
@@ -81,7 +81,7 @@ static int l_gps_get_time(lua_State* L) {
     return 1;
 }
 
-// tdeck.gps.get_movement() -> {speed, course} or nil
+// ez.gps.get_movement() -> {speed, course} or nil
 static int l_gps_get_movement(lua_State* L) {
     GPS& gps = GPS::instance();
 
@@ -101,7 +101,7 @@ static int l_gps_get_movement(lua_State* L) {
     return 1;
 }
 
-// tdeck.gps.get_satellites() -> {count, hdop}
+// ez.gps.get_satellites() -> {count, hdop}
 static int l_gps_get_satellites(lua_State* L) {
     GPS& gps = GPS::instance();
 
@@ -121,14 +121,14 @@ static int l_gps_get_satellites(lua_State* L) {
     return 1;
 }
 
-// tdeck.gps.sync_time() -> boolean
+// ez.gps.sync_time() -> boolean
 static int l_gps_sync_time(lua_State* L) {
     bool success = GPS::instance().syncSystemTime();
     lua_pushboolean(L, success);
     return 1;
 }
 
-// tdeck.gps.get_stats() -> {chars, sentences, failed}
+// ez.gps.get_stats() -> {chars, sentences, failed}
 static int l_gps_get_stats(lua_State* L) {
     GPS& gps = GPS::instance();
 
@@ -154,7 +154,7 @@ static int l_gps_get_stats(lua_State* L) {
     return 1;
 }
 
-// tdeck.gps.is_valid() -> boolean (has valid location fix)
+// ez.gps.is_valid() -> boolean (has valid location fix)
 static int l_gps_is_valid(lua_State* L) {
     lua_pushboolean(L, GPS::instance().hasValidLocation());
     return 1;

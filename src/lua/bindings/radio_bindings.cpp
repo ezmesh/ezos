@@ -1,4 +1,4 @@
-// tdeck.radio module bindings
+// ez.radio module bindings
 // Provides LoRa radio control functions
 
 #include "../lua_bindings.h"
@@ -23,7 +23,7 @@ static void pushRadioResult(lua_State* L, RadioResult result) {
     }
 }
 
-// @lua tdeck.radio.is_initialized() -> boolean
+// @lua ez.radio.is_initialized() -> boolean
 // @brief Check if radio is initialized
 // @return true if radio is ready
 LUA_FUNCTION(l_radio_is_initialized) {
@@ -31,7 +31,7 @@ LUA_FUNCTION(l_radio_is_initialized) {
     return 1;
 }
 
-// @lua tdeck.radio.set_frequency(mhz) -> string
+// @lua ez.radio.set_frequency(mhz) -> string
 // @brief Set radio frequency
 // @param mhz Frequency in MHz
 // @return Result string (ok, error_init, etc.)
@@ -48,7 +48,7 @@ LUA_FUNCTION(l_radio_set_frequency) {
     return 1;
 }
 
-// @lua tdeck.radio.set_bandwidth(khz) -> string
+// @lua ez.radio.set_bandwidth(khz) -> string
 // @brief Set radio bandwidth
 // @param khz Bandwidth in kHz
 // @return Result string
@@ -65,7 +65,7 @@ LUA_FUNCTION(l_radio_set_bandwidth) {
     return 1;
 }
 
-// @lua tdeck.radio.set_spreading_factor(sf) -> string
+// @lua ez.radio.set_spreading_factor(sf) -> string
 // @brief Set LoRa spreading factor
 // @param sf Spreading factor (6-12)
 // @return Result string
@@ -82,7 +82,7 @@ LUA_FUNCTION(l_radio_set_spreading_factor) {
     return 1;
 }
 
-// @lua tdeck.radio.set_coding_rate(cr) -> string
+// @lua ez.radio.set_coding_rate(cr) -> string
 // @brief Set LoRa coding rate
 // @param cr Coding rate (5-8)
 // @return Result string
@@ -99,7 +99,7 @@ LUA_FUNCTION(l_radio_set_coding_rate) {
     return 1;
 }
 
-// @lua tdeck.radio.set_tx_power(dbm) -> string
+// @lua ez.radio.set_tx_power(dbm) -> string
 // @brief Set transmit power
 // @param dbm Power in dBm (0-22)
 // @return Result string
@@ -116,7 +116,7 @@ LUA_FUNCTION(l_radio_set_tx_power) {
     return 1;
 }
 
-// @lua tdeck.radio.set_sync_word(sw) -> string
+// @lua ez.radio.set_sync_word(sw) -> string
 // @brief Set sync word
 // @param sw Sync word value
 // @return Result string
@@ -133,7 +133,7 @@ LUA_FUNCTION(l_radio_set_sync_word) {
     return 1;
 }
 
-// @lua tdeck.radio.get_config() -> table
+// @lua ez.radio.get_config() -> table
 // @brief Get current radio configuration
 // @return Table with frequency, bandwidth, spreading_factor, etc.
 LUA_FUNCTION(l_radio_get_config) {
@@ -163,7 +163,7 @@ LUA_FUNCTION(l_radio_get_config) {
     return 1;
 }
 
-// @lua tdeck.radio.send(data) -> string
+// @lua ez.radio.send(data) -> string
 // @brief Transmit data
 // @param data String or table of bytes to send
 // @return Result string
@@ -204,7 +204,7 @@ LUA_FUNCTION(l_radio_send) {
     return 1;
 }
 
-// @lua tdeck.radio.start_receive() -> string
+// @lua ez.radio.start_receive() -> string
 // @brief Start listening for packets
 // @return Result string
 LUA_FUNCTION(l_radio_start_receive) {
@@ -217,7 +217,7 @@ LUA_FUNCTION(l_radio_start_receive) {
     return 1;
 }
 
-// @lua tdeck.radio.available() -> boolean
+// @lua ez.radio.available() -> boolean
 // @brief Check if data is available
 // @return true if packet waiting
 LUA_FUNCTION(l_radio_available) {
@@ -226,7 +226,7 @@ LUA_FUNCTION(l_radio_available) {
     return 1;
 }
 
-// @lua tdeck.radio.receive() -> string, number, number
+// @lua ez.radio.receive() -> string, number, number
 // @brief Receive a packet
 // @return Data string, RSSI, SNR or nil if no data
 LUA_FUNCTION(l_radio_receive) {
@@ -251,7 +251,7 @@ LUA_FUNCTION(l_radio_receive) {
     return 3;
 }
 
-// @lua tdeck.radio.get_last_rssi() -> number
+// @lua ez.radio.get_last_rssi() -> number
 // @brief Get last received signal strength
 // @return RSSI in dBm
 LUA_FUNCTION(l_radio_get_last_rssi) {
@@ -260,7 +260,7 @@ LUA_FUNCTION(l_radio_get_last_rssi) {
     return 1;
 }
 
-// @lua tdeck.radio.get_last_snr() -> number
+// @lua ez.radio.get_last_snr() -> number
 // @brief Get last signal-to-noise ratio
 // @return SNR in dB
 LUA_FUNCTION(l_radio_get_last_snr) {
@@ -269,7 +269,7 @@ LUA_FUNCTION(l_radio_get_last_snr) {
     return 1;
 }
 
-// @lua tdeck.radio.is_transmitting() -> boolean
+// @lua ez.radio.is_transmitting() -> boolean
 // @brief Check if currently transmitting
 // @return true if transmission in progress
 LUA_FUNCTION(l_radio_is_transmitting) {
@@ -278,7 +278,7 @@ LUA_FUNCTION(l_radio_is_transmitting) {
     return 1;
 }
 
-// @lua tdeck.radio.is_receiving() -> boolean
+// @lua ez.radio.is_receiving() -> boolean
 // @brief Check if in receive mode
 // @return true if listening
 LUA_FUNCTION(l_radio_is_receiving) {
@@ -287,7 +287,7 @@ LUA_FUNCTION(l_radio_is_receiving) {
     return 1;
 }
 
-// @lua tdeck.radio.is_busy() -> boolean
+// @lua ez.radio.is_busy() -> boolean
 // @brief Check if radio is busy
 // @return true if transmitting or receiving
 LUA_FUNCTION(l_radio_is_busy) {
@@ -296,7 +296,7 @@ LUA_FUNCTION(l_radio_is_busy) {
     return 1;
 }
 
-// @lua tdeck.radio.sleep() -> string
+// @lua ez.radio.sleep() -> string
 // @brief Put radio into sleep mode
 // @return Result string
 LUA_FUNCTION(l_radio_sleep) {
@@ -308,7 +308,7 @@ LUA_FUNCTION(l_radio_sleep) {
     return 1;
 }
 
-// @lua tdeck.radio.wake() -> string
+// @lua ez.radio.wake() -> string
 // @brief Wake radio from sleep
 // @return Result string
 LUA_FUNCTION(l_radio_wake) {
@@ -320,7 +320,7 @@ LUA_FUNCTION(l_radio_wake) {
     return 1;
 }
 
-// Function table for tdeck.radio
+// Function table for ez.radio
 static const luaL_Reg radio_funcs[] = {
     {"is_initialized",      l_radio_is_initialized},
     {"set_frequency",       l_radio_set_frequency},
@@ -347,5 +347,5 @@ static const luaL_Reg radio_funcs[] = {
 // Register the radio module
 void registerRadioModule(lua_State* L) {
     lua_register_module(L, "radio", radio_funcs);
-    Serial.println("[LuaRuntime] Registered tdeck.radio");
+    Serial.println("[LuaRuntime] Registered ez.radio");
 }

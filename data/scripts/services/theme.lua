@@ -403,8 +403,8 @@ local ThemeManager = {
 -- Initialize theme manager - load saved preferences
 function ThemeManager.init()
     local function get_pref(key, default)
-        if tdeck.storage and tdeck.storage.get_pref then
-            return tdeck.storage.get_pref(key, default)
+        if ez.storage and ez.storage.get_pref then
+            return ez.storage.get_pref(key, default)
         end
         return default
     end
@@ -469,7 +469,7 @@ function ThemeManager.init()
     -- Apply color theme
     ThemeManager.apply_color_theme()
 
-    tdeck.system.log("[Theme] Init - wp:" .. ThemeManager.current_wallpaper .. " colors:" .. ThemeManager.current_color_theme)
+    ez.system.log("[Theme] Init - wp:" .. ThemeManager.current_wallpaper .. " colors:" .. ThemeManager.current_color_theme)
 end
 
 -- Apply current color theme to the colors table
@@ -480,7 +480,7 @@ function ThemeManager.apply_color_theme()
     end
 
     -- Create colors table with base colors from display.colors plus theme overrides
-    local base = tdeck.display.colors
+    local base = ez.display.colors
 
     -- Determine background color (light themes have custom backgrounds)
     local bg_color = palette.is_light and palette.BACKGROUND or base.BLACK
@@ -565,16 +565,16 @@ end
 function ThemeManager.set_wallpaper_tint(color, color2)
     ThemeManager.custom_wallpaper_tint1 = color
     ThemeManager.custom_wallpaper_tint2 = color2
-    if tdeck.storage and tdeck.storage.set_pref then
+    if ez.storage and ez.storage.set_pref then
         if color then
-            tdeck.storage.set_pref("wallpaper_tint", color)
+            ez.storage.set_pref("wallpaper_tint", color)
         else
-            tdeck.storage.set_pref("wallpaper_tint", -1)
+            ez.storage.set_pref("wallpaper_tint", -1)
         end
         if color2 then
-            tdeck.storage.set_pref("wallpaper_tint2", color2)
+            ez.storage.set_pref("wallpaper_tint2", color2)
         else
-            tdeck.storage.set_pref("wallpaper_tint2", -1)
+            ez.storage.set_pref("wallpaper_tint2", -1)
         end
     end
     if _G.ScreenManager then
@@ -611,8 +611,8 @@ function ThemeManager.set_wallpaper(name)
     ThemeManager.save()
 
     -- Publish theme change event
-    if tdeck.bus and tdeck.bus.post then
-        tdeck.bus.post("theme/wallpaper", name)
+    if ez.bus and ez.bus.post then
+        ez.bus.post("theme/wallpaper", name)
     end
 
     if _G.ScreenManager then
@@ -638,8 +638,8 @@ function ThemeManager.set_icon_theme(name)
     ThemeManager.save()
 
     -- Publish theme change event
-    if tdeck.bus and tdeck.bus.post then
-        tdeck.bus.post("theme/icons", name)
+    if ez.bus and ez.bus.post then
+        ez.bus.post("theme/icons", name)
     end
 
     if _G.ScreenManager then
@@ -666,8 +666,8 @@ function ThemeManager.set_color_theme(name)
     ThemeManager.save()
 
     -- Publish theme change event
-    if tdeck.bus and tdeck.bus.post then
-        tdeck.bus.post("theme/colors", name)
+    if ez.bus and ez.bus.post then
+        ez.bus.post("theme/colors", name)
     end
 
     if _G.ScreenManager then
@@ -696,10 +696,10 @@ end
 
 -- Save current theme preferences
 function ThemeManager.save()
-    if tdeck.storage and tdeck.storage.set_pref then
-        tdeck.storage.set_pref("wallpaper", ThemeManager.current_wallpaper)
-        tdeck.storage.set_pref("icon_theme", ThemeManager.current_icon_theme)
-        tdeck.storage.set_pref("color_theme", ThemeManager.current_color_theme)
+    if ez.storage and ez.storage.set_pref then
+        ez.storage.set_pref("wallpaper", ThemeManager.current_wallpaper)
+        ez.storage.set_pref("icon_theme", ThemeManager.current_icon_theme)
+        ez.storage.set_pref("color_theme", ThemeManager.current_color_theme)
     end
 end
 

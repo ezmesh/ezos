@@ -1,6 +1,6 @@
 /**
  * Display mock module
- * Maps tdeck.display functions to HTML5 Canvas
+ * Maps ez.display functions to HTML5 Canvas
  */
 
 import { FONTS, getFont, renderText, measureText, loadFonts } from '../fonts.js';
@@ -63,10 +63,10 @@ export function createDisplayModule(ctx, canvas) {
         cols: Math.floor(WIDTH / 8),   // 40 columns
         rows: Math.floor(HEIGHT / 16), // 15 rows
 
-        // Colors (spread for direct access like tdeck.display.WHITE)
+        // Colors (spread for direct access like ez.display.WHITE)
         ...colors,
 
-        // Colors as nested table (for tdeck.display.colors.WHITE)
+        // Colors as nested table (for ez.display.colors.WHITE)
         colors,
 
         // Create RGB565 color from components

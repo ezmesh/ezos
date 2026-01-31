@@ -102,8 +102,8 @@ function ErrorScreen:handle_key(key)
         return "pop"
     elseif key.character == "r" then
         -- Retry by reloading scripts and popping
-        if tdeck.system.reload_scripts then
-            tdeck.system.reload_scripts()
+        if ez.system.reload_scripts then
+            ez.system.reload_scripts()
         end
         return "pop"
     elseif key.character == "f" then
@@ -114,8 +114,8 @@ function ErrorScreen:handle_key(key)
         end
     elseif key.character == "x" then
         -- Full restart
-        if tdeck.system.restart then
-            tdeck.system.restart()
+        if ez.system.restart then
+            ez.system.restart()
         end
     elseif key.special == "UP" then
         if self.scroll_offset > 0 then
