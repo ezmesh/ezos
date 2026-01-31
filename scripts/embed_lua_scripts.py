@@ -214,11 +214,18 @@ def embed_lua_scripts(project_root: Path) -> int:
 try:
     Import("env")
 
-    # Run embedding immediately during script load (before compilation)
-    project_dir = Path(env.get("PROJECT_DIR", "."))
-    result = embed_lua_scripts(project_dir)
-    if result != 0:
-        env.Exit(1)
+    # Check if NO_EMBEDDED_SCRIPTS is defined (sdcard build)
+    build_flags = env.get("BUILD_FLAGS", [])
+    skip_embedding = any("NO_EMBEDDED_SCRIPTS" in str(f) for f in build_flags)
+
+    if skip_embedding:
+        print("NO_EMBEDDED_SCRIPTS defined - skipping script embedding")
+    else:
+        # Run embedding immediately during script load (before compilation)
+        project_dir = Path(env.get("PROJECT_DIR", "."))
+        result = embed_lua_scripts(project_dir)
+        if result != 0:
+            env.Exit(1)
 
 except Exception:
     # Not running under PlatformIO - allow direct execution
