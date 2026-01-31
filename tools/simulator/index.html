@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>T-Deck OS Simulator</title>
+    <title>ezOS Simulator</title>
     <style>
         * {
             box-sizing: border-box;
@@ -286,10 +286,74 @@
             margin-left: 2px;
             vertical-align: super;
         }
+
+        /* Lua Console Styles */
+        .lua-console {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        #lua-input {
+            flex: 1;
+            padding: 8px;
+            background: #1a1a2e;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #fff;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+        }
+
+        #lua-input:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+
+        #lua-execute {
+            padding: 8px 12px;
+            font-size: 12px;
+        }
+
+        .lua-output {
+            margin-top: 8px;
+            padding: 8px;
+            background: #1a1a2e;
+            border: 1px solid #444;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            min-height: 24px;
+            max-height: 100px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .lua-output.success {
+            color: #00ff88;
+        }
+
+        .lua-output.error {
+            color: #ff4444;
+        }
+
+        .lua-hint {
+            margin-top: 6px;
+            font-size: 10px;
+            color: #666;
+        }
+
+        .lua-hint code {
+            background: #333;
+            padding: 1px 4px;
+            border-radius: 2px;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
     </style>
 </head>
 <body>
-    <h1>T-Deck OS Simulator</h1>
+    <h1>ezOS Simulator</h1>
     <div id="status" class="status loading">Initializing...</div>
 
     <div class="simulator-container">
@@ -378,6 +442,16 @@
             <div class="key-display">
                 <div class="label">Last key pressed:</div>
                 <div class="value" id="last-key">-</div>
+            </div>
+
+            <h2 style="margin-top: 15px;">Lua Console</h2>
+            <div class="lua-console">
+                <input type="text" id="lua-input" placeholder="Enter Lua code (e.g., 1+1 or Debug.memory())" autocomplete="off">
+                <button id="lua-execute">Run</button>
+            </div>
+            <div id="lua-output" class="lua-output"></div>
+            <div class="lua-hint">
+                Examples: <code>1+1</code>, <code>ez.system.get_free_heap()</code>, <code>ScreenManager.get_current_screen().title</code>
             </div>
         </div>
     </div>

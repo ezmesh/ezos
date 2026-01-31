@@ -113,6 +113,24 @@ export function createDisplayModule(ctx, canvas) {
             renderText(ctx, currentFont, String(text), Math.floor(x), Math.floor(y), colorCSS);
         },
 
+        // Draw text with background rectangle
+        draw_text_bg(x, y, text, fgColor = 0xFFFF, bgColor = 0x0000, padding = 1) {
+            const textStr = String(text);
+            const textWidth = measureText(ctx, currentFont, textStr);
+            const fontHeight = currentFont.yAdvance || 16;
+            // Draw background
+            ctx.fillStyle = rgb565ToCSS(bgColor);
+            ctx.fillRect(
+                Math.floor(x - padding),
+                Math.floor(y - padding),
+                Math.ceil(textWidth + padding * 2),
+                Math.ceil(fontHeight + padding * 2)
+            );
+            // Draw text
+            const fgCSS = rgb565ToCSS(fgColor);
+            renderText(ctx, currentFont, textStr, Math.floor(x), Math.floor(y), fgCSS);
+        },
+
         // Draw horizontally centered text
         // Lua API: draw_text_centered(y, text, color) - x is calculated to center on screen
         draw_text_centered(y, text, color = 0xFFFF) {

@@ -207,7 +207,8 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
             extent = layer["extent"]
             break
 
-    # Check if tile has explicit land polygons (coastline data)
+    # Check if tile has explicit coastline data (land/earth polygons that define coastline)
+    # Note: having lakes (water layer) doesn't count as coastline data - that's just water on land
     has_land_polygons = False
     for layer_name in ["land", "earth"]:
         layer = get_layer(decoded, layer_name)
@@ -220,22 +221,74 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
             if has_land_polygons:
                 break
 
-    # Determine background using Natural Earth land mask (no more heuristics!)
-    # - If tile has explicit land polygons: use water background, draw land on top
-    # - Otherwise: use land mask to determine if tile is over land or water
-    if has_land_polygons:
-        # Coastal tile with explicit land polygons - use water background
+    # Coastline data means we have explicit land polygons to draw
+    # (the land/earth layer defines where land is, water is everywhere else)
+    has_coastline_data = has_land_polygons
+
+    # Determine background and whether to draw land mask polygons
+    # For tiles WITHOUT coastline data (common at low zoom in regional extracts),
+    # we need to draw land/water from the Natural Earth land mask
+    draw_land_from_mask = False
+
+    if has_coastline_data:
+        # Tile has coastline data - use water background, draw land from vector tile
         img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
     elif land_mask is not None:
-        # Use Natural Earth land mask for consistent backgrounds
-        if land_mask.is_land_tile(zoom, tile_x, tile_y):
+        # No coastline data - check if tile is mixed land/water
+        land_fraction = land_mask.get_land_fraction(zoom, tile_x, tile_y)
+
+        if land_fraction <= 0.0:
+            # Pure ocean - water background
+            img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
+        elif land_fraction >= 1.0:
+            # Pure land - land background
             img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
         else:
+            # Mixed land/water tile without coastline data in vector tile
+            # Draw land polygons from Natural Earth mask
             img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
+            draw_land_from_mask = True
     else:
-        # Fallback: assume land (safer for most map uses)
+        # No land mask available - assume land
         img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
+
     draw = ImageDraw.Draw(img)
+
+    # Draw land from Natural Earth mask for tiles without coastline data
+    if draw_land_from_mask and land_mask is not None and land_mask.land_polygons is not None:
+        from shapely.geometry import box
+        west, south, east, north = land_mask.tile_to_bbox(zoom, tile_x, tile_y)
+        tile_box = box(west, south, east, north)
+
+        try:
+            # Get intersection of land with tile
+            land_in_tile = land_mask.land_polygons.intersection(tile_box)
+            if not land_in_tile.is_empty:
+                # Convert to tile pixel coordinates and draw
+                def geo_to_pixel(lon, lat):
+                    px = (lon - west) / (east - west) * TILE_SIZE
+                    # Use Y-up coordinates (same as MVT) - the final FLIP_TOP_BOTTOM will correct it
+                    py = (lat - south) / (north - south) * TILE_SIZE
+                    return (px, py)
+
+                def draw_polygon_geo(geom):
+                    if geom.geom_type == 'Polygon':
+                        coords = list(geom.exterior.coords)
+                        if len(coords) >= 3:
+                            pixels = [geo_to_pixel(lon, lat) for lon, lat in coords]
+                            draw.polygon(pixels, fill=F.LAND)
+                    elif geom.geom_type == 'MultiPolygon':
+                        for poly in geom.geoms:
+                            draw_polygon_geo(poly)
+                    elif geom.geom_type == 'GeometryCollection':
+                        for g in geom.geoms:
+                            draw_polygon_geo(g)
+
+                draw_polygon_geo(land_in_tile)
+        except Exception as e:
+            # Geometry error - fall back to land fraction-based background
+            if land_mask.get_land_fraction(zoom, tile_x, tile_y) >= 0.5:
+                draw.rectangle([0, 0, TILE_SIZE-1, TILE_SIZE-1], fill=F.LAND)
 
     # Render layers in order (back to front)
 

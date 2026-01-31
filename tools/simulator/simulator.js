@@ -34,6 +34,11 @@ const overlayFile = document.getElementById('overlay-file');
 const overlayOpacity = document.getElementById('overlay-opacity');
 const opacityValue = document.getElementById('opacity-value');
 
+// Lua console elements
+const luaInput = document.getElementById('lua-input');
+const luaExecute = document.getElementById('lua-execute');
+const luaOutput = document.getElementById('lua-output');
+
 // Simulator state
 let lua = null;
 let running = false;
@@ -336,6 +341,7 @@ async function initLua() {
     lua.global.set('async_exists', (path) => storage.exists(path));
     lua.global.set('async_read_bytes', (path, offset, len) => {
         // Use storage.read_bytes which handles both binary files and localStorage
+        // Now synchronous - uses XMLHttpRequest for Range requests
         try {
             const result = storage.read_bytes(path, offset, len);
             // Ensure we return undefined (not null) for Lua nil conversion
@@ -636,6 +642,73 @@ overlayOpacity.addEventListener('input', () => {
     const opacity = overlayOpacity.value / 100;
     overlayImg.style.opacity = opacity;
     opacityValue.textContent = `${overlayOpacity.value}%`;
+});
+
+// Lua console handling
+async function executeLua(code) {
+    if (!lua || !running) {
+        luaOutput.textContent = 'Error: Simulator not running';
+        luaOutput.className = 'lua-output error';
+        return;
+    }
+
+    try {
+        // Wrap expression to return value, or execute as statement
+        let wrappedCode;
+        if (code.includes('=') || code.includes('for ') || code.includes('if ') ||
+            code.includes('function ') || code.includes('local ') || code.includes('return ')) {
+            // Statement - execute directly
+            wrappedCode = code;
+        } else {
+            // Expression - wrap to get return value
+            wrappedCode = `return ${code}`;
+        }
+
+        const result = await lua.doString(wrappedCode);
+
+        // Format result
+        let output;
+        if (result === undefined || result === null) {
+            output = 'nil';
+        } else if (typeof result === 'object') {
+            try {
+                output = JSON.stringify(result, null, 2);
+            } catch {
+                output = String(result);
+            }
+        } else {
+            output = String(result);
+        }
+
+        luaOutput.textContent = output;
+        luaOutput.className = 'lua-output success';
+        log(`[Lua] > ${code}`, 'info');
+        log(`[Lua] = ${output}`, 'log');
+    } catch (e) {
+        luaOutput.textContent = `Error: ${e.message}`;
+        luaOutput.className = 'lua-output error';
+        log(`[Lua] > ${code}`, 'info');
+        log(`[Lua] Error: ${e.message}`, 'error');
+    }
+}
+
+luaExecute.addEventListener('click', () => {
+    const code = luaInput.value.trim();
+    if (code) {
+        executeLua(code);
+    }
+});
+
+luaInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        const code = luaInput.value.trim();
+        if (code) {
+            executeLua(code);
+        }
+    }
+    // Stop propagation to prevent simulator keyboard handling
+    e.stopPropagation();
 });
 
 // Initialize on page load

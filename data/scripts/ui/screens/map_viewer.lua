@@ -274,10 +274,18 @@ function MapViewer:load_archive_async()
         -- Debug: show header info
         print("[Map] Header length: " .. #header)
         local hex = ""
-        for i = 1, math.min(15, #header) do
+        for i = 1, math.min(33, #header) do
             hex = hex .. string.format("%02X ", string.byte(header, i))
         end
         print("[Map] Header bytes: " .. hex)
+        -- Debug: show label offset bytes (positions 26-33, 1-indexed)
+        if #header >= 33 then
+            local label_hex = ""
+            for i = 26, 33 do
+                label_hex = label_hex .. string.format("%02X ", string.byte(header, i))
+            end
+            print("[Map] Label offset/count bytes (26-33): " .. label_hex)
+        end
 
         -- Verify magic (compare first 5 chars without null - more reliable across platforms)
         local magic = string.sub(header, 1, 5)
@@ -372,15 +380,15 @@ function MapViewer:load_archive_async()
         end
 
         -- Load labels (v4: flat list with lat/lon coords)
-        -- Skip label loading if count is too high (Wasmoon/simulator memory limit)
-        local max_label_entries = 5000
+        -- Limit label loading to avoid memory issues on constrained devices
+        local max_label_entries = 30000  -- ~3MB in memory
         print(string.format("[Map] Label info: version=%d count=%d offset=%d", version, label_count, label_data_offset))
         if label_count > 0 and label_data_offset > 0 then
+            local load_count = math.min(label_count, max_label_entries)
             if label_count > max_label_entries then
-                print(string.format("[Map] Skipping labels: %d entries exceeds limit %d (memory constraint)", label_count, max_label_entries))
-            else
-                self_ref:load_labels_v4_async(label_data_offset, label_count)
+                print(string.format("[Map] Limiting labels: loading %d of %d (memory constraint)", load_count, label_count))
             end
+            self_ref:load_labels_v4_async(label_data_offset, load_count)
         end
 
         -- Set initial view
@@ -1019,10 +1027,14 @@ function MapViewer:draw_labels(display, colors, start_tile_x, start_tile_y, tile
         return false
     end
 
+    -- Label background color (dark with some transparency feel)
+    local label_bg = display.rgb(20, 20, 30)
+
     local drawn = 0
     for _, c in ipairs(candidates) do
         if not overlaps(c.x, c.y, c.w, c.h) then
-            display.draw_text(c.x, c.y, c.text, colors.WHITE)
+            -- Draw text with dark background for readability
+            display.draw_text_bg(c.x, c.y, c.text, colors.WHITE, label_bg, 1)
             table.insert(drawn_boxes, {x = c.x, y = c.y, w = c.w, h = c.h})
             drawn = drawn + 1
         end

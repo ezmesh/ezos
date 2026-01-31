@@ -79,6 +79,36 @@ LUA_FUNCTION(l_display_draw_text) {
     return 0;
 }
 
+// @lua ez.display.draw_text_bg(x, y, text, fg_color, bg_color, padding)
+// @brief Draw text with a background rectangle
+// @param x X position in pixels
+// @param y Y position in pixels
+// @param text Text string to draw
+// @param fg_color Text color
+// @param bg_color Background color
+// @param padding Padding around text (optional, defaults to 1)
+LUA_FUNCTION(l_display_draw_text_bg) {
+    LUA_CHECK_ARGC_RANGE(L, 5, 6);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    const char* text = luaL_checkstring(L, 3);
+    uint16_t fg_color = luaL_checkinteger(L, 4);
+    uint16_t bg_color = luaL_checkinteger(L, 5);
+    int padding = luaL_optinteger(L, 6, 1);
+
+    if (display) {
+        int textWidth = display->getTextWidth(text);
+        int fontHeight = display->getFontHeight();
+        // Draw background rectangle
+        display->fillRect(x - padding, y - padding,
+                         textWidth + padding * 2, fontHeight + padding * 2,
+                         bg_color);
+        // Draw text on top
+        display->drawText(x, y, text, fg_color);
+    }
+    return 0;
+}
+
 // @lua ez.display.draw_text_centered(y, text, color)
 // @brief Draw horizontally centered text
 // @param y Y position in pixels
@@ -979,6 +1009,7 @@ static const luaL_Reg display_funcs[] = {
     {"set_brightness",    l_display_set_brightness},
     {"set_font_size",     l_display_set_font_size},
     {"draw_text",         l_display_draw_text},
+    {"draw_text_bg",      l_display_draw_text_bg},
     {"draw_text_centered", l_display_draw_text_centered},
     {"draw_char",         l_display_draw_char},
     {"draw_box",          l_display_draw_box},

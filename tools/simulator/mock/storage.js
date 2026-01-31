@@ -1,7 +1,7 @@
 /**
  * Storage mock module
  * Uses localStorage for files and preferences
- * Binary files (like maps) are preloaded into memory during initialization
+ * Binary files (like maps) are loaded on-demand using Range requests
  */
 
 // Map of SD card paths to server paths
@@ -9,14 +9,21 @@ const SD_FILE_MAPPINGS = {
     '/sd/maps/world.tdmap': '../../tools/maps/world.tdmap',
 };
 
-// Binary file cache (path -> Uint8Array)
-const binaryFileCache = new Map();
+// Binary file metadata cache (path -> { size, serverPath })
+const binaryFileMeta = new Map();
+
+// Small byte range cache to avoid repeated fetches (path -> Map(rangeKey -> Uint8Array))
+const rangeCache = new Map();
+const MAX_RANGE_CACHE_SIZE = 50;  // Max cached ranges per file
+const MAX_CACHED_RANGE_SIZE = 100 * 1024;  // Only cache ranges up to 100KB
 
 // Debug: expose cache for inspection
 export function getBinaryCacheStatus() {
     const entries = [];
-    for (const [path, data] of binaryFileCache.entries()) {
-        entries.push({ path, size: data.length });
+    for (const [path, meta] of binaryFileMeta.entries()) {
+        const ranges = rangeCache.get(path);
+        const cachedRanges = ranges ? ranges.size : 0;
+        entries.push({ path, size: meta.size, cachedRanges });
     }
     return entries;
 }
@@ -26,24 +33,91 @@ function getServerPath(path) {
     return SD_FILE_MAPPINGS[path] || null;
 }
 
-// Preload binary files into memory
+// Initialize binary file metadata (just get sizes, don't load content)
 export async function preloadBinaryFiles() {
     for (const [sdPath, serverPath] of Object.entries(SD_FILE_MAPPINGS)) {
-        console.log(`[Storage] Loading ${sdPath} from ${serverPath}...`);
+        console.log(`[Storage] Checking ${sdPath} at ${serverPath}...`);
         try {
-            const response = await fetch(serverPath);
+            // Use HEAD request to get file size without downloading content
+            const response = await fetch(serverPath, { method: 'HEAD' });
             if (!response.ok) {
-                console.warn(`[Storage] Failed to fetch ${serverPath}: ${response.status}`);
+                console.warn(`[Storage] Failed to check ${serverPath}: ${response.status}`);
                 continue;
             }
-            const buffer = await response.arrayBuffer();
-            const data = new Uint8Array(buffer);
-            binaryFileCache.set(sdPath, data);
-            console.log(`[Storage] Loaded ${sdPath}: ${(data.length / 1024 / 1024).toFixed(1)} MB`);
+            const size = parseInt(response.headers.get('Content-Length') || '0', 10);
+            binaryFileMeta.set(sdPath, { size, serverPath });
+            console.log(`[Storage] Found ${sdPath}: ${(size / 1024 / 1024).toFixed(1)} MB (on-demand loading)`);
         } catch (e) {
-            console.warn(`[Storage] Error loading ${serverPath}:`, e.message);
+            console.warn(`[Storage] Error checking ${serverPath}:`, e.message);
         }
     }
+}
+
+// Fetch a byte range from a file using synchronous XMLHttpRequest
+// This blocks the main thread but is necessary because Wasmoon doesn't support async Promises
+// Note: We use overrideMimeType to force binary interpretation since responseType='arraybuffer'
+// is not allowed for synchronous XHR in modern browsers
+function fetchRangeSync(serverPath, offset, len) {
+    const rangeEnd = offset + len - 1;
+    try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', serverPath, false);  // false = synchronous
+        xhr.setRequestHeader('Range', `bytes=${offset}-${rangeEnd}`);
+        // Use overrideMimeType to force binary string interpretation
+        xhr.overrideMimeType('text/plain; charset=x-user-defined');
+        xhr.send(null);
+
+        if (xhr.status === 206 || xhr.status === 200) {
+            const text = xhr.responseText;
+            // Convert binary string to Uint8Array
+            const bytes = new Uint8Array(text.length);
+            for (let i = 0; i < text.length; i++) {
+                bytes[i] = text.charCodeAt(i) & 0xFF;
+            }
+            if (xhr.status === 200) {
+                // Server returned full file, slice it
+                console.warn(`[Storage] Range request returned full file, slicing`);
+                return bytes.slice(offset, offset + len);
+            }
+            return bytes;
+        } else {
+            console.error(`[Storage] Fetch failed: ${xhr.status}`);
+            return null;
+        }
+    } catch (e) {
+        console.error(`[Storage] Fetch error:`, e.message);
+        return null;
+    }
+}
+
+// Get a cached range or fetch it (synchronous)
+function getCachedRange(sdPath, serverPath, offset, len) {
+    // Initialize cache for this file if needed
+    if (!rangeCache.has(sdPath)) {
+        rangeCache.set(sdPath, new Map());
+    }
+    const cache = rangeCache.get(sdPath);
+
+    // Check if we have this exact range cached
+    const rangeKey = `${offset}:${len}`;
+    if (cache.has(rangeKey)) {
+        return cache.get(rangeKey);
+    }
+
+    // Fetch the range synchronously
+    const data = fetchRangeSync(serverPath, offset, len);
+
+    // Cache small ranges
+    if (data && len <= MAX_CACHED_RANGE_SIZE) {
+        // Evict old entries if cache is full
+        if (cache.size >= MAX_RANGE_CACHE_SIZE) {
+            const firstKey = cache.keys().next().value;
+            cache.delete(firstKey);
+        }
+        cache.set(rangeKey, data);
+    }
+
+    return data;
 }
 
 export function createStorageModule() {
@@ -72,15 +146,19 @@ export function createStorageModule() {
         // Read bytes from file (returns array of byte values to avoid null-termination issues)
         // Wasmoon truncates strings at null bytes, so we return an array instead
         // Note: Returns undefined instead of null so Wasmoon converts to Lua nil properly
+        // Uses synchronous XMLHttpRequest for Range requests (Wasmoon doesn't handle async Promises)
         read_bytes(path, offset, len) {
-            // Check binary file cache first
-            const binaryData = binaryFileCache.get(path);
-            if (binaryData) {
-                // Return slice as array of byte values (avoids null-termination issue)
-                const end = Math.min(offset + len, binaryData.length);
-                const slice = binaryData.slice(offset, end);
-                return Array.from(slice);
+            // Check if this is a mapped binary file
+            const meta = binaryFileMeta.get(path);
+            if (meta) {
+                // Fetch range synchronously
+                const data = getCachedRange(path, meta.serverPath, offset, len);
+                if (data) {
+                    return Array.from(data);
+                }
+                return undefined;
             }
+
             // Fall back to localStorage (returns string, convert to byte array)
             const content = module.read(path);
             if (content) {
@@ -96,8 +174,8 @@ export function createStorageModule() {
 
         // Check if file exists
         exists(path) {
-            // Check binary file cache first
-            if (binaryFileCache.has(path)) {
+            // Check binary file metadata first
+            if (binaryFileMeta.has(path)) {
                 return true;
             }
             try {
@@ -156,10 +234,10 @@ export function createStorageModule() {
 
         // Get file size
         file_size(path) {
-            // Check binary file cache first
-            const binaryData = binaryFileCache.get(path);
-            if (binaryData) {
-                return binaryData.length;
+            // Check binary file metadata first
+            const meta = binaryFileMeta.get(path);
+            if (meta) {
+                return meta.size;
             }
             try {
                 const content = localStorage.getItem(`ez_file_${path}`);

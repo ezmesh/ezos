@@ -1,0 +1,114 @@
+name: Build and Release Firmware
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        default: 'v0.0.0-dev'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Build firmware
+        run: pio run
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare release artifacts
+        run: |
+          mkdir -p release
+          cp .pio/build/tdeck/firmware.bin release/ezos-${{ steps.version.outputs.version }}.bin
+          cp .pio/build/tdeck/bootloader.bin release/ezos-${{ steps.version.outputs.version }}-bootloader.bin
+          cp .pio/build/tdeck/partitions.bin release/ezos-${{ steps.version.outputs.version }}-partitions.bin
+
+          # Create combined binary for web flasher (bootloader + partitions + firmware)
+          esptool.py --chip esp32s3 merge_bin \
+            -o release/ezos-${{ steps.version.outputs.version }}-full.bin \
+            --flash_mode dio \
+            --flash_freq 80m \
+            --flash_size 16MB \
+            0x0000 .pio/build/tdeck/bootloader.bin \
+            0x8000 .pio/build/tdeck/partitions.bin \
+            0x10000 .pio/build/tdeck/firmware.bin
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum *.bin > checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ezOS ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, 'dev') || contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'alpha') }}
+          generate_release_notes: true
+          files: |
+            release/ezos-${{ steps.version.outputs.version }}.bin
+            release/ezos-${{ steps.version.outputs.version }}-bootloader.bin
+            release/ezos-${{ steps.version.outputs.version }}-partitions.bin
+            release/ezos-${{ steps.version.outputs.version }}-full.bin
+            release/checksums.txt
+          body: |
+            ## Downloads
+
+            | File | Description |
+            |------|-------------|
+            | `ezos-${{ steps.version.outputs.version }}-full.bin` | Complete firmware for web flasher (recommended) |
+            | `ezos-${{ steps.version.outputs.version }}.bin` | Application firmware only |
+            | `ezos-${{ steps.version.outputs.version }}-bootloader.bin` | ESP32-S3 bootloader |
+            | `ezos-${{ steps.version.outputs.version }}-partitions.bin` | Partition table |
+
+            ## Flashing
+
+            **Web Flasher (easiest):**
+            Use the [MeshCore Web Flasher](https://flasher.meshcore.co/) with `ezos-${{ steps.version.outputs.version }}-full.bin`
+
+            **PlatformIO:**
+            ```bash
+            pio run -t upload
+            ```
+
+            **esptool.py:**
+            ```bash
+            esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 ezos-${{ steps.version.outputs.version }}-full.bin
+            ```
+
+            ## Requirements
+
+            - LilyGo T-Deck Plus (ESP32-S3 + LoRa SX1262)
+            - MicroSD card (FAT32) for maps and data storage
+
+            ---
+
+            ⚠️ **Warning:** This firmware has only been tested on the T-Deck Plus. Use on other hardware at your own risk.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
