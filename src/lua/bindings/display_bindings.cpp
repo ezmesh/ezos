@@ -97,11 +97,11 @@ LUA_FUNCTION(l_display_draw_text_bg) {
     int padding = luaL_optinteger(L, 6, 1);
 
     if (display) {
-        int textWidth = display->getTextWidth(text);
+        int tw = display->textWidth(text);
         int fontHeight = display->getFontHeight();
         // Draw background rectangle
         display->fillRect(x - padding, y - padding,
-                         textWidth + padding * 2, fontHeight + padding * 2,
+                         tw + padding * 2, fontHeight + padding * 2,
                          bg_color);
         // Draw text on top
         display->drawText(x, y, text, fg_color);
