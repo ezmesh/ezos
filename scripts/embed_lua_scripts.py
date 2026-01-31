@@ -215,8 +215,23 @@ try:
     Import("env")
 
     # Check if NO_EMBEDDED_SCRIPTS is defined (sdcard build)
+    # Check in CPPDEFINES which is where -D flags end up
+    cpp_defines = env.get("CPPDEFINES", [])
     build_flags = env.get("BUILD_FLAGS", [])
-    skip_embedding = any("NO_EMBEDDED_SCRIPTS" in str(f) for f in build_flags)
+
+    # Check both CPPDEFINES and BUILD_FLAGS for the define
+    skip_embedding = False
+    for d in cpp_defines:
+        if isinstance(d, tuple):
+            if d[0] == "NO_EMBEDDED_SCRIPTS":
+                skip_embedding = True
+                break
+        elif d == "NO_EMBEDDED_SCRIPTS":
+            skip_embedding = True
+            break
+
+    if not skip_embedding:
+        skip_embedding = any("NO_EMBEDDED_SCRIPTS" in str(f) for f in build_flags)
 
     if skip_embedding:
         print("NO_EMBEDDED_SCRIPTS defined - skipping script embedding")
@@ -227,8 +242,9 @@ try:
         if result != 0:
             env.Exit(1)
 
-except Exception:
+except Exception as e:
     # Not running under PlatformIO - allow direct execution
+    print(f"Note: Not running under PlatformIO ({e})")
     pass
 
 

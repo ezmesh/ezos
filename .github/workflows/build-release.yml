@@ -44,6 +44,15 @@ jobs:
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
+      - name: List build outputs
+        run: |
+          echo "=== Build directory contents ==="
+          ls -la .pio/build/ || echo "No .pio/build directory"
+          echo "=== t-deck-plus contents ==="
+          ls -la .pio/build/t-deck-plus/ || echo "No t-deck-plus directory"
+          echo "=== t-deck-plus-sdcard contents ==="
+          ls -la .pio/build/t-deck-plus-sdcard/ || echo "No t-deck-plus-sdcard directory"
+
       - name: Prepare release artifacts
         run: |
           mkdir -p release
