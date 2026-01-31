@@ -43,7 +43,7 @@ function ScreenTimeout.on_activity()
 
     -- Wake screen if it was dimmed or off
     if was_off or was_dimmed then
-        print("[ScreenTimeout] Activity detected while " .. ScreenTimeout.state .. ", waking...")
+        ez.system.log("[ScreenTimeout] Activity detected while " .. ScreenTimeout.state .. ", waking...")
         ScreenTimeout.wake()
         return true  -- Signal that we consumed this as a wake event
     end
@@ -53,13 +53,15 @@ end
 
 function ScreenTimeout.wake()
     if ScreenTimeout.state ~= "active" then
-        print("[ScreenTimeout] Waking from " .. ScreenTimeout.state .. ", brightness=" .. ScreenTimeout.saved_brightness)
+        ez.system.log("[ScreenTimeout] Waking from " .. ScreenTimeout.state .. ", brightness=" .. ScreenTimeout.saved_brightness)
 
         -- Ensure saved_brightness is valid (not 0)
-        if ScreenTimeout.saved_brightness <= 0 then
-            ScreenTimeout.saved_brightness = 200
-            print("[ScreenTimeout] Brightness was 0, reset to 200")
+        local brightness = tonumber(ScreenTimeout.saved_brightness) or 200
+        if brightness <= 0 then
+            brightness = 200
+            ez.system.log("[ScreenTimeout] Brightness was 0, reset to 200")
         end
+        ScreenTimeout.saved_brightness = brightness
 
         -- Restore brightness
         if ez.display and ez.display.set_brightness then
@@ -71,7 +73,7 @@ function ScreenTimeout.wake()
         if _G.ScreenManager then
             _G.ScreenManager.invalidate()
         end
-        print("[ScreenTimeout] Wake complete")
+        ez.system.log("[ScreenTimeout] Wake complete")
     end
 end
 
@@ -115,6 +117,9 @@ function ScreenTimeout.update()
         return
     end
     ScreenTimeout.last_check = now
+
+    -- Note: Hardware pin polling (has_key_activity) disabled - pins read incorrectly on T-Deck Plus
+    -- Wake detection relies on normal keyboard.read() path in screen_manager which uses edge detection
 
     -- Calculate idle time in minutes
     local idle_ms = now - ScreenTimeout.last_activity

@@ -1,6 +1,15 @@
 #include "keyboard.h"
 #include <Arduino.h>
 
+// Set to 1 to enable verbose keyboard debug logging
+#define KB_DEBUG 0
+
+#if KB_DEBUG
+#define KB_LOG(...) Serial.printf(__VA_ARGS__)
+#else
+#define KB_LOG(...) ((void)0)
+#endif
+
 // Volatile counters for trackball interrupt mode
 static volatile int16_t tb_int_up = 0;
 static volatile int16_t tb_int_down = 0;
@@ -184,6 +193,19 @@ void Keyboard::injectEvent(const KeyEvent& event) {
     // If queue is full, event is dropped
 }
 
+bool Keyboard::hasKeyActivity() const {
+    // Check keyboard interrupt pin for activity
+    // Note: KB_INT (GPIO 46) seems to always be LOW on T-Deck Plus, so we skip it
+    // Only check trackball pins as wake sources
+    bool tbClick = (digitalRead(TRACKBALL_CLICK) == LOW);
+    bool tbUp = (digitalRead(TRACKBALL_UP) == LOW);
+    bool tbDown = (digitalRead(TRACKBALL_DOWN) == LOW);
+    bool tbLeft = (digitalRead(TRACKBALL_LEFT) == LOW);
+    bool tbRight = (digitalRead(TRACKBALL_RIGHT) == LOW);
+
+    return tbClick || tbUp || tbDown || tbLeft || tbRight;
+}
+
 KeyEvent Keyboard::read() {
     if (!_initialized) {
         return KeyEvent::invalid();
@@ -201,8 +223,7 @@ KeyEvent Keyboard::read() {
     if (_wire->available()) {
         uint8_t code = _wire->read();
         if (code != 0) {
-            // Debug: log all non-zero keyboard codes
-            Serial.printf("[KB] I2C code: 0x%02X\n", code);
+            KB_LOG("[KB] I2C code: 0x%02X\n", code);
 
             bool isRelease = (code & 0x80) != 0;
             uint8_t keyCode = code & 0x7F;
@@ -225,10 +246,8 @@ KeyEvent Keyboard::read() {
             }
 
             KeyEvent evt = translateKeycode(code);
-            if (evt.valid) {
-                Serial.printf("[KB] Event: special=%d char='%c'\n",
-                              evt.special, evt.character ? evt.character : '?');
-            }
+            KB_LOG("[KB] Event: special=%d char='%c'\n",
+                   (int)evt.special, evt.character ? evt.character : '?');
             return evt;
         }
     }
@@ -346,54 +365,21 @@ KeyEvent Keyboard::read() {
         if (rightEdge) _trackballX++;
     }
 
-    // Calculate effective threshold with adaptive scrolling
-    // Adaptive mode: threshold loosens (decreases) when scrolling continuously in same direction
-    int8_t effectiveThreshold = _trackballThreshold;
-    if (_adaptiveScrolling && _adaptiveThreshold > 0) {
-        effectiveThreshold = _adaptiveThreshold;
-    }
-
-    // Helper to update adaptive state after a scroll event
-    auto updateAdaptive = [this](int8_t dir) {
-        uint32_t now = millis();
-        if (_adaptiveScrolling) {
-            // If same direction and within 500ms, loosen threshold
-            if (dir == _lastScrollDir && (now - _lastScrollTime) < 500) {
-                // Reduce threshold down to minimum of 1
-                if (_adaptiveThreshold == 0) {
-                    _adaptiveThreshold = _trackballThreshold;
-                }
-                if (_adaptiveThreshold > 1) {
-                    _adaptiveThreshold--;
-                }
-            } else {
-                // Direction changed or timeout - reset to base threshold
-                _adaptiveThreshold = _trackballThreshold;
-            }
-            _lastScrollDir = dir;
-            _lastScrollTime = now;
-        }
-    };
-
     // Generate directional keys when threshold reached
-    if (_trackballY <= -effectiveThreshold) {
+    if (_trackballY <= -_trackballThreshold) {
         _trackballY = 0;
-        updateAdaptive(-1);  // Up direction
         return KeyEvent::fromSpecial(SpecialKey::UP, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
-    if (_trackballY >= effectiveThreshold) {
+    if (_trackballY >= _trackballThreshold) {
         _trackballY = 0;
-        updateAdaptive(1);   // Down direction
         return KeyEvent::fromSpecial(SpecialKey::DOWN, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
-    if (_trackballX <= -effectiveThreshold) {
+    if (_trackballX <= -_trackballThreshold) {
         _trackballX = 0;
-        updateAdaptive(-1);  // Left direction
         return KeyEvent::fromSpecial(SpecialKey::LEFT, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
-    if (_trackballX >= effectiveThreshold) {
+    if (_trackballX >= _trackballThreshold) {
         _trackballX = 0;
-        updateAdaptive(1);   // Right direction
         return KeyEvent::fromSpecial(SpecialKey::RIGHT, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
 
@@ -466,54 +452,25 @@ KeyEvent Keyboard::readTrackball() {
         return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
 
-    // Calculate effective threshold with adaptive scrolling
-    int8_t effectiveThreshold = _trackballThreshold;
-    if (_adaptiveScrolling && _adaptiveThreshold > 0) {
-        effectiveThreshold = _adaptiveThreshold;
-    }
-
-    // Helper to update adaptive state after a scroll event
-    auto updateAdaptive = [this](int8_t dir) {
-        uint32_t now = millis();
-        if (_adaptiveScrolling) {
-            if (dir == _lastScrollDir && (now - _lastScrollTime) < 500) {
-                if (_adaptiveThreshold == 0) {
-                    _adaptiveThreshold = _trackballThreshold;
-                }
-                if (_adaptiveThreshold > 1) {
-                    _adaptiveThreshold--;
-                }
-            } else {
-                _adaptiveThreshold = _trackballThreshold;
-            }
-            _lastScrollDir = dir;
-            _lastScrollTime = now;
-        }
-    };
-
     // Generate key events when threshold is reached
-    if (_trackballY <= -effectiveThreshold) {
+    if (_trackballY <= -_trackballThreshold) {
         _trackballY = 0;
         _trackballX = 0;
-        updateAdaptive(-1);
         return KeyEvent::fromSpecial(SpecialKey::UP, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
-    if (_trackballY >= effectiveThreshold) {
+    if (_trackballY >= _trackballThreshold) {
         _trackballY = 0;
         _trackballX = 0;
-        updateAdaptive(1);
         return KeyEvent::fromSpecial(SpecialKey::DOWN, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
-    if (_trackballX <= -effectiveThreshold) {
+    if (_trackballX <= -_trackballThreshold) {
         _trackballX = 0;
         _trackballY = 0;
-        updateAdaptive(-1);
         return KeyEvent::fromSpecial(SpecialKey::LEFT, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
-    if (_trackballX >= effectiveThreshold) {
+    if (_trackballX >= _trackballThreshold) {
         _trackballX = 0;
         _trackballY = 0;
-        updateAdaptive(1);
         return KeyEvent::fromSpecial(SpecialKey::RIGHT, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
 
@@ -539,26 +496,19 @@ KeyEvent Keyboard::readBlocking(uint32_t timeoutMs) {
 }
 
 void Keyboard::updateModifiers(uint8_t code, bool pressed) {
-    Serial.printf("Modifier: code=0x%02X pressed=%d\n", code, pressed);
+    KB_LOG("Modifier: code=0x%02X pressed=%d\n", code, pressed);
     switch (code) {
         case KeyCodes::KEY_SHIFT:
             _shiftHeld = pressed;
-            Serial.printf("  -> SHIFT=%d\n", _shiftHeld);
             break;
         case KeyCodes::KEY_CTRL:
             _ctrlHeld = pressed;
-            Serial.printf("  -> CTRL=%d\n", _ctrlHeld);
             break;
         case KeyCodes::KEY_ALT:
             _altHeld = pressed;
-            Serial.printf("  -> ALT=%d\n", _altHeld);
             break;
         case KeyCodes::KEY_FN:
             _fnHeld = pressed;
-            Serial.printf("  -> FN=%d\n", _fnHeld);
-            break;
-        default:
-            Serial.printf("  -> UNKNOWN modifier\n");
             break;
     }
 }

@@ -218,7 +218,8 @@ LUA_FUNCTION(l_system_get_total_psram) {
 LUA_FUNCTION(l_system_log) {
     LUA_CHECK_ARGC(L, 1);
     const char* msg = luaL_checkstring(L, 1);
-    Serial.printf("[Lua] %s\n", msg);
+    // Prefix with #LOG# so remote control client can filter out log lines
+    Serial.printf("#LOG#[Lua] %s\n", msg);
     return 0;
 }
 

@@ -182,27 +182,6 @@ LUA_FUNCTION(l_keyboard_set_trackball_sensitivity) {
     return 0;
 }
 
-// @lua ez.keyboard.get_adaptive_scrolling() -> boolean
-// @brief Check if adaptive scrolling is enabled
-// @return true if adaptive scrolling is on
-LUA_FUNCTION(l_keyboard_get_adaptive_scrolling) {
-    bool enabled = keyboard && keyboard->getAdaptiveScrolling();
-    lua_pushboolean(L, enabled);
-    return 1;
-}
-
-// @lua ez.keyboard.set_adaptive_scrolling(enabled)
-// @brief Enable or disable adaptive scrolling
-// @param enabled true to enable, false to disable
-LUA_FUNCTION(l_keyboard_set_adaptive_scrolling) {
-    LUA_CHECK_ARGC(L, 1);
-    bool enabled = lua_toboolean(L, 1);
-    if (keyboard) {
-        keyboard->setAdaptiveScrolling(enabled);
-    }
-    return 0;
-}
-
 // @lua ez.keyboard.get_trackball_mode() -> string
 // @brief Get current trackball input mode
 // @return "polling" or "interrupt"
@@ -425,6 +404,31 @@ LUA_FUNCTION(l_keyboard_read_raw_code) {
     return 1;
 }
 
+// @lua ez.keyboard.has_key_activity() -> boolean
+// @brief Check if keyboard interrupt pin indicates key activity
+// @return true if a key press is detected via hardware interrupt pin
+LUA_FUNCTION(l_keyboard_has_key_activity) {
+    bool activity = keyboard && keyboard->hasKeyActivity();
+    lua_pushboolean(L, activity);
+    return 1;
+}
+
+// @lua ez.keyboard.get_pin_states() -> string
+// @brief Debug function to get raw GPIO pin states for wake detection
+// @return String with pin states: "KB_INT=X TB_UP=X TB_DOWN=X TB_LEFT=X TB_RIGHT=X TB_CLICK=X"
+LUA_FUNCTION(l_keyboard_get_pin_states) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "KB_INT=%d TB_UP=%d TB_DOWN=%d TB_LEFT=%d TB_RIGHT=%d TB_CLICK=%d",
+             (KB_INT >= 0 && digitalRead(KB_INT) == LOW) ? 1 : 0,
+             digitalRead(TRACKBALL_UP) == LOW ? 1 : 0,
+             digitalRead(TRACKBALL_DOWN) == LOW ? 1 : 0,
+             digitalRead(TRACKBALL_LEFT) == LOW ? 1 : 0,
+             digitalRead(TRACKBALL_RIGHT) == LOW ? 1 : 0,
+             digitalRead(TRACKBALL_CLICK) == LOW ? 1 : 0);
+    lua_pushstring(L, buf);
+    return 1;
+}
+
 // Function table for ez.keyboard
 static const luaL_Reg keyboard_funcs[] = {
     {"available",                l_keyboard_available},
@@ -437,8 +441,6 @@ static const luaL_Reg keyboard_funcs[] = {
     {"has_trackball",            l_keyboard_has_trackball},
     {"get_trackball_sensitivity", l_keyboard_get_trackball_sensitivity},
     {"set_trackball_sensitivity", l_keyboard_set_trackball_sensitivity},
-    {"get_adaptive_scrolling",   l_keyboard_get_adaptive_scrolling},
-    {"set_adaptive_scrolling",   l_keyboard_set_adaptive_scrolling},
     {"get_trackball_mode",       l_keyboard_get_trackball_mode},
     {"set_trackball_mode",       l_keyboard_set_trackball_mode},
     {"get_backlight",            l_keyboard_get_backlight},
@@ -456,6 +458,8 @@ static const luaL_Reg keyboard_funcs[] = {
     {"read_raw_code",            l_keyboard_read_raw_code},
     {"is_key_pressed",           l_keyboard_is_key_pressed},
     {"get_raw_matrix_bits",      l_keyboard_get_raw_matrix_bits},
+    {"has_key_activity",         l_keyboard_has_key_activity},
+    {"get_pin_states",           l_keyboard_get_pin_states},
     {nullptr, nullptr}
 };
 

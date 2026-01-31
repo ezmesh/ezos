@@ -120,6 +120,10 @@ public:
     // Inject a synthetic key event (for remote control)
     void injectEvent(const KeyEvent& event);
 
+    // Check if keyboard interrupt pin indicates key activity (for wake detection)
+    // Returns true if a key press is detected via hardware interrupt pin
+    bool hasKeyActivity() const;
+
     // Check modifier states
     bool isShiftHeld() const { return _shiftHeld; }
     bool isCtrlHeld() const { return _ctrlHeld; }
@@ -157,10 +161,6 @@ public:
         if (threshold > 10) threshold = 10;
         _trackballThreshold = threshold;
     }
-
-    // Adaptive scrolling (threshold loosens as you scroll continuously)
-    bool getAdaptiveScrolling() const { return _adaptiveScrolling; }
-    void setAdaptiveScrolling(bool enabled) { _adaptiveScrolling = enabled; }
 
     // Trackball input mode (polling vs interrupt)
     TrackballMode getTrackballMode() const { return _trackballMode; }
@@ -211,12 +211,6 @@ private:
     int8_t _trackballX = 0;
     int8_t _trackballY = 0;
     int8_t _trackballThreshold = 2;  // Movement threshold (1-10, lower = more sensitive)
-
-    // Adaptive scrolling state
-    bool _adaptiveScrolling = true;       // Enable adaptive threshold
-    int8_t _lastScrollDir = 0;            // -1=up/left, 0=none, 1=down/right
-    uint32_t _lastScrollTime = 0;         // Timestamp of last scroll event
-    int8_t _adaptiveThreshold = 0;        // Current adaptive threshold (0 = use base)
 
     // Trackball mode
     TrackballMode _trackballMode = TrackballMode::POLLING;

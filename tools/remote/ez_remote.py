@@ -88,22 +88,44 @@ class EzRemote:
 
     def read_response(self):
         """Read response from T-Deck."""
-        # Read header: [STATUS:1][LEN:2]
-        header = self.ser.read(3)
-        if len(header) < 3:
-            raise TimeoutError("Timeout waiting for response header")
+        # Skip any log lines that may have been output during command execution
+        # Log lines are prefixed with #LOG# and end with newline
+        while True:
+            # Peek at first bytes to check for log prefix
+            first_bytes = self.ser.read(5)
+            if len(first_bytes) < 5:
+                raise TimeoutError("Timeout waiting for response header")
+
+            if first_bytes == b'#LOG#':
+                # This is a log line - read until newline and discard
+                while True:
+                    ch = self.ser.read(1)
+                    if not ch:
+                        raise TimeoutError("Timeout reading log line")
+                    if ch == b'\n':
+                        break
+                continue  # Check for more log lines
+
+            # Not a log line - this should be the response header
+            # We already read 5 bytes, but header is only 3 bytes
+            # First 3 bytes are the header, remaining 2 are start of payload
+            header = first_bytes[:3]
+            extra = first_bytes[3:]
+            break
 
         status = header[0]
         length = struct.unpack('<H', header[1:3])[0]
 
-        # Read payload
-        data = b''
-        if length > 0:
-            data = self.ser.read(length)
-            if len(data) < length:
-                raise TimeoutError(f"Timeout reading payload (got {len(data)}/{length})")
+        # Read payload (we may have already read some bytes)
+        data = extra
+        remaining = length - len(extra)
+        if remaining > 0:
+            more_data = self.ser.read(remaining)
+            if len(more_data) < remaining:
+                raise TimeoutError(f"Timeout reading payload (got {len(data) + len(more_data)}/{length})")
+            data += more_data
 
-        return status, data
+        return status, data[:length]
 
     def ping(self):
         """Test connection with ping command."""
