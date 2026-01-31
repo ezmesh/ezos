@@ -29,8 +29,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio esptool
 
-      - name: Build firmware
-        run: pio run
+      - name: Build firmware (with embedded scripts)
+        run: pio run -e t-deck-plus
+
+      - name: Build firmware (SD card scripts)
+        run: pio run -e t-deck-plus-sdcard
 
       - name: Get version
         id: version
@@ -44,13 +47,16 @@ jobs:
       - name: Prepare release artifacts
         run: |
           mkdir -p release
-          cp .pio/build/t-deck-plus/firmware.bin release/ezos-${{ steps.version.outputs.version }}.bin
-          cp .pio/build/t-deck-plus/bootloader.bin release/ezos-${{ steps.version.outputs.version }}-bootloader.bin
-          cp .pio/build/t-deck-plus/partitions.bin release/ezos-${{ steps.version.outputs.version }}-partitions.bin
+          VERSION="${{ steps.version.outputs.version }}"
 
-          # Create combined binary for web flasher (bootloader + partitions + firmware)
+          # Main firmware (with embedded scripts)
+          cp .pio/build/t-deck-plus/firmware.bin release/ezos-${VERSION}.bin
+          cp .pio/build/t-deck-plus/bootloader.bin release/ezos-${VERSION}-bootloader.bin
+          cp .pio/build/t-deck-plus/partitions.bin release/ezos-${VERSION}-partitions.bin
+
+          # Create combined binary for web flasher
           esptool.py --chip esp32s3 merge_bin \
-            -o release/ezos-${{ steps.version.outputs.version }}-full.bin \
+            -o release/ezos-${VERSION}-full.bin \
             --flash_mode dio \
             --flash_freq 80m \
             --flash_size 16MB \
@@ -58,10 +64,28 @@ jobs:
             0x8000 .pio/build/t-deck-plus/partitions.bin \
             0x10000 .pio/build/t-deck-plus/firmware.bin
 
+          # SD card firmware (without embedded scripts)
+          cp .pio/build/t-deck-plus-sdcard/firmware.bin release/ezos-${VERSION}-sdcard.bin
+
+          # Create combined binary for SD card variant
+          esptool.py --chip esp32s3 merge_bin \
+            -o release/ezos-${VERSION}-sdcard-full.bin \
+            --flash_mode dio \
+            --flash_freq 80m \
+            --flash_size 16MB \
+            0x0000 .pio/build/t-deck-plus-sdcard/bootloader.bin \
+            0x8000 .pio/build/t-deck-plus-sdcard/partitions.bin \
+            0x10000 .pio/build/t-deck-plus-sdcard/firmware.bin
+
+          # Package Lua scripts for SD card
+          cd data
+          zip -r ../release/ezos-${VERSION}-scripts.zip scripts/
+          cd ..
+
       - name: Generate checksums
         run: |
           cd release
-          sha256sum *.bin > checksums.txt
+          sha256sum *.bin *.zip > checksums.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -72,35 +96,53 @@ jobs:
           prerelease: ${{ contains(steps.version.outputs.version, 'dev') || contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'alpha') }}
           generate_release_notes: true
           files: |
+            release/ezos-${{ steps.version.outputs.version }}-full.bin
             release/ezos-${{ steps.version.outputs.version }}.bin
             release/ezos-${{ steps.version.outputs.version }}-bootloader.bin
             release/ezos-${{ steps.version.outputs.version }}-partitions.bin
-            release/ezos-${{ steps.version.outputs.version }}-full.bin
+            release/ezos-${{ steps.version.outputs.version }}-sdcard-full.bin
+            release/ezos-${{ steps.version.outputs.version }}-sdcard.bin
+            release/ezos-${{ steps.version.outputs.version }}-scripts.zip
             release/checksums.txt
           body: |
             ## Downloads
 
+            ### Standard Firmware (recommended)
+            Scripts are embedded in the firmware - just flash and go.
+
             | File | Description |
             |------|-------------|
-            | `ezos-${{ steps.version.outputs.version }}-full.bin` | Complete firmware for web flasher (recommended) |
+            | `ezos-${{ steps.version.outputs.version }}-full.bin` | Complete firmware for web flasher |
             | `ezos-${{ steps.version.outputs.version }}.bin` | Application firmware only |
+
+            ### SD Card Firmware
+            Scripts loaded from SD card - allows customizing Lua without reflashing.
+
+            | File | Description |
+            |------|-------------|
+            | `ezos-${{ steps.version.outputs.version }}-sdcard-full.bin` | Firmware for web flasher (no scripts) |
+            | `ezos-${{ steps.version.outputs.version }}-scripts.zip` | Lua scripts - extract to SD card root |
+
+            ### Other Files
+            | File | Description |
+            |------|-------------|
             | `ezos-${{ steps.version.outputs.version }}-bootloader.bin` | ESP32-S3 bootloader |
             | `ezos-${{ steps.version.outputs.version }}-partitions.bin` | Partition table |
 
             ## Flashing
 
             **Web Flasher (easiest):**
-            Use the [MeshCore Web Flasher](https://flasher.meshcore.co/) with `ezos-${{ steps.version.outputs.version }}-full.bin`
-
-            **PlatformIO:**
-            ```bash
-            pio run -t upload
-            ```
+            Use the [MeshCore Web Flasher](https://flasher.meshcore.co/) with the `-full.bin` file
 
             **esptool.py:**
             ```bash
             esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 ezos-${{ steps.version.outputs.version }}-full.bin
             ```
+
+            ## SD Card Setup (for sdcard firmware)
+            1. Flash `ezos-${{ steps.version.outputs.version }}-sdcard-full.bin`
+            2. Extract `ezos-${{ steps.version.outputs.version }}-scripts.zip` to SD card root
+            3. SD card should have `/scripts/boot.lua` at the root
 
             ## Requirements
 

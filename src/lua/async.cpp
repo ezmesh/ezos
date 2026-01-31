@@ -1,5 +1,5 @@
 #include "async.h"
-#include "embedded_lua_scripts.h"
+#include "embedded_scripts.h"
 #include <Arduino.h>
 #include <SD.h>
 #include <LittleFS.h>

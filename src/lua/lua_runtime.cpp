@@ -1,8 +1,10 @@
 #include "lua_runtime.h"
 #include "async.h"
-#include "embedded_lua_scripts.h"
+#include "embedded_scripts.h"
+#include "../config.h"
 #include <esp_heap_caps.h>
 #include <LittleFS.h>
+#include <SD.h>
 #include <string>
 
 // Include Lua headers
@@ -217,7 +219,7 @@ bool LuaRuntime::executeFile(const char* path) {
         return false;
     }
 
-    // Try embedded scripts first (no fallback to filesystem for Lua scripts)
+    // Try embedded scripts first
     size_t size = 0;
     const char* embedded = embedded_lua::get_script(path, &size);
     if (embedded != nullptr) {
@@ -225,9 +227,46 @@ bool LuaRuntime::executeFile(const char* path) {
         return executeBuffer(embedded, size, path);
     }
 
-    // Script not found in embedded data
+    // Fallback to SD card for /scripts/ paths
+    if (strncmp(path, "/scripts/", 9) == 0) {
+        // Map /scripts/foo.lua to /sd/scripts/foo.lua
+        char sdPath[128];
+        snprintf(sdPath, sizeof(sdPath), "/sd%s", path);
+
+        // Ensure SD is initialized
+        if (!SD.begin(SD_CS)) {
+            reportError("SD card not available");
+            return false;
+        }
+
+        File file = SD.open(sdPath + 3, "r");  // Skip "/sd" prefix for SD.open
+        if (!file) {
+            char err[128];
+            snprintf(err, sizeof(err), "Script not found: %s", path);
+            reportError(err);
+            return false;
+        }
+
+        size_t fileSize = file.size();
+        char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!buffer) {
+            file.close();
+            reportError("Out of memory loading script");
+            return false;
+        }
+
+        size_t bytesRead = file.read((uint8_t*)buffer, fileSize);
+        file.close();
+        buffer[bytesRead] = '\0';
+
+        bool result = executeBuffer(buffer, bytesRead, path);
+        heap_caps_free(buffer);
+        return result;
+    }
+
+    // Script not found
     char err[128];
-    snprintf(err, sizeof(err), "Script not embedded: %s", path);
+    snprintf(err, sizeof(err), "Script not found: %s", path);
     reportError(err);
     return false;
 }
