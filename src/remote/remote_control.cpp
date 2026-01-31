@@ -18,25 +18,45 @@ void RemoteControl::update() {
     // Check if we're waiting for a frame to be rendered
     if (_waitingForFrame) {
         if (display && display->hasFrameBeenFlushed()) {
-            // Frame has been rendered, send the captured text
-            static char jsonBuffer[8192];
-            size_t len = display->getCapturedTextJSON(jsonBuffer, sizeof(jsonBuffer));
-            display->setTextCaptureEnabled(false);
+            // Frame has been rendered, send the captured data
+            static char jsonBuffer[32768];  // Larger buffer for primitives
+            size_t len = 0;
+
+            if (_captureMode == CaptureMode::TEXT) {
+                len = display->getCapturedTextJSON(jsonBuffer, sizeof(jsonBuffer));
+                display->setTextCaptureEnabled(false);
+            } else if (_captureMode == CaptureMode::PRIMITIVES) {
+                len = display->getCapturedPrimitivesJSON(jsonBuffer, sizeof(jsonBuffer));
+                display->setPrimitiveCaptureEnabled(false);
+            }
+
             sendResponse(RemoteStatus::OK, (const uint8_t*)jsonBuffer, len);
             _waitingForFrame = false;
+            _captureMode = CaptureMode::NONE;
         } else if (millis() - _frameWaitStart > FRAME_WAIT_TIMEOUT_MS) {
             // Timeout waiting for frame
-            display->setTextCaptureEnabled(false);
+            if (_captureMode == CaptureMode::TEXT) {
+                display->setTextCaptureEnabled(false);
+            } else if (_captureMode == CaptureMode::PRIMITIVES) {
+                display->setPrimitiveCaptureEnabled(false);
+            }
             sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Timeout", 7);
             _waitingForFrame = false;
+            _captureMode = CaptureMode::NONE;
         }
         // Don't process new commands while waiting
         return;
     }
 
+    // Timeout incomplete commands to prevent state machine corruption from noise/garbage
+    if (_state != State::WAIT_CMD && millis() - _lastByteTime > CMD_TIMEOUT_MS) {
+        _state = State::WAIT_CMD;
+    }
+
     // Process all available serial data
     while (Serial.available()) {
         uint8_t byte = Serial.read();
+        _lastByteTime = millis();
 
         switch (_state) {
             case State::WAIT_CMD:
@@ -108,6 +128,10 @@ void RemoteControl::processCommand(uint8_t cmd, const uint8_t* payload, uint16_t
 
         case RemoteCmd::WAIT_FRAME_TEXT:
             handleWaitFrameText();
+            break;
+
+        case RemoteCmd::WAIT_FRAME_PRIMITIVES:
+            handleWaitFramePrimitives();
             break;
 
         case RemoteCmd::LUA_EXEC:
@@ -243,6 +267,21 @@ void RemoteControl::handleWaitFrameText() {
 
     // Enable text capture and wait for next frame
     display->setTextCaptureEnabled(true);
+    _captureMode = CaptureMode::TEXT;
+    _waitingForFrame = true;
+    _frameWaitStart = millis();
+    // Response will be sent when frame is flushed (in update())
+}
+
+void RemoteControl::handleWaitFramePrimitives() {
+    if (!display) {
+        sendResponse(RemoteStatus::ERROR, (const uint8_t*)"No display", 10);
+        return;
+    }
+
+    // Enable primitive capture and wait for next frame
+    display->setPrimitiveCaptureEnabled(true);
+    _captureMode = CaptureMode::PRIMITIVES;
     _waitingForFrame = true;
     _frameWaitStart = millis();
     // Response will be sent when frame is flushed (in update())

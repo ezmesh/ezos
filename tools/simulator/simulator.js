@@ -150,6 +150,7 @@ async function preloadScripts() {
         'services/screen_timeout.lua',
         'services/channels.lua',
         'services/debug.lua',
+        'services/timezone_sync.lua',
         'ui/overlays.lua',
         'ui/status_bar.lua',
         'ui/title_bar.lua',

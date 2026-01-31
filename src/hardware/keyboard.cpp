@@ -84,6 +84,7 @@ bool Keyboard::init() {
     // Initialize I2C for keyboard - try default Wire first
     _wire = &Wire;
     _wire->begin(KB_I2C_SDA, KB_I2C_SCL, I2C_FREQ);
+    _wire->setTimeout(50);  // 50ms timeout to prevent blocking on special keys like mic
     Serial.printf("Keyboard using Wire on SDA=%d, SCL=%d\n", KB_I2C_SDA, KB_I2C_SCL);
 
     // Configure interrupt pin if available

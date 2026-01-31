@@ -4,6 +4,7 @@
 local HotkeyConfig = {
     title = "Hotkey",
     disable_app_menu = true,  -- Prevent menu interference during recording
+    capture_input = false,    -- Set to true only while recording
     recording = false,
     countdown = 0,
     countdown_start = 0,
@@ -40,16 +41,34 @@ function HotkeyConfig:new(hotkey_id, title, pref_key)
 end
 
 function HotkeyConfig:on_enter()
-    -- Switch to raw mode
-    tdeck.keyboard.set_mode("raw")
-
+    -- Stay in normal mode for navigation, switch to raw only when recording
     -- Load current hotkey setting
     self:load_current()
 end
 
 function HotkeyConfig:on_exit()
     self.recording = false
+    self.capture_input = false
     tdeck.keyboard.set_mode("normal")
+end
+
+function HotkeyConfig:start_recording()
+    self.recording = true
+    self.capture_input = true  -- Prevent ScreenManager from reading keyboard
+    self.countdown_start = tdeck.system.millis()
+    self.current_matrix = nil
+    tdeck.keyboard.set_mode("raw")
+    if _G.SoundUtils and _G.SoundUtils.is_enabled() then
+        _G.SoundUtils.click()
+    end
+    ScreenManager.invalidate()
+end
+
+function HotkeyConfig:stop_recording()
+    self.recording = false
+    self.capture_input = false
+    tdeck.keyboard.set_mode("normal")
+    ScreenManager.invalidate()
 end
 
 function HotkeyConfig:load_current()
@@ -177,14 +196,14 @@ function HotkeyConfig:render(display)
         local remaining = math.ceil((self.RECORD_TIMEOUT - elapsed) / 1000)
 
         if elapsed >= self.RECORD_TIMEOUT then
-            -- Time's up - save whatever is pressed
-            self.recording = false
+            -- Time's up - save whatever is pressed and exit raw mode
             if self.current_matrix and self.current_matrix > 0 then
                 self:save_hotkey(self.current_matrix)
                 if _G.SoundUtils and _G.SoundUtils.is_enabled() then
                     _G.SoundUtils.confirm()
                 end
             end
+            self:stop_recording()
         else
             -- Show countdown
             display.draw_text_centered(y, "RECORDING...", colors.WARNING)
@@ -234,25 +253,14 @@ end
 
 function HotkeyConfig:handle_key(key)
     -- In recording mode, we ignore key events (using raw matrix instead)
+    -- Note: handle_key shouldn't be called during recording because capture_input is true
     if self.recording then
-        -- Check if recording timed out
-        local elapsed = tdeck.system.millis() - self.countdown_start
-        if elapsed >= self.RECORD_TIMEOUT then
-            self.recording = false
-            ScreenManager.invalidate()
-        end
         return "continue"
     end
 
     if key.special == "ENTER" then
-        -- Start recording
-        self.recording = true
-        self.countdown_start = tdeck.system.millis()
-        self.current_matrix = nil
-        if _G.SoundUtils and _G.SoundUtils.is_enabled() then
-            _G.SoundUtils.click()
-        end
-        ScreenManager.invalidate()
+        -- Start recording (switches to raw mode)
+        self:start_recording()
     elseif key.character == "r" or key.character == "R" then
         -- Reset to default
         self:save_hotkey(nil)

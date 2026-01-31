@@ -84,10 +84,10 @@ function NodeInfo:render(display)
 
     local row = 2
     local label_x = 1
-    local value_x = 10
+    local value_x = 16
 
     -- Calculate max chars that fit in value column
-    local max_value_chars = math.floor((display.width - value_x * fw) / fw) - 1
+    local max_value_chars = math.floor(((display.width - value_x) * fw) / fw) - 1
 
     -- Node Name
     display.draw_text(label_x * fw, row * fh, "Name:", colors.TEXT_SECONDARY)

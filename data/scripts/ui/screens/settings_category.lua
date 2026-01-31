@@ -7,22 +7,24 @@ local SettingsCategory = {
 }
 
 -- POSIX TZ string mapping for each timezone option
+-- ESP32 newlib has issues with some DST rule formats, so we use simplified strings
+-- Format: STDoffset[DST[offset],start,end] where times default to 02:00
 SettingsCategory.TIMEZONE_POSIX = {
     -- UTC
     ["UTC"] = "UTC0",
-    -- Europe (CET = Central European Time, CEST = Central European Summer Time)
-    ["London"] = "GMT0BST,M3.5.0/1,M10.5.0",
-    ["Amsterdam"] = "CET-1CEST,M3.5.0,M10.5.0/3",
-    ["Berlin"] = "CET-1CEST,M3.5.0,M10.5.0/3",
-    ["Paris"] = "CET-1CEST,M3.5.0,M10.5.0/3",
-    ["Madrid"] = "CET-1CEST,M3.5.0,M10.5.0/3",
-    ["Rome"] = "CET-1CEST,M3.5.0,M10.5.0/3",
-    ["Helsinki"] = "EET-2EEST,M3.5.0/3,M10.5.0/4",
-    ["Athens"] = "EET-2EEST,M3.5.0/3,M10.5.0/4",
+    -- Europe (EU DST: last Sunday March -> last Sunday October)
+    ["London"] = "GMT0BST,M3.5.0,M10.5.0",
+    ["Amsterdam"] = "CET-1CEST,M3.5.0,M10.5.0",
+    ["Berlin"] = "CET-1CEST,M3.5.0,M10.5.0",
+    ["Paris"] = "CET-1CEST,M3.5.0,M10.5.0",
+    ["Madrid"] = "CET-1CEST,M3.5.0,M10.5.0",
+    ["Rome"] = "CET-1CEST,M3.5.0,M10.5.0",
+    ["Helsinki"] = "EET-2EEST,M3.5.0,M10.5.0",
+    ["Athens"] = "EET-2EEST,M3.5.0,M10.5.0",
     ["Moscow"] = "MSK-3",
     -- Middle East / Africa
     ["Cairo"] = "EET-2",
-    ["Jerusalem"] = "IST-2IDT,M3.4.4/26,M10.5.0",
+    ["Jerusalem"] = "IST-2IDT,M3.5.0,M10.5.0",
     ["Dubai"] = "GST-4",
     ["Nairobi"] = "EAT-3",
     ["Lagos"] = "WAT-1",
@@ -41,9 +43,9 @@ SettingsCategory.TIMEZONE_POSIX = {
     ["Seoul"] = "KST-9",
     -- Oceania
     ["Perth"] = "AWST-8",
-    ["Sydney"] = "AEST-10AEDT,M10.1.0,M4.1.0/3",
+    ["Sydney"] = "AEST-10AEDT,M10.1.0,M4.1.0",
     ["Brisbane"] = "AEST-10",
-    ["Auckland"] = "NZST-12NZDT,M9.5.0,M4.1.0/3",
+    ["Auckland"] = "NZST-12NZDT,M9.5.0,M4.1.0",
     -- Americas (note: POSIX uses + for west of UTC)
     ["Anchorage"] = "AKST9AKDT,M3.2.0,M11.1.0",
     ["Los Angeles"] = "PST8PDT,M3.2.0,M11.1.0",
@@ -52,8 +54,57 @@ SettingsCategory.TIMEZONE_POSIX = {
     ["New York"] = "EST5EDT,M3.2.0,M11.1.0",
     ["Toronto"] = "EST5EDT,M3.2.0,M11.1.0",
     ["Halifax"] = "AST4ADT,M3.2.0,M11.1.0",
-    ["Sao Paulo"] = "BRT3BRST,M10.3.0/0,M2.3.0/0",
+    ["Sao Paulo"] = "BRT3BRST,M10.3.0,M2.3.0",
     ["Buenos Aires"] = "ART3"
+}
+
+-- City coordinates for GPS-based timezone lookup {lat, lon}
+SettingsCategory.TIMEZONE_COORDS = {
+    ["UTC"] = {0, 0},
+    -- Europe
+    ["London"] = {51.51, -0.13},
+    ["Amsterdam"] = {52.37, 4.90},
+    ["Berlin"] = {52.52, 13.40},
+    ["Paris"] = {48.86, 2.35},
+    ["Madrid"] = {40.42, -3.70},
+    ["Rome"] = {41.90, 12.50},
+    ["Helsinki"] = {60.17, 24.94},
+    ["Athens"] = {37.98, 23.73},
+    ["Moscow"] = {55.76, 37.62},
+    -- Middle East / Africa
+    ["Cairo"] = {30.04, 31.24},
+    ["Jerusalem"] = {31.77, 35.23},
+    ["Dubai"] = {25.20, 55.27},
+    ["Nairobi"] = {-1.29, 36.82},
+    ["Lagos"] = {6.52, 3.38},
+    ["Johannesburg"] = {-26.20, 28.04},
+    -- Asia
+    ["Mumbai"] = {19.08, 72.88},
+    ["Karachi"] = {24.86, 67.01},
+    ["Almaty"] = {43.24, 76.95},
+    ["Bangkok"] = {13.76, 100.50},
+    ["Jakarta"] = {-6.21, 106.85},
+    ["Singapore"] = {1.35, 103.82},
+    ["Hong Kong"] = {22.32, 114.17},
+    ["Shanghai"] = {31.23, 121.47},
+    ["Manila"] = {14.60, 120.98},
+    ["Tokyo"] = {35.68, 139.69},
+    ["Seoul"] = {37.57, 126.98},
+    -- Oceania
+    ["Perth"] = {-31.95, 115.86},
+    ["Sydney"] = {-33.87, 151.21},
+    ["Brisbane"] = {-27.47, 153.03},
+    ["Auckland"] = {-36.85, 174.76},
+    -- Americas
+    ["Anchorage"] = {61.22, -149.90},
+    ["Los Angeles"] = {34.05, -118.24},
+    ["Denver"] = {39.74, -104.99},
+    ["Chicago"] = {41.88, -87.63},
+    ["New York"] = {40.71, -74.01},
+    ["Toronto"] = {43.65, -79.38},
+    ["Halifax"] = {44.65, -63.57},
+    ["Sao Paulo"] = {-23.55, -46.63},
+    ["Buenos Aires"] = {-34.60, -58.38},
 }
 
 -- All settings organized by category
@@ -95,6 +146,7 @@ SettingsCategory.ALL_SETTINGS = {
         }, icon = "info"},
         {name = "time_sync", label = "Set Clock", value = "", type = "button", icon = "info"},
         {name = "auto_time_sync", label = "Auto Clock Sync", value = true, type = "toggle", icon = "info"},
+        {name = "auto_timezone_gps", label = "Auto Timezone (GPS)", value = false, type = "toggle", icon = "map"},
     },
     input = {
         {name = "trackball", label = "Trackball Sens", value = 1, type = "number", min = 1, max = 10, suffix = "", icon = "settings"},
@@ -203,6 +255,8 @@ function SettingsCategory:load_settings()
             setting.value = tonumber(get_pref("timezone", 1)) or 1
         elseif setting.name == "auto_time_sync" then
             setting.value = get_pref("autoTimeSyncContacts", true)
+        elseif setting.name == "auto_timezone_gps" then
+            setting.value = get_pref("autoTimezoneGps", false)
         elseif setting.name == "trackball" then
             setting.value = tonumber(get_pref("tbSens", 1)) or 1
         elseif setting.name == "trackball_mode" then
@@ -278,6 +332,8 @@ function SettingsCategory:save_setting(setting)
         end
     elseif setting.name == "auto_time_sync" then
         set_pref("autoTimeSyncContacts", setting.value)
+    elseif setting.name == "auto_timezone_gps" then
+        set_pref("autoTimezoneGps", setting.value)
     elseif setting.name == "trackball" then
         set_pref("tbSens", setting.value)
     elseif setting.name == "trackball_mode" then
@@ -639,6 +695,11 @@ function SettingsCategory:adjust_value(delta)
     elseif setting.name == "auto_time_sync" then
         if _G.Contacts and _G.Contacts.set_auto_time_sync then
             _G.Contacts.set_auto_time_sync(setting.value)
+        end
+    elseif setting.name == "auto_timezone_gps" then
+        -- Enable/disable the TimezoneSync service
+        if _G.TimezoneSync and _G.TimezoneSync.set_enabled then
+            _G.TimezoneSync.set_enabled(setting.value)
         end
     elseif setting.name == "screen_dim_timeout" or setting.name == "screen_off_timeout" then
         -- Reload timeout settings in the running ScreenTimeout service

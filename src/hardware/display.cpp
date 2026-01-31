@@ -71,8 +71,8 @@ void Display::clear() {
 void Display::flush() {
     _buffer.pushSprite(0, 0);
 
-    // Mark that a frame has been flushed (for text capture)
-    if (_textCaptureEnabled) {
+    // Mark that a frame has been flushed (for capture modes)
+    if (_textCaptureEnabled || _primitiveCaptureEnabled) {
         _frameFlushed = true;
     }
 }
@@ -354,14 +354,39 @@ void Display::drawSignal(int x, int y, int bars) {
 }
 
 void Display::drawPixel(int x, int y, uint16_t color) {
+    if (_primitiveCaptureEnabled && _capturedPrimitiveCount < MAX_CAPTURED_PRIMITIVES) {
+        CapturedPrimitive& cp = _capturedPrimitives[_capturedPrimitiveCount++];
+        cp.type = PrimitiveType::DRAW_PIXEL;
+        cp.color = color;
+        cp.pixel.x = x;
+        cp.pixel.y = y;
+    }
     _buffer.drawPixel(x, y, color);
 }
 
 void Display::fillRect(int x, int y, int w, int h, uint16_t color) {
+    if (_primitiveCaptureEnabled && _capturedPrimitiveCount < MAX_CAPTURED_PRIMITIVES) {
+        CapturedPrimitive& cp = _capturedPrimitives[_capturedPrimitiveCount++];
+        cp.type = PrimitiveType::FILL_RECT;
+        cp.color = color;
+        cp.rect.x = x;
+        cp.rect.y = y;
+        cp.rect.w = w;
+        cp.rect.h = h;
+    }
     _buffer.fillRect(x, y, w, h, color);
 }
 
 void Display::drawRect(int x, int y, int w, int h, uint16_t color) {
+    if (_primitiveCaptureEnabled && _capturedPrimitiveCount < MAX_CAPTURED_PRIMITIVES) {
+        CapturedPrimitive& cp = _capturedPrimitives[_capturedPrimitiveCount++];
+        cp.type = PrimitiveType::DRAW_RECT;
+        cp.color = color;
+        cp.rect.x = x;
+        cp.rect.y = y;
+        cp.rect.w = w;
+        cp.rect.h = h;
+    }
     _buffer.drawRect(x, y, w, h, color);
 }
 
@@ -458,11 +483,29 @@ void Display::fillRectVLines(int x, int y, int w, int h, uint16_t color, int spa
 
 void Display::drawBitmap(int x, int y, int w, int h, const uint16_t* data) {
     if (!data) return;
+    if (_primitiveCaptureEnabled && _capturedPrimitiveCount < MAX_CAPTURED_PRIMITIVES) {
+        CapturedPrimitive& cp = _capturedPrimitives[_capturedPrimitiveCount++];
+        cp.type = PrimitiveType::DRAW_BITMAP;
+        cp.color = 0;  // No transparency
+        cp.rect.x = x;
+        cp.rect.y = y;
+        cp.rect.w = w;
+        cp.rect.h = h;
+    }
     _buffer.pushImage(x, y, w, h, data);
 }
 
 void Display::drawBitmapTransparent(int x, int y, int w, int h, const uint16_t* data, uint16_t transparentColor) {
     if (!data) return;
+    if (_primitiveCaptureEnabled && _capturedPrimitiveCount < MAX_CAPTURED_PRIMITIVES) {
+        CapturedPrimitive& cp = _capturedPrimitives[_capturedPrimitiveCount++];
+        cp.type = PrimitiveType::DRAW_BITMAP_TRANSPARENT;
+        cp.color = transparentColor;
+        cp.rect.x = x;
+        cp.rect.y = y;
+        cp.rect.w = w;
+        cp.rect.h = h;
+    }
     // Draw pixel by pixel, skipping transparent pixels
     for (int py = 0; py < h; py++) {
         for (int px = 0; px < w; px++) {
@@ -475,30 +518,97 @@ void Display::drawBitmapTransparent(int x, int y, int w, int h, const uint16_t* 
 }
 
 void Display::drawLine(int x1, int y1, int x2, int y2, uint16_t color) {
+    if (_primitiveCaptureEnabled && _capturedPrimitiveCount < MAX_CAPTURED_PRIMITIVES) {
+        CapturedPrimitive& cp = _capturedPrimitives[_capturedPrimitiveCount++];
+        cp.type = PrimitiveType::DRAW_LINE;
+        cp.color = color;
+        cp.line.x1 = x1;
+        cp.line.y1 = y1;
+        cp.line.x2 = x2;
+        cp.line.y2 = y2;
+    }
     _buffer.drawLine(x1, y1, x2, y2, color);
 }
 
 void Display::drawCircle(int x, int y, int r, uint16_t color) {
+    if (_primitiveCaptureEnabled && _capturedPrimitiveCount < MAX_CAPTURED_PRIMITIVES) {
+        CapturedPrimitive& cp = _capturedPrimitives[_capturedPrimitiveCount++];
+        cp.type = PrimitiveType::DRAW_CIRCLE;
+        cp.color = color;
+        cp.circle.x = x;
+        cp.circle.y = y;
+        cp.circle.r = r;
+    }
     _buffer.drawCircle(x, y, r, color);
 }
 
 void Display::fillCircle(int x, int y, int r, uint16_t color) {
+    if (_primitiveCaptureEnabled && _capturedPrimitiveCount < MAX_CAPTURED_PRIMITIVES) {
+        CapturedPrimitive& cp = _capturedPrimitives[_capturedPrimitiveCount++];
+        cp.type = PrimitiveType::FILL_CIRCLE;
+        cp.color = color;
+        cp.circle.x = x;
+        cp.circle.y = y;
+        cp.circle.r = r;
+    }
     _buffer.fillCircle(x, y, r, color);
 }
 
 void Display::drawTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color) {
+    if (_primitiveCaptureEnabled && _capturedPrimitiveCount < MAX_CAPTURED_PRIMITIVES) {
+        CapturedPrimitive& cp = _capturedPrimitives[_capturedPrimitiveCount++];
+        cp.type = PrimitiveType::DRAW_TRIANGLE;
+        cp.color = color;
+        cp.triangle.x1 = x1;
+        cp.triangle.y1 = y1;
+        cp.triangle.x2 = x2;
+        cp.triangle.y2 = y2;
+        cp.triangle.x3 = x3;
+        cp.triangle.y3 = y3;
+    }
     _buffer.drawTriangle(x1, y1, x2, y2, x3, y3, color);
 }
 
 void Display::fillTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color) {
+    if (_primitiveCaptureEnabled && _capturedPrimitiveCount < MAX_CAPTURED_PRIMITIVES) {
+        CapturedPrimitive& cp = _capturedPrimitives[_capturedPrimitiveCount++];
+        cp.type = PrimitiveType::FILL_TRIANGLE;
+        cp.color = color;
+        cp.triangle.x1 = x1;
+        cp.triangle.y1 = y1;
+        cp.triangle.x2 = x2;
+        cp.triangle.y2 = y2;
+        cp.triangle.x3 = x3;
+        cp.triangle.y3 = y3;
+    }
     _buffer.fillTriangle(x1, y1, x2, y2, x3, y3, color);
 }
 
 void Display::drawRoundRect(int x, int y, int w, int h, int r, uint16_t color) {
+    if (_primitiveCaptureEnabled && _capturedPrimitiveCount < MAX_CAPTURED_PRIMITIVES) {
+        CapturedPrimitive& cp = _capturedPrimitives[_capturedPrimitiveCount++];
+        cp.type = PrimitiveType::DRAW_ROUND_RECT;
+        cp.color = color;
+        cp.roundRect.x = x;
+        cp.roundRect.y = y;
+        cp.roundRect.w = w;
+        cp.roundRect.h = h;
+        cp.roundRect.r = r;
+    }
     _buffer.drawRoundRect(x, y, w, h, r, color);
 }
 
 void Display::fillRoundRect(int x, int y, int w, int h, int r, uint16_t color) {
+    if (_primitiveCaptureEnabled && _capturedPrimitiveCount < MAX_CAPTURED_PRIMITIVES) {
+        CapturedPrimitive& cp = _capturedPrimitives[_capturedPrimitiveCount++];
+        cp.type = PrimitiveType::FILL_ROUND_RECT;
+        cp.color = color;
+        cp.roundRect.x = x;
+        cp.roundRect.y = y;
+        cp.roundRect.w = w;
+        cp.roundRect.h = h;
+        cp.roundRect.r = r;
+    }
     _buffer.fillRoundRect(x, y, w, h, r, color);
 }
 
@@ -712,6 +822,110 @@ size_t Display::getCapturedTextJSON(char* buffer, size_t maxSize) {
         int written = snprintf(buffer + pos, maxSize - pos,
             "{\"x\":%d,\"y\":%d,\"color\":%u,\"text\":\"%s\"}",
             ct.x, ct.y, ct.color, escapedText);
+
+        if (written < 0 || (size_t)written >= maxSize - pos) {
+            break;
+        }
+        pos += written;
+    }
+
+    if (pos < maxSize - 1) {
+        buffer[pos++] = ']';
+    }
+    buffer[pos] = '\0';
+
+    return pos;
+}
+
+void Display::setPrimitiveCaptureEnabled(bool enabled) {
+    _primitiveCaptureEnabled = enabled;
+    if (enabled) {
+        clearCapturedPrimitives();
+        _frameFlushed = false;
+    }
+}
+
+void Display::clearCapturedPrimitives() {
+    _capturedPrimitiveCount = 0;
+}
+
+size_t Display::getCapturedPrimitivesJSON(char* buffer, size_t maxSize) {
+    if (!buffer || maxSize < 3) {
+        return 0;
+    }
+
+    // Primitive type names for JSON output
+    static const char* typeNames[] = {
+        "fill_rect", "draw_rect", "draw_line",
+        "fill_circle", "draw_circle",
+        "fill_triangle", "draw_triangle",
+        "fill_round_rect", "draw_round_rect",
+        "draw_pixel", "draw_bitmap", "draw_bitmap_transparent"
+    };
+
+    size_t pos = 0;
+    buffer[pos++] = '[';
+
+    for (size_t i = 0; i < _capturedPrimitiveCount && pos < maxSize - 150; i++) {
+        const CapturedPrimitive& cp = _capturedPrimitives[i];
+
+        if (i > 0) {
+            buffer[pos++] = ',';
+        }
+
+        int written = 0;
+        const char* typeName = typeNames[(int)cp.type];
+
+        switch (cp.type) {
+            case PrimitiveType::FILL_RECT:
+            case PrimitiveType::DRAW_RECT:
+                written = snprintf(buffer + pos, maxSize - pos,
+                    "{\"type\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"color\":%u}",
+                    typeName, cp.rect.x, cp.rect.y, cp.rect.w, cp.rect.h, cp.color);
+                break;
+
+            case PrimitiveType::DRAW_LINE:
+                written = snprintf(buffer + pos, maxSize - pos,
+                    "{\"type\":\"%s\",\"x1\":%d,\"y1\":%d,\"x2\":%d,\"y2\":%d,\"color\":%u}",
+                    typeName, cp.line.x1, cp.line.y1, cp.line.x2, cp.line.y2, cp.color);
+                break;
+
+            case PrimitiveType::FILL_CIRCLE:
+            case PrimitiveType::DRAW_CIRCLE:
+                written = snprintf(buffer + pos, maxSize - pos,
+                    "{\"type\":\"%s\",\"x\":%d,\"y\":%d,\"r\":%d,\"color\":%u}",
+                    typeName, cp.circle.x, cp.circle.y, cp.circle.r, cp.color);
+                break;
+
+            case PrimitiveType::FILL_TRIANGLE:
+            case PrimitiveType::DRAW_TRIANGLE:
+                written = snprintf(buffer + pos, maxSize - pos,
+                    "{\"type\":\"%s\",\"x1\":%d,\"y1\":%d,\"x2\":%d,\"y2\":%d,\"x3\":%d,\"y3\":%d,\"color\":%u}",
+                    typeName, cp.triangle.x1, cp.triangle.y1, cp.triangle.x2, cp.triangle.y2,
+                    cp.triangle.x3, cp.triangle.y3, cp.color);
+                break;
+
+            case PrimitiveType::FILL_ROUND_RECT:
+            case PrimitiveType::DRAW_ROUND_RECT:
+                written = snprintf(buffer + pos, maxSize - pos,
+                    "{\"type\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"r\":%d,\"color\":%u}",
+                    typeName, cp.roundRect.x, cp.roundRect.y, cp.roundRect.w, cp.roundRect.h,
+                    cp.roundRect.r, cp.color);
+                break;
+
+            case PrimitiveType::DRAW_PIXEL:
+                written = snprintf(buffer + pos, maxSize - pos,
+                    "{\"type\":\"%s\",\"x\":%d,\"y\":%d,\"color\":%u}",
+                    typeName, cp.pixel.x, cp.pixel.y, cp.color);
+                break;
+
+            case PrimitiveType::DRAW_BITMAP:
+            case PrimitiveType::DRAW_BITMAP_TRANSPARENT:
+                written = snprintf(buffer + pos, maxSize - pos,
+                    "{\"type\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"transparent_color\":%u}",
+                    typeName, cp.rect.x, cp.rect.y, cp.rect.w, cp.rect.h, cp.color);
+                break;
+        }
 
         if (written < 0 || (size_t)written >= maxSize - pos) {
             break;

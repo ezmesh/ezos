@@ -3,7 +3,8 @@
 T-Deck Remote Control Client
 
 A command-line tool for controlling T-Deck OS over USB serial.
-Supports screenshot capture, keyboard input injection, screen queries, and Lua execution.
+Supports screenshot capture, keyboard input injection, screen queries, log access,
+and Lua code execution.
 
 Usage:
     python tdeck_remote.py /dev/ttyACM0                    # Test connection (ping)
@@ -12,6 +13,9 @@ Usage:
     python tdeck_remote.py /dev/ttyACM0 -k enter           # Send Enter key
     python tdeck_remote.py /dev/ttyACM0 --info             # Get screen info
     python tdeck_remote.py /dev/ttyACM0 --text             # Capture rendered text
+    python tdeck_remote.py /dev/ttyACM0 --primitives       # Capture draw primitives
+    python tdeck_remote.py /dev/ttyACM0 --logs             # Get buffered logs
+    python tdeck_remote.py /dev/ttyACM0 --monitor          # Monitor serial output
     python tdeck_remote.py /dev/ttyACM0 -e "1+1"           # Execute Lua expression
     python tdeck_remote.py /dev/ttyACM0 -e "Debug.memory()" # Call debug function
 """
@@ -34,6 +38,7 @@ class TDeckRemote:
     CMD_SCREEN_INFO = 0x05
     CMD_WAIT_FRAME_TEXT = 0x06
     CMD_LUA_EXEC = 0x07
+    CMD_WAIT_FRAME_PRIMITIVES = 0x08
 
     # Response status
     STATUS_OK = 0x00
@@ -75,6 +80,8 @@ class TDeckRemote:
 
     def send_command(self, cmd, payload=b''):
         """Send a command with optional payload."""
+        # Clear any pending input (log output, noise) that could corrupt response parsing
+        self.ser.reset_input_buffer()
         header = struct.pack('<BH', cmd, len(payload))
         self.ser.write(header + payload)
         self.ser.flush()
@@ -217,6 +224,31 @@ class TDeckRemote:
 
         return json.loads(data.decode('utf-8'))
 
+    def wait_frame_primitives(self):
+        """
+        Wait for the next frame to be rendered and capture all draw primitives.
+
+        Returns a list of primitive objects, each with:
+        - type: Primitive type (fill_rect, draw_rect, draw_line, fill_circle,
+                draw_circle, fill_triangle, draw_triangle, fill_round_rect,
+                draw_round_rect, draw_pixel)
+        - color: RGB565 color value
+        - Additional fields depending on type:
+          - rect/round_rect: x, y, w, h (and r for round_rect)
+          - line: x1, y1, x2, y2
+          - circle: x, y, r
+          - triangle: x1, y1, x2, y2, x3, y3
+          - pixel: x, y
+        """
+        self.send_command(self.CMD_WAIT_FRAME_PRIMITIVES)
+        status, data = self.read_response()
+
+        if status != self.STATUS_OK:
+            error_msg = data.decode('utf-8', errors='replace') if data else "Unknown error"
+            raise RuntimeError(f"Wait frame primitives failed: {error_msg}")
+
+        return json.loads(data.decode('utf-8'))
+
     def lua_exec(self, code):
         """
         Execute Lua code on the device and return the result.
@@ -256,6 +288,9 @@ Examples:
   %(prog)s /dev/ttyACM0 -k A --shift       Send shift+a (uppercase A)
   %(prog)s /dev/ttyACM0 --info             Get screen info
   %(prog)s /dev/ttyACM0 --text             Capture all text from next frame
+  %(prog)s /dev/ttyACM0 --primitives       Capture all draw primitives from next frame
+  %(prog)s /dev/ttyACM0 --logs             Get buffered log entries
+  %(prog)s /dev/ttyACM0 --monitor          Monitor raw serial output
   %(prog)s /dev/ttyACM0 -e "1+1"           Execute Lua and print result
   %(prog)s /dev/ttyACM0 -e "Debug.memory()"  Call debug function
   %(prog)s /dev/ttyACM0 -f script.lua      Execute Lua file
@@ -279,10 +314,16 @@ Examples:
                         help='Get screen information')
     parser.add_argument('--text', action='store_true',
                         help='Wait for next frame and capture all rendered text')
+    parser.add_argument('--primitives', action='store_true',
+                        help='Wait for next frame and capture all draw primitives')
     parser.add_argument('-e', '--exec', metavar='CODE', dest='lua_code',
                         help='Execute Lua code and print result')
     parser.add_argument('-f', '--exec-file', metavar='FILE',
                         help='Execute Lua code from file')
+    parser.add_argument('--logs', action='store_true',
+                        help='Get buffered log entries from Logger service')
+    parser.add_argument('--monitor', action='store_true',
+                        help='Monitor serial output (Ctrl+C to stop)')
     parser.add_argument('-b', '--baudrate', type=int, default=921600,
                         help='Serial baudrate (default: 921600)')
     parser.add_argument('-t', '--timeout', type=float, default=5,
@@ -324,6 +365,33 @@ Examples:
             print("Waiting for next frame...")
             texts = remote.wait_frame_text()
             print(json.dumps(texts, indent=2))
+
+        elif args.primitives:
+            print("Waiting for next frame...")
+            primitives = remote.wait_frame_primitives()
+            print(json.dumps(primitives, indent=2))
+
+        elif args.logs:
+            # Fetch log entries from the Lua Logger service
+            result = remote.lua_exec("Logger.get_entries()")
+            if isinstance(result, list):
+                for entry in result:
+                    print(entry)
+            else:
+                print("No logs available (Logger not initialized?)")
+
+        elif args.monitor:
+            # Simple serial monitor mode - just read and print serial output
+            print("Monitoring serial output (Ctrl+C to stop)...")
+            remote.ser.timeout = 0.1  # Short timeout for responsive reading
+            try:
+                while True:
+                    data = remote.ser.read(1024)
+                    if data:
+                        sys.stdout.write(data.decode('utf-8', errors='replace'))
+                        sys.stdout.flush()
+            except KeyboardInterrupt:
+                print("\nMonitor stopped.")
 
         elif args.lua_code:
             result = remote.lua_exec(args.lua_code)

@@ -36,8 +36,10 @@ _G.loaded_modules = {}
 -- Returns the module result directly (no callback needed)
 function _G.load_module(path)
     -- Show loading indicator if StatusBar is available
+    -- Don't flush immediately - let the main loop handle rendering
+    -- This prevents BLACK + StatusBar flashing during boot when no screens are on stack
     if _G.StatusBar and _G.StatusBar.show_loading then
-        _G.StatusBar.show_loading(true)
+        _G.StatusBar.show_loading(false)
     end
 
     run_gc("collect", "pre-load " .. path)
@@ -409,6 +411,12 @@ local function boot_sequence()
     tdeck.system.log("[Boot] Loading Debug, free=" .. mem() .. "KB")
     load_module("/scripts/services/debug.lua")
     tdeck.system.log("[Boot] Debug loaded, free=" .. mem() .. "KB")
+
+    -- Load and initialize TimezoneSync service (auto timezone from GPS)
+    tdeck.system.log("[Boot] Loading TimezoneSync, free=" .. mem() .. "KB")
+    local TimezoneSync = load_module("/scripts/services/timezone_sync.lua")
+    TimezoneSync.init()
+    tdeck.system.log("[Boot] TimezoneSync initialized, free=" .. mem() .. "KB")
 
     -- Load and push main menu
     tdeck.system.log("[Boot] Loading MainMenu, free=" .. mem() .. "KB")

@@ -268,10 +268,53 @@ private:
         char text[64];  // Truncated to fit
     };
 
+    // Primitive types for capture
+    enum class PrimitiveType : uint8_t {
+        FILL_RECT = 0,
+        DRAW_RECT = 1,
+        DRAW_LINE = 2,
+        FILL_CIRCLE = 3,
+        DRAW_CIRCLE = 4,
+        FILL_TRIANGLE = 5,
+        DRAW_TRIANGLE = 6,
+        FILL_ROUND_RECT = 7,
+        DRAW_ROUND_RECT = 8,
+        DRAW_PIXEL = 9,
+        DRAW_BITMAP = 10,
+        DRAW_BITMAP_TRANSPARENT = 11,
+    };
+
+    // Primitive capture data structure (union for different shapes)
+    struct CapturedPrimitive {
+        PrimitiveType type;
+        uint16_t color;  // For bitmap types, this is transparentColor (or 0 for non-transparent)
+        union {
+            struct { int16_t x, y, w, h; } rect;                    // FILL_RECT, DRAW_RECT, DRAW_BITMAP*
+            struct { int16_t x1, y1, x2, y2; } line;                // DRAW_LINE
+            struct { int16_t x, y, r; } circle;                     // FILL_CIRCLE, DRAW_CIRCLE
+            struct { int16_t x1, y1, x2, y2, x3, y3; } triangle;    // FILL_TRIANGLE, DRAW_TRIANGLE
+            struct { int16_t x, y, w, h, r; } roundRect;            // FILL_ROUND_RECT, DRAW_ROUND_RECT
+            struct { int16_t x, y; } pixel;                         // DRAW_PIXEL
+        };
+    };
+
     // Text capture state
     bool _textCaptureEnabled = false;
     bool _frameFlushed = false;
     static constexpr size_t MAX_CAPTURED_TEXTS = 128;
     CapturedText _capturedTexts[MAX_CAPTURED_TEXTS];
     size_t _capturedTextCount = 0;
+
+    // Primitive capture state
+    bool _primitiveCaptureEnabled = false;
+    static constexpr size_t MAX_CAPTURED_PRIMITIVES = 512;
+    CapturedPrimitive _capturedPrimitives[MAX_CAPTURED_PRIMITIVES];
+    size_t _capturedPrimitiveCount = 0;
+
+public:
+    // Primitive capture for remote control
+    void setPrimitiveCaptureEnabled(bool enabled);
+    bool isPrimitiveCaptureEnabled() const { return _primitiveCaptureEnabled; }
+    void clearCapturedPrimitives();
+    size_t getCapturedPrimitivesJSON(char* buffer, size_t maxSize);
 };

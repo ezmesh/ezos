@@ -11,10 +11,14 @@ T-Deck OS is a complete embedded operating system for the LilyGo T-Deck Plus (ES
 
 **IMPORTANT:** Never use `stty` or interactive serial monitor commands (`pio device monitor`, `minicom`, etc.) as they block the user's interactive terminal session. The user typically has a serial monitor already open.
 
-Instead:
-- Use `pio run -t upload` to flash firmware
-- Trust that the user is watching serial output in their own terminal
-- If you need to see serial output for debugging, ask the user to share the relevant log lines
+Instead, use the remote control tool for debugging:
+- `python tools/remote/tdeck_remote.py /dev/ttyACM0 --logs` - Get buffered log entries
+- `python tools/remote/tdeck_remote.py /dev/ttyACM0 --monitor` - Stream real-time logs
+- `python tools/remote/tdeck_remote.py /dev/ttyACM0 -e "Debug.memory()"` - Query device state
+
+For building and flashing:
+- `pio run` - Build firmware
+- `pio run -t upload` - Build and flash
 
 ## Building and Flashing
 
@@ -202,27 +206,64 @@ Lua Scripts (boot.lua, screens, services)
 
 ## Remote Control (`tools/remote/`)
 
-Control T-Deck over USB serial from host computer.
+Control T-Deck over USB serial from host computer. This is the primary tool for automated testing and debugging.
 
-### Usage
+### Setup
 
 ```bash
 cd tools/remote
 pip install pyserial pillow
+```
 
+### Commands
+
+```bash
 # Test connection
 python tdeck_remote.py /dev/ttyACM0
 
-# Take screenshot
+# Screenshots
 python tdeck_remote.py /dev/ttyACM0 -s screenshot.png
 
-# Send key
+# Send keys
 python tdeck_remote.py /dev/ttyACM0 -k enter
 python tdeck_remote.py /dev/ttyACM0 -k a
 python tdeck_remote.py /dev/ttyACM0 -k up
-
-# With modifiers
 python tdeck_remote.py /dev/ttyACM0 -k c --ctrl
+
+# Screen info
+python tdeck_remote.py /dev/ttyACM0 --info
+
+# Capture rendered text (for UI verification)
+python tdeck_remote.py /dev/ttyACM0 --text
+
+# Capture draw primitives (for debugging rendering)
+python tdeck_remote.py /dev/ttyACM0 --primitives
+
+# Get buffered logs
+python tdeck_remote.py /dev/ttyACM0 --logs
+
+# Monitor serial output (real-time logs)
+python tdeck_remote.py /dev/ttyACM0 --monitor
+
+# Execute Lua code
+python tdeck_remote.py /dev/ttyACM0 -e "1+1"
+python tdeck_remote.py /dev/ttyACM0 -e "Debug.memory()"
+python tdeck_remote.py /dev/ttyACM0 -e "tdeck.system.get_time()"
+python tdeck_remote.py /dev/ttyACM0 -f script.lua
+```
+
+### Capture Modes
+
+**Text Capture (`--text`)**: Returns all text rendered in a frame with positions and colors. Useful for verifying UI content.
+
+**Primitive Capture (`--primitives`)**: Returns all draw calls (rects, lines, circles, triangles, bitmaps) with coordinates. Useful for debugging rendering issues like map tiles.
+
+Example primitive output for map tiles:
+```json
+[
+  {"type": "draw_bitmap", "x": 32, "y": 48, "w": 64, "h": 64, "transparent_color": 0},
+  {"type": "fill_rect", "x": 0, "y": 0, "w": 320, "h": 24, "color": 0}
+]
 ```
 
 ### Protocol
@@ -237,6 +278,65 @@ Commands:
 - `0x03` KEY_CHAR - Send character with modifiers
 - `0x04` KEY_SPECIAL - Send special key (arrows, enter, etc.)
 - `0x05` SCREEN_INFO - Get current screen title and dimensions
+- `0x06` WAIT_FRAME_TEXT - Capture text from next rendered frame
+- `0x07` LUA_EXEC - Execute Lua code and return result
+- `0x08` WAIT_FRAME_PRIMITIVES - Capture draw primitives from next frame
+
+## Development Workflow
+
+### Building and Testing
+
+1. **Build firmware**: `pio run`
+2. **Flash to device**: `pio run -t upload`
+3. **Verify with remote control**:
+   - Take screenshot: `python tools/remote/tdeck_remote.py /dev/ttyACM0 -s test.png`
+   - Check logs: `python tools/remote/tdeck_remote.py /dev/ttyACM0 --logs`
+   - Run tests via Lua: `python tools/remote/tdeck_remote.py /dev/ttyACM0 -e "your_test_code"`
+
+### Debugging UI Issues
+
+1. Navigate to the problematic screen (send keys via remote)
+2. Capture text to verify content: `--text`
+3. Capture primitives to debug rendering: `--primitives`
+4. Take screenshot for visual verification: `-s screenshot.png`
+5. Check logs for errors: `--logs`
+
+### Debugging with Lua Execution
+
+The `-e` flag executes Lua code on the device and returns JSON results:
+
+```bash
+# Check system state
+python tdeck_remote.py /dev/ttyACM0 -e "tdeck.system.get_time()"
+python tdeck_remote.py /dev/ttyACM0 -e "Debug.memory()"
+
+# Query settings
+python tdeck_remote.py /dev/ttyACM0 -e "tdeck.storage.get_pref('brightness', 200)"
+
+# Access services
+python tdeck_remote.py /dev/ttyACM0 -e "Logger.get_entries()"
+python tdeck_remote.py /dev/ttyACM0 -e "ScreenManager.get_stack_depth()"
+
+# Inspect globals
+python tdeck_remote.py /dev/ttyACM0 -e "_G.StatusBar.battery"
+```
+
+### Testing Changes
+
+For **Lua-only changes** (files in `data/scripts/`):
+- Copy updated files to SD card, or
+- Rebuild and flash (Lua files are in LittleFS)
+
+For **C++ changes** (files in `src/`):
+- Must rebuild and flash: `pio run -t upload`
+
+### Verifying Fixes
+
+After making a fix:
+1. Build and flash: `pio run -t upload`
+2. Navigate to relevant screen via remote key injection
+3. Verify with appropriate capture mode (text/primitives/screenshot)
+4. Check logs for any errors
 
 ## Key Components
 

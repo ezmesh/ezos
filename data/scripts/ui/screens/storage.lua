@@ -94,6 +94,7 @@ function StorageInfo:render(display)
     local bar_width = display.width - 40
     local bar_height = 8
     local section_gap = 8
+    local used_fmt = "%s / %s (%d%%)"
 
     -- Flash Storage (LittleFS)
     display.draw_text(8, y, "Flash (LittleFS)", colors.TEXT)
@@ -108,7 +109,7 @@ function StorageInfo:render(display)
         draw_bar(display, 8, y, bar_width, bar_height, percent, colors)
         y = y + bar_height + 2
 
-        local info = string.format("%s used / %s total (%d%%)", format_bytes(used), format_bytes(total), percent)
+        local info = string.format(used_fmt, format_bytes(used), format_bytes(total), percent)
         display.draw_text(8, y, info, colors.TEXT_SECONDARY)
         y = y + fh
         display.draw_text(8, y, string.format("%s free", format_bytes(free)), colors.TEXT_MUTED)
@@ -130,7 +131,7 @@ function StorageInfo:render(display)
         draw_bar(display, 8, y, bar_width, bar_height, percent, colors)
         y = y + bar_height + 2
 
-        local info = string.format("%s used / %s total (%d%%)", format_bytes(used), format_bytes(total), percent)
+        local info = string.format(used_fmt, format_bytes(used), format_bytes(total), percent)
         display.draw_text(8, y, info, colors.TEXT_SECONDARY)
         y = y + fh
         display.draw_text(8, y, string.format("%s free", format_bytes(free)), colors.TEXT_MUTED)
@@ -152,7 +153,7 @@ function StorageInfo:render(display)
         draw_bar(display, 8, y, bar_width, bar_height, percent, colors)
         y = y + bar_height + 2
 
-        local info = string.format("%s used / %s partition (%d%%)", format_bytes(app_size), format_bytes(partition_size), percent)
+        local info = string.format("%s / %s partition (%d%%)", format_bytes(app_size), format_bytes(partition_size), percent)
         display.draw_text(8, y, info, colors.TEXT_SECONDARY)
         y = y + fh
 

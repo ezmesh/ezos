@@ -67,7 +67,7 @@ end
 
 local function wait_for_modules()
     local start_time = tdeck.system.millis()
-    local MIN_DISPLAY_MS = 300  -- Minimum time to show splash
+    local MIN_DISPLAY_MS = 800  -- Minimum time to show splash
     local MAX_WAIT_MS = 5000    -- Maximum time to wait for modules
 
     -- Show splash immediately
