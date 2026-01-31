@@ -1144,7 +1144,7 @@ void registerMeshModule(lua_State* L) {
     lua_register_module(L, "mesh", mesh_funcs);
 
     // Register route type constants
-    lua_getglobal(L, "tdeck");
+    lua_getglobal(L, "ez");
     lua_getfield(L, -1, "mesh");
 
     // Route types

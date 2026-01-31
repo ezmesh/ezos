@@ -1022,7 +1022,7 @@ void registerDisplayModule(lua_State* L) {
     lua_register_module(L, "display", display_funcs);
 
     // Add color constants as ez.display.colors subtable
-    lua_getglobal(L, "tdeck");
+    lua_getglobal(L, "ez");
     lua_getfield(L, -1, "display");
 
     // Create colors subtable

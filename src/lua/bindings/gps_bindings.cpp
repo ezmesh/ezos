@@ -175,12 +175,12 @@ static const luaL_Reg gps_funcs[] = {
 
 void gps_bindings::registerBindings(lua_State* L) {
     // Get or create tdeck table
-    lua_getglobal(L, "tdeck");
+    lua_getglobal(L, "ez");
     if (lua_isnil(L, -1)) {
         lua_pop(L, 1);
         lua_newtable(L);
-        lua_setglobal(L, "tdeck");
-        lua_getglobal(L, "tdeck");
+        lua_setglobal(L, "ez");
+        lua_getglobal(L, "ez");
     }
 
     // Create gps subtable
