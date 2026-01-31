@@ -1,6 +1,8 @@
 -- font_test.lua - Test screen for font display
 -- Shows available fonts and sizes
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local FontTest = {
     title = "Fonts Test",
 }
@@ -22,14 +24,10 @@ function FontTest:on_enter()
 end
 
 function FontTest:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)

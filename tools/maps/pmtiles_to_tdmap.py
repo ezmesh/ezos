@@ -400,9 +400,12 @@ def tile_pixel_to_lat_lon(zoom: int, tile_x: int, tile_y: int, pixel_x: float, p
         (latitude, longitude) in degrees
     """
     n = 2 ** zoom
+    # MVT coordinates have Y=0 at the bottom (south), but web tiles use Y=0 at top (north)
+    # Flip the Y coordinate to match web tile convention
+    pixel_y_flipped = extent - pixel_y
     # Convert pixel offset to fraction of tile (0 to 1)
     frac_x = pixel_x / extent
-    frac_y = pixel_y / extent
+    frac_y = pixel_y_flipped / extent
     # Full tile coordinates including fractional part
     full_x = tile_x + frac_x
     full_y = tile_y + frac_y

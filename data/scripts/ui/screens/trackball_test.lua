@@ -1,6 +1,8 @@
 -- Trackball Test Screen for T-Deck OS
 -- Visualizes trackball movement as a colored trail
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local TrackballTest = {
     title = "Trackball Test",
 
@@ -85,7 +87,7 @@ function TrackballTest:move(dx, dy)
 end
 
 function TrackballTest:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Clear background
     display.fill_rect(0, 0, self.SCREEN_W, self.SCREEN_H, colors.BLACK)

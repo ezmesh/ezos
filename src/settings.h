@@ -30,7 +30,6 @@ public:
     int getBrightness() const { return _brightness; }
     int getFontSize() const { return _fontSize; }
     int getTrackballSensitivity() const { return _trackballSensitivity; }
-    bool getAdaptiveScrolling() const { return _adaptiveScrolling; }
 
     // Setters
     void setNodeName(const char* name);
@@ -40,7 +39,6 @@ public:
     void setBrightness(int brightness) { _brightness = brightness; }
     void setFontSize(int size) { _fontSize = size; }
     void setTrackballSensitivity(int sens) { _trackballSensitivity = sens; }
-    void setAdaptiveScrolling(bool enabled) { _adaptiveScrolling = enabled; }
 
 private:
     static constexpr int MAX_NODE_NAME = 16;
@@ -52,7 +50,6 @@ private:
     int _brightness = 200;  // 0-255
     int _fontSize = 1;      // 0=Small, 1=Medium, 2=Large
     int _trackballSensitivity = 2;
-    bool _adaptiveScrolling = true;
 
     // Region frequency table
     static const uint32_t REGION_FREQUENCIES[];

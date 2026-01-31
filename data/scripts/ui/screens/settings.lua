@@ -1,6 +1,8 @@
 -- Settings Screen for T-Deck OS
 -- Category-based settings navigation
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local Settings = {
     title = "Settings",
     selected = 1,
@@ -71,16 +73,12 @@ end
 
 function Settings:render(display)
     -- Use themed colors if available
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = display.width
     local h = display.height
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, w, h, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)

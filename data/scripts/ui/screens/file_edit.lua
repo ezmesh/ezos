@@ -1,6 +1,8 @@
 -- file_edit.lua - Basic nano-like text editor
 -- Supports viewing and editing text files
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local FileEdit = {
     title = "Edit",
     file_path = nil,
@@ -240,7 +242,7 @@ function FileEdit:render(display)
     -- Ensure medium font (status bar may have changed to small)
     display.set_font_size("medium")
 
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local fw = display.get_font_width()
     local fh = display.get_font_height()
     local cols = display.get_cols()
@@ -249,11 +251,7 @@ function FileEdit:render(display)
     self:update_scroll_with_dims(rows, cols)
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Header
     local title = self:basename(self.file_path or "untitled")

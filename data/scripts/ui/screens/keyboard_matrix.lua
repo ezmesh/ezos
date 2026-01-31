@@ -1,6 +1,8 @@
 -- Keyboard Matrix Test Screen for T-Deck OS
 -- Shows raw keyboard matrix bits (5 cols × 7 rows)
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local KeyboardMatrix = {
     title = "Key Matrix",
     raw_mode_ok = false,
@@ -35,7 +37,7 @@ function KeyboardMatrix:on_exit()
 end
 
 function KeyboardMatrix:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Use small font throughout
     display.set_font_size("small")
@@ -43,11 +45,7 @@ function KeyboardMatrix:render(display)
     local fh = display.get_font_height()
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)

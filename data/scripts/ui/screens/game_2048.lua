@@ -1,6 +1,8 @@
 -- 2048 Game for T-Deck OS
 -- Slide tiles to combine matching numbers
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local Game2048 = {
     title = "2048",
     GRID_SIZE = 4,
@@ -239,7 +241,7 @@ function Game2048:check_game_over()
 end
 
 function Game2048:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     display.fill_rect(0, 0, 320, 240, colors.BLACK)
 

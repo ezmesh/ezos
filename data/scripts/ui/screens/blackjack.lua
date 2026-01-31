@@ -1,6 +1,7 @@
 -- Blackjack for T-Deck OS
 -- Classic 21 card game using shared Cards module
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
 local Cards = load_module("/scripts/ui/cards.lua")
 
 local Blackjack = {
@@ -197,7 +198,7 @@ function Blackjack:end_round(result)
 end
 
 function Blackjack:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     display.fill_rect(0, 0, 320, 240, 0x0320)  -- Green felt
 

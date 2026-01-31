@@ -252,6 +252,9 @@ void setup() {
 }
 
 void loop() {
+    static constexpr uint32_t TARGET_FRAME_TIME_MS = 10;
+    uint32_t frameStart = millis();
+
     // Process remote control commands (non-blocking)
     RemoteControl::instance().update();
 
@@ -275,5 +278,9 @@ void loop() {
         mesh->update();
     }
 
-    delay(10);
+    // Adaptive delay - only sleep for remaining time in frame budget
+    uint32_t elapsed = millis() - frameStart;
+    if (elapsed < TARGET_FRAME_TIME_MS) {
+        delay(TARGET_FRAME_TIME_MS - elapsed);
+    }
 }

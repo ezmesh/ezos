@@ -398,31 +398,33 @@ void Display::fillRectDithered(int x, int y, int w, int h, uint16_t color, int d
         return;
     }
 
-    // For 50% density, use simple checkerboard (fastest)
+    // For 50% density, use simple checkerboard - skip by 2 instead of per-pixel modulo
     if (density == 50) {
         for (int py = 0; py < h; py++) {
-            for (int px = 0; px < w; px++) {
-                if ((px + py) % 2 == 0) {
-                    _buffer.drawPixel(x + px, y + py, color);
-                }
+            int startPx = (py & 1);  // Alternate starting offset each row
+            for (int px = startPx; px < w; px += 2) {
+                _buffer.drawPixel(x + px, y + py, color);
             }
         }
     }
-    // For 25% density, use sparser pattern
+    // For 25% density, draw every other pixel on every other row
     else if (density == 25) {
-        for (int py = 0; py < h; py++) {
-            for (int px = 0; px < w; px++) {
-                if ((px % 2 == 0) && (py % 2 == 0)) {
-                    _buffer.drawPixel(x + px, y + py, color);
-                }
+        for (int py = 0; py < h; py += 2) {
+            for (int px = 0; px < w; px += 2) {
+                _buffer.drawPixel(x + px, y + py, color);
             }
         }
     }
-    // For 75% density, use denser pattern
+    // For 75% density, draw all except every other pixel on every other row
     else if (density == 75) {
         for (int py = 0; py < h; py++) {
-            for (int px = 0; px < w; px++) {
-                if (!((px % 2 == 0) && (py % 2 == 0))) {
+            if (py & 1) {
+                // Odd rows: draw all pixels
+                _buffer.drawFastHLine(x, y + py, w, color);
+            } else {
+                // Even rows: draw all except at even x positions (skip 0, 2, 4...)
+                // Draw odd positions
+                for (int px = 1; px < w; px += 2) {
                     _buffer.drawPixel(x + px, y + py, color);
                 }
             }
@@ -430,18 +432,19 @@ void Display::fillRectDithered(int x, int y, int w, int h, uint16_t color, int d
     }
     // For other densities, use ordered dithering with 4x4 Bayer matrix
     else {
-        // 4x4 Bayer matrix thresholds (0-15 scaled to 0-100)
-        static const uint8_t bayer[4][4] = {
-            {  0,  8,  2, 10 },
-            { 12,  4, 14,  6 },
-            {  3, 11,  1,  9 },
-            { 15,  7, 13,  5 }
+        // 4x4 Bayer matrix thresholds pre-scaled (multiply by 6.25 = 100/16)
+        // Using fixed-point: threshold * 100 / 16 = threshold * 25 / 4
+        static const uint8_t bayerThreshold[4][4] = {
+            {  0, 50, 12, 62 },   // 0*6.25, 8*6.25, 2*6.25, 10*6.25
+            { 75, 25, 87, 37 },   // 12*6.25, 4*6.25, 14*6.25, 6*6.25
+            { 18, 68,  6, 56 },   // 3*6.25, 11*6.25, 1*6.25, 9*6.25
+            { 93, 43, 81, 31 }    // 15*6.25, 7*6.25, 13*6.25, 5*6.25
         };
 
         for (int py = 0; py < h; py++) {
+            const uint8_t* rowThreshold = bayerThreshold[py & 3];
             for (int px = 0; px < w; px++) {
-                int threshold = (bayer[py % 4][px % 4] * 100) / 16;
-                if (density > threshold) {
+                if (density > rowThreshold[px & 3]) {
                     _buffer.drawPixel(x + px, y + py, color);
                 }
             }

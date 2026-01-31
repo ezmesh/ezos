@@ -1,6 +1,8 @@
 -- Minesweeper for T-Deck OS
 -- Classic mine-finding puzzle game
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local Minesweeper = {
     title = "Minesweeper",
     CELL_SIZE = 16,
@@ -175,7 +177,7 @@ function Minesweeper:count_flags()
 end
 
 function Minesweeper:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local now = ez.system.millis()
 
     if not self.game_over and not self.first_click then

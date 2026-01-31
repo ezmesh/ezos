@@ -78,13 +78,13 @@ local function get_encryption_key(pub_key_hex)
     -- Calculate shared secret
     local pub_key_bytes = hex_to_bytes(pub_key_hex)
     if not pub_key_bytes or #pub_key_bytes ~= 32 then
-        print("[DirectMessages] Invalid public key for encryption")
+        ez.system.log("[DirectMessages] Invalid public key for encryption")
         return nil
     end
 
     local secret = ez.mesh.calc_shared_secret(pub_key_bytes)
     if not secret then
-        print("[DirectMessages] Failed to calculate shared secret")
+        ez.system.log("[DirectMessages] Failed to calculate shared secret")
         return nil
     end
 
@@ -95,7 +95,7 @@ local function get_encryption_key(pub_key_hex)
     local result = { secret = secret, key = key }
     DirectMessages._secret_cache[pub_key_hex] = result
 
-    print("[DirectMessages] Computed encryption key for " .. pub_key_hex:sub(1, 8))
+    ez.system.log("[DirectMessages] Computed encryption key for " .. pub_key_hex:sub(1, 8))
     return result
 end
 
@@ -145,7 +145,7 @@ local function decrypt_message(key, mac_and_ciphertext)
     local computed_mac = computed_hmac:sub(1, 2)
 
     if mac ~= computed_mac then
-        print("[DirectMessages] MAC verification failed")
+        ez.system.log("[DirectMessages] MAC verification failed")
         return nil
     end
 
@@ -200,7 +200,7 @@ local function decrypt_req_payload(key, mac_and_ciphertext)
     local computed_mac = computed_hmac:sub(1, 16)
 
     if mac ~= computed_mac then
-        print("[DirectMessages] REQ/RESPONSE MAC verification failed")
+        ez.system.log("[DirectMessages] REQ/RESPONSE MAC verification failed")
         return nil
     end
 
@@ -356,7 +356,7 @@ function DirectMessages.init()
         end, 10000)  -- Every 10 seconds
     end
 
-    print("[DirectMessages] Initialized with " .. DirectMessages._count_conversations() .. " conversations")
+    ez.system.log("[DirectMessages] Initialized with " .. DirectMessages._count_conversations() .. " conversations")
 end
 
 -- Handle node discovery - retry any pending packets from this node
@@ -366,7 +366,7 @@ function DirectMessages._on_node_discovered(node)
 
     local pending = DirectMessages._pending_packets[node.path_hash]
     if pending then
-        print(string.format("[DirectMessages] Node discovered with hash %02X, retrying pending packet",
+        ez.system.log(string.format("[DirectMessages] Node discovered with hash %02X, retrying pending packet",
               node.path_hash))
         -- Remove from pending before retry (to avoid infinite loop)
         DirectMessages._pending_packets[node.path_hash] = nil
@@ -387,7 +387,7 @@ function DirectMessages._cleanup_pending_packets()
     end
 
     for _, hash in ipairs(expired) do
-        print(string.format("[DirectMessages] Expired pending packet from hash %02X", hash))
+        ez.system.log(string.format("[DirectMessages] Expired pending packet from hash %02X", hash))
         DirectMessages._pending_packets[hash] = nil
     end
 end
@@ -401,7 +401,7 @@ function DirectMessages._register_builtin_handlers()
         local count = string.byte(data, 1)
         if count == 0 or #data < 1 + count * 2 then return nil end
 
-        print(string.format("[DirectMessages] REQ_ACK for %d counters from %s",
+        ez.system.log(string.format("[DirectMessages] REQ_ACK for %d counters from %s",
               count, sender_pub_key_hex:sub(1, 8)))
 
         -- Find the conversation
@@ -419,7 +419,7 @@ function DirectMessages._register_builtin_handlers()
                         -- Send ACK for this message
                         local text_hash = DirectMessages._compute_text_hash(msg.text)
                         DirectMessages._send_ack(sender_pub_key_hex, counter, text_hash)
-                        print(string.format("[DirectMessages] Sent ACK for counter %d", counter))
+                        ez.system.log(string.format("[DirectMessages] Sent ACK for counter %d", counter))
                         break
                     end
                 end
@@ -436,7 +436,7 @@ function DirectMessages._register_builtin_handlers()
         local count = string.byte(data, 1)
         if count == 0 or #data < 1 + count * 2 then return nil end
 
-        print(string.format("[DirectMessages] RETRY_MSG for %d counters from %s",
+        ez.system.log(string.format("[DirectMessages] RETRY_MSG for %d counters from %s",
               count, sender_pub_key_hex:sub(1, 8)))
 
         -- Find the conversation
@@ -452,7 +452,7 @@ function DirectMessages._register_builtin_handlers()
                 for _, msg in ipairs(conv.messages) do
                     if msg.direction == "sent" and msg.counter == counter then
                         -- Resend this message
-                        print("[DirectMessages] Resending message #" .. counter)
+                        ez.system.log("[DirectMessages] Resending message #" .. counter)
                         DirectMessages._try_send_message(sender_pub_key_hex, msg)
                         break
                     end
@@ -515,7 +515,7 @@ function DirectMessages.send(recipient_pub_key_hex, text)
     }
 
     DirectMessages._store_message(recipient_pub_key_hex, msg)
-    print("[DirectMessages] Queued message #" .. counter .. " to " .. recipient_pub_key_hex:sub(1, 8))
+    ez.system.log("[DirectMessages] Queued message #" .. counter .. " to " .. recipient_pub_key_hex:sub(1, 8))
 
     -- Try to send immediately
     DirectMessages._try_send_message(recipient_pub_key_hex, msg)
@@ -536,7 +536,7 @@ function DirectMessages._try_send_message(recipient_pub_key_hex, msg)
     -- able to decrypt our message if they haven't added us as a contact.
     local conv = DirectMessages.conversations[recipient_pub_key_hex]
     if msg.counter == 1 and conv and not conv._sent_intro_advert then
-        print("[DirectMessages] First message - sending ADVERT to introduce ourselves")
+        ez.system.log("[DirectMessages] First message - sending ADVERT to introduce ourselves")
         if ez.mesh.send_announce then
             ez.mesh.send_announce()
             conv._sent_intro_advert = true
@@ -565,13 +565,13 @@ function DirectMessages._try_send_message(recipient_pub_key_hex, msg)
     -- Encrypt the payload
     local enc_key_data = get_encryption_key(recipient_pub_key_hex)
     if not enc_key_data then
-        print("[DirectMessages] Failed to get encryption key for " .. recipient_pub_key_hex:sub(1, 8))
+        ez.system.log("[DirectMessages] Failed to get encryption key for " .. recipient_pub_key_hex:sub(1, 8))
         return false
     end
 
     local encrypted_payload = encrypt_message(enc_key_data.key, inner_payload)
     if not encrypted_payload then
-        print("[DirectMessages] Failed to encrypt message")
+        ez.system.log("[DirectMessages] Failed to encrypt message")
         return false
     end
 
@@ -596,17 +596,17 @@ function DirectMessages._try_send_message(recipient_pub_key_hex, msg)
         -- Path format: [our_hash, hop1, hop2, ..., recipient_hash]
         route_type = DirectMessages.ROUTE_TYPE_DIRECT
         path = string.char(our_hash) .. out_path .. string.char(recipient_hash)
-        print("[DirectMessages] Using DIRECT routing via " .. #out_path .. " hops")
+        ez.system.log("[DirectMessages] Using DIRECT routing via " .. #out_path .. " hops")
     else
         -- FLOOD routing: path unknown OR time to refresh route
         -- Path format: [our_hash] - repeaters will append their hashes
         route_type = DirectMessages.ROUTE_TYPE_FLOOD
         path = string.char(our_hash)
         if needs_refresh then
-            print("[DirectMessages] Using FLOOD routing (periodic route refresh)")
+            ez.system.log("[DirectMessages] Using FLOOD routing (periodic route refresh)")
             conv.route_refreshed_at = now
         else
-            print("[DirectMessages] Using FLOOD routing (no path cached)")
+            ez.system.log("[DirectMessages] Using FLOOD routing (no path cached)")
         end
     end
 
@@ -629,7 +629,7 @@ function DirectMessages._try_send_message(recipient_pub_key_hex, msg)
             msg.sent_at = ez.system.millis()
         end
         DirectMessages._save_conversation(recipient_pub_key_hex)
-        print("[DirectMessages] Sent #" .. counter .. " to " .. recipient_pub_key_hex:sub(1, 8) .. ": " .. msg.text:sub(1, 20))
+        ez.system.log("[DirectMessages] Sent #" .. counter .. " to " .. recipient_pub_key_hex:sub(1, 8) .. ": " .. msg.text:sub(1, 20))
         return true
     end
 
@@ -689,12 +689,12 @@ function DirectMessages._process_retries()
                         msg.failed = true
                         conv_needs_save = true
                         needs_refresh = true
-                        print(string.format("[DirectMessages] Message #%d failed after %d ACK retries",
+                        ez.system.log(string.format("[DirectMessages] Message #%d failed after %d ACK retries",
                               msg.counter, retry_count))
 
                         -- Reset route for this conversation
                         if conv.out_path then
-                            print("[DirectMessages] Resetting route due to failed message")
+                            ez.system.log("[DirectMessages] Resetting route due to failed message")
                             conv.out_path = nil
                             conv.route_refreshed_at = 0
                         end
@@ -726,12 +726,12 @@ function DirectMessages._process_retries()
                         msg.failed = true
                         conv_needs_save = true
                         needs_refresh = true
-                        print(string.format("[DirectMessages] Gap #%d failed after %d retries",
+                        ez.system.log(string.format("[DirectMessages] Gap #%d failed after %d retries",
                               msg.counter, retry_count))
 
                         -- Reset route for this conversation
                         if conv.out_path then
-                            print("[DirectMessages] Resetting route due to failed gap fill")
+                            ez.system.log("[DirectMessages] Resetting route due to failed gap fill")
                             conv.out_path = nil
                             conv.route_refreshed_at = 0
                         end
@@ -764,7 +764,7 @@ function DirectMessages._process_retries()
                             end
                         end
                         conv_needs_save = true
-                        print(string.format("[DirectMessages] Requesting ACKs for %d messages (batched)", #counters))
+                        ez.system.log(string.format("[DirectMessages] Requesting ACKs for %d messages (batched)", #counters))
                     end
                     counters = {}
                 end
@@ -783,7 +783,7 @@ function DirectMessages._process_retries()
                         end
                     end
                     conv_needs_save = true
-                    print(string.format("[DirectMessages] Requesting ACKs for %d messages (batched)", #counters))
+                    ez.system.log(string.format("[DirectMessages] Requesting ACKs for %d messages (batched)", #counters))
                 end
             end
         end
@@ -807,7 +807,7 @@ function DirectMessages._process_retries()
                             end
                         end
                         conv_needs_save = true
-                        print(string.format("[DirectMessages] Requesting retries for %d gaps (batched)", #counters))
+                        ez.system.log(string.format("[DirectMessages] Requesting retries for %d gaps (batched)", #counters))
                     end
                     counters = {}
                 end
@@ -826,7 +826,7 @@ function DirectMessages._process_retries()
                         end
                     end
                     conv_needs_save = true
-                    print(string.format("[DirectMessages] Requesting retries for %d gaps (batched)", #counters))
+                    ez.system.log(string.format("[DirectMessages] Requesting retries for %d gaps (batched)", #counters))
                 end
             end
         end
@@ -928,7 +928,7 @@ function DirectMessages.reset_route(pub_key_hex)
         conv.out_path = nil
         conv.route_refreshed_at = 0  -- Reset refresh timer too
         DirectMessages._save_conversation(pub_key_hex)
-        print(string.format("[DirectMessages] Reset route to %s (was %d hops)",
+        ez.system.log(string.format("[DirectMessages] Reset route to %s (was %d hops)",
               pub_key_hex:sub(1, 8), old_hops))
     end
 end
@@ -974,7 +974,7 @@ function DirectMessages._send_ack(sender_pub_key_hex, counter, text_hash)
     local payload = pack_uint16_le(counter) .. pack_uint16_le(0) .. pack_uint32_le(text_hash)
     local path = string.char(our_hash, sender_hash)
 
-    print(string.format("[DirectMessages] _send_ack: counter=%d hash=%08X path=%02X->%02X",
+    ez.system.log(string.format("[DirectMessages] _send_ack: counter=%d hash=%08X path=%02X->%02X",
           counter, text_hash, our_hash, sender_hash))
 
     local packet_data = ez.mesh.build_packet(
@@ -990,7 +990,7 @@ function DirectMessages._send_ack(sender_pub_key_hex, counter, text_hash)
 
     local ok = ez.mesh.queue_send(packet_data)
     if ok then
-        print("[DirectMessages] ACK sent to " .. sender_pub_key_hex:sub(1, 8))
+        ez.system.log("[DirectMessages] ACK sent to " .. sender_pub_key_hex:sub(1, 8))
     end
     return ok
 end
@@ -1040,7 +1040,7 @@ function DirectMessages._send_path_response(sender_pub_key_hex, incoming_path, c
         packet_path = string.char(our_hash, sender_hash)
     end
 
-    print(string.format("[DirectMessages] Sending PATH response: %d hops, ACK counter=%d",
+    ez.system.log(string.format("[DirectMessages] Sending PATH response: %d hops, ACK counter=%d",
           path_len, counter))
 
     local packet_data = ez.mesh.build_packet(
@@ -1056,7 +1056,7 @@ function DirectMessages._send_path_response(sender_pub_key_hex, incoming_path, c
 
     local ok = ez.mesh.queue_send(packet_data)
     if ok then
-        print("[DirectMessages] PATH+ACK sent to " .. sender_pub_key_hex:sub(1, 8))
+        ez.system.log("[DirectMessages] PATH+ACK sent to " .. sender_pub_key_hex:sub(1, 8))
     end
     return ok
 end
@@ -1067,14 +1067,14 @@ end
 function DirectMessages._handle_path(packet)
     local payload = packet.payload
     if #payload < 2 then
-        print("[DirectMessages] PATH payload too short: " .. #payload)
+        ez.system.log("[DirectMessages] PATH payload too short: " .. #payload)
         return false
     end
 
     -- Parse PATH payload: [path_len:1][path:variable][extra_type:1][extra_data:variable]
     local path_len = string.byte(payload, 1)
     if #payload < 1 + path_len + 1 then
-        print("[DirectMessages] PATH payload truncated")
+        ez.system.log("[DirectMessages] PATH payload truncated")
         return false
     end
 
@@ -1085,7 +1085,7 @@ function DirectMessages._handle_path(packet)
     -- Get sender's public key from path hash
     local path = packet.path
     if not path or #path < 1 then
-        print("[DirectMessages] PATH has no path")
+        ez.system.log("[DirectMessages] PATH has no path")
         return false
     end
     local sender_hash = string.byte(path, 1)
@@ -1127,7 +1127,7 @@ function DirectMessages._handle_path(packet)
     end
 
     if not sender_pub_key_hex then
-        print(string.format("[DirectMessages] PATH from unknown hash %02X", sender_hash))
+        ez.system.log(string.format("[DirectMessages] PATH from unknown hash %02X", sender_hash))
         return true
     end
 
@@ -1145,14 +1145,14 @@ function DirectMessages._handle_path(packet)
 
     if not current_path then
         should_update = true
-        print(string.format("[DirectMessages] PATH: Learned new route to %s: %d hops",
+        ez.system.log(string.format("[DirectMessages] PATH: Learned new route to %s: %d hops",
               sender_pub_key_hex:sub(1, 8), #new_out_path))
     elseif #new_out_path < #current_path then
         should_update = true
-        print(string.format("[DirectMessages] PATH: Upgraded route to %s: %d -> %d hops",
+        ez.system.log(string.format("[DirectMessages] PATH: Upgraded route to %s: %d -> %d hops",
               sender_pub_key_hex:sub(1, 8), #current_path, #new_out_path))
     else
-        print(string.format("[DirectMessages] PATH: Keeping existing route to %s: %d hops (new was %d)",
+        ez.system.log(string.format("[DirectMessages] PATH: Keeping existing route to %s: %d hops (new was %d)",
               sender_pub_key_hex:sub(1, 8), #current_path, #new_out_path))
     end
 
@@ -1168,7 +1168,7 @@ function DirectMessages._handle_path(packet)
         local ack_reserved = unpack_uint16_le(extra_data, 3)
         local ack_text_hash = unpack_uint32_le(extra_data, 5)
 
-        print(string.format("[DirectMessages] PATH contains piggybacked ACK: counter=%d hash=%08X",
+        ez.system.log(string.format("[DirectMessages] PATH contains piggybacked ACK: counter=%d hash=%08X",
               ack_counter, ack_text_hash))
 
         -- Find and mark the message as acked
@@ -1179,7 +1179,7 @@ function DirectMessages._handle_path(packet)
                     if msg_text_hash == ack_text_hash then
                         msg.acked = true
                         msg.failed = nil  -- Clear failed status if ACK received late
-                        print("[DirectMessages] Message #" .. ack_counter .. " ACKed via PATH")
+                        ez.system.log("[DirectMessages] Message #" .. ack_counter .. " ACKed via PATH")
                         DirectMessages._save_conversation(sender_pub_key_hex)
 
                         -- Publish message acked event
@@ -1214,7 +1214,7 @@ end
 function DirectMessages._handle_ack(packet)
     local payload = packet.payload
     if #payload < 8 then
-        print("[DirectMessages] ACK payload too short: " .. #payload)
+        ez.system.log("[DirectMessages] ACK payload too short: " .. #payload)
         return false
     end
 
@@ -1225,7 +1225,7 @@ function DirectMessages._handle_ack(packet)
     -- Get the ACK sender's hash from path (first byte is originator)
     local path = packet.path
     if not path or #path < 1 then
-        print("[DirectMessages] ACK has no path")
+        ez.system.log("[DirectMessages] ACK has no path")
         return false
     end
     local acker_hash = string.byte(path, 1)
@@ -1236,7 +1236,7 @@ function DirectMessages._handle_ack(packet)
         return true  -- Silently ignore
     end
 
-    print(string.format("[DirectMessages] ACK from hash %02X, counter=%d, text_hash=%08X",
+    ez.system.log(string.format("[DirectMessages] ACK from hash %02X, counter=%d, text_hash=%08X",
           acker_hash, counter, text_hash))
 
     -- Find the acker's public key
@@ -1254,7 +1254,7 @@ function DirectMessages._handle_ack(packet)
                     if contact_hash == acker_hash then
                         acker_pub_key_hex = contact.pub_key_hex
                         acker_name = contact.name
-                        print("[DirectMessages] ACK sender found in contacts: " .. (acker_name or "?"))
+                        ez.system.log("[DirectMessages] ACK sender found in contacts: " .. (acker_name or "?"))
                         break
                     end
                 end
@@ -1269,14 +1269,14 @@ function DirectMessages._handle_ack(packet)
             if node.path_hash == acker_hash and node.pub_key_hex then
                 acker_pub_key_hex = node.pub_key_hex
                 acker_name = node.name
-                print("[DirectMessages] ACK sender found in live nodes: " .. (acker_name or "?"))
+                ez.system.log("[DirectMessages] ACK sender found in live nodes: " .. (acker_name or "?"))
                 break
             end
         end
     end
 
     if not acker_pub_key_hex then
-        print(string.format("[DirectMessages] ACK from unknown hash %02X - no matching contact or node", acker_hash))
+        ez.system.log(string.format("[DirectMessages] ACK from unknown hash %02X - no matching contact or node", acker_hash))
         return true
     end
 
@@ -1290,7 +1290,7 @@ function DirectMessages._handle_ack(packet)
                 if msg_text_hash == text_hash then
                     msg.acked = true
                     msg.failed = nil  -- Clear failed status if ACK received late
-                    print("[DirectMessages] Message #" .. counter .. " ACKed: " .. msg.text:sub(1, 20))
+                    ez.system.log("[DirectMessages] Message #" .. counter .. " ACKed: " .. msg.text:sub(1, 20))
                     DirectMessages._save_conversation(acker_pub_key_hex)
 
                     -- Publish message acked event
@@ -1327,7 +1327,7 @@ end
 function DirectMessages._handle_req(packet)
     local payload = packet.payload
     if #payload < 2 + 16 + 16 then  -- dest + src + MAC + min encrypted (1 AES block)
-        print("[DirectMessages] REQ payload too short: " .. #payload)
+        ez.system.log("[DirectMessages] REQ payload too short: " .. #payload)
         return false
     end
 
@@ -1344,21 +1344,21 @@ function DirectMessages._handle_req(packet)
     -- Find sender's public key
     local sender_pub_key_hex = DirectMessages._find_pub_key_by_hash(src_hash)
     if not sender_pub_key_hex then
-        print(string.format("[DirectMessages] REQ from unknown hash %02X", src_hash))
+        ez.system.log(string.format("[DirectMessages] REQ from unknown hash %02X", src_hash))
         return true  -- Handled (but can't decrypt)
     end
 
     -- Get decryption key
     local enc_key_data = get_encryption_key(sender_pub_key_hex)
     if not enc_key_data then
-        print("[DirectMessages] Failed to get decryption key for REQ")
+        ez.system.log("[DirectMessages] Failed to get decryption key for REQ")
         return true
     end
 
     -- Decrypt payload
     local decrypted = decrypt_req_payload(enc_key_data.key, mac_and_encrypted)
     if not decrypted or #decrypted < 5 then  -- timestamp(4) + type(1)
-        print("[DirectMessages] Failed to decrypt REQ")
+        ez.system.log("[DirectMessages] Failed to decrypt REQ")
         return true
     end
 
@@ -1370,7 +1370,7 @@ function DirectMessages._handle_req(packet)
     -- Note: Don't strip null bytes from request_data - it's binary data
     -- The AES padding may add nulls, but handlers should know the expected data size
 
-    print(string.format("[DirectMessages] REQ from %s: type=%d data_len=%d",
+    ez.system.log(string.format("[DirectMessages] REQ from %s: type=%d data_len=%d",
           sender_pub_key_hex:sub(1, 8), request_type, #request_data))
 
     -- Call registered handler for this request type
@@ -1381,7 +1381,7 @@ function DirectMessages._handle_req(packet)
             DirectMessages.send_response(sender_pub_key_hex, response_data)
         end
     else
-        print("[DirectMessages] No handler for request type " .. request_type)
+        ez.system.log("[DirectMessages] No handler for request type " .. request_type)
     end
 
     return true
@@ -1393,7 +1393,7 @@ end
 function DirectMessages._handle_response(packet)
     local payload = packet.payload
     if #payload < 2 + 16 + 16 then  -- dest + src + MAC + min encrypted
-        print("[DirectMessages] RESPONSE payload too short: " .. #payload)
+        ez.system.log("[DirectMessages] RESPONSE payload too short: " .. #payload)
         return false
     end
 
@@ -1410,21 +1410,21 @@ function DirectMessages._handle_response(packet)
     -- Find sender's public key
     local sender_pub_key_hex = DirectMessages._find_pub_key_by_hash(src_hash)
     if not sender_pub_key_hex then
-        print(string.format("[DirectMessages] RESPONSE from unknown hash %02X", src_hash))
+        ez.system.log(string.format("[DirectMessages] RESPONSE from unknown hash %02X", src_hash))
         return true
     end
 
     -- Get decryption key
     local enc_key_data = get_encryption_key(sender_pub_key_hex)
     if not enc_key_data then
-        print("[DirectMessages] Failed to get decryption key for RESPONSE")
+        ez.system.log("[DirectMessages] Failed to get decryption key for RESPONSE")
         return true
     end
 
     -- Decrypt payload
     local decrypted = decrypt_req_payload(enc_key_data.key, mac_and_encrypted)
     if not decrypted or #decrypted < 4 then  -- timestamp(4)
-        print("[DirectMessages] Failed to decrypt RESPONSE")
+        ez.system.log("[DirectMessages] Failed to decrypt RESPONSE")
         return true
     end
 
@@ -1434,7 +1434,7 @@ function DirectMessages._handle_response(packet)
 
     -- Note: Don't strip null bytes from response_data - it's binary data
 
-    print(string.format("[DirectMessages] RESPONSE from %s: data_len=%d",
+    ez.system.log(string.format("[DirectMessages] RESPONSE from %s: data_len=%d",
           sender_pub_key_hex:sub(1, 8), #response_data))
 
     -- Find pending request for this sender and call callback
@@ -1496,7 +1496,7 @@ function DirectMessages.send_request(recipient_pub_key_hex, request_type, reques
     -- Get encryption key
     local enc_key_data = get_encryption_key(recipient_pub_key_hex)
     if not enc_key_data then
-        print("[DirectMessages] Failed to get encryption key for REQ")
+        ez.system.log("[DirectMessages] Failed to get encryption key for REQ")
         return false
     end
 
@@ -1507,7 +1507,7 @@ function DirectMessages.send_request(recipient_pub_key_hex, request_type, reques
     -- Encrypt with 16-byte MAC
     local encrypted = encrypt_req_payload(enc_key_data.key, inner_payload)
     if not encrypted then
-        print("[DirectMessages] Failed to encrypt REQ")
+        ez.system.log("[DirectMessages] Failed to encrypt REQ")
         return false
     end
 
@@ -1529,7 +1529,7 @@ function DirectMessages.send_request(recipient_pub_key_hex, request_type, reques
 
     local ok = ez.mesh.queue_send(packet_data)
     if ok then
-        print(string.format("[DirectMessages] REQ sent to %s: type=%d",
+        ez.system.log(string.format("[DirectMessages] REQ sent to %s: type=%d",
               recipient_pub_key_hex:sub(1, 8), request_type))
         -- Store callback for response
         if callback then
@@ -1563,7 +1563,7 @@ function DirectMessages.send_response(recipient_pub_key_hex, response_data)
     -- Get encryption key
     local enc_key_data = get_encryption_key(recipient_pub_key_hex)
     if not enc_key_data then
-        print("[DirectMessages] Failed to get encryption key for RESPONSE")
+        ez.system.log("[DirectMessages] Failed to get encryption key for RESPONSE")
         return false
     end
 
@@ -1574,7 +1574,7 @@ function DirectMessages.send_response(recipient_pub_key_hex, response_data)
     -- Encrypt with 16-byte MAC
     local encrypted = encrypt_req_payload(enc_key_data.key, inner_payload)
     if not encrypted then
-        print("[DirectMessages] Failed to encrypt RESPONSE")
+        ez.system.log("[DirectMessages] Failed to encrypt RESPONSE")
         return false
     end
 
@@ -1596,7 +1596,7 @@ function DirectMessages.send_response(recipient_pub_key_hex, response_data)
 
     local ok = ez.mesh.queue_send(packet_data)
     if ok then
-        print(string.format("[DirectMessages] RESPONSE sent to %s",
+        ez.system.log(string.format("[DirectMessages] RESPONSE sent to %s",
               recipient_pub_key_hex:sub(1, 8)))
     end
 
@@ -1694,7 +1694,7 @@ end
 -- @return handled (boolean), rebroadcast (boolean)
 function DirectMessages._handle_packet(packet)
     -- Debug: log all incoming packets
-    print(string.format("[DirectMessages] Packet: route=%d payload=%d pathLen=%d",
+    ez.system.log(string.format("[DirectMessages] Packet: route=%d payload=%d pathLen=%d",
         packet.route_type or -1, packet.payload_type or -1, packet.path and #packet.path or 0))
 
     -- Handle PATH packets (route learning with optional piggybacked ACK)
@@ -1726,7 +1726,7 @@ function DirectMessages._handle_packet(packet)
         return false, false
     end
 
-    print(string.format("[DirectMessages] Received TXT_MSG! route=%d pathLen=%d payloadLen=%d",
+    ez.system.log(string.format("[DirectMessages] Received TXT_MSG! route=%d pathLen=%d payloadLen=%d",
         packet.route_type or -1, packet.path and #packet.path or 0, packet.payload and #packet.payload or 0))
 
     -- For DIRECT routing, check if addressed to us
@@ -1736,12 +1736,12 @@ function DirectMessages._handle_packet(packet)
     if packet.route_type == DirectMessages.ROUTE_TYPE_DIRECT then
         -- DIRECT routing: destination is last byte in path
         if not path or #path < 2 then
-            print("[DirectMessages] DIRECT but path too short")
+            ez.system.log("[DirectMessages] DIRECT but path too short")
             return false, false
         end
         local dest_hash = string.byte(path, #path)
         if dest_hash ~= our_hash then
-            print(string.format("[DirectMessages] Not for us: dest=%02X our=%02X", dest_hash, our_hash))
+            ez.system.log(string.format("[DirectMessages] Not for us: dest=%02X our=%02X", dest_hash, our_hash))
             return false, false
         end
     end
@@ -1749,7 +1749,7 @@ function DirectMessages._handle_packet(packet)
 
     -- Get sender's hash from path (first byte is originator)
     local sender_hash = string.byte(path, 1)
-    print(string.format("[DirectMessages] Sender path_hash: %02X", sender_hash))
+    ez.system.log(string.format("[DirectMessages] Sender path_hash: %02X", sender_hash))
 
     -- Find sender's public key FIRST (needed for decryption)
     local sender_pub_key = nil
@@ -1759,28 +1759,28 @@ function DirectMessages._handle_packet(packet)
     -- First check saved contacts (trusted, user-added)
     if _G.Contacts and _G.Contacts.get_saved then
         local saved = _G.Contacts.get_saved() or {}
-        print(string.format("[DirectMessages] Searching %d saved contacts for hash %02X", #saved, sender_hash))
+        ez.system.log(string.format("[DirectMessages] Searching %d saved contacts for hash %02X", #saved, sender_hash))
         for _, contact in ipairs(saved) do
             if contact.pub_key_hex then
                 -- Compute path_hash from public key (first byte)
                 local contact_pub_key = hex_to_bytes(contact.pub_key_hex)
                 if contact_pub_key and #contact_pub_key >= 1 then
                     local contact_hash = string.byte(contact_pub_key, 1)
-                    print(string.format("[DirectMessages] Contact %s has hash %02X", contact.name or "?", contact_hash))
+                    ez.system.log(string.format("[DirectMessages] Contact %s has hash %02X", contact.name or "?", contact_hash))
                     if contact_hash == sender_hash then
                         sender_pub_key_hex = contact.pub_key_hex
                         sender_pub_key = contact_pub_key
                         sender_name = contact.name
-                        print("[DirectMessages] Found sender in saved contacts: " .. (sender_name or "?"))
+                        ez.system.log("[DirectMessages] Found sender in saved contacts: " .. (sender_name or "?"))
                         break
                     end
                 end
             else
-                print("[DirectMessages] Contact missing pub_key_hex: " .. (contact.name or "?"))
+                ez.system.log("[DirectMessages] Contact missing pub_key_hex: " .. (contact.name or "?"))
             end
         end
     else
-        print("[DirectMessages] Contacts service not available")
+        ez.system.log("[DirectMessages] Contacts service not available")
     end
 
     -- If not found in contacts, check live discovered nodes
@@ -1791,7 +1791,7 @@ function DirectMessages._handle_packet(packet)
                 sender_pub_key_hex = node.pub_key_hex
                 sender_pub_key = hex_to_bytes(sender_pub_key_hex)
                 sender_name = node.name
-                print("[DirectMessages] Found sender in live nodes: " .. (sender_name or "?"))
+                ez.system.log("[DirectMessages] Found sender in live nodes: " .. (sender_name or "?"))
                 break
             end
         end
@@ -1807,18 +1807,18 @@ function DirectMessages._handle_packet(packet)
         if enc_key_data then
             decrypted_payload = decrypt_message(enc_key_data.key, payload)
             if decrypted_payload then
-                print("[DirectMessages] Decrypted message from " .. sender_pub_key_hex:sub(1, 8))
+                ez.system.log("[DirectMessages] Decrypted message from " .. sender_pub_key_hex:sub(1, 8))
                 payload = decrypted_payload
             else
-                print("[DirectMessages] Decryption failed - MAC mismatch or corrupt data")
+                ez.system.log("[DirectMessages] Decryption failed - MAC mismatch or corrupt data")
                 return true, false  -- Drop packet
             end
         else
-            print("[DirectMessages] Failed to get decryption key")
+            ez.system.log("[DirectMessages] Failed to get decryption key")
             return true, false  -- Drop packet
         end
     else
-        print(string.format("[DirectMessages] Unknown sender hash %02X - caching packet for later", sender_hash))
+        ez.system.log(string.format("[DirectMessages] Unknown sender hash %02X - caching packet for later", sender_hash))
         -- Cache the packet in case an ADVERT arrives soon with this sender's public key
         DirectMessages._pending_packets[sender_hash] = {
             packet = packet,
@@ -1829,7 +1829,7 @@ function DirectMessages._handle_packet(packet)
 
     -- Parse decrypted payload: [counter:2][reserved:2][signature:64][text]
     if #payload < 68 then  -- 2 + 2 + 64 minimum
-        print("[DirectMessages] Decrypted payload too short: " .. #payload)
+        ez.system.log("[DirectMessages] Decrypted payload too short: " .. #payload)
         return true, false
     end
 
@@ -1850,7 +1850,7 @@ function DirectMessages._handle_packet(packet)
         local sign_data = pack_uint16_le(counter) .. pack_uint16_le(reserved) .. text
         verified = ez.mesh.ed25519_verify(sign_data, signature, sender_pub_key)
         if not verified then
-            print("[DirectMessages] Signature verification FAILED")
+            ez.system.log("[DirectMessages] Signature verification FAILED")
         end
     end
 
@@ -1874,12 +1874,12 @@ function DirectMessages._handle_packet(packet)
         end
 
         if fills_gap then
-            print("[DirectMessages] Filling gap for message #" .. counter .. " at index " .. gap_fill_index ..
+            ez.system.log("[DirectMessages] Filling gap for message #" .. counter .. " at index " .. gap_fill_index ..
                   (was_failed_gap and " (was failed)" or ""))
             -- Remove the gap placeholder, we'll insert the real message at this position
             table.remove(conv.messages, gap_fill_index)
         else
-            print("[DirectMessages] Duplicate message #" .. counter .. " (last=" .. last_counter .. ")")
+            ez.system.log("[DirectMessages] Duplicate message #" .. counter .. " (last=" .. last_counter .. ")")
             return true, false
         end
     end
@@ -1887,7 +1887,7 @@ function DirectMessages._handle_packet(packet)
     -- Detect gaps and insert placeholder messages
     if counter > last_counter + 1 and last_counter > 0 then
         local gap_count = counter - last_counter - 1
-        print("[DirectMessages] Gap detected: " .. gap_count .. " missed messages (" .. (last_counter+1) .. "-" .. (counter-1) .. ")")
+        ez.system.log("[DirectMessages] Gap detected: " .. gap_count .. " missed messages (" .. (last_counter+1) .. "-" .. (counter-1) .. ")")
         for gap_counter = last_counter + 1, counter - 1 do
             DirectMessages._seq = DirectMessages._seq + 1
             local gap_msg = {
@@ -1986,7 +1986,7 @@ function DirectMessages._handle_packet(packet)
         DirectMessages._on_message(sender_pub_key_hex, msg)
     end
 
-    print("[DirectMessages] Received from " .. (sender_name or sender_pub_key_hex:sub(1, 8)) ..
+    ez.system.log("[DirectMessages] Received from " .. (sender_name or sender_pub_key_hex:sub(1, 8)) ..
           " (verified=" .. tostring(verified) .. "): " .. text:sub(1, 20))
 
     -- Learn the path from this message for future direct routing to sender
@@ -2020,16 +2020,16 @@ function DirectMessages._handle_packet(packet)
             if not current_path then
                 -- No existing path - always learn
                 should_update = true
-                print(string.format("[DirectMessages] Learned new path to %s: %d hops",
+                ez.system.log(string.format("[DirectMessages] Learned new path to %s: %d hops",
                       sender_pub_key_hex:sub(1, 8), #new_out_path))
             elseif #new_out_path < #current_path then
                 -- New path is shorter - upgrade!
                 should_update = true
-                print(string.format("[DirectMessages] Upgraded path to %s: %d -> %d hops",
+                ez.system.log(string.format("[DirectMessages] Upgraded path to %s: %d -> %d hops",
                       sender_pub_key_hex:sub(1, 8), #current_path, #new_out_path))
             else
                 -- Existing path is same length or shorter - keep it
-                print(string.format("[DirectMessages] Keeping existing path to %s: %d hops (new was %d)",
+                ez.system.log(string.format("[DirectMessages] Keeping existing path to %s: %d hops (new was %d)",
                       sender_pub_key_hex:sub(1, 8), #current_path, #new_out_path))
             end
 
@@ -2048,12 +2048,12 @@ function DirectMessages._handle_packet(packet)
         if packet.route_type == DirectMessages.ROUTE_TYPE_FLOOD then
             -- FLOOD message: send PATH response with piggybacked ACK
             -- This teaches the sender the route to us
-            print(string.format("[DirectMessages] Sending PATH+ACK: counter=%d text_hash=%08X",
+            ez.system.log(string.format("[DirectMessages] Sending PATH+ACK: counter=%d text_hash=%08X",
                   counter, text_hash))
             DirectMessages._send_path_response(sender_pub_key_hex, incoming_path, counter, text_hash)
         else
             -- DIRECT message: just send ACK (route already established)
-            print(string.format("[DirectMessages] Sending ACK: counter=%d text_hash=%08X",
+            ez.system.log(string.format("[DirectMessages] Sending ACK: counter=%d text_hash=%08X",
                   counter, text_hash))
             DirectMessages._send_ack(sender_pub_key_hex, counter, text_hash)
         end

@@ -1,6 +1,8 @@
 -- Snake Game for T-Deck OS
 -- Classic snake game with square playfield and polished graphics
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local Snake = {
     title = "Snake",
     -- Game constants (set in on_enter based on display)
@@ -194,7 +196,7 @@ function Snake:draw_cell(display, x, y, color, is_head)
 end
 
 function Snake:draw_food(display, x, y)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local px = self.GRID_X + x * self.CELL_SIZE
     local py = self.GRID_Y + y * self.CELL_SIZE
     local size = self.CELL_SIZE - 1
@@ -208,7 +210,7 @@ function Snake:draw_food(display, x, y)
 end
 
 function Snake:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Update game state
     self:update()

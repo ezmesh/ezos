@@ -1,19 +1,30 @@
 -- Channels Screen for T-Deck OS
 -- List and manage mesh channels
 
+local TimeUtils = load_module("/scripts/ui/time_utils.lua")
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local Channels = {
     title = "Channels",
     selected = 1,
     scroll_offset = 0,
-    visible_items = 5,
+    VISIBLE_ROWS = 5,
     channels = {}
 }
+
+-- Apply list mixin for navigation helpers
+ListMixin.apply(Channels)
+
+function Channels:get_item_count()
+    return #self.channels
+end
 
 function Channels:new()
     local o = {
         title = self.title,
         selected = 1,
         scroll_offset = 0,
+        VISIBLE_ROWS = self.VISIBLE_ROWS,
         channels = {}
     }
     setmetatable(o, {__index = Channels})
@@ -46,14 +57,10 @@ function Channels:refresh_channels()
 end
 
 function Channels:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)
@@ -68,7 +75,7 @@ function Channels:render(display)
         display.draw_text_centered(8 * fh, "Use app menu to join", colors.TEXT_SECONDARY)
     else
         local y = 2
-        for i = 1, self.visible_items do
+        for i = 1, self.VISIBLE_ROWS do
             local idx = i + self.scroll_offset
             if idx > #self.channels then break end
 
@@ -113,14 +120,7 @@ function Channels:render(display)
             -- Activity status line
             local status_line
             if ch.last_activity and ch.last_activity > 0 then
-                local ago = math.floor((ez.system.millis() - ch.last_activity) / 1000)
-                if ago < 60 then
-                    status_line = "Active now"
-                elseif ago < 3600 then
-                    status_line = string.format("Active %dm ago", math.floor(ago / 60))
-                else
-                    status_line = string.format("Active %dh ago", math.floor(ago / 3600))
-                end
+                status_line = "Active " .. TimeUtils.format_relative(ch.last_activity) .. " ago"
             else
                 status_line = "No activity"
             end
@@ -135,18 +135,20 @@ function Channels:render(display)
         if self.scroll_offset > 0 then
             display.draw_text((display.cols - 1) * fw, 2 * fh, "^", colors.TEXT_SECONDARY)
         end
-        if self.scroll_offset + self.visible_items < #self.channels then
-            display.draw_text((display.cols - 1) * fw, (2 + self.visible_items * 2 - 1) * fh, "v", colors.TEXT_SECONDARY)
+        if self.scroll_offset + self.VISIBLE_ROWS < #self.channels then
+            display.draw_text((display.cols - 1) * fw, (2 + self.VISIBLE_ROWS * 2 - 1) * fh, "v", colors.TEXT_SECONDARY)
         end
     end
 end
 
 function Channels:handle_key(key)
-    if key.special == "UP" then
-        self:select_previous()
-    elseif key.special == "DOWN" then
-        self:select_next()
-    elseif key.special == "ENTER" then
+    -- Handle list navigation first
+    if self:handle_list_key(key) then
+        ScreenManager.invalidate()
+        return "continue"
+    end
+
+    if key.special == "ENTER" then
         self:open_channel()
     elseif key.special == "ESCAPE" or key.character == "q" then
         return "pop"
@@ -157,30 +159,6 @@ function Channels:handle_key(key)
     end
 
     return "continue"
-end
-
-function Channels:select_next()
-    if #self.channels == 0 then return end
-
-    if self.selected < #self.channels then
-        self.selected = self.selected + 1
-        if self.selected > self.scroll_offset + self.visible_items then
-            self.scroll_offset = self.scroll_offset + 1
-        end
-        ScreenManager.invalidate()
-    end
-end
-
-function Channels:select_previous()
-    if #self.channels == 0 then return end
-
-    if self.selected > 1 then
-        self.selected = self.selected - 1
-        if self.selected <= self.scroll_offset then
-            self.scroll_offset = self.scroll_offset - 1
-        end
-        ScreenManager.invalidate()
-    end
 end
 
 function Channels:open_channel()

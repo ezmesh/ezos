@@ -1,6 +1,8 @@
 -- Key Repeat Test Screen
 -- Test and debug key repeat functionality
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local KeyRepeatTest = {
     title = "Key Repeat Test",
     enabled = false,
@@ -50,14 +52,10 @@ function KeyRepeatTest:add_log(text)
 end
 
 function KeyRepeatTest:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)

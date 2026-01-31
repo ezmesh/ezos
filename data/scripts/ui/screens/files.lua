@@ -2,6 +2,7 @@
 -- Browse files, run Lua scripts, edit text files
 
 local TextUtils = load_module("/scripts/ui/text_utils.lua")
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
 
 local Files = {
     title = "Files",
@@ -384,14 +385,10 @@ function Files:update_scroll(visible_rows)
 end
 
 function Files:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Truncate path if too long for title bar
     display.set_font_size("small")

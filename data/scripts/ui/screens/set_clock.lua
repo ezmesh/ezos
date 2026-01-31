@@ -1,6 +1,8 @@
 -- Set Clock Screen for T-Deck OS
 -- Manual time/date entry
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local TimeSync = {
     title = "Set Clock",
 
@@ -47,16 +49,12 @@ function TimeSync:on_enter()
 end
 
 function TimeSync:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = display.width
     local h = display.height
 
     -- Draw background
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, w, h, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)

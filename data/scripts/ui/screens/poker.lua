@@ -1,6 +1,7 @@
 -- Texas Hold'em Poker for T-Deck OS
 -- Single player vs 3 computer opponents
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
 local Cards = load_module("/scripts/ui/cards.lua")
 
 local Poker = {
@@ -553,7 +554,7 @@ function Poker:get_available_actions()
 end
 
 function Poker:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = display.width
     local h = display.height
 
@@ -649,7 +650,7 @@ function Poker:render(display)
 end
 
 function Poker:draw_player(display, player, idx, cx, cy, is_ai)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Highlight current player
     local is_current = (idx == self.current_player) and
@@ -726,7 +727,7 @@ function Poker:draw_player(display, player, idx, cx, cy, is_ai)
 end
 
 function Poker:draw_actions(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = display.width
     local h = display.height
 

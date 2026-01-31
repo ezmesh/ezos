@@ -1,6 +1,7 @@
 -- Join Channel Screen for T-Deck OS
 -- Dialog to join or create a new channel using UI components
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
 local Components = load_module("/scripts/ui/components.lua")
 
 local JoinChannel = {
@@ -43,18 +44,14 @@ function JoinChannel:render(display)
     -- Ensure medium font
     display.set_font_size("medium")
 
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local fw = display.get_font_width()
     local fh = display.get_font_height()
     local cols = display.get_cols()
     local rows = display.get_rows()
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     display.draw_box(0, 0, cols, rows - 1, self.title, colors.ACCENT, colors.WHITE)
 

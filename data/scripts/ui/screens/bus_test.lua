@@ -1,6 +1,8 @@
 -- Message Bus Diagnostics Screen for T-Deck OS
 -- Tests pub/sub message passing between Lua and C++
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local BusTest = {
     title = "Message Bus Test",
     tests = {
@@ -300,14 +302,10 @@ function BusTest:run_single(num)
 end
 
 function BusTest:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Background
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)

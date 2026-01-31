@@ -1,5 +1,7 @@
 -- Tetris Game for T-Deck OS
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local Tetris = {
     title = "Tetris",
     -- Game board: 10 wide, 20 tall
@@ -204,16 +206,12 @@ function Tetris:hard_drop()
 end
 
 function Tetris:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = display.width
     local h = display.height
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, w, h, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Board position
     local board_x = (w - self.BOARD_W * self.CELL_SIZE) / 2

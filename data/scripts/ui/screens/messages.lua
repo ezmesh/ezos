@@ -1,11 +1,14 @@
 -- Messages Screen for T-Deck OS
 -- List of direct message conversations
 
+local TimeUtils = load_module("/scripts/ui/time_utils.lua")
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local Messages = {
     title = "Messages",
     selected = 1,
     scroll_offset = 0,
-    visible_items = 5,
+    VISIBLE_ROWS = 5,
     conversations = {},
     -- Auto-refresh tracking
     last_refresh = 0,
@@ -15,11 +18,19 @@ local Messages = {
     last_unread = 0,
 }
 
+-- Apply list mixin for navigation helpers
+ListMixin.apply(Messages)
+
+function Messages:get_item_count()
+    return #self.conversations
+end
+
 function Messages:new()
     local o = {
         title = self.title,
         selected = 1,
         scroll_offset = 0,
+        VISIBLE_ROWS = self.VISIBLE_ROWS,
         conversations = {},
         last_refresh = 0,
         refresh_interval = 1000,
@@ -103,33 +114,14 @@ function Messages:refresh_conversations()
     end
 end
 
-function Messages:format_time(timestamp)
-    local now = ez.system.millis()
-    local diff = math.floor((now - timestamp) / 1000)
-
-    if diff < 60 then
-        return "now"
-    elseif diff < 3600 then
-        return string.format("%dm", math.floor(diff / 60))
-    elseif diff < 86400 then
-        return string.format("%dh", math.floor(diff / 3600))
-    else
-        return string.format("%dd", math.floor(diff / 86400))
-    end
-end
-
 function Messages:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Check for new conversations or messages
     self:check_new_conversations()
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)
@@ -143,7 +135,7 @@ function Messages:render(display)
         display.draw_text_centered(8 * fh, "Use app menu to compose", colors.TEXT_SECONDARY)
     else
         local y = 2
-        for i = 1, self.visible_items do
+        for i = 1, self.VISIBLE_ROWS do
             local idx = i + self.scroll_offset
             if idx > #self.conversations then break end
 
@@ -200,49 +192,27 @@ function Messages:render(display)
         if self.scroll_offset > 0 then
             display.draw_text((display.cols - 1) * display.font_width, 2 * fh, "^", colors.TEXT_SECONDARY)
         end
-        if self.scroll_offset + self.visible_items < #self.conversations then
+        if self.scroll_offset + self.VISIBLE_ROWS < #self.conversations then
             display.draw_text((display.cols - 1) * display.font_width,
-                            (2 + self.visible_items * 2 - 1) * fh, "v", colors.TEXT_SECONDARY)
+                            (2 + self.VISIBLE_ROWS * 2 - 1) * fh, "v", colors.TEXT_SECONDARY)
         end
     end
 end
 
 function Messages:handle_key(key)
-    if key.special == "UP" then
-        self:select_previous()
-    elseif key.special == "DOWN" then
-        self:select_next()
-    elseif key.special == "ENTER" then
+    -- Handle list navigation first
+    if self:handle_list_key(key) then
+        ScreenManager.invalidate()
+        return "continue"
+    end
+
+    if key.special == "ENTER" then
         self:open_conversation()
     elseif key.special == "ESCAPE" or key.character == "q" then
         return "pop"
     end
 
     return "continue"
-end
-
-function Messages:select_next()
-    if #self.conversations == 0 then return end
-
-    if self.selected < #self.conversations then
-        self.selected = self.selected + 1
-        if self.selected > self.scroll_offset + self.visible_items then
-            self.scroll_offset = self.scroll_offset + 1
-        end
-        ScreenManager.invalidate()
-    end
-end
-
-function Messages:select_previous()
-    if #self.conversations == 0 then return end
-
-    if self.selected > 1 then
-        self.selected = self.selected - 1
-        if self.selected <= self.scroll_offset then
-            self.scroll_offset = self.scroll_offset - 1
-        end
-        ScreenManager.invalidate()
-    end
 end
 
 function Messages:open_conversation()

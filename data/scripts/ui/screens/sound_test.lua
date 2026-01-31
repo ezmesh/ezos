@@ -1,6 +1,8 @@
 -- Sound Test Screen for T-Deck OS
 -- Test audio output
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local SoundTest = {
     title = "Sound Test",
     selected = 1,
@@ -26,14 +28,10 @@ function SoundTest:on_exit()
 end
 
 function SoundTest:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)

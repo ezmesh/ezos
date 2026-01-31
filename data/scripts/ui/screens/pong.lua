@@ -1,5 +1,7 @@
 -- Pong Game for T-Deck OS
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local Pong = {
     title = "Pong",
 }
@@ -162,16 +164,12 @@ function Pong:update()
 end
 
 function Pong:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = display.width
     local h = display.height
 
     -- Background
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, w, h, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Center line (dashed)
     local center_x = w / 2 - 1

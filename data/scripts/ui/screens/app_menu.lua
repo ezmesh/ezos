@@ -2,6 +2,8 @@
 -- Quick access menu activated by both shift keys
 -- Horizontally scrollable action bar at bottom of screen
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local AppMenu = {
     items = {},
     selected = 1,
@@ -179,7 +181,7 @@ function AppMenu.render(display)
     -- Ensure medium font
     display.set_font_size("medium")
 
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local fh = display.get_font_height()
     local w = display.width
 

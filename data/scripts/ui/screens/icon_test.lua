@@ -1,6 +1,8 @@
 -- icon_test.lua - Test screen for icon display
 -- Shows all available icons with names and sizes
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local IconTest = {
     title = "Icons Test",
 }
@@ -20,14 +22,10 @@ function IconTest:on_enter()
 end
 
 function IconTest:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)

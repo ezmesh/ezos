@@ -2,6 +2,8 @@
 -- Displays offline map tiles from TDMAP archive on SD card
 -- Supports pan (trackball) and zoom (+/-) controls
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 -- Math helpers for ESP32 Lua (missing hyperbolic functions)
 local function sinh(x)
     return (math.exp(x) - math.exp(-x)) / 2
@@ -272,19 +274,19 @@ function MapViewer:load_archive_async()
         end
 
         -- Debug: show header info
-        print("[Map] Header length: " .. #header)
+        ez.system.log("[Map] Header length: " .. #header)
         local hex = ""
         for i = 1, math.min(33, #header) do
             hex = hex .. string.format("%02X ", string.byte(header, i))
         end
-        print("[Map] Header bytes: " .. hex)
+        ez.system.log("[Map] Header bytes: " .. hex)
         -- Debug: show label offset bytes (positions 26-33, 1-indexed)
         if #header >= 33 then
             local label_hex = ""
             for i = 26, 33 do
                 label_hex = label_hex .. string.format("%02X ", string.byte(header, i))
             end
-            print("[Map] Label offset/count bytes (26-33): " .. label_hex)
+            ez.system.log("[Map] Label offset/count bytes (26-33): " .. label_hex)
         end
 
         -- Verify magic (compare first 5 chars without null - more reliable across platforms)
@@ -296,7 +298,7 @@ function MapViewer:load_archive_async()
             for i = 1, math.min(10, #header) do
                 hex = hex .. string.format("%02X ", string.byte(header, i))
             end
-            print("[Map] Magic check failed. Got: " .. hex)
+            ez.system.log("[Map] Magic check failed. Got: " .. hex)
             self_ref.error_msg = "Invalid map file format"
             self_ref.loading = false
             ScreenManager.invalidate()
@@ -350,13 +352,13 @@ function MapViewer:load_archive_async()
             label_count = label_count,
         }
 
-        print(string.format("[Map] Loaded archive: v%d, %d tiles, zoom %d-%d, index@%d, data@%d, tile_size=%d",
+        ez.system.log(string.format("[Map] Loaded archive: v%d, %d tiles, zoom %d-%d, index@%d, data@%d, tile_size=%d",
             version, tile_count, min_zoom, max_zoom, index_offset, data_offset, tile_size))
 
         -- Load tile index into memory for fast binary search (avoids SD reads per tile lookup)
         -- Index size: 11 bytes per tile, typically 5-50KB total
         local index_size = tile_count * self_ref.INDEX_ENTRY_SIZE
-        print(string.format("[Map] Loading tile index: %d tiles, %d bytes", tile_count, index_size))
+        ez.system.log(string.format("[Map] Loading tile index: %d tiles, %d bytes", tile_count, index_size))
 
         local index_data = bytes_to_string(async_read_bytes(self_ref.archive_path, index_offset, index_size))
         if index_data and #index_data >= index_size then
@@ -373,20 +375,20 @@ function MapViewer:load_archive_async()
                 local key = string.format("%d/%d/%d", z, x, y)
                 self_ref.tile_index[key] = { offset = data_offset, size = data_size }
             end
-            print(string.format("[Map] Tile index loaded: %d entries", tile_count))
+            ez.system.log(string.format("[Map] Tile index loaded: %d entries", tile_count))
         else
-            print("[Map] Warning: Failed to load tile index, falling back to lazy loading")
+            ez.system.log("[Map] Warning: Failed to load tile index, falling back to lazy loading")
             self_ref.tile_index = nil
         end
 
         -- Load labels (v4: flat list with lat/lon coords)
         -- Limit label loading to avoid memory issues on constrained devices
         local max_label_entries = 30000  -- ~3MB in memory
-        print(string.format("[Map] Label info: version=%d count=%d offset=%d", version, label_count, label_data_offset))
+        ez.system.log(string.format("[Map] Label info: version=%d count=%d offset=%d", version, label_count, label_data_offset))
         if label_count > 0 and label_data_offset > 0 then
             local load_count = math.min(label_count, max_label_entries)
             if label_count > max_label_entries then
-                print(string.format("[Map] Limiting labels: loading %d of %d (memory constraint)", load_count, label_count))
+                ez.system.log(string.format("[Map] Limiting labels: loading %d of %d (memory constraint)", load_count, label_count))
             end
             self_ref:load_labels_v4_async(label_data_offset, load_count)
         end
@@ -417,7 +419,7 @@ function MapViewer:load_labels_v4_async(data_offset, count)
         local estimated_size = count * 23
         local labels_data = bytes_to_string(async_read_bytes(self_ref.archive_path, data_offset, estimated_size))
         if not labels_data then
-            print("[Map] Failed to read label data")
+            ez.system.log("[Map] Failed to read label data")
             return
         end
 
@@ -455,7 +457,7 @@ function MapViewer:load_labels_v4_async(data_offset, count)
             offset = offset + 12 + text_len
         end
 
-        print(string.format("[Map] Loaded %d labels", #self_ref.labels))
+        ez.system.log(string.format("[Map] Loaded %d labels", #self_ref.labels))
         ScreenManager.invalidate()
     end
 
@@ -758,7 +760,7 @@ function MapViewer:on_leave()
 end
 
 function MapViewer:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = self.SCREEN_W
     local h = self.SCREEN_H
 

@@ -1,6 +1,10 @@
 -- Nodes Screen for T-Deck OS
 -- Compact list of all heard mesh nodes (live + cached)
 
+local TimeUtils = load_module("/scripts/ui/time_utils.lua")
+local NodeUtils = load_module("/scripts/ui/node_utils.lua")
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local Nodes = {
     title = "Nodes",
     selected = 1,
@@ -14,6 +18,13 @@ local Nodes = {
     reload_timer = nil,
     loading = false,
 }
+
+-- Apply list mixin for navigation helpers
+ListMixin.apply(Nodes)
+
+function Nodes:get_item_count()
+    return #self.nodes
+end
 
 function Nodes:new()
     local o = {
@@ -102,63 +113,15 @@ function Nodes:refresh_nodes()
         end)
     end
 
-    -- Clamp selection
-    if self.selected > #self.nodes then
-        self.selected = math.max(1, #self.nodes)
-    end
-    if self.selected < 1 then
-        self.selected = 1
-    end
-end
-
--- Convert RSSI to signal indicator character
-local function rssi_indicator(rssi)
-    if rssi > -60 then return "+++"
-    elseif rssi > -80 then return "++"
-    elseif rssi > -100 then return "+"
-    elseif rssi > -110 then return "-"
-    else return "--"
-    end
-end
-
--- Format last seen timestamp as compact string
-local function format_seen(timestamp)
-    local now = ez.system.millis()
-    local diff = math.floor((now - timestamp) / 1000)
-
-    if diff < 60 then
-        return "now"
-    elseif diff < 3600 then
-        return string.format("%dm", math.floor(diff / 60))
-    elseif diff < 86400 then
-        return string.format("%dh", math.floor(diff / 3600))
-    else
-        return string.format("%dd", math.floor(diff / 86400))
-    end
-end
-
--- Role abbreviation
-local function role_abbrev(role)
-    local ROLE = ez.mesh.ROLE
-    if role == ROLE.CLIENT then return "C"
-    elseif role == ROLE.REPEATER then return "R"
-    elseif role == ROLE.ROUTER then return "Rt"
-    elseif role == ROLE.GATEWAY then return "G"
-    else return ""
-    end
+    self:clamp_selection()
 end
 
 function Nodes:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = display.width
     local h = display.height
 
-    -- Fill background
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, w, h, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar with node count
     local title_str = string.format("Nodes (%d)", #self.nodes)
@@ -205,29 +168,14 @@ function Nodes:render(display)
             display.fill_rect(2, y - 1, w - 8 - scrollbar_width, self.ROW_HEIGHT - 2, colors.ACCENT)
         end
 
-        -- Node name (truncated to fit column)
+        -- Node name (sanitized and truncated)
         local name = node.name or string.format("%02X", (node.path_hash or 0) % 256)
-        -- Sanitize name (ASCII only)
-        local clean_name = ""
-        for c in name:gmatch(".") do
-            local b = string.byte(c)
-            if b >= 32 and b < 127 then
-                clean_name = clean_name .. c
-            end
-        end
-        if #clean_name == 0 then
-            clean_name = string.format("%02X", (node.path_hash or 0) % 256)
-        end
+        local max_name_width = role_x - name_x - 4
+        local clean_name = NodeUtils.sanitize_name(name, max_name_width, display)
 
         -- Prefix for saved contacts
         if node.is_saved then
             clean_name = "*" .. clean_name
-        end
-
-        -- Truncate to fit within column (name_x to role_x with padding)
-        local max_name_width = role_x - name_x - 4
-        while #clean_name > 1 and display.text_width(clean_name) > max_name_width do
-            clean_name = string.sub(clean_name, 1, #clean_name - 1)
         end
 
         -- Color based on state
@@ -243,14 +191,14 @@ function Nodes:render(display)
         display.draw_text(name_x, y + 2, clean_name, text_color)
 
         -- Role abbreviation
-        local role_str = role_abbrev(node.role or 0)
-        if role_str ~= "" then
+        local role_str = NodeUtils.role_abbrev(node.role or 0)
+        if role_str and role_str ~= "?" then
             display.draw_text(role_x, y + 2, role_str, text_color)
         end
 
         -- RSSI indicator
         local rssi = node.rssi or -999
-        local rssi_str = rssi_indicator(rssi)
+        local rssi_str = NodeUtils.rssi_indicator(rssi)
         local rssi_color
         if is_selected then
             rssi_color = colors.BLACK
@@ -264,7 +212,7 @@ function Nodes:render(display)
         display.draw_text(rssi_x, y + 2, rssi_str, rssi_color)
 
         -- Last seen
-        local seen_str = format_seen(node.last_seen or 0)
+        local seen_str = TimeUtils.format_relative(node.last_seen or 0)
         display.draw_text(seen_x, y + 2, seen_str, text_color)
 
         -- Hop count
@@ -275,45 +223,35 @@ function Nodes:render(display)
     end
 
     -- Scrollbar
-    if #self.nodes > self.VISIBLE_ROWS then
-        local sb_x = w - scrollbar_width - 2
-        local sb_top = list_start_y
-        local sb_height = self.VISIBLE_ROWS * self.ROW_HEIGHT
-
-        -- Track
-        display.fill_rect(sb_x, sb_top, 3, sb_height, colors.SURFACE)
-
-        -- Thumb
-        local thumb_height = math.max(10, math.floor(sb_height * self.VISIBLE_ROWS / #self.nodes))
-        local scroll_range = #self.nodes - self.VISIBLE_ROWS
-        local thumb_range = sb_height - thumb_height
-        local thumb_y = sb_top
-        if scroll_range > 0 then
-            thumb_y = sb_top + math.floor(self.scroll_offset * thumb_range / scroll_range)
-        end
-
-        display.fill_rect(sb_x, thumb_y, 3, thumb_height, colors.ACCENT)
-    end
+    ListMixin.draw_scrollbar(display,
+        w - scrollbar_width - 2,
+        list_start_y,
+        self.VISIBLE_ROWS * self.ROW_HEIGHT,
+        self.VISIBLE_ROWS,
+        #self.nodes,
+        self.scroll_offset,
+        colors)
 
     -- Footer hint
     display.draw_text(4, h - 14, "M:Msg  R:Refresh  Enter:Details", colors.TEXT_MUTED)
 end
 
 function Nodes:handle_key(key)
-    if key.special == "UP" then
-        self:select_previous()
-    elseif key.special == "DOWN" then
-        self:select_next()
-    elseif key.special == "LEFT" then
-        -- Page up
-        for _ = 1, self.VISIBLE_ROWS do
-            self:select_previous()
-        end
+    -- Handle list navigation first
+    if self:handle_list_key(key) then
+        ScreenManager.invalidate()
+        return "continue"
+    end
+
+    -- Page navigation with left/right
+    if key.special == "LEFT" then
+        self:page_up()
+        ScreenManager.invalidate()
+        return "continue"
     elseif key.special == "RIGHT" then
-        -- Page down
-        for _ = 1, self.VISIBLE_ROWS do
-            self:select_next()
-        end
+        self:page_down()
+        ScreenManager.invalidate()
+        return "continue"
     elseif key.special == "ENTER" then
         -- Open app menu for selected node actions
         if _G.AppMenu then
@@ -354,30 +292,6 @@ function Nodes:send_message()
     end
 
     spawn_screen("/scripts/ui/screens/dm_conversation.lua", node.pub_key_hex, node.name)
-end
-
-function Nodes:select_next()
-    if #self.nodes == 0 then return end
-
-    if self.selected < #self.nodes then
-        self.selected = self.selected + 1
-        if self.selected > self.scroll_offset + self.VISIBLE_ROWS then
-            self.scroll_offset = self.scroll_offset + 1
-        end
-        ScreenManager.invalidate()
-    end
-end
-
-function Nodes:select_previous()
-    if #self.nodes == 0 then return end
-
-    if self.selected > 1 then
-        self.selected = self.selected - 1
-        if self.selected <= self.scroll_offset then
-            self.scroll_offset = self.scroll_offset - 1
-        end
-        ScreenManager.invalidate()
-    end
 end
 
 function Nodes:view_details()

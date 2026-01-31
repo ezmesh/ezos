@@ -1,6 +1,8 @@
 -- GPS Test Screen for T-Deck OS
 -- Displays GPS status, satellites, location, and time
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local GPSTest = {
     title = "GPS Test",
 }
@@ -85,17 +87,13 @@ function GPSTest:refresh()
 end
 
 function GPSTest:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Refresh data each render
     self:refresh()
 
     -- Background
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)
@@ -194,9 +192,9 @@ function GPSTest:handle_key(key)
         if ez.gps and ez.gps.sync_time then
             local success = ez.gps.sync_time()
             if success then
-                print("[GPS] Time synced manually")
+                ez.system.log("[GPS] Time synced manually")
             else
-                print("[GPS] Time sync failed (no valid time)")
+                ez.system.log("[GPS] Time sync failed (no valid time)")
             end
         end
         ScreenManager.invalidate()

@@ -28,7 +28,6 @@ void Settings::load() {
         _brightness = prefs.getInt("brightness", 200);
         _fontSize = prefs.getInt("fontSize", 1);
         _trackballSensitivity = prefs.getInt("trackball", 2);
-        _adaptiveScrolling = prefs.getBool("adaptive", true);
 
         prefs.end();
         Serial.println("[Settings] Loaded from NVS");
@@ -47,7 +46,6 @@ void Settings::save() {
         prefs.putInt("brightness", _brightness);
         prefs.putInt("fontSize", _fontSize);
         prefs.putInt("trackball", _trackballSensitivity);
-        prefs.putBool("adaptive", _adaptiveScrolling);
         prefs.end();
         Serial.println("[Settings] Saved to NVS");
     }
@@ -76,5 +74,4 @@ void Settings::applyToIdentity(Identity& identity) {
 
 void Settings::applyToKeyboard(Keyboard& keyboard) {
     keyboard.setTrackballSensitivity(_trackballSensitivity);
-    keyboard.setAdaptiveScrolling(_adaptiveScrolling);
 }

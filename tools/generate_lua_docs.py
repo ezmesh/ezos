@@ -24,10 +24,7 @@ from typing import List, Dict, Optional
 import html
 
 # Functions to exclude from documentation (deprecated/removed features)
-EXCLUDED_FUNCTIONS = {
-    'get_adaptive_scrolling',
-    'set_adaptive_scrolling',
-}
+EXCLUDED_FUNCTIONS = set()
 
 @dataclass
 class LuaParam:

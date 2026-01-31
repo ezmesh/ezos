@@ -1,11 +1,12 @@
 """
 Land mask module for determining tile backgrounds.
 
-Uses Natural Earth simplified land polygons to determine whether a tile
+Uses Natural Earth land polygons to determine whether a tile
 should have a land or water background. This removes the need for heuristics
 and ensures consistent tile edges.
 
-On first run, downloads the Natural Earth 110m land shapefile (~800KB).
+On first run, downloads the Natural Earth 10m land shapefile (~5MB).
+This provides detailed coastlines suitable for zoom levels 0-14.
 """
 
 import os
@@ -25,11 +26,12 @@ try:
 except ImportError:
     HAS_SHAPELY = False
 
-# Natural Earth 110m land polygons (simplified, ~800KB)
-NATURAL_EARTH_URL = "https://naciscdn.org/naturalearth/110m/physical/ne_110m_land.zip"
+# Natural Earth 10m land polygons (detailed, ~5MB) - suitable for zoom 0-14
+# Use 10m for best coastline detail at high zoom levels
+NATURAL_EARTH_URL = "https://naciscdn.org/naturalearth/10m/physical/ne_10m_land.zip"
 CACHE_DIR = Path(__file__).parent / ".cache"
-LAND_SHAPEFILE = CACHE_DIR / "ne_110m_land" / "ne_110m_land.shp"
-LAND_GEOJSON = CACHE_DIR / "ne_110m_land.geojson"
+LAND_SHAPEFILE = CACHE_DIR / "ne_10m_land" / "ne_10m_land.shp"
+LAND_GEOJSON = CACHE_DIR / "ne_10m_land.geojson"
 
 
 def download_natural_earth() -> bool:
@@ -38,9 +40,9 @@ def download_natural_earth() -> bool:
         return True
 
     CACHE_DIR.mkdir(exist_ok=True)
-    zip_path = CACHE_DIR / "ne_110m_land.zip"
+    zip_path = CACHE_DIR / "ne_10m_land.zip"
 
-    print(f"Downloading Natural Earth land data...")
+    print(f"Downloading Natural Earth 10m land data (~5MB)...")
     try:
         urllib.request.urlretrieve(NATURAL_EARTH_URL, zip_path)
     except Exception as e:
@@ -50,7 +52,7 @@ def download_natural_earth() -> bool:
     print("Extracting...")
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
-            zf.extractall(CACHE_DIR / "ne_110m_land")
+            zf.extractall(CACHE_DIR / "ne_10m_land")
     except Exception as e:
         print(f"Failed to extract: {e}")
         return False
@@ -65,10 +67,10 @@ class LandMask:
     """
     Determines whether map tiles are over land or water.
 
-    Uses Natural Earth 110m simplified land polygons for fast lookups.
-    The 110m resolution is sufficient for zoom levels 0-8, and provides
-    a good approximation for higher zooms (actual coastline from vector
-    tiles will be drawn on top).
+    Uses Natural Earth 10m detailed land polygons for accurate lookups.
+    The 10m resolution provides detailed coastlines suitable for zoom
+    levels 0-14 (the actual coastline from vector tiles will be drawn
+    on top for final rendering).
     """
 
     def __init__(self):

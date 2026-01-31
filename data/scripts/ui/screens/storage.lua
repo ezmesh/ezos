@@ -1,6 +1,8 @@
 -- Storage Info Screen for T-Deck OS
 -- Shows disk space for LittleFS, SD card, and firmware
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local StorageInfo = {
     title = "Storage",
 }
@@ -76,14 +78,10 @@ function StorageInfo:refresh_info()
 end
 
 function StorageInfo:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Background
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)

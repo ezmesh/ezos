@@ -1,6 +1,7 @@
 -- Error Screen for T-Deck OS
 -- Displays Lua errors with options to retry or restart
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
 local TextUtils = load_module("/scripts/ui/text_utils.lua")
 
 local ErrorScreen = {
@@ -24,14 +25,10 @@ function ErrorScreen:new(message, source, stack)
 end
 
 function ErrorScreen:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar (red for errors)
     TitleBar.draw_error(display, self.title)

@@ -1,6 +1,8 @@
 -- Packets Screen for T-Deck OS
 -- Live view of incoming mesh packets
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local Packets = {
     title = "Packets",
     packets = {},
@@ -154,16 +156,12 @@ function Packets:scroll_to_bottom()
 end
 
 function Packets:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = display.width
     local h = display.height
 
     -- Fill background
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, w, h, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar with status
     local status = self.paused and " [PAUSED]" or ""

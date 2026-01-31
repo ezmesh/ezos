@@ -2,6 +2,8 @@
 -- Shows discovered nodes with signal strength for map navigation
 -- Nodes with location data can be selected to teleport the map
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local MapNodes = {
     title = "Nearby Nodes",
     VISIBLE_ROWS = 5,
@@ -94,16 +96,12 @@ function MapNodes:adjust_scroll()
 end
 
 function MapNodes:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = display.width
     local h = display.height
 
     -- Background
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, w, h, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)

@@ -35,7 +35,7 @@ function Channels.init()
         end)
     end
 
-    print("[Channels] Initialized with " .. Channels._count_channels() .. " channels")
+    ez.system.log("[Channels] Initialized with " .. Channels._count_channels() .. " channels")
 end
 
 -- Join a channel
@@ -69,7 +69,7 @@ function Channels.join(name, password)
     Channels._join_internal(name, key, is_encrypted)
     Channels._save()
     
-    print("[Channels] Joined " .. name .. " (hash=" .. string.format("%02X", crypto.channel_hash(key)) .. ")")
+    ez.system.log("[Channels] Joined " .. name .. " (hash=" .. string.format("%02X", crypto.channel_hash(key)) .. ")")
     return true
 end
 
@@ -102,7 +102,7 @@ function Channels.leave(name)
     if Channels.joined[name] then
         Channels.joined[name] = nil
         Channels._save()
-        print("[Channels] Left " .. name)
+        ez.system.log("[Channels] Left " .. name)
         return true
     end
     
@@ -165,7 +165,7 @@ function Channels.send(channel, text)
     
     local info = Channels.joined[channel]
     if not info then
-        print("[Channels] Not in channel: " .. channel)
+        ez.system.log("[Channels] Not in channel: " .. channel)
         return false
     end
     
@@ -186,7 +186,7 @@ function Channels.send(channel, text)
     -- Encrypt
     local ciphertext = crypto.aes128_ecb_encrypt(info.key, plaintext)
     if not ciphertext then
-        print("[Channels] Encryption failed")
+        ez.system.log("[Channels] Encryption failed")
         return false
     end
     
@@ -201,7 +201,7 @@ function Channels.send(channel, text)
     -- Send via mesh
     local ok = ez.mesh.send_group_packet(info.hash, encrypted)
     if not ok then
-        print("[Channels] Failed to send packet")
+        ez.system.log("[Channels] Failed to send packet")
         return false
     end
     
@@ -268,7 +268,7 @@ function Channels._handle_group_packet(packet)
     -- Decrypt
     local text, sender = Channels._decrypt(channel_key, data)
     if not text then
-        print("[Channels] Decryption failed for " .. channel_name)
+        ez.system.log("[Channels] Decryption failed for " .. channel_name)
         return
     end
     

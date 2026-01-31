@@ -1,6 +1,8 @@
 -- Log Viewer Screen
 -- View system log entries
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local LogViewer = {
     title = "System Log",
     scroll_offset = 0,
@@ -28,16 +30,12 @@ function LogViewer:on_enter()
 end
 
 function LogViewer:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = display.width
     local h = display.height
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, w, h, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)

@@ -1,6 +1,7 @@
 -- Direct Message Conversation Screen for T-Deck OS
 -- Chat bubbles UI with input field
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
 local TextUtils = load_module("/scripts/ui/text_utils.lua")
 
 local DMConversation = {
@@ -239,16 +240,12 @@ function DMConversation:draw_title_bar(display, colors)
 end
 
 function DMConversation:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     self:update_cursor()
 
     -- Fill background with theme wallpaper
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, display.width, display.height, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Check for new messages (wrapped_messages is cleared in check_new_messages)
     self:check_new_messages()

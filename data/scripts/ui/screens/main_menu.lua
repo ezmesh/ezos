@@ -1,6 +1,8 @@
 -- Main Menu Screen for T-Deck OS
 -- Vertical scrollable list interface
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local MainMenu = {
     title = "MeshCore",
     selected = 1,
@@ -122,16 +124,12 @@ end
 
 function MainMenu:render(display)
     -- Use themed colors if available
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = display.width
     local h = display.height
 
     -- Draw themed wallpaper background
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, w, h, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     -- Title bar
     TitleBar.draw(display, self.title)

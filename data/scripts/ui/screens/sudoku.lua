@@ -1,6 +1,8 @@
 -- Sudoku for T-Deck OS
 -- Classic number puzzle game
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local Sudoku = {
     title = "Sudoku",
     CELL_SIZE = 22,
@@ -182,7 +184,7 @@ function Sudoku:place_number(num)
 end
 
 function Sudoku:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
 
     display.fill_rect(0, 0, 320, 240, colors.BLACK)
 

@@ -1,6 +1,8 @@
 -- Settings Category Screen for T-Deck OS
 -- Displays settings within a specific category
 
+local ListMixin = load_module("/scripts/ui/list_mixin.lua")
+
 local SettingsCategory = {
     VISIBLE_ROWS = 4,
     ROW_HEIGHT = 46,
@@ -390,15 +392,11 @@ function SettingsCategory:adjust_scroll()
 end
 
 function SettingsCategory:render(display)
-    local colors = _G.ThemeManager and _G.ThemeManager.get_colors() or display.colors
+    local colors = ListMixin.get_colors(display)
     local w = display.width
     local h = display.height
 
-    if _G.ThemeManager then
-        _G.ThemeManager.draw_background(display)
-    else
-        display.fill_rect(0, 0, w, h, colors.BLACK)
-    end
+    ListMixin.draw_background(display)
 
     TitleBar.draw(display, self.title)
 
