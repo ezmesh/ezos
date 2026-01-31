@@ -1,5 +1,6 @@
 #include "gps.h"
 #include <sys/time.h>
+#include <stdlib.h>
 
 GPS& GPS::instance() {
     static GPS inst;
@@ -93,7 +94,8 @@ bool GPS::syncSystemTime() {
         return false;
     }
 
-    // Convert GPS time to Unix timestamp
+    // Convert GPS time (which is UTC) to Unix timestamp
+    // We must use timegm() or equivalent since GPS provides UTC, not local time
     struct tm timeinfo;
     timeinfo.tm_year = _year - 1900;
     timeinfo.tm_mon = _month - 1;
@@ -103,7 +105,20 @@ bool GPS::syncSystemTime() {
     timeinfo.tm_sec = _second;
     timeinfo.tm_isdst = 0;
 
+    // Save current timezone, temporarily set to UTC for conversion
+    const char* oldTz = getenv("TZ");
+    setenv("TZ", "UTC0", 1);
+    tzset();
+
     time_t timestamp = mktime(&timeinfo);
+
+    // Restore original timezone
+    if (oldTz) {
+        setenv("TZ", oldTz, 1);
+    } else {
+        unsetenv("TZ");
+    }
+    tzset();
 
     // Set system time
     struct timeval tv;
