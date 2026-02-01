@@ -944,3 +944,199 @@ size_t Display::getCapturedPrimitivesJSON(char* buffer, size_t maxSize) {
 
     return pos;
 }
+
+// Sprite support methods
+Sprite* Display::createSprite(int width, int height) {
+    Sprite* sprite = new Sprite(this);
+    if (!sprite->create(width, height)) {
+        delete sprite;
+        return nullptr;
+    }
+    return sprite;
+}
+
+void Display::destroySprite(Sprite* sprite) {
+    if (sprite) {
+        delete sprite;
+    }
+}
+
+const lgfx::GFXfont* Display::getCurrentFont() const {
+    int idx = static_cast<int>(_fontSize);
+    if (idx < 0 || idx > 3) idx = 2;
+    return FONT_METRICS[idx].font;
+}
+
+// Sprite class implementation
+Sprite::Sprite(Display* parent) : _parent(parent), _sprite(&parent->getBuffer()) {
+}
+
+Sprite::~Sprite() {
+    destroy();
+}
+
+bool Sprite::create(int width, int height) {
+    if (_valid) {
+        destroy();
+    }
+
+    _width = width;
+    _height = height;
+    _sprite.setColorDepth(16);
+
+    void* buffer = _sprite.createSprite(width, height);
+    if (!buffer) {
+        Serial.printf("Sprite: Failed to create %dx%d sprite\n", width, height);
+        return false;
+    }
+
+    _valid = true;
+    _sprite.fillSprite(0x0000);
+    return true;
+}
+
+void Sprite::destroy() {
+    if (_valid) {
+        _sprite.deleteSprite();
+        _valid = false;
+        _width = 0;
+        _height = 0;
+    }
+}
+
+void Sprite::clear(uint16_t color) {
+    if (_valid) {
+        _sprite.fillSprite(color);
+    }
+}
+
+void Sprite::drawPixel(int x, int y, uint16_t color) {
+    if (_valid) {
+        _sprite.drawPixel(x, y, color);
+    }
+}
+
+void Sprite::fillRect(int x, int y, int w, int h, uint16_t color) {
+    if (_valid) {
+        _sprite.fillRect(x, y, w, h, color);
+    }
+}
+
+void Sprite::drawRect(int x, int y, int w, int h, uint16_t color) {
+    if (_valid) {
+        _sprite.drawRect(x, y, w, h, color);
+    }
+}
+
+void Sprite::drawLine(int x1, int y1, int x2, int y2, uint16_t color) {
+    if (_valid) {
+        _sprite.drawLine(x1, y1, x2, y2, color);
+    }
+}
+
+void Sprite::drawCircle(int x, int y, int r, uint16_t color) {
+    if (_valid) {
+        _sprite.drawCircle(x, y, r, color);
+    }
+}
+
+void Sprite::fillCircle(int x, int y, int r, uint16_t color) {
+    if (_valid) {
+        _sprite.fillCircle(x, y, r, color);
+    }
+}
+
+void Sprite::drawTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color) {
+    if (_valid) {
+        _sprite.drawTriangle(x1, y1, x2, y2, x3, y3, color);
+    }
+}
+
+void Sprite::fillTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color) {
+    if (_valid) {
+        _sprite.fillTriangle(x1, y1, x2, y2, x3, y3, color);
+    }
+}
+
+void Sprite::drawRoundRect(int x, int y, int w, int h, int r, uint16_t color) {
+    if (_valid) {
+        _sprite.drawRoundRect(x, y, w, h, r, color);
+    }
+}
+
+void Sprite::fillRoundRect(int x, int y, int w, int h, int r, uint16_t color) {
+    if (_valid) {
+        _sprite.fillRoundRect(x, y, w, h, r, color);
+    }
+}
+
+void Sprite::drawText(int x, int y, const char* text, uint16_t color) {
+    if (_valid && _parent && text) {
+        _sprite.setFont(_parent->getCurrentFont());
+        _sprite.setTextColor(color);
+        _sprite.setCursor(x, y + _parent->getFontHeight());
+        _sprite.print(text);
+    }
+}
+
+void Sprite::push(int x, int y, uint8_t alpha) {
+    if (!_valid || !_parent) return;
+
+    LGFX_Sprite& dest = _parent->getBuffer();
+
+    if (alpha >= 255) {
+        // Full opacity - use hardware push
+        if (_hasTransparent) {
+            _sprite.pushSprite(&dest, x, y, _transparentColor);
+        } else {
+            _sprite.pushSprite(&dest, x, y);
+        }
+    } else if (alpha > 0) {
+        // Software alpha blending
+        uint16_t* srcBuf = (uint16_t*)_sprite.getBuffer();
+        uint16_t* dstBuf = (uint16_t*)dest.getBuffer();
+        if (!srcBuf || !dstBuf) return;
+
+        int dstW = dest.width();
+        int dstH = dest.height();
+        int srcW = _width;
+        int srcH = _height;
+
+        // Blend each pixel
+        for (int sy = 0; sy < srcH; sy++) {
+            int dy = y + sy;
+            if (dy < 0 || dy >= dstH) continue;
+
+            for (int sx = 0; sx < srcW; sx++) {
+                int dx = x + sx;
+                if (dx < 0 || dx >= dstW) continue;
+
+                uint16_t srcColor = srcBuf[sy * srcW + sx];
+
+                // Skip transparent pixels
+                if (_hasTransparent && srcColor == _transparentColor) continue;
+
+                uint16_t dstColor = dstBuf[dy * dstW + dx];
+
+                // Extract RGB565 components
+                uint8_t srcR = (srcColor >> 11) & 0x1F;
+                uint8_t srcG = (srcColor >> 5) & 0x3F;
+                uint8_t srcB = srcColor & 0x1F;
+
+                uint8_t dstR = (dstColor >> 11) & 0x1F;
+                uint8_t dstG = (dstColor >> 5) & 0x3F;
+                uint8_t dstB = dstColor & 0x1F;
+
+                // Blend: result = src * alpha + dst * (255 - alpha)
+                uint8_t invAlpha = 255 - alpha;
+                uint8_t outR = (srcR * alpha + dstR * invAlpha) / 255;
+                uint8_t outG = (srcG * alpha + dstG * invAlpha) / 255;
+                uint8_t outB = (srcB * alpha + dstB * invAlpha) / 255;
+
+                // Pack back to RGB565
+                dstBuf[dy * dstW + dx] = (outR << 11) | (outG << 5) | outB;
+            }
+        }
+    }
+    // alpha == 0: fully transparent, do nothing
+}

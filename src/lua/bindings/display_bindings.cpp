@@ -1028,6 +1028,234 @@ LUA_FUNCTION(l_display_draw_bitmap_1bit) {
     return 0;
 }
 
+// ============================================================================
+// Sprite userdata bindings
+// ============================================================================
+
+#define SPRITE_METATABLE "ez.Sprite"
+
+// Helper to get Sprite* from userdata
+static Sprite* checkSprite(lua_State* L, int idx) {
+    Sprite** pp = (Sprite**)luaL_checkudata(L, idx, SPRITE_METATABLE);
+    if (!pp || !*pp) {
+        luaL_error(L, "invalid Sprite");
+        return nullptr;
+    }
+    return *pp;
+}
+
+// @lua sprite:clear(color)
+// @brief Clear sprite to a color
+LUA_FUNCTION(l_sprite_clear) {
+    Sprite* sprite = checkSprite(L, 1);
+    uint16_t color = luaL_optinteger(L, 2, 0x0000);
+    if (sprite) sprite->clear(color);
+    return 0;
+}
+
+// @lua sprite:set_transparent_color(color)
+// @brief Set the color treated as transparent when pushing
+LUA_FUNCTION(l_sprite_set_transparent_color) {
+    Sprite* sprite = checkSprite(L, 1);
+    uint16_t color = luaL_checkinteger(L, 2);
+    if (sprite) sprite->setTransparentColor(color);
+    return 0;
+}
+
+// @lua sprite:fill_rect(x, y, w, h, color)
+LUA_FUNCTION(l_sprite_fill_rect) {
+    Sprite* sprite = checkSprite(L, 1);
+    int x = luaL_checkinteger(L, 2);
+    int y = luaL_checkinteger(L, 3);
+    int w = luaL_checkinteger(L, 4);
+    int h = luaL_checkinteger(L, 5);
+    uint16_t color = luaL_checkinteger(L, 6);
+    if (sprite) sprite->fillRect(x, y, w, h, color);
+    return 0;
+}
+
+// @lua sprite:draw_rect(x, y, w, h, color)
+LUA_FUNCTION(l_sprite_draw_rect) {
+    Sprite* sprite = checkSprite(L, 1);
+    int x = luaL_checkinteger(L, 2);
+    int y = luaL_checkinteger(L, 3);
+    int w = luaL_checkinteger(L, 4);
+    int h = luaL_checkinteger(L, 5);
+    uint16_t color = luaL_checkinteger(L, 6);
+    if (sprite) sprite->drawRect(x, y, w, h, color);
+    return 0;
+}
+
+// @lua sprite:fill_round_rect(x, y, w, h, r, color)
+LUA_FUNCTION(l_sprite_fill_round_rect) {
+    Sprite* sprite = checkSprite(L, 1);
+    int x = luaL_checkinteger(L, 2);
+    int y = luaL_checkinteger(L, 3);
+    int w = luaL_checkinteger(L, 4);
+    int h = luaL_checkinteger(L, 5);
+    int r = luaL_checkinteger(L, 6);
+    uint16_t color = luaL_checkinteger(L, 7);
+    if (sprite) sprite->fillRoundRect(x, y, w, h, r, color);
+    return 0;
+}
+
+// @lua sprite:draw_round_rect(x, y, w, h, r, color)
+LUA_FUNCTION(l_sprite_draw_round_rect) {
+    Sprite* sprite = checkSprite(L, 1);
+    int x = luaL_checkinteger(L, 2);
+    int y = luaL_checkinteger(L, 3);
+    int w = luaL_checkinteger(L, 4);
+    int h = luaL_checkinteger(L, 5);
+    int r = luaL_checkinteger(L, 6);
+    uint16_t color = luaL_checkinteger(L, 7);
+    if (sprite) sprite->drawRoundRect(x, y, w, h, r, color);
+    return 0;
+}
+
+// @lua sprite:draw_text(x, y, text, color)
+LUA_FUNCTION(l_sprite_draw_text) {
+    Sprite* sprite = checkSprite(L, 1);
+    int x = luaL_checkinteger(L, 2);
+    int y = luaL_checkinteger(L, 3);
+    const char* text = luaL_checkstring(L, 4);
+    uint16_t color = luaL_checkinteger(L, 5);
+    if (sprite) sprite->drawText(x, y, text, color);
+    return 0;
+}
+
+// @lua sprite:draw_line(x1, y1, x2, y2, color)
+LUA_FUNCTION(l_sprite_draw_line) {
+    Sprite* sprite = checkSprite(L, 1);
+    int x1 = luaL_checkinteger(L, 2);
+    int y1 = luaL_checkinteger(L, 3);
+    int x2 = luaL_checkinteger(L, 4);
+    int y2 = luaL_checkinteger(L, 5);
+    uint16_t color = luaL_checkinteger(L, 6);
+    if (sprite) sprite->drawLine(x1, y1, x2, y2, color);
+    return 0;
+}
+
+// @lua sprite:draw_circle(x, y, r, color)
+LUA_FUNCTION(l_sprite_draw_circle) {
+    Sprite* sprite = checkSprite(L, 1);
+    int x = luaL_checkinteger(L, 2);
+    int y = luaL_checkinteger(L, 3);
+    int r = luaL_checkinteger(L, 4);
+    uint16_t color = luaL_checkinteger(L, 5);
+    if (sprite) sprite->drawCircle(x, y, r, color);
+    return 0;
+}
+
+// @lua sprite:fill_circle(x, y, r, color)
+LUA_FUNCTION(l_sprite_fill_circle) {
+    Sprite* sprite = checkSprite(L, 1);
+    int x = luaL_checkinteger(L, 2);
+    int y = luaL_checkinteger(L, 3);
+    int r = luaL_checkinteger(L, 4);
+    uint16_t color = luaL_checkinteger(L, 5);
+    if (sprite) sprite->fillCircle(x, y, r, color);
+    return 0;
+}
+
+// @lua sprite:push(x, y, alpha)
+// @brief Composite sprite onto display buffer
+// @param x X position on screen
+// @param y Y position on screen
+// @param alpha Opacity 0-255 (optional, default 255 = opaque)
+LUA_FUNCTION(l_sprite_push) {
+    Sprite* sprite = checkSprite(L, 1);
+    int x = luaL_checkinteger(L, 2);
+    int y = luaL_checkinteger(L, 3);
+    int alpha = luaL_optinteger(L, 4, 255);
+    if (sprite) sprite->push(x, y, (uint8_t)alpha);
+    return 0;
+}
+
+// @lua sprite:destroy()
+// @brief Free sprite memory
+LUA_FUNCTION(l_sprite_destroy) {
+    Sprite** pp = (Sprite**)luaL_checkudata(L, 1, SPRITE_METATABLE);
+    if (pp && *pp) {
+        delete *pp;
+        *pp = nullptr;
+    }
+    return 0;
+}
+
+// @lua sprite:width() -> integer
+LUA_FUNCTION(l_sprite_width) {
+    Sprite* sprite = checkSprite(L, 1);
+    lua_pushinteger(L, sprite ? sprite->width() : 0);
+    return 1;
+}
+
+// @lua sprite:height() -> integer
+LUA_FUNCTION(l_sprite_height) {
+    Sprite* sprite = checkSprite(L, 1);
+    lua_pushinteger(L, sprite ? sprite->height() : 0);
+    return 1;
+}
+
+// Sprite __gc metamethod
+LUA_FUNCTION(l_sprite_gc) {
+    Sprite** pp = (Sprite**)lua_touserdata(L, 1);
+    if (pp && *pp) {
+        delete *pp;
+        *pp = nullptr;
+    }
+    return 0;
+}
+
+// Sprite method table
+static const luaL_Reg sprite_methods[] = {
+    {"clear",                l_sprite_clear},
+    {"set_transparent_color", l_sprite_set_transparent_color},
+    {"fill_rect",            l_sprite_fill_rect},
+    {"draw_rect",            l_sprite_draw_rect},
+    {"fill_round_rect",      l_sprite_fill_round_rect},
+    {"draw_round_rect",      l_sprite_draw_round_rect},
+    {"draw_text",            l_sprite_draw_text},
+    {"draw_line",            l_sprite_draw_line},
+    {"draw_circle",          l_sprite_draw_circle},
+    {"fill_circle",          l_sprite_fill_circle},
+    {"push",                 l_sprite_push},
+    {"destroy",              l_sprite_destroy},
+    {"width",                l_sprite_width},
+    {"height",               l_sprite_height},
+    {nullptr, nullptr}
+};
+
+// @lua display.create_sprite(width, height) -> Sprite
+// @brief Create an off-screen sprite for alpha compositing
+LUA_FUNCTION(l_display_create_sprite) {
+    LUA_CHECK_ARGC(L, 2);
+    int width = luaL_checkinteger(L, 1);
+    int height = luaL_checkinteger(L, 2);
+
+    if (!display) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    Sprite* sprite = display->createSprite(width, height);
+    if (!sprite) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    // Create userdata and set metatable
+    Sprite** pp = (Sprite**)lua_newuserdata(L, sizeof(Sprite*));
+    *pp = sprite;
+    luaL_getmetatable(L, SPRITE_METATABLE);
+    lua_setmetatable(L, -2);
+
+    return 1;
+}
+
+// ============================================================================
+// Display module function table
+// ============================================================================
+
 // Function table for ez.display
 static const luaL_Reg display_funcs[] = {
     {"clear",             l_display_clear},
@@ -1071,11 +1299,21 @@ static const luaL_Reg display_funcs[] = {
     {"draw_indexed_bitmap", l_display_draw_indexed_bitmap},
     {"draw_indexed_bitmap_scaled", l_display_draw_indexed_bitmap_scaled},
     {"save_screenshot",   l_display_save_screenshot},
+    {"create_sprite",     l_display_create_sprite},
     {nullptr, nullptr}
 };
 
 // Register the display module
 void registerDisplayModule(lua_State* L) {
+    // Register Sprite metatable
+    luaL_newmetatable(L, SPRITE_METATABLE);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, -2, "__index");  // metatable.__index = metatable
+    luaL_setfuncs(L, sprite_methods, 0);
+    lua_pushcfunction(L, l_sprite_gc);
+    lua_setfield(L, -2, "__gc");
+    lua_pop(L, 1);
+
     // Register main functions
     lua_register_module(L, "display", display_funcs);
 

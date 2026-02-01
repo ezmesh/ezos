@@ -96,6 +96,58 @@ namespace Colors {
     constexpr uint16_t SUCCESS     = GREEN;
 }
 
+// Forward declaration
+class Display;
+
+// Sprite class for off-screen rendering with alpha support
+class Sprite {
+public:
+    Sprite(Display* parent);
+    ~Sprite();
+
+    // Prevent copying
+    Sprite(const Sprite&) = delete;
+    Sprite& operator=(const Sprite&) = delete;
+
+    // Creation/destruction
+    bool create(int width, int height);
+    void destroy();
+    bool isValid() const { return _valid; }
+
+    // Properties
+    int width() const { return _width; }
+    int height() const { return _height; }
+    void setTransparentColor(uint16_t color) { _transparentColor = color; _hasTransparent = true; }
+    void clearTransparentColor() { _hasTransparent = false; }
+
+    // Drawing operations (mirror Display API)
+    void clear(uint16_t color = 0x0000);
+    void drawPixel(int x, int y, uint16_t color);
+    void fillRect(int x, int y, int w, int h, uint16_t color);
+    void drawRect(int x, int y, int w, int h, uint16_t color);
+    void drawLine(int x1, int y1, int x2, int y2, uint16_t color);
+    void drawCircle(int x, int y, int r, uint16_t color);
+    void fillCircle(int x, int y, int r, uint16_t color);
+    void drawTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color);
+    void fillTriangle(int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color);
+    void drawRoundRect(int x, int y, int w, int h, int r, uint16_t color);
+    void fillRoundRect(int x, int y, int w, int h, int r, uint16_t color);
+    void drawText(int x, int y, const char* text, uint16_t color);
+
+    // Composite to parent display buffer
+    // alpha: 0 = fully transparent, 255 = fully opaque
+    void push(int x, int y, uint8_t alpha = 255);
+
+private:
+    Display* _parent;
+    LGFX_Sprite _sprite;
+    int _width = 0;
+    int _height = 0;
+    bool _valid = false;
+    uint16_t _transparentColor = 0x0000;
+    bool _hasTransparent = false;
+};
+
 // Font size options for TUI
 enum class FontSize : uint8_t {
     TINY = 0,    // FreeMono5pt - compact (6x10), UTF-8 monospace
@@ -317,4 +369,12 @@ public:
     bool isPrimitiveCaptureEnabled() const { return _primitiveCaptureEnabled; }
     void clearCapturedPrimitives();
     size_t getCapturedPrimitivesJSON(char* buffer, size_t maxSize);
+
+    // Sprite support
+    Sprite* createSprite(int width, int height);
+    void destroySprite(Sprite* sprite);
+
+    // Access to internal buffer (for Sprite compositing)
+    LGFX_Sprite& getBuffer() { return _buffer; }
+    const lgfx::GFXfont* getCurrentFont() const;
 };
