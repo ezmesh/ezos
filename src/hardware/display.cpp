@@ -6,13 +6,13 @@
 #include "../fonts/FreeMono5pt7b.h"
 #include "../config.h"
 
-// Font metrics for each size (width, height measured for monospace 'M')
+// Font metrics for each size (measured via textWidth for monospace accuracy)
 // All fonts are FreeMono - true monospace with UTF-8 support
 static const FontMetrics FONT_METRICS[] = {
-    { 6, 10, &FreeMono5pt7b },           // TINY: ~6x10 (compact UTF-8 monospace)
-    { 6, 12, &fonts::FreeMono9pt7b },    // SMALL: ~6x12 (UTF-8 monospace)
-    { 7, 16, &fonts::FreeMono12pt7b },   // MEDIUM: ~7x16 (default)
-    { 11, 24, &fonts::FreeMono18pt7b }   // LARGE: ~11x24
+    { 6, 10, &FreeMono5pt7b },           // TINY: 6x10 (compact UTF-8 monospace)
+    { 11, 12, &fonts::FreeMono9pt7b },   // SMALL: 11x12 (UTF-8 monospace)
+    { 14, 16, &fonts::FreeMono12pt7b },  // MEDIUM: 14x16 (default)
+    { 21, 24, &fonts::FreeMono18pt7b }   // LARGE: 21x24
 };
 
 Display::Display() : _buffer(&_lcd) {
