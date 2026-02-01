@@ -173,9 +173,9 @@ local function boot_sequence()
             _G.SoundUtils.init()
         end
 
-        -- Timezone (apply POSIX string directly)
-        local tz_posix = get_pref("time_zone_posix", nil)
-        if tz_posix and ez.system and ez.system.set_timezone then
+        -- Timezone (apply POSIX string, default to UTC)
+        local tz_posix = get_pref("time_zone_posix", "UTC0")
+        if ez.system and ez.system.set_timezone then
             ez.system.set_timezone(tz_posix)
         end
 

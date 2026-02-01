@@ -34,9 +34,21 @@ function FileEdit:new(path)
 end
 
 function FileEdit:on_enter()
+    -- Set keyboard to input mode for text editing
+    ez.keyboard.set_mode("input")
+
     if self.file_path then
         self:load_file(self.file_path)
     end
+end
+
+function FileEdit:on_exit()
+    -- Reset keyboard to normal mode
+    ez.keyboard.set_mode("normal")
+end
+
+function FileEdit:is_lua_file()
+    return self.file_path and self.file_path:match("%.lua$") ~= nil
 end
 
 function FileEdit:load_file(path)
@@ -216,6 +228,33 @@ function FileEdit:get_menu_items()
         end
     })
 
+    -- Run action for Lua files
+    if self:is_lua_file() then
+        table.insert(items, {
+            label = "Run",
+            action = function()
+                -- Save first if modified
+                if self_ref.modified then
+                    self_ref:save_file()
+                end
+                -- Try to load and run the Lua file
+                local path = self_ref.file_path
+                local ok, result = pcall(dofile, path)
+                if ok then
+                    -- If it returns a screen class, push it
+                    if type(result) == "table" and result.new then
+                        ScreenManager.push(result:new())
+                    else
+                        self_ref:show_message("Ran successfully")
+                    end
+                else
+                    self_ref:show_message("Error: " .. tostring(result):sub(1, 30))
+                end
+                ScreenManager.invalidate()
+            end
+        })
+    end
+
     table.insert(items, {
         label = "Quit",
         action = function()
@@ -238,9 +277,89 @@ function FileEdit:get_menu_items()
     return items
 end
 
+-- Lua keywords for syntax highlighting
+local LUA_KEYWORDS = {
+    ["and"] = true, ["break"] = true, ["do"] = true, ["else"] = true,
+    ["elseif"] = true, ["end"] = true, ["false"] = true, ["for"] = true,
+    ["function"] = true, ["goto"] = true, ["if"] = true, ["in"] = true,
+    ["local"] = true, ["nil"] = true, ["not"] = true, ["or"] = true,
+    ["repeat"] = true, ["return"] = true, ["then"] = true, ["true"] = true,
+    ["until"] = true, ["while"] = true,
+}
+
+-- Render a line with Lua syntax highlighting
+-- Returns nothing, draws directly to display
+function FileEdit:render_lua_line(display, line, x, y, max_chars, colors)
+    local fw = display.get_font_width()
+    local pos = 1
+    local drawn = 0
+
+    while pos <= #line and drawn < max_chars do
+        local char = line:sub(pos, pos)
+        local color = colors.TEXT
+        local len = 1
+
+        -- Comment (-- to end of line)
+        if line:sub(pos, pos + 1) == "--" then
+            local rest = line:sub(pos)
+            display.draw_text(x + drawn * fw, y, rest:sub(1, max_chars - drawn), colors.TEXT_MUTED)
+            return
+        end
+
+        -- String (single or double quote)
+        if char == '"' or char == "'" then
+            local quote = char
+            local end_pos = pos + 1
+            while end_pos <= #line do
+                if line:sub(end_pos, end_pos) == quote then
+                    end_pos = end_pos + 1
+                    break
+                elseif line:sub(end_pos, end_pos) == "\\" then
+                    end_pos = end_pos + 2
+                else
+                    end_pos = end_pos + 1
+                end
+            end
+            local str = line:sub(pos, end_pos - 1)
+            local str_len = math.min(#str, max_chars - drawn)
+            display.draw_text(x + drawn * fw, y, str:sub(1, str_len), colors.SUCCESS)
+            drawn = drawn + str_len
+            pos = end_pos
+        -- Number
+        elseif char:match("%d") then
+            local end_pos = pos
+            while end_pos <= #line and line:sub(end_pos, end_pos):match("[%d%.xXaAbBcCdDeEfF]") do
+                end_pos = end_pos + 1
+            end
+            local num = line:sub(pos, end_pos - 1)
+            local num_len = math.min(#num, max_chars - drawn)
+            display.draw_text(x + drawn * fw, y, num:sub(1, num_len), colors.WARNING)
+            drawn = drawn + num_len
+            pos = end_pos
+        -- Identifier or keyword
+        elseif char:match("[%a_]") then
+            local end_pos = pos
+            while end_pos <= #line and line:sub(end_pos, end_pos):match("[%w_]") do
+                end_pos = end_pos + 1
+            end
+            local word = line:sub(pos, end_pos - 1)
+            local word_len = math.min(#word, max_chars - drawn)
+            local word_color = LUA_KEYWORDS[word] and colors.ACCENT or colors.TEXT
+            display.draw_text(x + drawn * fw, y, word:sub(1, word_len), word_color)
+            drawn = drawn + word_len
+            pos = end_pos
+        -- Other characters
+        else
+            display.draw_text(x + drawn * fw, y, char, colors.TEXT)
+            drawn = drawn + 1
+            pos = pos + 1
+        end
+    end
+end
+
 function FileEdit:render(display)
-    -- Ensure medium font (status bar may have changed to small)
-    display.set_font_size("medium")
+    -- Use small font for more text on screen
+    display.set_font_size("small")
 
     local colors = ListMixin.get_colors(display)
     local fw = display.get_font_width()
@@ -264,6 +383,7 @@ function FileEdit:render(display)
     local visible_rows = rows - 3
     local visible_cols = cols - 6
     local line_num_width = 4
+    local is_lua = self:is_lua_file()
 
     for i = 1, visible_rows do
         local line_idx = self.scroll_row + i
@@ -277,7 +397,13 @@ function FileEdit:render(display)
             -- Line content
             local line = self.lines[line_idx]
             local visible_part = line:sub(self.scroll_col + 1, self.scroll_col + visible_cols)
-            display.draw_text((line_num_width + 1) * fw, py, visible_part, colors.TEXT)
+            local text_x = (line_num_width + 1) * fw
+
+            if is_lua then
+                self:render_lua_line(display, visible_part, text_x, py, visible_cols, colors)
+            else
+                display.draw_text(text_x, py, visible_part, colors.TEXT)
+            end
 
             -- Cursor
             if line_idx == self.cursor_row then

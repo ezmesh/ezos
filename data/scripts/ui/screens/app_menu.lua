@@ -115,8 +115,12 @@ function AppMenu.hide()
         _G.StatusBar.enable()
     end
 
-    -- Nil out global so it can be garbage collected
-    _G.AppMenu = nil
+    -- Re-register overlay (was unregistered above) so it can be shown again
+    if _G.Overlays then
+        _G.Overlays.register("app_menu", AppMenu.render, 200, AppMenu.handle_key)
+        _G.Overlays.disable("app_menu")
+    end
+
     run_gc("collect", "app-menu-close")
 
     if _G.ScreenManager then

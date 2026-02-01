@@ -25,7 +25,7 @@ local MainMenu = {
         {label = "Packets",   description = "Live packet view",   icon_path = "packets",   unread = 0, enabled = true, shortcut = "P"},
         {label = "Settings",  description = "Configuration",      icon_path = "settings",  unread = 0, enabled = true, shortcut = ","},
         {label = "Storage",   description = "Disk space info",    icon_path = "files",     unread = 0, enabled = true, shortcut = "O"},
-        {label = "Files",     description = "File browser",       icon_path = "files",     unread = 0, enabled = false, shortcut = "F"},
+        {label = "Files",     description = "File browser",       icon_path = "files",     unread = 0, enabled = true, shortcut = "F"},
         {label = "Diagnostics", description = "Testing tools",     icon_path = "testing",   unread = 0, enabled = true, shortcut = "D"},
         {label = "Games",     description = "Play games",         icon_path = "games",     unread = 0, enabled = true, shortcut = "G"}
     }

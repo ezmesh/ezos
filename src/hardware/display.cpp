@@ -1079,20 +1079,25 @@ void Sprite::drawText(int x, int y, const char* text, uint16_t color) {
     }
 }
 
+// Helper to swap bytes in RGB565 value (for buffer format conversion)
+static inline uint16_t swap565(uint16_t color) {
+    return (color >> 8) | (color << 8);
+}
+
 void Sprite::push(int x, int y, uint8_t alpha) {
     if (!_valid || !_parent) return;
 
     LGFX_Sprite& dest = _parent->getBuffer();
 
     if (alpha >= 255) {
-        // Full opacity - use hardware push
+        // Full opacity - use hardware push with proper transparency handling
         if (_hasTransparent) {
             _sprite.pushSprite(&dest, x, y, _transparentColor);
         } else {
             _sprite.pushSprite(&dest, x, y);
         }
     } else if (alpha > 0) {
-        // Software alpha blending
+        // Software alpha blending with direct buffer access
         uint16_t* srcBuf = (uint16_t*)_sprite.getBuffer();
         uint16_t* dstBuf = (uint16_t*)dest.getBuffer();
         if (!srcBuf || !dstBuf) return;
@@ -1102,21 +1107,33 @@ void Sprite::push(int x, int y, uint8_t alpha) {
         int srcW = _width;
         int srcH = _height;
 
+        // LGFX stores RGB565 in big-endian (byte-swapped) format in the buffer
+        // We need to swap bytes when reading and writing for correct color handling
+        uint16_t transColorSwapped = swap565(_transparentColor);
+
+        // Pre-calculate inverse alpha
+        uint16_t invAlpha = 255 - alpha;
+
         // Blend each pixel
         for (int sy = 0; sy < srcH; sy++) {
             int dy = y + sy;
             if (dy < 0 || dy >= dstH) continue;
 
+            uint16_t* srcRow = srcBuf + sy * srcW;
+            uint16_t* dstRow = dstBuf + dy * dstW;
+
             for (int sx = 0; sx < srcW; sx++) {
                 int dx = x + sx;
                 if (dx < 0 || dx >= dstW) continue;
 
-                uint16_t srcColor = srcBuf[sy * srcW + sx];
+                uint16_t srcRaw = srcRow[sx];
 
-                // Skip transparent pixels
-                if (_hasTransparent && srcColor == _transparentColor) continue;
+                // Skip transparent pixels (compare in buffer format)
+                if (_hasTransparent && srcRaw == transColorSwapped) continue;
 
-                uint16_t dstColor = dstBuf[dy * dstW + dx];
+                // Swap bytes to get standard RGB565 format for blending
+                uint16_t srcColor = swap565(srcRaw);
+                uint16_t dstColor = swap565(dstRow[dx]);
 
                 // Extract RGB565 components
                 uint8_t srcR = (srcColor >> 11) & 0x1F;
@@ -1128,13 +1145,13 @@ void Sprite::push(int x, int y, uint8_t alpha) {
                 uint8_t dstB = dstColor & 0x1F;
 
                 // Blend: result = src * alpha + dst * (255 - alpha)
-                uint8_t invAlpha = 255 - alpha;
                 uint8_t outR = (srcR * alpha + dstR * invAlpha) / 255;
                 uint8_t outG = (srcG * alpha + dstG * invAlpha) / 255;
                 uint8_t outB = (srcB * alpha + dstB * invAlpha) / 255;
 
-                // Pack back to RGB565
-                dstBuf[dy * dstW + dx] = (outR << 11) | (outG << 5) | outB;
+                // Pack back to RGB565 and swap bytes for buffer format
+                uint16_t outColor = (outR << 11) | (outG << 5) | outB;
+                dstRow[dx] = swap565(outColor);
             }
         }
     }

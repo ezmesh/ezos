@@ -48,13 +48,22 @@ static void ensurePrefs() {
 }
 
 // Helper to determine which filesystem to use based on path
-// Paths starting with "/sd/" use SD card, otherwise LittleFS
+// Paths starting with "/sd/" or exactly "/sd" use SD card, otherwise LittleFS
 static fs::FS* getFS(const char* path, const char** adjustedPath) {
     if (strncmp(path, "/sd/", 4) == 0) {
         if (!initSD()) {
             return nullptr;
         }
         *adjustedPath = path + 3;  // Skip "/sd" prefix, keep leading "/"
+        return &SD;
+    }
+
+    // Handle "/sd" exactly (root of SD card)
+    if (strcmp(path, "/sd") == 0) {
+        if (!initSD()) {
+            return nullptr;
+        }
+        *adjustedPath = "/";  // SD card root
         return &SD;
     }
 

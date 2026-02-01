@@ -95,41 +95,30 @@ bool GPS::syncSystemTime() {
         return false;
     }
 
-    // Convert GPS time (which is UTC) to Unix timestamp
-    // We must use timegm() or equivalent since GPS provides UTC, not local time
-    struct tm timeinfo;
-    timeinfo.tm_year = _year - 1900;
-    timeinfo.tm_mon = _month - 1;
-    timeinfo.tm_mday = _day;
-    timeinfo.tm_hour = _hour;
-    timeinfo.tm_min = _minute;
-    timeinfo.tm_sec = _second;
-    timeinfo.tm_isdst = 0;
+    // GPS provides UTC time. Convert to Unix timestamp.
+    // Use a simple calculation instead of mktime() to avoid timezone complications.
+    // Days from 1970-01-01 to the GPS date
+    int days = 0;
+    for (int y = 1970; y < _year; y++) {
+        days += (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)) ? 366 : 365;
+    }
+    static const int daysBeforeMonth[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+    days += daysBeforeMonth[_month - 1] + _day - 1;
+    // Leap day adjustment for current year
+    if (_month > 2 && (_year % 4 == 0 && (_year % 100 != 0 || _year % 400 == 0))) {
+        days++;
+    }
 
-    // Save current timezone, temporarily set to UTC for conversion
-    const char* oldTz = getenv("TZ");
-    char* savedTz = oldTz ? strdup(oldTz) : nullptr;
+    time_t timestamp = (time_t)days * 86400 + _hour * 3600 + _minute * 60 + _second;
 
-    setenv("TZ", "UTC0", 1);
-    tzset();
-
-    time_t timestamp = mktime(&timeinfo);
-
-    // Set system time BEFORE restoring timezone
-    // This ensures tzset() calculates DST based on the new (correct) time
+    // Set system time (this is UTC)
     struct timeval tv;
     tv.tv_sec = timestamp;
     tv.tv_usec = 0;
     settimeofday(&tv, nullptr);
 
-    // Restore original timezone and recalculate DST for the new time
-    if (savedTz) {
-        setenv("TZ", savedTz, 1);
-        free(savedTz);
-    } else {
-        unsetenv("TZ");
-    }
-    tzset();  // Now DST is calculated based on the correct system time
+    // Force timezone recalculation with current TZ setting
+    tzset();
 
     _timeSynced = true;
     Serial.printf("[GPS] System time synced: %04d-%02d-%02d %02d:%02d:%02d UTC\n",
