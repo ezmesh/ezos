@@ -102,8 +102,9 @@ function ComponentTest:init_grid()
 
     -- Row 10: Flex wrap
     local flex_wrap = Components.Flex:new({direction = "row", wrap = true, gap = 4})
-    for i = 1, 8 do
-        flex_wrap:add(Components.Button:new({label = tostring(i), width = 28}), {width = 28, height = 18})
+    local tags = {"One", "Two", "Three", "Four", "Five", "Six"}
+    for _, tag in ipairs(tags) do
+        flex_wrap:add(Components.Button:new({label = tag}))
     end
     self.grid:add_row({
         Components.Label:new({text = "Flex Wrap"}),
