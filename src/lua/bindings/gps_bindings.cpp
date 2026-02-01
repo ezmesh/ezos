@@ -1,20 +1,25 @@
 #include "gps_bindings.h"
 #include "../../hardware/gps.h"
 
-// ez.gps.init() -> boolean
+// @lua ez.gps.init() -> boolean
+// @brief Initialize the GPS module
+// @return true if initialization successful
 static int l_gps_init(lua_State* L) {
     bool success = GPS::instance().init();
     lua_pushboolean(L, success);
     return 1;
 }
 
-// ez.gps.update() - call from main loop
+// @lua ez.gps.update()
+// @brief Process incoming GPS data, call from main loop
 static int l_gps_update(lua_State* L) {
     GPS::instance().update();
     return 0;
 }
 
-// ez.gps.get_location() -> {lat, lon, alt, valid, age} or nil
+// @lua ez.gps.get_location() -> table|nil
+// @brief Get current GPS location
+// @return Table with lat, lon, alt, valid, age (ms since last fix), or nil if not initialized
 static int l_gps_get_location(lua_State* L) {
     GPS& gps = GPS::instance();
 
@@ -43,7 +48,9 @@ static int l_gps_get_location(lua_State* L) {
     return 1;
 }
 
-// ez.gps.get_time() -> {hour, min, sec, year, month, day, valid, synced} or nil
+// @lua ez.gps.get_time() -> table|nil
+// @brief Get GPS time
+// @return Table with hour, min, sec, year, month, day, valid, synced, or nil if not initialized
 static int l_gps_get_time(lua_State* L) {
     GPS& gps = GPS::instance();
 
@@ -81,7 +88,9 @@ static int l_gps_get_time(lua_State* L) {
     return 1;
 }
 
-// ez.gps.get_movement() -> {speed, course} or nil
+// @lua ez.gps.get_movement() -> table|nil
+// @brief Get speed and heading
+// @return Table with speed (km/h) and course (degrees), or nil if not initialized
 static int l_gps_get_movement(lua_State* L) {
     GPS& gps = GPS::instance();
 
@@ -101,7 +110,9 @@ static int l_gps_get_movement(lua_State* L) {
     return 1;
 }
 
-// ez.gps.get_satellites() -> {count, hdop}
+// @lua ez.gps.get_satellites() -> table|nil
+// @brief Get satellite info
+// @return Table with count and hdop (horizontal dilution of precision), or nil if not initialized
 static int l_gps_get_satellites(lua_State* L) {
     GPS& gps = GPS::instance();
 
@@ -121,14 +132,18 @@ static int l_gps_get_satellites(lua_State* L) {
     return 1;
 }
 
-// ez.gps.sync_time() -> boolean
+// @lua ez.gps.sync_time() -> boolean
+// @brief Sync system time from GPS
+// @return true if time was synced successfully
 static int l_gps_sync_time(lua_State* L) {
     bool success = GPS::instance().syncSystemTime();
     lua_pushboolean(L, success);
     return 1;
 }
 
-// ez.gps.get_stats() -> {chars, sentences, failed}
+// @lua ez.gps.get_stats() -> table|nil
+// @brief Get GPS parsing statistics
+// @return Table with chars processed, sentences with fix, failed checksums, initialized flag
 static int l_gps_get_stats(lua_State* L) {
     GPS& gps = GPS::instance();
 
@@ -154,7 +169,9 @@ static int l_gps_get_stats(lua_State* L) {
     return 1;
 }
 
-// ez.gps.is_valid() -> boolean (has valid location fix)
+// @lua ez.gps.is_valid() -> boolean
+// @brief Check if GPS has a valid location fix
+// @return true if location is valid
 static int l_gps_is_valid(lua_State* L) {
     lua_pushboolean(L, GPS::instance().hasValidLocation());
     return 1;

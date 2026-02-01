@@ -397,7 +397,7 @@
 
 <!-- Quick Reference Index -->
 <div class="quick-ref">
-    <div class="quick-ref-title">Quick Reference <span>214 methods</span></div>
+    <div class="quick-ref-title">Quick Reference <span>223 methods</span></div>
     <div class="quick-ref-list">
         <a class="quick-ref-item" href="#audio-beep" title="Play a series of beeps (blocking)">audio.beep</a>
         <a class="quick-ref-item" href="#audio-get_volume" title="Get current volume level">audio.get_volume</a>
@@ -469,6 +469,15 @@
         <a class="quick-ref-item" href="#display-set_font_size" title="Set font size">display.set_font_size</a>
         <a class="quick-ref-item" href="#display-text_width" title="Get pixel width of text string">display.text_width</a>
         <a class="quick-ref-item" href="#ez-log" title="Log message to serial output">ez.log</a>
+        <a class="quick-ref-item" href="#gps-get_location" title="Get current GPS location">gps.get_location</a>
+        <a class="quick-ref-item" href="#gps-get_movement" title="Get speed and heading">gps.get_movement</a>
+        <a class="quick-ref-item" href="#gps-get_satellites" title="Get satellite info">gps.get_satellites</a>
+        <a class="quick-ref-item" href="#gps-get_stats" title="Get GPS parsing statistics">gps.get_stats</a>
+        <a class="quick-ref-item" href="#gps-get_time" title="Get GPS time">gps.get_time</a>
+        <a class="quick-ref-item" href="#gps-init" title="Initialize the GPS module">gps.init</a>
+        <a class="quick-ref-item" href="#gps-is_valid" title="Check if GPS has a valid location fix">gps.is_valid</a>
+        <a class="quick-ref-item" href="#gps-sync_time" title="Sync system time from GPS">gps.sync_time</a>
+        <a class="quick-ref-item" href="#gps-update" title="Process incoming GPS data, call from main loop">gps.update</a>
         <a class="quick-ref-item" href="#keyboard-available" title="Check if a key is waiting">keyboard.available</a>
         <a class="quick-ref-item" href="#keyboard-get_backlight" title="Get current keyboard backlight level">keyboard.get_backlight</a>
         <a class="quick-ref-item" href="#keyboard-get_mode" title="Get current keyboard input mode">keyboard.get_mode</a>
@@ -624,6 +633,7 @@
         <a href="#crypto">ez.crypto <span style="opacity:0.5">(13)</span></a>
         <a href="#display">ez.display <span style="opacity:0.5">(42)</span></a>
         <a href="#ez">ez.ez <span style="opacity:0.5">(1)</span></a>
+        <a href="#gps">ez.gps <span style="opacity:0.5">(9)</span></a>
         <a href="#keyboard">ez.keyboard <span style="opacity:0.5">(28)</span></a>
         <a href="#mesh">ez.mesh <span style="opacity:0.5">(42)</span></a>
         <a href="#radio">ez.radio <span style="opacity:0.5">(19)</span></a>
@@ -1445,6 +1455,57 @@
                 <tr><td>message</td><td>Text to log</td></tr>
             </table>
         </div>
+    </div>
+</div>
+
+<div class="module">
+    <div class="module-header">
+        <h2 id="gps">ez.gps</h2>
+        <span class="func-count">9 functions</span>
+    </div>
+    <div class="func" id="gps-get_location">
+        <div class="sig">ez.gps.get_location() -&gt; table|nil</div>
+        <div class="desc">Get current GPS location</div>
+        <div class="returns"><strong>Returns:</strong> Table with lat, lon, alt, valid, age (ms since last fix), or nil if not initialized</div>
+    </div>
+    <div class="func" id="gps-get_movement">
+        <div class="sig">ez.gps.get_movement() -&gt; table|nil</div>
+        <div class="desc">Get speed and heading</div>
+        <div class="returns"><strong>Returns:</strong> Table with speed (km/h) and course (degrees), or nil if not initialized</div>
+    </div>
+    <div class="func" id="gps-get_satellites">
+        <div class="sig">ez.gps.get_satellites() -&gt; table|nil</div>
+        <div class="desc">Get satellite info</div>
+        <div class="returns"><strong>Returns:</strong> Table with count and hdop (horizontal dilution of precision), or nil if not initialized</div>
+    </div>
+    <div class="func" id="gps-get_stats">
+        <div class="sig">ez.gps.get_stats() -&gt; table|nil</div>
+        <div class="desc">Get GPS parsing statistics</div>
+        <div class="returns"><strong>Returns:</strong> Table with chars processed, sentences with fix, failed checksums, initialized flag</div>
+    </div>
+    <div class="func" id="gps-get_time">
+        <div class="sig">ez.gps.get_time() -&gt; table|nil</div>
+        <div class="desc">Get GPS time</div>
+        <div class="returns"><strong>Returns:</strong> Table with hour, min, sec, year, month, day, valid, synced, or nil if not initialized</div>
+    </div>
+    <div class="func" id="gps-init">
+        <div class="sig">ez.gps.init() -&gt; boolean</div>
+        <div class="desc">Initialize the GPS module</div>
+        <div class="returns"><strong>Returns:</strong> true if initialization successful</div>
+    </div>
+    <div class="func" id="gps-is_valid">
+        <div class="sig">ez.gps.is_valid() -&gt; boolean</div>
+        <div class="desc">Check if GPS has a valid location fix</div>
+        <div class="returns"><strong>Returns:</strong> true if location is valid</div>
+    </div>
+    <div class="func" id="gps-sync_time">
+        <div class="sig">ez.gps.sync_time() -&gt; boolean</div>
+        <div class="desc">Sync system time from GPS</div>
+        <div class="returns"><strong>Returns:</strong> true if time was synced successfully</div>
+    </div>
+    <div class="func" id="gps-update">
+        <div class="sig">ez.gps.update()</div>
+        <div class="desc">Process incoming GPS data, call from main loop</div>
     </div>
 </div>
 

@@ -76,6 +76,15 @@
 | [`display.set_font_size`](#display-set_font_size) | Set font size |
 | [`display.text_width`](#display-text_width) | Get pixel width of text string |
 | [`ez.log`](#ez-log) | Log message to serial output |
+| [`gps.get_location`](#gps-get_location) | Get current GPS location |
+| [`gps.get_movement`](#gps-get_movement) | Get speed and heading |
+| [`gps.get_satellites`](#gps-get_satellites) | Get satellite info |
+| [`gps.get_stats`](#gps-get_stats) | Get GPS parsing statistics |
+| [`gps.get_time`](#gps-get_time) | Get GPS time |
+| [`gps.init`](#gps-init) | Initialize the GPS module |
+| [`gps.is_valid`](#gps-is_valid) | Check if GPS has a valid location fix |
+| [`gps.sync_time`](#gps-sync_time) | Sync system time from GPS |
+| [`gps.update`](#gps-update) | Process incoming GPS data, call from main loop |
 | [`keyboard.available`](#keyboard-available) | Check if a key is waiting |
 | [`keyboard.get_backlight`](#keyboard-get_backlight) | Get current keyboard backlight level |
 | [`keyboard.get_mode`](#keyboard-get_mode) | Get current keyboard input mode |
@@ -230,6 +239,7 @@
 - [ez.crypto](#crypto)
 - [ez.display](#display)
 - [ez.ez](#ez)
+- [ez.gps](#gps)
 - [ez.keyboard](#keyboard)
 - [ez.mesh](#mesh)
 - [ez.radio](#radio)
@@ -1295,6 +1305,98 @@ Log message to serial output
 | Parameter | Description |
 |-----------|-------------|
 | `message` | Text to log |
+
+## gps
+
+### ez.gps
+
+#### <a name="gps-get_location"></a>get_location
+
+```lua
+ez.gps.get_location() -> table|nil
+```
+
+Get current GPS location
+
+**Returns:** Table with lat, lon, alt, valid, age (ms since last fix), or nil if not initialized
+
+#### <a name="gps-get_movement"></a>get_movement
+
+```lua
+ez.gps.get_movement() -> table|nil
+```
+
+Get speed and heading
+
+**Returns:** Table with speed (km/h) and course (degrees), or nil if not initialized
+
+#### <a name="gps-get_satellites"></a>get_satellites
+
+```lua
+ez.gps.get_satellites() -> table|nil
+```
+
+Get satellite info
+
+**Returns:** Table with count and hdop (horizontal dilution of precision), or nil if not initialized
+
+#### <a name="gps-get_stats"></a>get_stats
+
+```lua
+ez.gps.get_stats() -> table|nil
+```
+
+Get GPS parsing statistics
+
+**Returns:** Table with chars processed, sentences with fix, failed checksums, initialized flag
+
+#### <a name="gps-get_time"></a>get_time
+
+```lua
+ez.gps.get_time() -> table|nil
+```
+
+Get GPS time
+
+**Returns:** Table with hour, min, sec, year, month, day, valid, synced, or nil if not initialized
+
+#### <a name="gps-init"></a>init
+
+```lua
+ez.gps.init() -> boolean
+```
+
+Initialize the GPS module
+
+**Returns:** true if initialization successful
+
+#### <a name="gps-is_valid"></a>is_valid
+
+```lua
+ez.gps.is_valid() -> boolean
+```
+
+Check if GPS has a valid location fix
+
+**Returns:** true if location is valid
+
+#### <a name="gps-sync_time"></a>sync_time
+
+```lua
+ez.gps.sync_time() -> boolean
+```
+
+Sync system time from GPS
+
+**Returns:** true if time was synced successfully
+
+#### <a name="gps-update"></a>update
+
+```lua
+ez.gps.update()
+```
+
+Process incoming GPS data, call from main loop
 
 ## keyboard
 
