@@ -189,6 +189,8 @@ async function preloadScripts() {
         'ui/components/number_input.lua',
         'ui/components/toggle.lua',
         'ui/components/flex.lua',
+        'ui/components/grid.lua',
+        'ui/components/label.lua',
         'ui/components/init.lua',
         'ui/components.lua',
         'ui/screens/main_menu.lua',
