@@ -1,4 +1,4 @@
-name: Deploy API Documentation
+name: Deploy Documentation
 
 on:
   push:
@@ -37,10 +37,14 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
+      - name: Create root redirect
+        run: |
+          echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=manual/"></head><body><a href="manual/">ezOS Manual</a></body></html>' > docs/index.html
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/api
+          path: docs
 
   deploy:
     environment:

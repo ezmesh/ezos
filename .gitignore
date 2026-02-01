@@ -31,4 +31,5 @@ node_modules/
 
 # Generated docs
 /docs/api/
-/docs/manuals/
+/docs/manual/
+/docs/index.html
