@@ -6,8 +6,14 @@
 volatile bool Radio::_rxFlag = false;
 volatile bool Radio::_txDone = false;
 
-// Interrupt service routine for radio events
-void Radio::onInterrupt() {
+// Interrupt service routine for radio events (RX complete or TX complete)
+void IRAM_ATTR Radio::onInterrupt() {
+    // This ISR fires for both RX and TX completion
+    // We use _transmitting flag to determine which event occurred
+    if (_txDone == false) {
+        // Could be TX done or RX - set both flags, main loop will sort it out
+        _txDone = true;
+    }
     _rxFlag = true;
 }
 
@@ -209,21 +215,37 @@ RadioResult Radio::configure(const RadioConfig& config) {
 RadioResult Radio::send(const uint8_t* data, size_t len) {
     if (!_initialized) return RadioResult::ERROR_INIT;
     if (len == 0 || len > 255) return RadioResult::ERROR_PARAM;
+    if (_transmitting) return RadioResult::ERROR_BUSY;
 
     _transmitting = true;
     _receiving = false;
+    _txDone = false;
 
-    int state = _radio->transmit(const_cast<uint8_t*>(data), len);
-
-    _transmitting = false;
-    _lastTxTime = millis();
+    // Use non-blocking startTransmit - ISR will set _txDone when complete
+    int state = _radio->startTransmit(const_cast<uint8_t*>(data), len);
 
     if (state != RADIOLIB_ERR_NONE) {
-        Serial.printf("TX failed with code: %d\n", state);
+        _transmitting = false;
+        Serial.printf("TX start failed with code: %d\n", state);
         return translateStatus(state);
     }
 
     return RadioResult::OK;
+}
+
+bool Radio::checkTxComplete() {
+    if (!_transmitting) return true;  // Not transmitting
+
+    if (_txDone) {
+        // TX completed via interrupt
+        _radio->finishTransmit();
+        _transmitting = false;
+        _txDone = false;
+        _lastTxTime = millis();
+        return true;
+    }
+
+    return false;  // Still transmitting
 }
 
 RadioResult Radio::queueSend(const uint8_t* data, size_t len) {
@@ -245,8 +267,16 @@ RadioResult Radio::queueSend(const uint8_t* data, size_t len) {
 }
 
 void Radio::processQueue() {
+    // Check if previous TX completed
+    if (_transmitting) {
+        if (checkTxComplete()) {
+            // TX done, restart receive mode
+            startReceive();
+        }
+        return;  // Still transmitting or just finished, don't send yet
+    }
+
     if (_txQueue.empty()) return;
-    if (_transmitting) return;
 
     uint32_t now = millis();
 
@@ -255,20 +285,18 @@ void Radio::processQueue() {
         return;
     }
 
-    // Send the next packet
+    // Send the next packet (non-blocking)
     QueuedTxPacket& pkt = _txQueue.front();
 
     RadioResult result = send(pkt.data, pkt.len);
     if (result == RadioResult::OK) {
+        // Packet transmission started, remove from queue
         _txQueue.pop_front();
     } else {
         // On error, still remove to prevent infinite retry
         Serial.printf("[Radio] Queue send failed, dropping packet\n");
         _txQueue.pop_front();
     }
-
-    // Restart receive mode after transmitting
-    startReceive();
 }
 
 RadioResult Radio::startReceive() {

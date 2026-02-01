@@ -73,14 +73,17 @@ public:
     // Get current configuration
     const RadioConfig& getConfig() const { return _config; }
 
-    // Transmission (blocking, bypasses queue)
+    // Transmission (non-blocking async, bypasses queue)
     RadioResult send(const uint8_t* data, size_t len);
 
     // Queued transmission (non-blocking, respects throttle)
     RadioResult queueSend(const uint8_t* data, size_t len);
 
-    // Process the transmit queue (call from main loop)
+    // Process the transmit queue and TX completion (call from main loop)
     void processQueue();
+
+    // Check if async TX completed (call after send() returns OK)
+    bool checkTxComplete();
 
     // Queue status
     size_t getQueueSize() const { return _txQueue.size(); }
