@@ -32,6 +32,8 @@ void registerCryptoModule(lua_State* L);
 void registerWifiModule(lua_State* L);
 // Message bus module
 #include "bindings/bus_bindings.h"
+// HTTP module
+#include "bindings/http_bindings.h"
 
 LuaRuntime& LuaRuntime::instance() {
     static LuaRuntime runtime;
@@ -141,6 +143,7 @@ bool LuaRuntime::init() {
 
 void LuaRuntime::shutdown() {
     if (_state != nullptr) {
+        http_bindings::shutdown();
         lua_close(_state);
         _state = nullptr;
         _memoryUsed = 0;
@@ -183,6 +186,9 @@ void LuaRuntime::registerAllModules() {
 
     // WiFi module
     registerWifiModule(_state);
+
+    // HTTP module
+    http_bindings::registerBindings(_state);
 
     LOG("LuaRuntime", "Modules registered");
 }
@@ -447,6 +453,9 @@ void LuaRuntime::update() {
 
     // Process async I/O completions (resumes waiting coroutines)
     AsyncIO::instance().update();
+
+    // Process HTTP responses (resumes waiting coroutines)
+    http_bindings::update(_state);
 
     // Process message bus (delivers queued messages to subscribers)
     MessageBus::instance().process(_state);
