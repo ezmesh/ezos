@@ -169,6 +169,7 @@ SettingsCategory.ALL_SETTINGS = {
     },
     system = {
         {name = "usb", label = "USB Transfer", value = "", type = "button", icon = "files"},
+        {name = "loop_delay", label = "Loop Delay", value = 0, type = "number", min = 0, max = 100, step = 1, suffix = " ms", icon = "settings"},
     }
 }
 
@@ -295,6 +296,8 @@ function SettingsCategory:load_settings()
             else setting.value = 5 end
         elseif setting.name == "show_fps" then
             setting.value = get_pref("showFps", false)
+        elseif setting.name == "loop_delay" then
+            setting.value = tonumber(get_pref("loopDelay", 0)) or 0
         end
     end
 end
@@ -367,6 +370,8 @@ function SettingsCategory:save_setting(setting)
         set_pref("screenOffTimeout", mins_map[setting.value] or 10)
     elseif setting.name == "show_fps" then
         set_pref("showFps", setting.value)
+    elseif setting.name == "loop_delay" then
+        set_pref("loopDelay", setting.value)
     end
 end
 
@@ -717,6 +722,11 @@ function SettingsCategory:adjust_value(delta)
         -- Update the StatusBar FPS display setting
         if _G.StatusBar then
             _G.StatusBar.show_fps = setting.value
+        end
+    elseif setting.name == "loop_delay" then
+        -- Update the C++ main loop delay
+        if ez.system and ez.system.set_loop_delay then
+            ez.system.set_loop_delay(setting.value)
         end
     end
 

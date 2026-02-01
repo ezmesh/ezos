@@ -58,6 +58,8 @@ The entire user interface is written in **Lua** - no C++ or complex build tools 
 | `ez.system` | Time, memory, battery, sleep |
 | `ez.crypto` | Hashing, encryption, signatures |
 
+📖 [Full Lua API Reference](https://ezmesh.github.io/ezos/)
+
 **Getting started:**
 
 1. Edit scripts directly on the SD card in `/data/scripts/`

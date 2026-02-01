@@ -258,8 +258,10 @@ void setup() {
     Serial.println();
 }
 
+// Declared in system_bindings.cpp
+extern uint32_t g_loopDelayMs;
+
 void loop() {
-    static constexpr uint32_t TARGET_FRAME_TIME_MS = 10;
     uint32_t frameStart = millis();
 
     // Process remote control commands (non-blocking)
@@ -285,9 +287,11 @@ void loop() {
         mesh->update();
     }
 
-    // Adaptive delay - only sleep for remaining time in frame budget
-    uint32_t elapsed = millis() - frameStart;
-    if (elapsed < TARGET_FRAME_TIME_MS) {
-        delay(TARGET_FRAME_TIME_MS - elapsed);
+    // Configurable loop delay (default 0 for maximum FPS)
+    if (g_loopDelayMs > 0) {
+        uint32_t elapsed = millis() - frameStart;
+        if (elapsed < g_loopDelayMs) {
+            delay(g_loopDelayMs - elapsed);
+        }
     }
 }

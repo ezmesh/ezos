@@ -111,7 +111,12 @@ function _G.spawn_screen(path, ...)
     return spawn(function()
         local ok, Screen = pcall(load_module, path)
         if not ok then
-            ez.log("[spawn_screen] Load error: " .. tostring(Screen))
+            local err_msg = tostring(Screen)
+            ez.log("[spawn_screen] Load error: " .. err_msg)
+            -- Show error screen to user
+            if _G.show_error then
+                _G.show_error(err_msg, path)
+            end
             return
         end
         if Screen and _G.ScreenManager then

@@ -1,4 +1,4 @@
-# ezOS Lua API Reference
+# T-Deck OS Lua API Reference
 
 > Auto-generated from source code
 
@@ -6,210 +6,220 @@
 
 | Method | Description |
 |--------|-------------|
-| [`ez.audio.beep`](#audio-beep) | Play a series of beeps (blocking) |
-| [`ez.audio.get_volume`](#audio-get_volume) | Get current volume level |
-| [`ez.audio.is_playing`](#audio-is_playing) | Check if audio is playing |
-| [`ez.audio.play_sample`](#audio-play_sample) | Play a PCM sample file from LittleFS |
-| [`ez.audio.play_tone`](#audio-play_tone) | Play a tone for specified duration |
-| [`ez.audio.set_frequency`](#audio-set_frequency) | Set playback frequency for continuous tones |
-| [`ez.audio.set_volume`](#audio-set_volume) | Set audio volume level |
-| [`ez.audio.start`](#audio-start) | Start continuous tone at current frequency |
-| [`ez.audio.stop`](#audio-stop) | Stop audio playback |
-| [`ez.bus.has_subscribers`](#bus-has_subscribers) | Check if a topic has any active subscribers |
-| [`ez.bus.pending_count`](#bus-pending_count) | Get number of messages waiting in queue |
-| [`ez.bus.post`](#bus-post) | Post a message to a topic |
-| [`ez.bus.subscribe`](#bus-subscribe) | Subscribe to a topic with a callback function |
-| [`ez.bus.unsubscribe`](#bus-unsubscribe) | Unsubscribe from a topic |
-| [`ez.crypto.aes128_ecb_decrypt`](#crypto-aes128_ecb_decrypt) | Decrypt data with AES-128-ECB |
-| [`ez.crypto.aes128_ecb_encrypt`](#crypto-aes128_ecb_encrypt) | Encrypt data with AES-128-ECB |
-| [`ez.crypto.base64_decode`](#crypto-base64_decode) | Decode base64 string to binary data |
-| [`ez.crypto.base64_encode`](#crypto-base64_encode) | Encode binary data to base64 string |
-| [`ez.crypto.bytes_to_hex`](#crypto-bytes_to_hex) | Convert binary data to hex string |
-| [`ez.crypto.channel_hash`](#crypto-channel_hash) | Compute channel hash from key (SHA256(key)[0]) |
-| [`ez.crypto.derive_channel_key`](#crypto-derive_channel_key) | Derive 16-byte channel key from password/name using SHA256 |
-| [`ez.crypto.hex_to_bytes`](#crypto-hex_to_bytes) | Convert hex string to binary data |
-| [`ez.crypto.hmac_sha256`](#crypto-hmac_sha256) | Compute HMAC-SHA256 |
-| [`ez.crypto.public_channel_key`](#crypto-public_channel_key) | Get the well-known #Public channel key |
-| [`ez.crypto.random_bytes`](#crypto-random_bytes) | Generate cryptographically secure random bytes |
-| [`ez.crypto.sha256`](#crypto-sha256) | Compute SHA-256 hash |
-| [`ez.crypto.sha512`](#crypto-sha512) | Compute SHA-512 hash |
-| [`ez.display.clear`](#display-clear) | Clear display buffer to black |
-| [`ez.display.draw_battery`](#display-draw_battery) | Draw battery indicator icon |
-| [`ez.display.draw_bitmap`](#display-draw_bitmap) | Draw a bitmap image from raw RGB565 data |
-| [`ez.display.draw_bitmap_1bit`](#display-draw_bitmap_1bit) | Draw a 1-bit bitmap with scaling and colorization |
-| [`ez.display.draw_bitmap_transparent`](#display-draw_bitmap_transparent) | Draw a bitmap with transparency |
-| [`ez.display.draw_box`](#display-draw_box) | Draw bordered box with optional title |
-| [`ez.display.draw_char`](#display-draw_char) | Draw a single character |
-| [`ez.display.draw_circle`](#display-draw_circle) | Draw circle outline |
-| [`ez.display.draw_hline`](#display-draw_hline) | Draw horizontal line with optional connectors |
-| [`ez.display.draw_indexed_bitmap`](#display-draw_indexed_bitmap) | Draw a 3-bit indexed bitmap using a color palette |
-| [`ez.display.draw_indexed_bitmap_scaled`](#display-draw_indexed_bitmap_scaled) | Draw a scaled portion of a 3-bit indexed bitmap |
-| [`ez.display.draw_line`](#display-draw_line) | Draw a line between two points |
-| [`ez.display.draw_pixel`](#display-draw_pixel) | Draw a single pixel |
-| [`ez.display.draw_progress`](#display-draw_progress) | Draw a progress bar |
-| [`ez.display.draw_rect`](#display-draw_rect) | Draw rectangle outline |
-| [`ez.display.draw_round_rect`](#display-draw_round_rect) | Draw rounded rectangle outline |
-| [`ez.display.draw_signal`](#display-draw_signal) | Draw signal strength indicator |
-| [`ez.display.draw_text`](#display-draw_text) | Draw text at pixel coordinates |
-| [`ez.display.draw_text_centered`](#display-draw_text_centered) | Draw horizontally centered text |
-| [`ez.display.draw_triangle`](#display-draw_triangle) | Draw triangle outline |
-| [`ez.display.fill_circle`](#display-fill_circle) | Draw filled circle |
-| [`ez.display.fill_rect`](#display-fill_rect) | Fill a rectangle with color |
-| [`ez.display.fill_round_rect`](#display-fill_round_rect) | Draw filled rounded rectangle |
-| [`ez.display.fill_triangle`](#display-fill_triangle) | Draw filled triangle |
-| [`ez.display.flush`](#display-flush) | Flush buffer to physical display |
-| [`ez.display.get_cols`](#display-get_cols) | Get display columns |
-| [`ez.display.get_font_height`](#display-get_font_height) | Get font character height |
-| [`ez.display.get_font_width`](#display-get_font_width) | Get font character width |
-| [`ez.display.get_height`](#display-get_height) | Get display height |
-| [`ez.display.get_rows`](#display-get_rows) | Get display rows |
-| [`ez.display.get_width`](#display-get_width) | Get display width |
-| [`ez.display.rgb`](#display-rgb) | Convert RGB to RGB565 color value |
-| [`ez.display.save_screenshot`](#display-save_screenshot) | Save current display contents as BMP screenshot to SD card |
-| [`ez.display.set_brightness`](#display-set_brightness) | Set backlight brightness |
-| [`ez.display.set_font_size`](#display-set_font_size) | Set font size |
-| [`ez.display.text_width`](#display-text_width) | Get pixel width of text string |
-| [`ez.keyboard.available`](#keyboard-available) | Check if a key is waiting |
-| [`ez.keyboard.get_backlight`](#keyboard-get_backlight) | Get current keyboard backlight level |
-| [`ez.keyboard.get_mode`](#keyboard-get_mode) | Get current keyboard input mode |
-| [`ez.keyboard.get_raw_matrix_bits`](#keyboard-get_raw_matrix_bits) | Get full matrix state as 64-bit integer (raw mode) |
-| [`ez.keyboard.get_repeat_delay`](#keyboard-get_repeat_delay) | Get initial delay before key repeat starts |
-| [`ez.keyboard.get_repeat_enabled`](#keyboard-get_repeat_enabled) | Check if key repeat is enabled |
-| [`ez.keyboard.get_repeat_rate`](#keyboard-get_repeat_rate) | Get key repeat rate (interval between repeats) |
-| [`ez.keyboard.get_trackball_mode`](#keyboard-get_trackball_mode) | Get current trackball input mode |
-| [`ez.keyboard.get_trackball_sensitivity`](#keyboard-get_trackball_sensitivity) | Get trackball sensitivity level |
-| [`ez.keyboard.has_trackball`](#keyboard-has_trackball) | Check if device has trackball |
-| [`ez.keyboard.is_alt_held`](#keyboard-is_alt_held) | Check if Alt is currently held |
-| [`ez.keyboard.is_ctrl_held`](#keyboard-is_ctrl_held) | Check if Ctrl is currently held |
-| [`ez.keyboard.is_fn_held`](#keyboard-is_fn_held) | Check if Fn is currently held |
-| [`ez.keyboard.is_key_pressed`](#keyboard-is_key_pressed) | Check if a specific matrix key is pressed (raw mode) |
-| [`ez.keyboard.is_shift_held`](#keyboard-is_shift_held) | Check if Shift is currently held |
-| [`ez.keyboard.read`](#keyboard-read) | Read next key event (non-blocking) |
-| [`ez.keyboard.read_blocking`](#keyboard-read_blocking) | Read key with optional timeout (blocking) |
-| [`ez.keyboard.read_raw_code`](#keyboard-read_raw_code) | Read raw key code byte directly from I2C (no translation) |
-| [`ez.keyboard.read_raw_matrix`](#keyboard-read_raw_matrix) | Read raw key matrix state (only works in raw mode) |
-| [`ez.keyboard.set_backlight`](#keyboard-set_backlight) | Set keyboard backlight brightness |
-| [`ez.keyboard.set_mode`](#keyboard-set_mode) | Set keyboard input mode |
-| [`ez.keyboard.set_repeat_delay`](#keyboard-set_repeat_delay) | Set initial delay before key repeat starts |
-| [`ez.keyboard.set_repeat_enabled`](#keyboard-set_repeat_enabled) | Enable or disable key repeat |
-| [`ez.keyboard.set_repeat_rate`](#keyboard-set_repeat_rate) | Set key repeat rate (interval between repeats) |
-| [`ez.keyboard.set_trackball_mode`](#keyboard-set_trackball_mode) | Set trackball input mode |
-| [`ez.keyboard.set_trackball_sensitivity`](#keyboard-set_trackball_sensitivity) | Set trackball sensitivity level |
-| [`ez.mesh.build_packet`](#mesh-build_packet) | Build a raw mesh packet for transmission |
-| [`ez.mesh.calc_shared_secret`](#mesh-calc_shared_secret) | Calculate ECDH shared secret with another node |
-| [`ez.mesh.clear_packet_queue`](#mesh-clear_packet_queue) | Clear all packets from the queue |
-| [`ez.mesh.clear_tx_queue`](#mesh-clear_tx_queue) | Clear all packets from transmit queue |
-| [`ez.mesh.ed25519_sign`](#mesh-ed25519_sign) | Sign data with this node's private key |
-| [`ez.mesh.ed25519_verify`](#mesh-ed25519_verify) | Verify an Ed25519 signature |
-| [`ez.mesh.enable_packet_queue`](#mesh-enable_packet_queue) | Enable or disable packet queuing for polling |
-| [`ez.mesh.get_announce_interval`](#mesh-get_announce_interval) | Get current auto-announce interval |
-| [`ez.mesh.get_node_count`](#mesh-get_node_count) | Get number of known nodes |
-| [`ez.mesh.get_node_id`](#mesh-get_node_id) | Get this node's full ID |
-| [`ez.mesh.get_node_name`](#mesh-get_node_name) | Get this node's display name |
-| [`ez.mesh.get_nodes`](#mesh-get_nodes) | Get list of discovered mesh nodes |
-| [`ez.mesh.get_path_check`](#mesh-get_path_check) | Get current path check setting |
-| [`ez.mesh.get_path_hash`](#mesh-get_path_hash) | Get this node's path hash (first byte of public key) |
-| [`ez.mesh.get_public_key`](#mesh-get_public_key) | Get this node's public key as binary string |
-| [`ez.mesh.get_public_key_hex`](#mesh-get_public_key_hex) | Get this node's public key as hex string |
-| [`ez.mesh.get_rx_count`](#mesh-get_rx_count) | Get total packets received |
-| [`ez.mesh.get_short_id`](#mesh-get_short_id) | Get this node's short ID |
-| [`ez.mesh.get_tx_count`](#mesh-get_tx_count) | Get total packets transmitted |
-| [`ez.mesh.get_tx_queue_capacity`](#mesh-get_tx_queue_capacity) | Get maximum transmit queue capacity |
-| [`ez.mesh.get_tx_queue_size`](#mesh-get_tx_queue_size) | Get number of packets waiting in transmit queue |
-| [`ez.mesh.get_tx_throttle`](#mesh-get_tx_throttle) | Get current throttle interval |
-| [`ez.mesh.has_packets`](#mesh-has_packets) | Check if packets are available in the queue |
-| [`ez.mesh.is_initialized`](#mesh-is_initialized) | Check if mesh networking is initialized |
-| [`ez.mesh.is_tx_queue_full`](#mesh-is_tx_queue_full) | Check if transmit queue is full |
-| [`ez.mesh.make_header`](#mesh-make_header) | Create a packet header byte from components |
-| [`ez.mesh.on_group_packet`](#mesh-on_group_packet) | Set callback for raw group packets (DEPRECATED - use bus.sub... |
-| [`ez.mesh.on_node_discovered`](#mesh-on_node_discovered) | Set callback for node discovery (DEPRECATED - use bus.subscr... |
-| [`ez.mesh.on_packet`](#mesh-on_packet) | Set callback for ALL incoming packets (DEPRECATED - use bus.... |
-| [`ez.mesh.packet_count`](#mesh-packet_count) | Get number of packets in queue |
-| [`ez.mesh.parse_header`](#mesh-parse_header) | Parse a packet header byte into components |
-| [`ez.mesh.pop_packet`](#mesh-pop_packet) | Get and remove the next packet from queue |
-| [`ez.mesh.queue_send`](#mesh-queue_send) | Queue packet for transmission (throttled, non-blocking) |
-| [`ez.mesh.schedule_rebroadcast`](#mesh-schedule_rebroadcast) | Schedule raw packet data for rebroadcast |
-| [`ez.mesh.send_announce`](#mesh-send_announce) | Broadcast node announcement |
-| [`ez.mesh.send_group_packet`](#mesh-send_group_packet) | Send raw encrypted group packet |
-| [`ez.mesh.send_raw`](#mesh-send_raw) | Send raw packet data directly via radio (bypasses queue, imm... |
-| [`ez.mesh.set_announce_interval`](#mesh-set_announce_interval) | Set auto-announce interval in milliseconds (0 = disabled) |
-| [`ez.mesh.set_node_name`](#mesh-set_node_name) | Set this node's display name |
-| [`ez.mesh.set_path_check`](#mesh-set_path_check) | Enable or disable path check for flood routing |
-| [`ez.mesh.set_tx_throttle`](#mesh-set_tx_throttle) | Set minimum interval between transmissions |
-| [`ez.mesh.update`](#mesh-update) | Process incoming mesh packets |
-| [`ez.radio.available`](#radio-available) | Check if data is available |
-| [`ez.radio.get_config`](#radio-get_config) | Get current radio configuration |
-| [`ez.radio.get_last_rssi`](#radio-get_last_rssi) | Get last received signal strength |
-| [`ez.radio.get_last_snr`](#radio-get_last_snr) | Get last signal-to-noise ratio |
-| [`ez.radio.is_busy`](#radio-is_busy) | Check if radio is busy |
-| [`ez.radio.is_initialized`](#radio-is_initialized) | Check if radio is initialized |
-| [`ez.radio.is_receiving`](#radio-is_receiving) | Check if in receive mode |
-| [`ez.radio.is_transmitting`](#radio-is_transmitting) | Check if currently transmitting |
-| [`ez.radio.receive`](#radio-receive) | Receive a packet |
-| [`ez.radio.send`](#radio-send) | Transmit data |
-| [`ez.radio.set_bandwidth`](#radio-set_bandwidth) | Set radio bandwidth |
-| [`ez.radio.set_coding_rate`](#radio-set_coding_rate) | Set LoRa coding rate |
-| [`ez.radio.set_frequency`](#radio-set_frequency) | Set radio frequency |
-| [`ez.radio.set_spreading_factor`](#radio-set_spreading_factor) | Set LoRa spreading factor |
-| [`ez.radio.set_sync_word`](#radio-set_sync_word) | Set sync word |
-| [`ez.radio.set_tx_power`](#radio-set_tx_power) | Set transmit power |
-| [`ez.radio.sleep`](#radio-sleep) | Put radio into sleep mode |
-| [`ez.radio.start_receive`](#radio-start_receive) | Start listening for packets |
-| [`ez.radio.wake`](#radio-wake) | Wake radio from sleep |
-| [`ez.storage.append_file`](#storage-append_file) | Append content to file |
-| [`ez.storage.clear_prefs`](#storage-clear_prefs) | Clear all preferences |
-| [`ez.storage.exists`](#storage-exists) | Check if file or directory exists |
-| [`ez.storage.file_size`](#storage-file_size) | Get file size in bytes |
-| [`ez.storage.get_flash_info`](#storage-get_flash_info) | Get flash storage info |
-| [`ez.storage.get_pref`](#storage-get_pref) | Get preference value |
-| [`ez.storage.get_sd_info`](#storage-get_sd_info) | Get SD card info |
-| [`ez.storage.is_sd_available`](#storage-is_sd_available) | Check if SD card is mounted |
-| [`ez.storage.json_decode`](#storage-json_decode) | Decode JSON string to Lua value |
-| [`ez.storage.json_encode`](#storage-json_encode) | Encode Lua value to JSON string |
-| [`ez.storage.list_dir`](#storage-list_dir) | List directory contents |
-| [`ez.storage.mkdir`](#storage-mkdir) | Create directory |
-| [`ez.storage.read_bytes`](#storage-read_bytes) | Read bytes from file at specific offset (for random access) |
-| [`ez.storage.read_file`](#storage-read_file) | Read entire file contents |
-| [`ez.storage.remove`](#storage-remove) | Delete a file |
-| [`ez.storage.remove_pref`](#storage-remove_pref) | Remove a preference |
-| [`ez.storage.rename`](#storage-rename) | Rename or move a file |
-| [`ez.storage.rmdir`](#storage-rmdir) | Remove empty directory |
-| [`ez.storage.set_pref`](#storage-set_pref) | Set preference value |
-| [`ez.storage.write_file`](#storage-write_file) | Write content to file (creates/overwrites) |
-| [`ez.system.cancel_timer`](#system-cancel_timer) | Cancel a scheduled timer |
-| [`ez.system.chip_model`](#system-chip_model) | Get ESP32 chip model name |
-| [`ez.system.cpu_freq`](#system-cpu_freq) | Get CPU frequency |
-| [`ez.system.delay`](#system-delay) | Blocking delay execution |
-| [`ez.system.gc`](#system-gc) | Force full garbage collection |
-| [`ez.system.gc_step`](#system-gc_step) | Perform incremental garbage collection |
-| [`ez.system.get_battery_percent`](#system-get_battery_percent) | Get battery charge level |
-| [`ez.system.get_battery_voltage`](#system-get_battery_voltage) | Get battery voltage |
-| [`ez.system.get_firmware_info`](#system-get_firmware_info) | Get firmware partition info |
-| [`ez.system.get_free_heap`](#system-get_free_heap) | Get free internal RAM |
-| [`ez.system.get_free_psram`](#system-get_free_psram) | Get free PSRAM |
-| [`ez.system.get_last_error`](#system-get_last_error) | Get last Lua error message |
-| [`ez.system.get_lua_memory`](#system-get_lua_memory) | Get memory used by Lua runtime |
-| [`ez.system.get_time`](#system-get_time) | Get current wall clock time |
-| [`ez.system.get_time_unix`](#system-get_time_unix) | Get current Unix timestamp |
-| [`ez.system.get_timezone`](#system-get_timezone) | Get current timezone UTC offset in hours |
-| [`ez.system.get_total_heap`](#system-get_total_heap) | Get total heap size |
-| [`ez.system.get_total_psram`](#system-get_total_psram) | Get total PSRAM size |
-| [`ez.system.is_low_memory`](#system-is_low_memory) | Check if memory is critically low |
-| [`ez.system.is_sd_available`](#system-is_sd_available) | Check if SD card is available |
-| [`ez.system.is_usb_msc_active`](#system-is_usb_msc_active) | Check if USB MSC mode is active |
-| [`ez.system.log`](#system-log) | Log message to serial output |
-| [`ez.system.millis`](#system-millis) | Returns milliseconds since boot |
-| [`ez.system.reload_scripts`](#system-reload_scripts) | Reload all Lua scripts (hot reload) |
-| [`ez.system.restart`](#system-restart) | Restart the device |
-| [`ez.system.set_interval`](#system-set_interval) | Schedule a repeating callback |
-| [`ez.system.set_time`](#system-set_time) | Set system clock time |
-| [`ez.system.set_time_unix`](#system-set_time_unix) | Set system clock from Unix timestamp |
-| [`ez.system.set_timer`](#system-set_timer) | Schedule a one-shot callback |
-| [`ez.system.set_timezone`](#system-set_timezone) | Set timezone using POSIX TZ string |
-| [`ez.system.start_usb_msc`](#system-start_usb_msc) | Start USB Mass Storage mode to access SD card from PC |
-| [`ez.system.stop_usb_msc`](#system-stop_usb_msc) | Stop USB Mass Storage mode |
-| [`ez.system.uptime`](#system-uptime) | Get device uptime |
-| [`ez.system.yield`](#system-yield) | Yield execution to allow C++ background tasks to run |
+| [`audio.beep`](#audio-beep) | Play a series of beeps (blocking) |
+| [`audio.get_volume`](#audio-get_volume) | Get current volume level |
+| [`audio.is_playing`](#audio-is_playing) | Check if audio is playing |
+| [`audio.play_sample`](#audio-play_sample) | Play a PCM sample file from LittleFS |
+| [`audio.play_tone`](#audio-play_tone) | Play a tone for specified duration |
+| [`audio.set_frequency`](#audio-set_frequency) | Set playback frequency for continuous tones |
+| [`audio.set_volume`](#audio-set_volume) | Set audio volume level |
+| [`audio.start`](#audio-start) | Start continuous tone at current frequency |
+| [`audio.stop`](#audio-stop) | Stop audio playback |
+| [`bus.has_subscribers`](#bus-has_subscribers) | Check if a topic has any active subscribers |
+| [`bus.pending_count`](#bus-pending_count) | Get number of messages waiting in queue |
+| [`bus.post`](#bus-post) | Post a message to a topic |
+| [`bus.subscribe`](#bus-subscribe) | Subscribe to a topic with a callback function |
+| [`bus.unsubscribe`](#bus-unsubscribe) | Unsubscribe from a topic |
+| [`crypto.aes128_ecb_decrypt`](#crypto-aes128_ecb_decrypt) | Decrypt data with AES-128-ECB |
+| [`crypto.aes128_ecb_encrypt`](#crypto-aes128_ecb_encrypt) | Encrypt data with AES-128-ECB |
+| [`crypto.base64_decode`](#crypto-base64_decode) | Decode base64 string to binary data |
+| [`crypto.base64_encode`](#crypto-base64_encode) | Encode binary data to base64 string |
+| [`crypto.bytes_to_hex`](#crypto-bytes_to_hex) | Convert binary data to hex string |
+| [`crypto.channel_hash`](#crypto-channel_hash) | Compute channel hash from key (SHA256(key)[0]) |
+| [`crypto.derive_channel_key`](#crypto-derive_channel_key) | Derive 16-byte channel key from password/name using SHA256 |
+| [`crypto.hex_to_bytes`](#crypto-hex_to_bytes) | Convert hex string to binary data |
+| [`crypto.hmac_sha256`](#crypto-hmac_sha256) | Compute HMAC-SHA256 |
+| [`crypto.public_channel_key`](#crypto-public_channel_key) | Get the well-known #Public channel key |
+| [`crypto.random_bytes`](#crypto-random_bytes) | Generate cryptographically secure random bytes |
+| [`crypto.sha256`](#crypto-sha256) | Compute SHA-256 hash |
+| [`crypto.sha512`](#crypto-sha512) | Compute SHA-512 hash |
+| [`display.clear`](#display-clear) | Clear display buffer to black |
+| [`display.create_sprite`](#display-create_sprite) | Create an off-screen sprite for alpha compositing |
+| [`display.draw_battery`](#display-draw_battery) | Draw battery indicator icon |
+| [`display.draw_bitmap`](#display-draw_bitmap) | Draw a bitmap image from raw RGB565 data |
+| [`display.draw_bitmap_1bit`](#display-draw_bitmap_1bit) | Draw a 1-bit bitmap with scaling and colorization |
+| [`display.draw_bitmap_transparent`](#display-draw_bitmap_transparent) | Draw a bitmap with transparency |
+| [`display.draw_box`](#display-draw_box) | Draw bordered box with optional title |
+| [`display.draw_char`](#display-draw_char) | Draw a single character |
+| [`display.draw_circle`](#display-draw_circle) | Draw circle outline |
+| [`display.draw_hline`](#display-draw_hline) | Draw horizontal line with optional connectors |
+| [`display.draw_indexed_bitmap`](#display-draw_indexed_bitmap) | Draw a 3-bit indexed bitmap using a color palette |
+| [`display.draw_indexed_bitmap_scaled`](#display-draw_indexed_bitmap_scaled) | Draw a scaled portion of a 3-bit indexed bitmap |
+| [`display.draw_line`](#display-draw_line) | Draw a line between two points |
+| [`display.draw_pixel`](#display-draw_pixel) | Draw a single pixel |
+| [`display.draw_progress`](#display-draw_progress) | Draw a progress bar |
+| [`display.draw_rect`](#display-draw_rect) | Draw rectangle outline |
+| [`display.draw_round_rect`](#display-draw_round_rect) | Draw rounded rectangle outline |
+| [`display.draw_signal`](#display-draw_signal) | Draw signal strength indicator |
+| [`display.draw_text`](#display-draw_text) | Draw text at pixel coordinates |
+| [`display.draw_text_bg`](#display-draw_text_bg) | Draw text with a background rectangle |
+| [`display.draw_text_centered`](#display-draw_text_centered) | Draw horizontally centered text |
+| [`display.draw_text_shadow`](#display-draw_text_shadow) | Draw text with a shadow offset |
+| [`display.draw_triangle`](#display-draw_triangle) | Draw triangle outline |
+| [`display.fill_circle`](#display-fill_circle) | Draw filled circle |
+| [`display.fill_rect`](#display-fill_rect) | Fill a rectangle with color |
+| [`display.fill_rect_dithered`](#display-fill_rect_dithered) | Fill a rectangle with dithered pattern (simulates transparen... |
+| [`display.fill_rect_hlines`](#display-fill_rect_hlines) | Fill a rectangle with horizontal line pattern |
+| [`display.fill_rect_vlines`](#display-fill_rect_vlines) | Fill a rectangle with vertical line pattern |
+| [`display.fill_round_rect`](#display-fill_round_rect) | Draw filled rounded rectangle |
+| [`display.fill_triangle`](#display-fill_triangle) | Draw filled triangle |
+| [`display.flush`](#display-flush) | Flush buffer to physical display |
+| [`display.get_cols`](#display-get_cols) | Get display columns |
+| [`display.get_font_height`](#display-get_font_height) | Get font character height |
+| [`display.get_font_width`](#display-get_font_width) | Get font character width |
+| [`display.get_height`](#display-get_height) | Get display height |
+| [`display.get_rows`](#display-get_rows) | Get display rows |
+| [`display.get_width`](#display-get_width) | Get display width |
+| [`display.rgb`](#display-rgb) | Convert RGB to RGB565 color value |
+| [`display.save_screenshot`](#display-save_screenshot) | Save current display contents as BMP screenshot to SD card |
+| [`display.set_brightness`](#display-set_brightness) | Set backlight brightness |
+| [`display.set_font_size`](#display-set_font_size) | Set font size |
+| [`display.text_width`](#display-text_width) | Get pixel width of text string |
+| [`ez.log`](#ez-log) | Log message to serial output |
+| [`keyboard.available`](#keyboard-available) | Check if a key is waiting |
+| [`keyboard.get_backlight`](#keyboard-get_backlight) | Get current keyboard backlight level |
+| [`keyboard.get_mode`](#keyboard-get_mode) | Get current keyboard input mode |
+| [`keyboard.get_pin_states`](#keyboard-get_pin_states) | Debug function to get raw GPIO pin states for wake detection |
+| [`keyboard.get_raw_matrix_bits`](#keyboard-get_raw_matrix_bits) | Get full matrix state as 64-bit integer (raw mode) |
+| [`keyboard.get_repeat_delay`](#keyboard-get_repeat_delay) | Get initial delay before key repeat starts |
+| [`keyboard.get_repeat_enabled`](#keyboard-get_repeat_enabled) | Check if key repeat is enabled |
+| [`keyboard.get_repeat_rate`](#keyboard-get_repeat_rate) | Get key repeat rate (interval between repeats) |
+| [`keyboard.get_trackball_mode`](#keyboard-get_trackball_mode) | Get current trackball input mode |
+| [`keyboard.get_trackball_sensitivity`](#keyboard-get_trackball_sensitivity) | Get trackball sensitivity level |
+| [`keyboard.has_key_activity`](#keyboard-has_key_activity) | Check if keyboard interrupt pin indicates key activity |
+| [`keyboard.has_trackball`](#keyboard-has_trackball) | Check if device has trackball |
+| [`keyboard.is_alt_held`](#keyboard-is_alt_held) | Check if Alt is currently held |
+| [`keyboard.is_ctrl_held`](#keyboard-is_ctrl_held) | Check if Ctrl is currently held |
+| [`keyboard.is_fn_held`](#keyboard-is_fn_held) | Check if Fn is currently held |
+| [`keyboard.is_key_pressed`](#keyboard-is_key_pressed) | Check if a specific matrix key is pressed (raw mode) |
+| [`keyboard.is_shift_held`](#keyboard-is_shift_held) | Check if Shift is currently held |
+| [`keyboard.read`](#keyboard-read) | Read next key event (non-blocking) |
+| [`keyboard.read_blocking`](#keyboard-read_blocking) | Read key with optional timeout (blocking) |
+| [`keyboard.read_raw_code`](#keyboard-read_raw_code) | Read raw key code byte directly from I2C (no translation) |
+| [`keyboard.read_raw_matrix`](#keyboard-read_raw_matrix) | Read raw key matrix state (only works in raw mode) |
+| [`keyboard.set_backlight`](#keyboard-set_backlight) | Set keyboard backlight brightness |
+| [`keyboard.set_mode`](#keyboard-set_mode) | Set keyboard input mode |
+| [`keyboard.set_repeat_delay`](#keyboard-set_repeat_delay) | Set initial delay before key repeat starts |
+| [`keyboard.set_repeat_enabled`](#keyboard-set_repeat_enabled) | Enable or disable key repeat |
+| [`keyboard.set_repeat_rate`](#keyboard-set_repeat_rate) | Set key repeat rate (interval between repeats) |
+| [`keyboard.set_trackball_mode`](#keyboard-set_trackball_mode) | Set trackball input mode |
+| [`keyboard.set_trackball_sensitivity`](#keyboard-set_trackball_sensitivity) | Set trackball sensitivity level |
+| [`mesh.build_packet`](#mesh-build_packet) | Build a raw mesh packet for transmission |
+| [`mesh.calc_shared_secret`](#mesh-calc_shared_secret) | Calculate ECDH shared secret with another node |
+| [`mesh.clear_packet_queue`](#mesh-clear_packet_queue) | Clear all packets from the queue |
+| [`mesh.clear_tx_queue`](#mesh-clear_tx_queue) | Clear all packets from transmit queue |
+| [`mesh.ed25519_sign`](#mesh-ed25519_sign) | Sign data with this node's private key |
+| [`mesh.ed25519_verify`](#mesh-ed25519_verify) | Verify an Ed25519 signature |
+| [`mesh.enable_packet_queue`](#mesh-enable_packet_queue) | Enable or disable packet queuing for polling |
+| [`mesh.get_announce_interval`](#mesh-get_announce_interval) | Get current auto-announce interval |
+| [`mesh.get_node_count`](#mesh-get_node_count) | Get number of known nodes |
+| [`mesh.get_node_id`](#mesh-get_node_id) | Get this node's full ID |
+| [`mesh.get_node_name`](#mesh-get_node_name) | Get this node's display name |
+| [`mesh.get_nodes`](#mesh-get_nodes) | Get list of discovered mesh nodes |
+| [`mesh.get_path_check`](#mesh-get_path_check) | Get current path check setting |
+| [`mesh.get_path_hash`](#mesh-get_path_hash) | Get this node's path hash (first byte of public key) |
+| [`mesh.get_public_key`](#mesh-get_public_key) | Get this node's public key as binary string |
+| [`mesh.get_public_key_hex`](#mesh-get_public_key_hex) | Get this node's public key as hex string |
+| [`mesh.get_rx_count`](#mesh-get_rx_count) | Get total packets received |
+| [`mesh.get_short_id`](#mesh-get_short_id) | Get this node's short ID |
+| [`mesh.get_tx_count`](#mesh-get_tx_count) | Get total packets transmitted |
+| [`mesh.get_tx_queue_capacity`](#mesh-get_tx_queue_capacity) | Get maximum transmit queue capacity |
+| [`mesh.get_tx_queue_size`](#mesh-get_tx_queue_size) | Get number of packets waiting in transmit queue |
+| [`mesh.get_tx_throttle`](#mesh-get_tx_throttle) | Get current throttle interval |
+| [`mesh.has_packets`](#mesh-has_packets) | Check if packets are available in the queue |
+| [`mesh.is_initialized`](#mesh-is_initialized) | Check if mesh networking is initialized |
+| [`mesh.is_tx_queue_full`](#mesh-is_tx_queue_full) | Check if transmit queue is full |
+| [`mesh.make_header`](#mesh-make_header) | Create a packet header byte from components |
+| [`mesh.on_group_packet`](#mesh-on_group_packet) | Set callback for raw group packets (DEPRECATED - use bus.sub... |
+| [`mesh.on_node_discovered`](#mesh-on_node_discovered) | Set callback for node discovery (DEPRECATED - use bus.subscr... |
+| [`mesh.on_packet`](#mesh-on_packet) | Set callback for ALL incoming packets (DEPRECATED - use bus.... |
+| [`mesh.packet_count`](#mesh-packet_count) | Get number of packets in queue |
+| [`mesh.parse_header`](#mesh-parse_header) | Parse a packet header byte into components |
+| [`mesh.pop_packet`](#mesh-pop_packet) | Get and remove the next packet from queue |
+| [`mesh.queue_send`](#mesh-queue_send) | Queue packet for transmission (throttled, non-blocking) |
+| [`mesh.schedule_rebroadcast`](#mesh-schedule_rebroadcast) | Schedule raw packet data for rebroadcast |
+| [`mesh.send_announce`](#mesh-send_announce) | Broadcast node announcement |
+| [`mesh.send_group_packet`](#mesh-send_group_packet) | Send raw encrypted group packet |
+| [`mesh.send_raw`](#mesh-send_raw) | Send raw packet data directly via radio (bypasses queue, imm... |
+| [`mesh.set_announce_interval`](#mesh-set_announce_interval) | Set auto-announce interval in milliseconds (0 = disabled) |
+| [`mesh.set_node_name`](#mesh-set_node_name) | Set this node's display name |
+| [`mesh.set_path_check`](#mesh-set_path_check) | Enable or disable path check for flood routing |
+| [`mesh.set_tx_throttle`](#mesh-set_tx_throttle) | Set minimum interval between transmissions |
+| [`mesh.update`](#mesh-update) | Process incoming mesh packets |
+| [`radio.available`](#radio-available) | Check if data is available |
+| [`radio.get_config`](#radio-get_config) | Get current radio configuration |
+| [`radio.get_last_rssi`](#radio-get_last_rssi) | Get last received signal strength |
+| [`radio.get_last_snr`](#radio-get_last_snr) | Get last signal-to-noise ratio |
+| [`radio.is_busy`](#radio-is_busy) | Check if radio is busy |
+| [`radio.is_initialized`](#radio-is_initialized) | Check if radio is initialized |
+| [`radio.is_receiving`](#radio-is_receiving) | Check if in receive mode |
+| [`radio.is_transmitting`](#radio-is_transmitting) | Check if currently transmitting |
+| [`radio.receive`](#radio-receive) | Receive a packet |
+| [`radio.send`](#radio-send) | Transmit data |
+| [`radio.set_bandwidth`](#radio-set_bandwidth) | Set radio bandwidth |
+| [`radio.set_coding_rate`](#radio-set_coding_rate) | Set LoRa coding rate |
+| [`radio.set_frequency`](#radio-set_frequency) | Set radio frequency |
+| [`radio.set_spreading_factor`](#radio-set_spreading_factor) | Set LoRa spreading factor |
+| [`radio.set_sync_word`](#radio-set_sync_word) | Set sync word |
+| [`radio.set_tx_power`](#radio-set_tx_power) | Set transmit power |
+| [`radio.sleep`](#radio-sleep) | Put radio into sleep mode |
+| [`radio.start_receive`](#radio-start_receive) | Start listening for packets |
+| [`radio.wake`](#radio-wake) | Wake radio from sleep |
+| [`storage.append_file`](#storage-append_file) | Append content to file |
+| [`storage.clear_prefs`](#storage-clear_prefs) | Clear all preferences |
+| [`storage.exists`](#storage-exists) | Check if file or directory exists |
+| [`storage.file_size`](#storage-file_size) | Get file size in bytes |
+| [`storage.get_flash_info`](#storage-get_flash_info) | Get flash storage info |
+| [`storage.get_pref`](#storage-get_pref) | Get preference value |
+| [`storage.get_sd_info`](#storage-get_sd_info) | Get SD card info |
+| [`storage.is_sd_available`](#storage-is_sd_available) | Check if SD card is mounted |
+| [`storage.json_decode`](#storage-json_decode) | Decode JSON string to Lua value |
+| [`storage.json_encode`](#storage-json_encode) | Encode Lua value to JSON string |
+| [`storage.list_dir`](#storage-list_dir) | List directory contents |
+| [`storage.mkdir`](#storage-mkdir) | Create directory |
+| [`storage.read_bytes`](#storage-read_bytes) | Read bytes from file at specific offset (for random access) |
+| [`storage.read_file`](#storage-read_file) | Read entire file contents |
+| [`storage.remove`](#storage-remove) | Delete a file |
+| [`storage.remove_pref`](#storage-remove_pref) | Remove a preference |
+| [`storage.rename`](#storage-rename) | Rename or move a file |
+| [`storage.rmdir`](#storage-rmdir) | Remove empty directory |
+| [`storage.set_pref`](#storage-set_pref) | Set preference value |
+| [`storage.write_file`](#storage-write_file) | Write content to file (creates/overwrites) |
+| [`system.cancel_timer`](#system-cancel_timer) | Cancel a scheduled timer |
+| [`system.chip_model`](#system-chip_model) | Get ESP32 chip model name |
+| [`system.cpu_freq`](#system-cpu_freq) | Get CPU frequency |
+| [`system.delay`](#system-delay) | Blocking delay execution |
+| [`system.gc`](#system-gc) | Force full garbage collection |
+| [`system.gc_step`](#system-gc_step) | Perform incremental garbage collection |
+| [`system.get_battery_percent`](#system-get_battery_percent) | Get battery charge level |
+| [`system.get_battery_voltage`](#system-get_battery_voltage) | Get battery voltage |
+| [`system.get_firmware_info`](#system-get_firmware_info) | Get firmware partition info |
+| [`system.get_free_heap`](#system-get_free_heap) | Get free internal RAM |
+| [`system.get_free_psram`](#system-get_free_psram) | Get free PSRAM |
+| [`system.get_last_error`](#system-get_last_error) | Get last Lua error message |
+| [`system.get_loop_delay`](#system-get_loop_delay) | Get the current main loop delay in milliseconds |
+| [`system.get_lua_memory`](#system-get_lua_memory) | Get memory used by Lua runtime |
+| [`system.get_time`](#system-get_time) | Get current wall clock time |
+| [`system.get_time_unix`](#system-get_time_unix) | Get current Unix timestamp |
+| [`system.get_timezone`](#system-get_timezone) | Get current timezone UTC offset in hours |
+| [`system.get_total_heap`](#system-get_total_heap) | Get total heap size |
+| [`system.get_total_psram`](#system-get_total_psram) | Get total PSRAM size |
+| [`system.is_low_memory`](#system-is_low_memory) | Check if memory is critically low |
+| [`system.is_sd_available`](#system-is_sd_available) | Check if SD card is available |
+| [`system.is_usb_msc_active`](#system-is_usb_msc_active) | Check if USB MSC mode is active |
+| [`system.millis`](#system-millis) | Returns milliseconds since boot |
+| [`system.reload_scripts`](#system-reload_scripts) | Reload all Lua scripts (hot reload) |
+| [`system.restart`](#system-restart) | Restart the device |
+| [`system.set_interval`](#system-set_interval) | Schedule a repeating callback |
+| [`system.set_loop_delay`](#system-set_loop_delay) | Set the main loop delay in milliseconds |
+| [`system.set_time`](#system-set_time) | Set system clock time |
+| [`system.set_time_unix`](#system-set_time_unix) | Set system clock from Unix timestamp |
+| [`system.set_timer`](#system-set_timer) | Schedule a one-shot callback |
+| [`system.set_timezone`](#system-set_timezone) | Set timezone using POSIX TZ string |
+| [`system.start_usb_msc`](#system-start_usb_msc) | Start USB Mass Storage mode to access SD card from PC |
+| [`system.stop_usb_msc`](#system-stop_usb_msc) | Stop USB Mass Storage mode |
+| [`system.uptime`](#system-uptime) | Get device uptime |
+| [`system.yield`](#system-yield) | Yield execution to allow C++ background tasks to run |
 
 ---
 
@@ -219,6 +229,7 @@
 - [ez.bus](#bus)
 - [ez.crypto](#crypto)
 - [ez.display](#display)
+- [ez.ez](#ez)
 - [ez.keyboard](#keyboard)
 - [ez.mesh](#mesh)
 - [ez.radio](#radio)
@@ -642,6 +653,14 @@ ez.display.clear()
 
 Clear display buffer to black
 
+#### <a name="display-create_sprite"></a>create_sprite
+
+```lua
+display.create_sprite(width, height) -> Sprite
+```
+
+Create an off-screen sprite for alpha compositing
+
 #### <a name="display-draw_battery"></a>draw_battery
 
 ```lua
@@ -943,6 +962,25 @@ Draw text at pixel coordinates
 | `text` | Text string to draw |
 | `color` | Text color (optional, defaults to TEXT) |
 
+#### <a name="display-draw_text_bg"></a>draw_text_bg
+
+```lua
+ez.display.draw_text_bg(x, y, text, fg_color, bg_color, padding)
+```
+
+Draw text with a background rectangle
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `x` | X position in pixels |
+| `y` | Y position in pixels |
+| `text` | Text string to draw |
+| `fg_color` | Text color |
+| `bg_color` | Background color |
+| `padding` | Padding around text (optional, defaults to 1) |
+
 #### <a name="display-draw_text_centered"></a>draw_text_centered
 
 ```lua
@@ -958,6 +996,25 @@ Draw horizontally centered text
 | `y` | Y position in pixels |
 | `text` | Text string to draw |
 | `color` | Text color (optional, defaults to TEXT) |
+
+#### <a name="display-draw_text_shadow"></a>draw_text_shadow
+
+```lua
+ez.display.draw_text_shadow(x, y, text, fg_color, shadow_color, offset)
+```
+
+Draw text with a shadow offset
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `x` | X position in pixels |
+| `y` | Y position in pixels |
+| `text` | Text string to draw |
+| `fg_color` | Text color |
+| `shadow_color` | Shadow color (optional, defaults to black) |
+| `offset` | Shadow offset in pixels (optional, defaults to 1) |
 
 #### <a name="display-draw_triangle"></a>draw_triangle
 
@@ -1001,6 +1058,63 @@ Fill a rectangle with color
 | `w` | Width in pixels |
 | `h` | Height in pixels |
 | `color` | Fill color (optional) |
+
+#### <a name="display-fill_rect_dithered"></a>fill_rect_dithered
+
+```lua
+ez.display.fill_rect_dithered(x, y, w, h, color, density)
+```
+
+Fill a rectangle with dithered pattern (simulates transparency)
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `x` | X position in pixels |
+| `y` | Y position in pixels |
+| `w` | Width in pixels |
+| `h` | Height in pixels |
+| `color` | Fill color |
+| `density` | Percentage of pixels filled (0-100, default 50 for checkerboard) |
+
+#### <a name="display-fill_rect_hlines"></a>fill_rect_hlines
+
+```lua
+ez.display.fill_rect_hlines(x, y, w, h, color, spacing)
+```
+
+Fill a rectangle with horizontal line pattern
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `x` | X position in pixels |
+| `y` | Y position in pixels |
+| `w` | Width in pixels |
+| `h` | Height in pixels |
+| `color` | Fill color |
+| `spacing` | Line spacing (2 = 50%, 3 = 33%, etc., default 2) |
+
+#### <a name="display-fill_rect_vlines"></a>fill_rect_vlines
+
+```lua
+ez.display.fill_rect_vlines(x, y, w, h, color, spacing)
+```
+
+Fill a rectangle with vertical line pattern
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `x` | X position in pixels |
+| `y` | Y position in pixels |
+| `w` | Width in pixels |
+| `h` | Height in pixels |
+| `color` | Fill color |
+| `spacing` | Line spacing (2 = 50%, 3 = 33%, etc., default 2) |
 
 #### <a name="display-fill_round_rect"></a>fill_round_rect
 
@@ -1164,6 +1278,24 @@ Get pixel width of text string
 
 **Returns:** Width in pixels
 
+## ez
+
+### ez.ez
+
+#### <a name="ez-log"></a>log
+
+```lua
+ez.log(message)
+```
+
+Log message to serial output
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `message` | Text to log |
+
 ## keyboard
 
 ### ez.keyboard
@@ -1197,6 +1329,16 @@ ez.keyboard.get_mode() -> string
 Get current keyboard input mode
 
 **Returns:** "normal" or "raw"
+
+#### <a name="keyboard-get_pin_states"></a>get_pin_states
+
+```lua
+ez.keyboard.get_pin_states() -> string
+```
+
+Debug function to get raw GPIO pin states for wake detection
+
+**Returns:** String with pin states: "KB_INT=X TB_UP=X TB_DOWN=X TB_LEFT=X TB_RIGHT=X TB_CLICK=X"
 
 #### <a name="keyboard-get_raw_matrix_bits"></a>get_raw_matrix_bits
 
@@ -1257,6 +1399,16 @@ ez.keyboard.get_trackball_sensitivity() -> integer
 Get trackball sensitivity level
 
 **Returns:** Sensitivity value
+
+#### <a name="keyboard-has_key_activity"></a>has_key_activity
+
+```lua
+ez.keyboard.has_key_activity() -> boolean
+```
+
+Check if keyboard interrupt pin indicates key activity
+
+**Returns:** true if a key press is detected via hardware interrupt pin
 
 #### <a name="keyboard-has_trackball"></a>has_trackball
 
@@ -2668,6 +2820,14 @@ Get last Lua error message
 
 **Returns:** Error message or nil if no error
 
+#### <a name="system-get_loop_delay"></a>get_loop_delay
+
+```lua
+ez.system.get_loop_delay() -> integer
+```
+
+Get the current main loop delay in milliseconds
+
 #### <a name="system-get_lua_memory"></a>get_lua_memory
 
 ```lua
@@ -2758,20 +2918,6 @@ Check if USB MSC mode is active
 
 **Returns:** true if MSC mode is active
 
-#### <a name="system-log"></a>log
-
-```lua
-ez.system.log(message)
-```
-
-Log message to serial output
-
-**Parameters:**
-
-| Parameter | Description |
-|-----------|-------------|
-| `message` | Text to log |
-
 #### <a name="system-millis"></a>millis
 
 ```lua
@@ -2816,6 +2962,20 @@ Schedule a repeating callback
 | `callback` | Function to call repeatedly |
 
 **Returns:** Timer ID for cancellation
+
+#### <a name="system-set_loop_delay"></a>set_loop_delay
+
+```lua
+ez.system.set_loop_delay(ms)
+```
+
+Set the main loop delay in milliseconds
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `ms` | Delay in milliseconds (0-100, default 0) |
 
 #### <a name="system-set_time"></a>set_time
 

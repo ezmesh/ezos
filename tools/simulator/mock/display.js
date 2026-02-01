@@ -797,5 +797,176 @@ export function createDisplayModule(ctx, canvas) {
     module.draw_round_rect = module.draw_rounded_rect;
     module.fill_round_rect = module.fill_rounded_rect;
 
+    // Create a sprite for off-screen rendering with alpha support
+    module.create_sprite = function(width, height) {
+        // Create an off-screen canvas for the sprite
+        const spriteCanvas = document.createElement('canvas');
+        spriteCanvas.width = width;
+        spriteCanvas.height = height;
+        const spriteCtx = spriteCanvas.getContext('2d');
+        spriteCtx.imageSmoothingEnabled = false;
+
+        let transparentColor = null;
+        let hasTransparent = false;
+
+        const sprite = {
+            width() { return width; },
+            height() { return height; },
+
+            clear(color = 0x0000) {
+                spriteCtx.fillStyle = rgb565ToCSS(color);
+                spriteCtx.fillRect(0, 0, width, height);
+            },
+
+            set_transparent_color(color) {
+                transparentColor = color;
+                hasTransparent = true;
+            },
+
+            fill_rect(x, y, w, h, color) {
+                spriteCtx.fillStyle = rgb565ToCSS(color);
+                spriteCtx.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h));
+            },
+
+            draw_rect(x, y, w, h, color) {
+                const c = rgb565ToCSS(color);
+                spriteCtx.fillStyle = c;
+                x = Math.floor(x); y = Math.floor(y);
+                w = Math.floor(w); h = Math.floor(h);
+                spriteCtx.fillRect(x, y, w, 1);
+                spriteCtx.fillRect(x, y + h - 1, w, 1);
+                spriteCtx.fillRect(x, y, 1, h);
+                spriteCtx.fillRect(x + w - 1, y, 1, h);
+            },
+
+            fill_round_rect(x, y, w, h, r, color) {
+                x = Math.floor(x); y = Math.floor(y);
+                w = Math.floor(w); h = Math.floor(h); r = Math.floor(r);
+                r = Math.min(r, Math.floor(w / 2), Math.floor(h / 2));
+                spriteCtx.fillStyle = rgb565ToCSS(color);
+                spriteCtx.beginPath();
+                spriteCtx.roundRect(x, y, w, h, r);
+                spriteCtx.fill();
+            },
+
+            draw_round_rect(x, y, w, h, r, color) {
+                x = Math.floor(x); y = Math.floor(y);
+                w = Math.floor(w); h = Math.floor(h); r = Math.floor(r);
+                r = Math.min(r, Math.floor(w / 2), Math.floor(h / 2));
+                spriteCtx.strokeStyle = rgb565ToCSS(color);
+                spriteCtx.lineWidth = 1;
+                spriteCtx.beginPath();
+                spriteCtx.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, r);
+                spriteCtx.stroke();
+            },
+
+            draw_text(x, y, text, color) {
+                const colorCSS = rgb565ToCSS(color);
+                renderText(spriteCtx, currentFont, String(text), Math.floor(x), Math.floor(y), colorCSS);
+            },
+
+            draw_line(x1, y1, x2, y2, color) {
+                x1 = Math.floor(x1); y1 = Math.floor(y1);
+                x2 = Math.floor(x2); y2 = Math.floor(y2);
+                spriteCtx.fillStyle = rgb565ToCSS(color);
+                const dx = Math.abs(x2 - x1);
+                const dy = Math.abs(y2 - y1);
+                const sx = x1 < x2 ? 1 : -1;
+                const sy = y1 < y2 ? 1 : -1;
+                let err = dx - dy;
+                while (true) {
+                    spriteCtx.fillRect(x1, y1, 1, 1);
+                    if (x1 === x2 && y1 === y2) break;
+                    const e2 = 2 * err;
+                    if (e2 > -dy) { err -= dy; x1 += sx; }
+                    if (e2 < dx) { err += dx; y1 += sy; }
+                }
+            },
+
+            draw_circle(cx, cy, r, color) {
+                cx = Math.floor(cx); cy = Math.floor(cy); r = Math.floor(r);
+                spriteCtx.fillStyle = rgb565ToCSS(color);
+                let x = r, y = 0, err = 0;
+                while (x >= y) {
+                    spriteCtx.fillRect(cx + x, cy + y, 1, 1);
+                    spriteCtx.fillRect(cx + y, cy + x, 1, 1);
+                    spriteCtx.fillRect(cx - y, cy + x, 1, 1);
+                    spriteCtx.fillRect(cx - x, cy + y, 1, 1);
+                    spriteCtx.fillRect(cx - x, cy - y, 1, 1);
+                    spriteCtx.fillRect(cx - y, cy - x, 1, 1);
+                    spriteCtx.fillRect(cx + y, cy - x, 1, 1);
+                    spriteCtx.fillRect(cx + x, cy - y, 1, 1);
+                    y++;
+                    err += 1 + 2 * y;
+                    if (2 * (err - x) + 1 > 0) { x--; err += 1 - 2 * x; }
+                }
+            },
+
+            fill_circle(cx, cy, r, color) {
+                cx = Math.floor(cx); cy = Math.floor(cy); r = Math.floor(r);
+                spriteCtx.fillStyle = rgb565ToCSS(color);
+                let x = r, y = 0, err = 0;
+                while (x >= y) {
+                    spriteCtx.fillRect(cx - x, cy + y, 2 * x + 1, 1);
+                    spriteCtx.fillRect(cx - x, cy - y, 2 * x + 1, 1);
+                    spriteCtx.fillRect(cx - y, cy + x, 2 * y + 1, 1);
+                    spriteCtx.fillRect(cx - y, cy - x, 2 * y + 1, 1);
+                    y++;
+                    err += 1 + 2 * y;
+                    if (2 * (err - x) + 1 > 0) { x--; err += 1 - 2 * x; }
+                }
+            },
+
+            push(x, y, alpha = 255) {
+                x = Math.floor(x); y = Math.floor(y);
+                alpha = Math.max(0, Math.min(255, Math.floor(alpha)));
+
+                if (alpha === 0) return;
+
+                // Get sprite image data
+                const spriteData = spriteCtx.getImageData(0, 0, width, height);
+                const srcPixels = spriteData.data;
+
+                // Get destination image data from main canvas
+                const dstData = ctx.getImageData(x, y, width, height);
+                const dstPixels = dstData.data;
+
+                // Blend pixels
+                for (let i = 0; i < width * height; i++) {
+                    const srcR = srcPixels[i * 4];
+                    const srcG = srcPixels[i * 4 + 1];
+                    const srcB = srcPixels[i * 4 + 2];
+
+                    // Check for transparent color
+                    if (hasTransparent) {
+                        const srcColor = rgbToRgb565(srcR, srcG, srcB);
+                        if (srcColor === transparentColor) continue;
+                    }
+
+                    const dstR = dstPixels[i * 4];
+                    const dstG = dstPixels[i * 4 + 1];
+                    const dstB = dstPixels[i * 4 + 2];
+
+                    // Alpha blend: result = src * alpha + dst * (1 - alpha)
+                    const a = alpha / 255;
+                    const invA = 1 - a;
+
+                    dstPixels[i * 4] = Math.floor(srcR * a + dstR * invA);
+                    dstPixels[i * 4 + 1] = Math.floor(srcG * a + dstG * invA);
+                    dstPixels[i * 4 + 2] = Math.floor(srcB * a + dstB * invA);
+                    dstPixels[i * 4 + 3] = 255;
+                }
+
+                ctx.putImageData(dstData, x, y);
+            },
+
+            destroy() {
+                // No-op in JavaScript - canvas will be garbage collected
+            }
+        };
+
+        return sprite;
+    };
+
     return module;
 }

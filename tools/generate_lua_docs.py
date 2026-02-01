@@ -5,13 +5,13 @@ Lua API Documentation Generator for T-Deck OS
 Parses C++ binding files and generates markdown and HTML documentation.
 Doc comments use the following format in the source:
 
-    // @lua tdeck.module.function_name(arg1, arg2) -> return_type
+    // @lua ez.module.function_name(arg1, arg2) -> return_type
     // @brief Short description of the function
     // @param arg1 Description of first argument
     // @param arg2 Description of second argument
     // @return Description of return value
     // @example
-    // local result = tdeck.module.function_name("hello", 42)
+    // local result = ez.module.function_name("hello", 42)
     // @end
 """
 
@@ -43,8 +43,8 @@ class LuaFunction:
 
     @property
     def fqn(self) -> str:
-        """Return fully qualified name like tdeck.module.function"""
-        return f"tdeck.{self.module}.{self.name}"
+        """Return fully qualified name like module.function"""
+        return f"{self.module}.{self.name}"
 
 @dataclass
 class LuaModule:
@@ -72,15 +72,20 @@ def parse_binding_file(filepath: Path) -> List[LuaFunction]:
         doc_block = match.group(2)
 
         # Parse module and function name from signature
-        # e.g., "tdeck.system.millis() -> integer"
-        sig_match = re.match(r'tdeck\.(\w+)\.(\w+)\((.*?)\)(?:\s*->\s*(.+))?', signature)
-        if not sig_match:
-            continue
-
-        module = sig_match.group(1)
-        name = sig_match.group(2)
-        args = sig_match.group(3) or ""
-        ret_type = sig_match.group(4) or ""
+        # Supports: "ez.module.func()", "module.func()", "func()"
+        sig_match = re.match(r'(?:(\w+)\.)?(\w+)\.(\w+)\((.*?)\)(?:\s*->\s*(.+))?', signature)
+        if sig_match:
+            # prefix.module.function or module.function
+            module = sig_match.group(2)
+            name = sig_match.group(3)
+        else:
+            # Try simple function: func()
+            sig_match = re.match(r'(\w+)\((.*?)\)(?:\s*->\s*(.+))?', signature)
+            if sig_match:
+                module = "global"
+                name = sig_match.group(1)
+            else:
+                continue
 
         # Skip excluded functions
         if name in EXCLUDED_FUNCTIONS:
@@ -175,7 +180,7 @@ def generate_markdown(modules: Dict[str, LuaModule]) -> str:
 
     # TOC by module
     for name in sorted(modules.keys()):
-        lines.append(f"- [tdeck.{name}](#{name})")
+        lines.append(f"- [ez.{name}](#{name})")
     lines.append("")
 
     # Modules
@@ -184,7 +189,7 @@ def generate_markdown(modules: Dict[str, LuaModule]) -> str:
         lines.extend([
             f"## {name}",
             "",
-            f"### tdeck.{name}",
+            f"### ez.{name}",
             ""
         ])
 
@@ -652,7 +657,7 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
     # TOC
     for name in sorted(modules.keys()):
         func_count = len(modules[name].functions)
-        html_parts.append(f'        <a href="#{name}">tdeck.{name} <span style="opacity:0.5">({func_count})</span></a>\n')
+        html_parts.append(f'        <a href="#{name}">ez.{name} <span style="opacity:0.5">({func_count})</span></a>\n')
     html_parts.append('    </div>\n</div>\n')
 
     # Modules
@@ -662,7 +667,7 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
         html_parts.append(f'''
 <div class="module">
     <div class="module-header">
-        <h2 id="{name}">tdeck.{name}</h2>
+        <h2 id="{name}">ez.{name}</h2>
         <span class="func-count">{func_count} functions</span>
     </div>
 ''')
@@ -734,7 +739,7 @@ def main():
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
     src_dir = project_root / 'src'
-    docs_dir = project_root / 'docs'
+    docs_dir = project_root / 'docs' / 'manuals' / 'development' / 'shell'
 
     print(f"Scanning {src_dir} for Lua bindings...")
 
@@ -763,7 +768,7 @@ def main():
     print(f"(Excluding {len(EXCLUDED_FUNCTIONS)} deprecated functions)")
 
     # Generate documentation
-    docs_dir.mkdir(exist_ok=True)
+    docs_dir.mkdir(parents=True, exist_ok=True)
 
     md_path = docs_dir / 'LUA_API_GENERATED.md'
     with open(md_path, 'w') as f:

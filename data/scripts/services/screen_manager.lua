@@ -4,6 +4,7 @@
 local ScreenManager = {
     stack = {},           -- Screen stack (bottom to top)
     dirty = true,         -- Needs redraw
+    post_dirty = false,   -- Re-render requested during render (applied after frame)
     last_render = 0,      -- For frame rate limiting
     frame_interval = 33,  -- ~30 FPS minimum interval
 }
@@ -126,6 +127,11 @@ function ScreenManager.invalidate()
     ScreenManager.dirty = true
 end
 
+-- Request re-render after current frame completes (use in render() for animations)
+function ScreenManager.post_invalidate()
+    ScreenManager.post_dirty = true
+end
+
 -- Process keyboard input
 -- Returns true if input was handled
 function ScreenManager.process_input()
@@ -221,6 +227,12 @@ function ScreenManager.render()
 
     ScreenManager.dirty = false
     ScreenManager.last_render = now
+
+    -- Apply post_invalidate (for animations that request re-render during render)
+    if ScreenManager.post_dirty then
+        ScreenManager.dirty = true
+        ScreenManager.post_dirty = false
+    end
 end
 
 -- Main update function - process input and render

@@ -397,237 +397,248 @@
 
 <!-- Quick Reference Index -->
 <div class="quick-ref">
-    <div class="quick-ref-title">Quick Reference <span>204 methods</span></div>
+    <div class="quick-ref-title">Quick Reference <span>214 methods</span></div>
     <div class="quick-ref-list">
-        <a class="quick-ref-item" href="#audio-beep" title="Play a series of beeps (blocking)">tdeck.audio.beep</a>
-        <a class="quick-ref-item" href="#audio-get_volume" title="Get current volume level">tdeck.audio.get_volume</a>
-        <a class="quick-ref-item" href="#audio-is_playing" title="Check if audio is playing">tdeck.audio.is_playing</a>
-        <a class="quick-ref-item" href="#audio-play_sample" title="Play a PCM sample file from LittleFS">tdeck.audio.play_sample</a>
-        <a class="quick-ref-item" href="#audio-play_tone" title="Play a tone for specified duration">tdeck.audio.play_tone</a>
-        <a class="quick-ref-item" href="#audio-set_frequency" title="Set playback frequency for continuous tones">tdeck.audio.set_frequency</a>
-        <a class="quick-ref-item" href="#audio-set_volume" title="Set audio volume level">tdeck.audio.set_volume</a>
-        <a class="quick-ref-item" href="#audio-start" title="Start continuous tone at current frequency">tdeck.audio.start</a>
-        <a class="quick-ref-item" href="#audio-stop" title="Stop audio playback">tdeck.audio.stop</a>
-        <a class="quick-ref-item" href="#bus-has_subscribers" title="Check if a topic has any active subscribers">tdeck.bus.has_subscribers</a>
-        <a class="quick-ref-item" href="#bus-pending_count" title="Get number of messages waiting in queue">tdeck.bus.pending_count</a>
-        <a class="quick-ref-item" href="#bus-post" title="Post a message to a topic">tdeck.bus.post</a>
-        <a class="quick-ref-item" href="#bus-subscribe" title="Subscribe to a topic with a callback function">tdeck.bus.subscribe</a>
-        <a class="quick-ref-item" href="#bus-unsubscribe" title="Unsubscribe from a topic">tdeck.bus.unsubscribe</a>
-        <a class="quick-ref-item" href="#crypto-aes128_ecb_decrypt" title="Decrypt data with AES-128-ECB">tdeck.crypto.aes128_ecb_decrypt</a>
-        <a class="quick-ref-item" href="#crypto-aes128_ecb_encrypt" title="Encrypt data with AES-128-ECB">tdeck.crypto.aes128_ecb_encrypt</a>
-        <a class="quick-ref-item" href="#crypto-base64_decode" title="Decode base64 string to binary data">tdeck.crypto.base64_decode</a>
-        <a class="quick-ref-item" href="#crypto-base64_encode" title="Encode binary data to base64 string">tdeck.crypto.base64_encode</a>
-        <a class="quick-ref-item" href="#crypto-bytes_to_hex" title="Convert binary data to hex string">tdeck.crypto.bytes_to_hex</a>
-        <a class="quick-ref-item" href="#crypto-channel_hash" title="Compute channel hash from key (SHA256(key)[0])">tdeck.crypto.channel_hash</a>
-        <a class="quick-ref-item" href="#crypto-derive_channel_key" title="Derive 16-byte channel key from password/name using SHA256">tdeck.crypto.derive_channel_key</a>
-        <a class="quick-ref-item" href="#crypto-hex_to_bytes" title="Convert hex string to binary data">tdeck.crypto.hex_to_bytes</a>
-        <a class="quick-ref-item" href="#crypto-hmac_sha256" title="Compute HMAC-SHA256">tdeck.crypto.hmac_sha256</a>
-        <a class="quick-ref-item" href="#crypto-public_channel_key" title="Get the well-known #Public channel key">tdeck.crypto.public_channel_key</a>
-        <a class="quick-ref-item" href="#crypto-random_bytes" title="Generate cryptographically secure random bytes">tdeck.crypto.random_bytes</a>
-        <a class="quick-ref-item" href="#crypto-sha256" title="Compute SHA-256 hash">tdeck.crypto.sha256</a>
-        <a class="quick-ref-item" href="#crypto-sha512" title="Compute SHA-512 hash">tdeck.crypto.sha512</a>
-        <a class="quick-ref-item" href="#display-clear" title="Clear display buffer to black">tdeck.display.clear</a>
-        <a class="quick-ref-item" href="#display-draw_battery" title="Draw battery indicator icon">tdeck.display.draw_battery</a>
-        <a class="quick-ref-item" href="#display-draw_bitmap" title="Draw a bitmap image from raw RGB565 data">tdeck.display.draw_bitmap</a>
-        <a class="quick-ref-item" href="#display-draw_bitmap_1bit" title="Draw a 1-bit bitmap with scaling and colorization">tdeck.display.draw_bitmap_1bit</a>
-        <a class="quick-ref-item" href="#display-draw_bitmap_transparent" title="Draw a bitmap with transparency">tdeck.display.draw_bitmap_transparent</a>
-        <a class="quick-ref-item" href="#display-draw_box" title="Draw bordered box with optional title">tdeck.display.draw_box</a>
-        <a class="quick-ref-item" href="#display-draw_char" title="Draw a single character">tdeck.display.draw_char</a>
-        <a class="quick-ref-item" href="#display-draw_circle" title="Draw circle outline">tdeck.display.draw_circle</a>
-        <a class="quick-ref-item" href="#display-draw_hline" title="Draw horizontal line with optional connectors">tdeck.display.draw_hline</a>
-        <a class="quick-ref-item" href="#display-draw_indexed_bitmap" title="Draw a 3-bit indexed bitmap using a color palette">tdeck.display.draw_indexed_bitmap</a>
-        <a class="quick-ref-item" href="#display-draw_indexed_bitmap_scaled" title="Draw a scaled portion of a 3-bit indexed bitmap">tdeck.display.draw_indexed_bitmap_scaled</a>
-        <a class="quick-ref-item" href="#display-draw_line" title="Draw a line between two points">tdeck.display.draw_line</a>
-        <a class="quick-ref-item" href="#display-draw_pixel" title="Draw a single pixel">tdeck.display.draw_pixel</a>
-        <a class="quick-ref-item" href="#display-draw_progress" title="Draw a progress bar">tdeck.display.draw_progress</a>
-        <a class="quick-ref-item" href="#display-draw_rect" title="Draw rectangle outline">tdeck.display.draw_rect</a>
-        <a class="quick-ref-item" href="#display-draw_round_rect" title="Draw rounded rectangle outline">tdeck.display.draw_round_rect</a>
-        <a class="quick-ref-item" href="#display-draw_signal" title="Draw signal strength indicator">tdeck.display.draw_signal</a>
-        <a class="quick-ref-item" href="#display-draw_text" title="Draw text at pixel coordinates">tdeck.display.draw_text</a>
-        <a class="quick-ref-item" href="#display-draw_text_centered" title="Draw horizontally centered text">tdeck.display.draw_text_centered</a>
-        <a class="quick-ref-item" href="#display-draw_triangle" title="Draw triangle outline">tdeck.display.draw_triangle</a>
-        <a class="quick-ref-item" href="#display-fill_circle" title="Draw filled circle">tdeck.display.fill_circle</a>
-        <a class="quick-ref-item" href="#display-fill_rect" title="Fill a rectangle with color">tdeck.display.fill_rect</a>
-        <a class="quick-ref-item" href="#display-fill_round_rect" title="Draw filled rounded rectangle">tdeck.display.fill_round_rect</a>
-        <a class="quick-ref-item" href="#display-fill_triangle" title="Draw filled triangle">tdeck.display.fill_triangle</a>
-        <a class="quick-ref-item" href="#display-flush" title="Flush buffer to physical display">tdeck.display.flush</a>
-        <a class="quick-ref-item" href="#display-get_cols" title="Get display columns">tdeck.display.get_cols</a>
-        <a class="quick-ref-item" href="#display-get_font_height" title="Get font character height">tdeck.display.get_font_height</a>
-        <a class="quick-ref-item" href="#display-get_font_width" title="Get font character width">tdeck.display.get_font_width</a>
-        <a class="quick-ref-item" href="#display-get_height" title="Get display height">tdeck.display.get_height</a>
-        <a class="quick-ref-item" href="#display-get_rows" title="Get display rows">tdeck.display.get_rows</a>
-        <a class="quick-ref-item" href="#display-get_width" title="Get display width">tdeck.display.get_width</a>
-        <a class="quick-ref-item" href="#display-rgb" title="Convert RGB to RGB565 color value">tdeck.display.rgb</a>
-        <a class="quick-ref-item" href="#display-save_screenshot" title="Save current display contents as BMP screenshot to SD card">tdeck.display.save_screenshot</a>
-        <a class="quick-ref-item" href="#display-set_brightness" title="Set backlight brightness">tdeck.display.set_brightness</a>
-        <a class="quick-ref-item" href="#display-set_font_size" title="Set font size">tdeck.display.set_font_size</a>
-        <a class="quick-ref-item" href="#display-text_width" title="Get pixel width of text string">tdeck.display.text_width</a>
-        <a class="quick-ref-item" href="#keyboard-available" title="Check if a key is waiting">tdeck.keyboard.available</a>
-        <a class="quick-ref-item" href="#keyboard-get_backlight" title="Get current keyboard backlight level">tdeck.keyboard.get_backlight</a>
-        <a class="quick-ref-item" href="#keyboard-get_mode" title="Get current keyboard input mode">tdeck.keyboard.get_mode</a>
-        <a class="quick-ref-item" href="#keyboard-get_raw_matrix_bits" title="Get full matrix state as 64-bit integer (raw mode)">tdeck.keyboard.get_raw_matrix_bits</a>
-        <a class="quick-ref-item" href="#keyboard-get_repeat_delay" title="Get initial delay before key repeat starts">tdeck.keyboard.get_repeat_delay</a>
-        <a class="quick-ref-item" href="#keyboard-get_repeat_enabled" title="Check if key repeat is enabled">tdeck.keyboard.get_repeat_enabled</a>
-        <a class="quick-ref-item" href="#keyboard-get_repeat_rate" title="Get key repeat rate (interval between repeats)">tdeck.keyboard.get_repeat_rate</a>
-        <a class="quick-ref-item" href="#keyboard-get_trackball_mode" title="Get current trackball input mode">tdeck.keyboard.get_trackball_mode</a>
-        <a class="quick-ref-item" href="#keyboard-get_trackball_sensitivity" title="Get trackball sensitivity level">tdeck.keyboard.get_trackball_sensitivity</a>
-        <a class="quick-ref-item" href="#keyboard-has_trackball" title="Check if device has trackball">tdeck.keyboard.has_trackball</a>
-        <a class="quick-ref-item" href="#keyboard-is_alt_held" title="Check if Alt is currently held">tdeck.keyboard.is_alt_held</a>
-        <a class="quick-ref-item" href="#keyboard-is_ctrl_held" title="Check if Ctrl is currently held">tdeck.keyboard.is_ctrl_held</a>
-        <a class="quick-ref-item" href="#keyboard-is_fn_held" title="Check if Fn is currently held">tdeck.keyboard.is_fn_held</a>
-        <a class="quick-ref-item" href="#keyboard-is_key_pressed" title="Check if a specific matrix key is pressed (raw mode)">tdeck.keyboard.is_key_pressed</a>
-        <a class="quick-ref-item" href="#keyboard-is_shift_held" title="Check if Shift is currently held">tdeck.keyboard.is_shift_held</a>
-        <a class="quick-ref-item" href="#keyboard-read" title="Read next key event (non-blocking)">tdeck.keyboard.read</a>
-        <a class="quick-ref-item" href="#keyboard-read_blocking" title="Read key with optional timeout (blocking)">tdeck.keyboard.read_blocking</a>
-        <a class="quick-ref-item" href="#keyboard-read_raw_code" title="Read raw key code byte directly from I2C (no translation)">tdeck.keyboard.read_raw_code</a>
-        <a class="quick-ref-item" href="#keyboard-read_raw_matrix" title="Read raw key matrix state (only works in raw mode)">tdeck.keyboard.read_raw_matrix</a>
-        <a class="quick-ref-item" href="#keyboard-set_backlight" title="Set keyboard backlight brightness">tdeck.keyboard.set_backlight</a>
-        <a class="quick-ref-item" href="#keyboard-set_mode" title="Set keyboard input mode">tdeck.keyboard.set_mode</a>
-        <a class="quick-ref-item" href="#keyboard-set_repeat_delay" title="Set initial delay before key repeat starts">tdeck.keyboard.set_repeat_delay</a>
-        <a class="quick-ref-item" href="#keyboard-set_repeat_enabled" title="Enable or disable key repeat">tdeck.keyboard.set_repeat_enabled</a>
-        <a class="quick-ref-item" href="#keyboard-set_repeat_rate" title="Set key repeat rate (interval between repeats)">tdeck.keyboard.set_repeat_rate</a>
-        <a class="quick-ref-item" href="#keyboard-set_trackball_mode" title="Set trackball input mode">tdeck.keyboard.set_trackball_mode</a>
-        <a class="quick-ref-item" href="#keyboard-set_trackball_sensitivity" title="Set trackball sensitivity level">tdeck.keyboard.set_trackball_sensitivity</a>
-        <a class="quick-ref-item" href="#mesh-build_packet" title="Build a raw mesh packet for transmission">tdeck.mesh.build_packet</a>
-        <a class="quick-ref-item" href="#mesh-calc_shared_secret" title="Calculate ECDH shared secret with another node">tdeck.mesh.calc_shared_secret</a>
-        <a class="quick-ref-item" href="#mesh-clear_packet_queue" title="Clear all packets from the queue">tdeck.mesh.clear_packet_queue</a>
-        <a class="quick-ref-item" href="#mesh-clear_tx_queue" title="Clear all packets from transmit queue">tdeck.mesh.clear_tx_queue</a>
-        <a class="quick-ref-item" href="#mesh-ed25519_sign" title="Sign data with this node&#x27;s private key">tdeck.mesh.ed25519_sign</a>
-        <a class="quick-ref-item" href="#mesh-ed25519_verify" title="Verify an Ed25519 signature">tdeck.mesh.ed25519_verify</a>
-        <a class="quick-ref-item" href="#mesh-enable_packet_queue" title="Enable or disable packet queuing for polling">tdeck.mesh.enable_packet_queue</a>
-        <a class="quick-ref-item" href="#mesh-get_announce_interval" title="Get current auto-announce interval">tdeck.mesh.get_announce_interval</a>
-        <a class="quick-ref-item" href="#mesh-get_node_count" title="Get number of known nodes">tdeck.mesh.get_node_count</a>
-        <a class="quick-ref-item" href="#mesh-get_node_id" title="Get this node&#x27;s full ID">tdeck.mesh.get_node_id</a>
-        <a class="quick-ref-item" href="#mesh-get_node_name" title="Get this node&#x27;s display name">tdeck.mesh.get_node_name</a>
-        <a class="quick-ref-item" href="#mesh-get_nodes" title="Get list of discovered mesh nodes">tdeck.mesh.get_nodes</a>
-        <a class="quick-ref-item" href="#mesh-get_path_check" title="Get current path check setting">tdeck.mesh.get_path_check</a>
-        <a class="quick-ref-item" href="#mesh-get_path_hash" title="Get this node&#x27;s path hash (first byte of public key)">tdeck.mesh.get_path_hash</a>
-        <a class="quick-ref-item" href="#mesh-get_public_key" title="Get this node&#x27;s public key as binary string">tdeck.mesh.get_public_key</a>
-        <a class="quick-ref-item" href="#mesh-get_public_key_hex" title="Get this node&#x27;s public key as hex string">tdeck.mesh.get_public_key_hex</a>
-        <a class="quick-ref-item" href="#mesh-get_rx_count" title="Get total packets received">tdeck.mesh.get_rx_count</a>
-        <a class="quick-ref-item" href="#mesh-get_short_id" title="Get this node&#x27;s short ID">tdeck.mesh.get_short_id</a>
-        <a class="quick-ref-item" href="#mesh-get_tx_count" title="Get total packets transmitted">tdeck.mesh.get_tx_count</a>
-        <a class="quick-ref-item" href="#mesh-get_tx_queue_capacity" title="Get maximum transmit queue capacity">tdeck.mesh.get_tx_queue_capacity</a>
-        <a class="quick-ref-item" href="#mesh-get_tx_queue_size" title="Get number of packets waiting in transmit queue">tdeck.mesh.get_tx_queue_size</a>
-        <a class="quick-ref-item" href="#mesh-get_tx_throttle" title="Get current throttle interval">tdeck.mesh.get_tx_throttle</a>
-        <a class="quick-ref-item" href="#mesh-has_packets" title="Check if packets are available in the queue">tdeck.mesh.has_packets</a>
-        <a class="quick-ref-item" href="#mesh-is_initialized" title="Check if mesh networking is initialized">tdeck.mesh.is_initialized</a>
-        <a class="quick-ref-item" href="#mesh-is_tx_queue_full" title="Check if transmit queue is full">tdeck.mesh.is_tx_queue_full</a>
-        <a class="quick-ref-item" href="#mesh-make_header" title="Create a packet header byte from components">tdeck.mesh.make_header</a>
-        <a class="quick-ref-item" href="#mesh-on_group_packet" title="Set callback for raw group packets (DEPRECATED - use bus.subscribe(&quot;mesh/group_packet&quot;) instead)">tdeck.mesh.on_group_packet</a>
-        <a class="quick-ref-item" href="#mesh-on_node_discovered" title="Set callback for node discovery (DEPRECATED - use bus.subscribe(&quot;mesh/node_discovered&quot;) instead)">tdeck.mesh.on_node_discovered</a>
-        <a class="quick-ref-item" href="#mesh-on_packet" title="Set callback for ALL incoming packets (DEPRECATED - use bus.subscribe(&quot;mesh/packet&quot;) instead)">tdeck.mesh.on_packet</a>
-        <a class="quick-ref-item" href="#mesh-packet_count" title="Get number of packets in queue">tdeck.mesh.packet_count</a>
-        <a class="quick-ref-item" href="#mesh-parse_header" title="Parse a packet header byte into components">tdeck.mesh.parse_header</a>
-        <a class="quick-ref-item" href="#mesh-pop_packet" title="Get and remove the next packet from queue">tdeck.mesh.pop_packet</a>
-        <a class="quick-ref-item" href="#mesh-queue_send" title="Queue packet for transmission (throttled, non-blocking)">tdeck.mesh.queue_send</a>
-        <a class="quick-ref-item" href="#mesh-schedule_rebroadcast" title="Schedule raw packet data for rebroadcast">tdeck.mesh.schedule_rebroadcast</a>
-        <a class="quick-ref-item" href="#mesh-send_announce" title="Broadcast node announcement">tdeck.mesh.send_announce</a>
-        <a class="quick-ref-item" href="#mesh-send_group_packet" title="Send raw encrypted group packet">tdeck.mesh.send_group_packet</a>
-        <a class="quick-ref-item" href="#mesh-send_raw" title="Send raw packet data directly via radio (bypasses queue, immediate)">tdeck.mesh.send_raw</a>
-        <a class="quick-ref-item" href="#mesh-set_announce_interval" title="Set auto-announce interval in milliseconds (0 = disabled)">tdeck.mesh.set_announce_interval</a>
-        <a class="quick-ref-item" href="#mesh-set_node_name" title="Set this node&#x27;s display name">tdeck.mesh.set_node_name</a>
-        <a class="quick-ref-item" href="#mesh-set_path_check" title="Enable or disable path check for flood routing">tdeck.mesh.set_path_check</a>
-        <a class="quick-ref-item" href="#mesh-set_tx_throttle" title="Set minimum interval between transmissions">tdeck.mesh.set_tx_throttle</a>
-        <a class="quick-ref-item" href="#mesh-update" title="Process incoming mesh packets">tdeck.mesh.update</a>
-        <a class="quick-ref-item" href="#radio-available" title="Check if data is available">tdeck.radio.available</a>
-        <a class="quick-ref-item" href="#radio-get_config" title="Get current radio configuration">tdeck.radio.get_config</a>
-        <a class="quick-ref-item" href="#radio-get_last_rssi" title="Get last received signal strength">tdeck.radio.get_last_rssi</a>
-        <a class="quick-ref-item" href="#radio-get_last_snr" title="Get last signal-to-noise ratio">tdeck.radio.get_last_snr</a>
-        <a class="quick-ref-item" href="#radio-is_busy" title="Check if radio is busy">tdeck.radio.is_busy</a>
-        <a class="quick-ref-item" href="#radio-is_initialized" title="Check if radio is initialized">tdeck.radio.is_initialized</a>
-        <a class="quick-ref-item" href="#radio-is_receiving" title="Check if in receive mode">tdeck.radio.is_receiving</a>
-        <a class="quick-ref-item" href="#radio-is_transmitting" title="Check if currently transmitting">tdeck.radio.is_transmitting</a>
-        <a class="quick-ref-item" href="#radio-receive" title="Receive a packet">tdeck.radio.receive</a>
-        <a class="quick-ref-item" href="#radio-send" title="Transmit data">tdeck.radio.send</a>
-        <a class="quick-ref-item" href="#radio-set_bandwidth" title="Set radio bandwidth">tdeck.radio.set_bandwidth</a>
-        <a class="quick-ref-item" href="#radio-set_coding_rate" title="Set LoRa coding rate">tdeck.radio.set_coding_rate</a>
-        <a class="quick-ref-item" href="#radio-set_frequency" title="Set radio frequency">tdeck.radio.set_frequency</a>
-        <a class="quick-ref-item" href="#radio-set_spreading_factor" title="Set LoRa spreading factor">tdeck.radio.set_spreading_factor</a>
-        <a class="quick-ref-item" href="#radio-set_sync_word" title="Set sync word">tdeck.radio.set_sync_word</a>
-        <a class="quick-ref-item" href="#radio-set_tx_power" title="Set transmit power">tdeck.radio.set_tx_power</a>
-        <a class="quick-ref-item" href="#radio-sleep" title="Put radio into sleep mode">tdeck.radio.sleep</a>
-        <a class="quick-ref-item" href="#radio-start_receive" title="Start listening for packets">tdeck.radio.start_receive</a>
-        <a class="quick-ref-item" href="#radio-wake" title="Wake radio from sleep">tdeck.radio.wake</a>
-        <a class="quick-ref-item" href="#storage-append_file" title="Append content to file">tdeck.storage.append_file</a>
-        <a class="quick-ref-item" href="#storage-clear_prefs" title="Clear all preferences">tdeck.storage.clear_prefs</a>
-        <a class="quick-ref-item" href="#storage-exists" title="Check if file or directory exists">tdeck.storage.exists</a>
-        <a class="quick-ref-item" href="#storage-file_size" title="Get file size in bytes">tdeck.storage.file_size</a>
-        <a class="quick-ref-item" href="#storage-get_flash_info" title="Get flash storage info">tdeck.storage.get_flash_info</a>
-        <a class="quick-ref-item" href="#storage-get_pref" title="Get preference value">tdeck.storage.get_pref</a>
-        <a class="quick-ref-item" href="#storage-get_sd_info" title="Get SD card info">tdeck.storage.get_sd_info</a>
-        <a class="quick-ref-item" href="#storage-is_sd_available" title="Check if SD card is mounted">tdeck.storage.is_sd_available</a>
-        <a class="quick-ref-item" href="#storage-json_decode" title="Decode JSON string to Lua value">tdeck.storage.json_decode</a>
-        <a class="quick-ref-item" href="#storage-json_encode" title="Encode Lua value to JSON string">tdeck.storage.json_encode</a>
-        <a class="quick-ref-item" href="#storage-list_dir" title="List directory contents">tdeck.storage.list_dir</a>
-        <a class="quick-ref-item" href="#storage-mkdir" title="Create directory">tdeck.storage.mkdir</a>
-        <a class="quick-ref-item" href="#storage-read_bytes" title="Read bytes from file at specific offset (for random access)">tdeck.storage.read_bytes</a>
-        <a class="quick-ref-item" href="#storage-read_file" title="Read entire file contents">tdeck.storage.read_file</a>
-        <a class="quick-ref-item" href="#storage-remove" title="Delete a file">tdeck.storage.remove</a>
-        <a class="quick-ref-item" href="#storage-remove_pref" title="Remove a preference">tdeck.storage.remove_pref</a>
-        <a class="quick-ref-item" href="#storage-rename" title="Rename or move a file">tdeck.storage.rename</a>
-        <a class="quick-ref-item" href="#storage-rmdir" title="Remove empty directory">tdeck.storage.rmdir</a>
-        <a class="quick-ref-item" href="#storage-set_pref" title="Set preference value">tdeck.storage.set_pref</a>
-        <a class="quick-ref-item" href="#storage-write_file" title="Write content to file (creates/overwrites)">tdeck.storage.write_file</a>
-        <a class="quick-ref-item" href="#system-cancel_timer" title="Cancel a scheduled timer">tdeck.system.cancel_timer</a>
-        <a class="quick-ref-item" href="#system-chip_model" title="Get ESP32 chip model name">tdeck.system.chip_model</a>
-        <a class="quick-ref-item" href="#system-cpu_freq" title="Get CPU frequency">tdeck.system.cpu_freq</a>
-        <a class="quick-ref-item" href="#system-delay" title="Blocking delay execution">tdeck.system.delay</a>
-        <a class="quick-ref-item" href="#system-gc" title="Force full garbage collection">tdeck.system.gc</a>
-        <a class="quick-ref-item" href="#system-gc_step" title="Perform incremental garbage collection">tdeck.system.gc_step</a>
-        <a class="quick-ref-item" href="#system-get_battery_percent" title="Get battery charge level">tdeck.system.get_battery_percent</a>
-        <a class="quick-ref-item" href="#system-get_battery_voltage" title="Get battery voltage">tdeck.system.get_battery_voltage</a>
-        <a class="quick-ref-item" href="#system-get_firmware_info" title="Get firmware partition info">tdeck.system.get_firmware_info</a>
-        <a class="quick-ref-item" href="#system-get_free_heap" title="Get free internal RAM">tdeck.system.get_free_heap</a>
-        <a class="quick-ref-item" href="#system-get_free_psram" title="Get free PSRAM">tdeck.system.get_free_psram</a>
-        <a class="quick-ref-item" href="#system-get_last_error" title="Get last Lua error message">tdeck.system.get_last_error</a>
-        <a class="quick-ref-item" href="#system-get_lua_memory" title="Get memory used by Lua runtime">tdeck.system.get_lua_memory</a>
-        <a class="quick-ref-item" href="#system-get_time" title="Get current wall clock time">tdeck.system.get_time</a>
-        <a class="quick-ref-item" href="#system-get_time_unix" title="Get current Unix timestamp">tdeck.system.get_time_unix</a>
-        <a class="quick-ref-item" href="#system-get_timezone" title="Get current timezone UTC offset in hours">tdeck.system.get_timezone</a>
-        <a class="quick-ref-item" href="#system-get_total_heap" title="Get total heap size">tdeck.system.get_total_heap</a>
-        <a class="quick-ref-item" href="#system-get_total_psram" title="Get total PSRAM size">tdeck.system.get_total_psram</a>
-        <a class="quick-ref-item" href="#system-is_low_memory" title="Check if memory is critically low">tdeck.system.is_low_memory</a>
-        <a class="quick-ref-item" href="#system-is_sd_available" title="Check if SD card is available">tdeck.system.is_sd_available</a>
-        <a class="quick-ref-item" href="#system-is_usb_msc_active" title="Check if USB MSC mode is active">tdeck.system.is_usb_msc_active</a>
-        <a class="quick-ref-item" href="#system-log" title="Log message to serial output">tdeck.system.log</a>
-        <a class="quick-ref-item" href="#system-millis" title="Returns milliseconds since boot">tdeck.system.millis</a>
-        <a class="quick-ref-item" href="#system-reload_scripts" title="Reload all Lua scripts (hot reload)">tdeck.system.reload_scripts</a>
-        <a class="quick-ref-item" href="#system-restart" title="Restart the device">tdeck.system.restart</a>
-        <a class="quick-ref-item" href="#system-set_interval" title="Schedule a repeating callback">tdeck.system.set_interval</a>
-        <a class="quick-ref-item" href="#system-set_time" title="Set system clock time">tdeck.system.set_time</a>
-        <a class="quick-ref-item" href="#system-set_time_unix" title="Set system clock from Unix timestamp">tdeck.system.set_time_unix</a>
-        <a class="quick-ref-item" href="#system-set_timer" title="Schedule a one-shot callback">tdeck.system.set_timer</a>
-        <a class="quick-ref-item" href="#system-set_timezone" title="Set timezone using POSIX TZ string">tdeck.system.set_timezone</a>
-        <a class="quick-ref-item" href="#system-start_usb_msc" title="Start USB Mass Storage mode to access SD card from PC">tdeck.system.start_usb_msc</a>
-        <a class="quick-ref-item" href="#system-stop_usb_msc" title="Stop USB Mass Storage mode">tdeck.system.stop_usb_msc</a>
-        <a class="quick-ref-item" href="#system-uptime" title="Get device uptime">tdeck.system.uptime</a>
-        <a class="quick-ref-item" href="#system-yield" title="Yield execution to allow C++ background tasks to run">tdeck.system.yield</a>
+        <a class="quick-ref-item" href="#audio-beep" title="Play a series of beeps (blocking)">audio.beep</a>
+        <a class="quick-ref-item" href="#audio-get_volume" title="Get current volume level">audio.get_volume</a>
+        <a class="quick-ref-item" href="#audio-is_playing" title="Check if audio is playing">audio.is_playing</a>
+        <a class="quick-ref-item" href="#audio-play_sample" title="Play a PCM sample file from LittleFS">audio.play_sample</a>
+        <a class="quick-ref-item" href="#audio-play_tone" title="Play a tone for specified duration">audio.play_tone</a>
+        <a class="quick-ref-item" href="#audio-set_frequency" title="Set playback frequency for continuous tones">audio.set_frequency</a>
+        <a class="quick-ref-item" href="#audio-set_volume" title="Set audio volume level">audio.set_volume</a>
+        <a class="quick-ref-item" href="#audio-start" title="Start continuous tone at current frequency">audio.start</a>
+        <a class="quick-ref-item" href="#audio-stop" title="Stop audio playback">audio.stop</a>
+        <a class="quick-ref-item" href="#bus-has_subscribers" title="Check if a topic has any active subscribers">bus.has_subscribers</a>
+        <a class="quick-ref-item" href="#bus-pending_count" title="Get number of messages waiting in queue">bus.pending_count</a>
+        <a class="quick-ref-item" href="#bus-post" title="Post a message to a topic">bus.post</a>
+        <a class="quick-ref-item" href="#bus-subscribe" title="Subscribe to a topic with a callback function">bus.subscribe</a>
+        <a class="quick-ref-item" href="#bus-unsubscribe" title="Unsubscribe from a topic">bus.unsubscribe</a>
+        <a class="quick-ref-item" href="#crypto-aes128_ecb_decrypt" title="Decrypt data with AES-128-ECB">crypto.aes128_ecb_decrypt</a>
+        <a class="quick-ref-item" href="#crypto-aes128_ecb_encrypt" title="Encrypt data with AES-128-ECB">crypto.aes128_ecb_encrypt</a>
+        <a class="quick-ref-item" href="#crypto-base64_decode" title="Decode base64 string to binary data">crypto.base64_decode</a>
+        <a class="quick-ref-item" href="#crypto-base64_encode" title="Encode binary data to base64 string">crypto.base64_encode</a>
+        <a class="quick-ref-item" href="#crypto-bytes_to_hex" title="Convert binary data to hex string">crypto.bytes_to_hex</a>
+        <a class="quick-ref-item" href="#crypto-channel_hash" title="Compute channel hash from key (SHA256(key)[0])">crypto.channel_hash</a>
+        <a class="quick-ref-item" href="#crypto-derive_channel_key" title="Derive 16-byte channel key from password/name using SHA256">crypto.derive_channel_key</a>
+        <a class="quick-ref-item" href="#crypto-hex_to_bytes" title="Convert hex string to binary data">crypto.hex_to_bytes</a>
+        <a class="quick-ref-item" href="#crypto-hmac_sha256" title="Compute HMAC-SHA256">crypto.hmac_sha256</a>
+        <a class="quick-ref-item" href="#crypto-public_channel_key" title="Get the well-known #Public channel key">crypto.public_channel_key</a>
+        <a class="quick-ref-item" href="#crypto-random_bytes" title="Generate cryptographically secure random bytes">crypto.random_bytes</a>
+        <a class="quick-ref-item" href="#crypto-sha256" title="Compute SHA-256 hash">crypto.sha256</a>
+        <a class="quick-ref-item" href="#crypto-sha512" title="Compute SHA-512 hash">crypto.sha512</a>
+        <a class="quick-ref-item" href="#display-clear" title="Clear display buffer to black">display.clear</a>
+        <a class="quick-ref-item" href="#display-create_sprite" title="Create an off-screen sprite for alpha compositing">display.create_sprite</a>
+        <a class="quick-ref-item" href="#display-draw_battery" title="Draw battery indicator icon">display.draw_battery</a>
+        <a class="quick-ref-item" href="#display-draw_bitmap" title="Draw a bitmap image from raw RGB565 data">display.draw_bitmap</a>
+        <a class="quick-ref-item" href="#display-draw_bitmap_1bit" title="Draw a 1-bit bitmap with scaling and colorization">display.draw_bitmap_1bit</a>
+        <a class="quick-ref-item" href="#display-draw_bitmap_transparent" title="Draw a bitmap with transparency">display.draw_bitmap_transparent</a>
+        <a class="quick-ref-item" href="#display-draw_box" title="Draw bordered box with optional title">display.draw_box</a>
+        <a class="quick-ref-item" href="#display-draw_char" title="Draw a single character">display.draw_char</a>
+        <a class="quick-ref-item" href="#display-draw_circle" title="Draw circle outline">display.draw_circle</a>
+        <a class="quick-ref-item" href="#display-draw_hline" title="Draw horizontal line with optional connectors">display.draw_hline</a>
+        <a class="quick-ref-item" href="#display-draw_indexed_bitmap" title="Draw a 3-bit indexed bitmap using a color palette">display.draw_indexed_bitmap</a>
+        <a class="quick-ref-item" href="#display-draw_indexed_bitmap_scaled" title="Draw a scaled portion of a 3-bit indexed bitmap">display.draw_indexed_bitmap_scaled</a>
+        <a class="quick-ref-item" href="#display-draw_line" title="Draw a line between two points">display.draw_line</a>
+        <a class="quick-ref-item" href="#display-draw_pixel" title="Draw a single pixel">display.draw_pixel</a>
+        <a class="quick-ref-item" href="#display-draw_progress" title="Draw a progress bar">display.draw_progress</a>
+        <a class="quick-ref-item" href="#display-draw_rect" title="Draw rectangle outline">display.draw_rect</a>
+        <a class="quick-ref-item" href="#display-draw_round_rect" title="Draw rounded rectangle outline">display.draw_round_rect</a>
+        <a class="quick-ref-item" href="#display-draw_signal" title="Draw signal strength indicator">display.draw_signal</a>
+        <a class="quick-ref-item" href="#display-draw_text" title="Draw text at pixel coordinates">display.draw_text</a>
+        <a class="quick-ref-item" href="#display-draw_text_bg" title="Draw text with a background rectangle">display.draw_text_bg</a>
+        <a class="quick-ref-item" href="#display-draw_text_centered" title="Draw horizontally centered text">display.draw_text_centered</a>
+        <a class="quick-ref-item" href="#display-draw_text_shadow" title="Draw text with a shadow offset">display.draw_text_shadow</a>
+        <a class="quick-ref-item" href="#display-draw_triangle" title="Draw triangle outline">display.draw_triangle</a>
+        <a class="quick-ref-item" href="#display-fill_circle" title="Draw filled circle">display.fill_circle</a>
+        <a class="quick-ref-item" href="#display-fill_rect" title="Fill a rectangle with color">display.fill_rect</a>
+        <a class="quick-ref-item" href="#display-fill_rect_dithered" title="Fill a rectangle with dithered pattern (simulates transparency)">display.fill_rect_dithered</a>
+        <a class="quick-ref-item" href="#display-fill_rect_hlines" title="Fill a rectangle with horizontal line pattern">display.fill_rect_hlines</a>
+        <a class="quick-ref-item" href="#display-fill_rect_vlines" title="Fill a rectangle with vertical line pattern">display.fill_rect_vlines</a>
+        <a class="quick-ref-item" href="#display-fill_round_rect" title="Draw filled rounded rectangle">display.fill_round_rect</a>
+        <a class="quick-ref-item" href="#display-fill_triangle" title="Draw filled triangle">display.fill_triangle</a>
+        <a class="quick-ref-item" href="#display-flush" title="Flush buffer to physical display">display.flush</a>
+        <a class="quick-ref-item" href="#display-get_cols" title="Get display columns">display.get_cols</a>
+        <a class="quick-ref-item" href="#display-get_font_height" title="Get font character height">display.get_font_height</a>
+        <a class="quick-ref-item" href="#display-get_font_width" title="Get font character width">display.get_font_width</a>
+        <a class="quick-ref-item" href="#display-get_height" title="Get display height">display.get_height</a>
+        <a class="quick-ref-item" href="#display-get_rows" title="Get display rows">display.get_rows</a>
+        <a class="quick-ref-item" href="#display-get_width" title="Get display width">display.get_width</a>
+        <a class="quick-ref-item" href="#display-rgb" title="Convert RGB to RGB565 color value">display.rgb</a>
+        <a class="quick-ref-item" href="#display-save_screenshot" title="Save current display contents as BMP screenshot to SD card">display.save_screenshot</a>
+        <a class="quick-ref-item" href="#display-set_brightness" title="Set backlight brightness">display.set_brightness</a>
+        <a class="quick-ref-item" href="#display-set_font_size" title="Set font size">display.set_font_size</a>
+        <a class="quick-ref-item" href="#display-text_width" title="Get pixel width of text string">display.text_width</a>
+        <a class="quick-ref-item" href="#ez-log" title="Log message to serial output">ez.log</a>
+        <a class="quick-ref-item" href="#keyboard-available" title="Check if a key is waiting">keyboard.available</a>
+        <a class="quick-ref-item" href="#keyboard-get_backlight" title="Get current keyboard backlight level">keyboard.get_backlight</a>
+        <a class="quick-ref-item" href="#keyboard-get_mode" title="Get current keyboard input mode">keyboard.get_mode</a>
+        <a class="quick-ref-item" href="#keyboard-get_pin_states" title="Debug function to get raw GPIO pin states for wake detection">keyboard.get_pin_states</a>
+        <a class="quick-ref-item" href="#keyboard-get_raw_matrix_bits" title="Get full matrix state as 64-bit integer (raw mode)">keyboard.get_raw_matrix_bits</a>
+        <a class="quick-ref-item" href="#keyboard-get_repeat_delay" title="Get initial delay before key repeat starts">keyboard.get_repeat_delay</a>
+        <a class="quick-ref-item" href="#keyboard-get_repeat_enabled" title="Check if key repeat is enabled">keyboard.get_repeat_enabled</a>
+        <a class="quick-ref-item" href="#keyboard-get_repeat_rate" title="Get key repeat rate (interval between repeats)">keyboard.get_repeat_rate</a>
+        <a class="quick-ref-item" href="#keyboard-get_trackball_mode" title="Get current trackball input mode">keyboard.get_trackball_mode</a>
+        <a class="quick-ref-item" href="#keyboard-get_trackball_sensitivity" title="Get trackball sensitivity level">keyboard.get_trackball_sensitivity</a>
+        <a class="quick-ref-item" href="#keyboard-has_key_activity" title="Check if keyboard interrupt pin indicates key activity">keyboard.has_key_activity</a>
+        <a class="quick-ref-item" href="#keyboard-has_trackball" title="Check if device has trackball">keyboard.has_trackball</a>
+        <a class="quick-ref-item" href="#keyboard-is_alt_held" title="Check if Alt is currently held">keyboard.is_alt_held</a>
+        <a class="quick-ref-item" href="#keyboard-is_ctrl_held" title="Check if Ctrl is currently held">keyboard.is_ctrl_held</a>
+        <a class="quick-ref-item" href="#keyboard-is_fn_held" title="Check if Fn is currently held">keyboard.is_fn_held</a>
+        <a class="quick-ref-item" href="#keyboard-is_key_pressed" title="Check if a specific matrix key is pressed (raw mode)">keyboard.is_key_pressed</a>
+        <a class="quick-ref-item" href="#keyboard-is_shift_held" title="Check if Shift is currently held">keyboard.is_shift_held</a>
+        <a class="quick-ref-item" href="#keyboard-read" title="Read next key event (non-blocking)">keyboard.read</a>
+        <a class="quick-ref-item" href="#keyboard-read_blocking" title="Read key with optional timeout (blocking)">keyboard.read_blocking</a>
+        <a class="quick-ref-item" href="#keyboard-read_raw_code" title="Read raw key code byte directly from I2C (no translation)">keyboard.read_raw_code</a>
+        <a class="quick-ref-item" href="#keyboard-read_raw_matrix" title="Read raw key matrix state (only works in raw mode)">keyboard.read_raw_matrix</a>
+        <a class="quick-ref-item" href="#keyboard-set_backlight" title="Set keyboard backlight brightness">keyboard.set_backlight</a>
+        <a class="quick-ref-item" href="#keyboard-set_mode" title="Set keyboard input mode">keyboard.set_mode</a>
+        <a class="quick-ref-item" href="#keyboard-set_repeat_delay" title="Set initial delay before key repeat starts">keyboard.set_repeat_delay</a>
+        <a class="quick-ref-item" href="#keyboard-set_repeat_enabled" title="Enable or disable key repeat">keyboard.set_repeat_enabled</a>
+        <a class="quick-ref-item" href="#keyboard-set_repeat_rate" title="Set key repeat rate (interval between repeats)">keyboard.set_repeat_rate</a>
+        <a class="quick-ref-item" href="#keyboard-set_trackball_mode" title="Set trackball input mode">keyboard.set_trackball_mode</a>
+        <a class="quick-ref-item" href="#keyboard-set_trackball_sensitivity" title="Set trackball sensitivity level">keyboard.set_trackball_sensitivity</a>
+        <a class="quick-ref-item" href="#mesh-build_packet" title="Build a raw mesh packet for transmission">mesh.build_packet</a>
+        <a class="quick-ref-item" href="#mesh-calc_shared_secret" title="Calculate ECDH shared secret with another node">mesh.calc_shared_secret</a>
+        <a class="quick-ref-item" href="#mesh-clear_packet_queue" title="Clear all packets from the queue">mesh.clear_packet_queue</a>
+        <a class="quick-ref-item" href="#mesh-clear_tx_queue" title="Clear all packets from transmit queue">mesh.clear_tx_queue</a>
+        <a class="quick-ref-item" href="#mesh-ed25519_sign" title="Sign data with this node&#x27;s private key">mesh.ed25519_sign</a>
+        <a class="quick-ref-item" href="#mesh-ed25519_verify" title="Verify an Ed25519 signature">mesh.ed25519_verify</a>
+        <a class="quick-ref-item" href="#mesh-enable_packet_queue" title="Enable or disable packet queuing for polling">mesh.enable_packet_queue</a>
+        <a class="quick-ref-item" href="#mesh-get_announce_interval" title="Get current auto-announce interval">mesh.get_announce_interval</a>
+        <a class="quick-ref-item" href="#mesh-get_node_count" title="Get number of known nodes">mesh.get_node_count</a>
+        <a class="quick-ref-item" href="#mesh-get_node_id" title="Get this node&#x27;s full ID">mesh.get_node_id</a>
+        <a class="quick-ref-item" href="#mesh-get_node_name" title="Get this node&#x27;s display name">mesh.get_node_name</a>
+        <a class="quick-ref-item" href="#mesh-get_nodes" title="Get list of discovered mesh nodes">mesh.get_nodes</a>
+        <a class="quick-ref-item" href="#mesh-get_path_check" title="Get current path check setting">mesh.get_path_check</a>
+        <a class="quick-ref-item" href="#mesh-get_path_hash" title="Get this node&#x27;s path hash (first byte of public key)">mesh.get_path_hash</a>
+        <a class="quick-ref-item" href="#mesh-get_public_key" title="Get this node&#x27;s public key as binary string">mesh.get_public_key</a>
+        <a class="quick-ref-item" href="#mesh-get_public_key_hex" title="Get this node&#x27;s public key as hex string">mesh.get_public_key_hex</a>
+        <a class="quick-ref-item" href="#mesh-get_rx_count" title="Get total packets received">mesh.get_rx_count</a>
+        <a class="quick-ref-item" href="#mesh-get_short_id" title="Get this node&#x27;s short ID">mesh.get_short_id</a>
+        <a class="quick-ref-item" href="#mesh-get_tx_count" title="Get total packets transmitted">mesh.get_tx_count</a>
+        <a class="quick-ref-item" href="#mesh-get_tx_queue_capacity" title="Get maximum transmit queue capacity">mesh.get_tx_queue_capacity</a>
+        <a class="quick-ref-item" href="#mesh-get_tx_queue_size" title="Get number of packets waiting in transmit queue">mesh.get_tx_queue_size</a>
+        <a class="quick-ref-item" href="#mesh-get_tx_throttle" title="Get current throttle interval">mesh.get_tx_throttle</a>
+        <a class="quick-ref-item" href="#mesh-has_packets" title="Check if packets are available in the queue">mesh.has_packets</a>
+        <a class="quick-ref-item" href="#mesh-is_initialized" title="Check if mesh networking is initialized">mesh.is_initialized</a>
+        <a class="quick-ref-item" href="#mesh-is_tx_queue_full" title="Check if transmit queue is full">mesh.is_tx_queue_full</a>
+        <a class="quick-ref-item" href="#mesh-make_header" title="Create a packet header byte from components">mesh.make_header</a>
+        <a class="quick-ref-item" href="#mesh-on_group_packet" title="Set callback for raw group packets (DEPRECATED - use bus.subscribe(&quot;mesh/group_packet&quot;) instead)">mesh.on_group_packet</a>
+        <a class="quick-ref-item" href="#mesh-on_node_discovered" title="Set callback for node discovery (DEPRECATED - use bus.subscribe(&quot;mesh/node_discovered&quot;) instead)">mesh.on_node_discovered</a>
+        <a class="quick-ref-item" href="#mesh-on_packet" title="Set callback for ALL incoming packets (DEPRECATED - use bus.subscribe(&quot;mesh/packet&quot;) instead)">mesh.on_packet</a>
+        <a class="quick-ref-item" href="#mesh-packet_count" title="Get number of packets in queue">mesh.packet_count</a>
+        <a class="quick-ref-item" href="#mesh-parse_header" title="Parse a packet header byte into components">mesh.parse_header</a>
+        <a class="quick-ref-item" href="#mesh-pop_packet" title="Get and remove the next packet from queue">mesh.pop_packet</a>
+        <a class="quick-ref-item" href="#mesh-queue_send" title="Queue packet for transmission (throttled, non-blocking)">mesh.queue_send</a>
+        <a class="quick-ref-item" href="#mesh-schedule_rebroadcast" title="Schedule raw packet data for rebroadcast">mesh.schedule_rebroadcast</a>
+        <a class="quick-ref-item" href="#mesh-send_announce" title="Broadcast node announcement">mesh.send_announce</a>
+        <a class="quick-ref-item" href="#mesh-send_group_packet" title="Send raw encrypted group packet">mesh.send_group_packet</a>
+        <a class="quick-ref-item" href="#mesh-send_raw" title="Send raw packet data directly via radio (bypasses queue, immediate)">mesh.send_raw</a>
+        <a class="quick-ref-item" href="#mesh-set_announce_interval" title="Set auto-announce interval in milliseconds (0 = disabled)">mesh.set_announce_interval</a>
+        <a class="quick-ref-item" href="#mesh-set_node_name" title="Set this node&#x27;s display name">mesh.set_node_name</a>
+        <a class="quick-ref-item" href="#mesh-set_path_check" title="Enable or disable path check for flood routing">mesh.set_path_check</a>
+        <a class="quick-ref-item" href="#mesh-set_tx_throttle" title="Set minimum interval between transmissions">mesh.set_tx_throttle</a>
+        <a class="quick-ref-item" href="#mesh-update" title="Process incoming mesh packets">mesh.update</a>
+        <a class="quick-ref-item" href="#radio-available" title="Check if data is available">radio.available</a>
+        <a class="quick-ref-item" href="#radio-get_config" title="Get current radio configuration">radio.get_config</a>
+        <a class="quick-ref-item" href="#radio-get_last_rssi" title="Get last received signal strength">radio.get_last_rssi</a>
+        <a class="quick-ref-item" href="#radio-get_last_snr" title="Get last signal-to-noise ratio">radio.get_last_snr</a>
+        <a class="quick-ref-item" href="#radio-is_busy" title="Check if radio is busy">radio.is_busy</a>
+        <a class="quick-ref-item" href="#radio-is_initialized" title="Check if radio is initialized">radio.is_initialized</a>
+        <a class="quick-ref-item" href="#radio-is_receiving" title="Check if in receive mode">radio.is_receiving</a>
+        <a class="quick-ref-item" href="#radio-is_transmitting" title="Check if currently transmitting">radio.is_transmitting</a>
+        <a class="quick-ref-item" href="#radio-receive" title="Receive a packet">radio.receive</a>
+        <a class="quick-ref-item" href="#radio-send" title="Transmit data">radio.send</a>
+        <a class="quick-ref-item" href="#radio-set_bandwidth" title="Set radio bandwidth">radio.set_bandwidth</a>
+        <a class="quick-ref-item" href="#radio-set_coding_rate" title="Set LoRa coding rate">radio.set_coding_rate</a>
+        <a class="quick-ref-item" href="#radio-set_frequency" title="Set radio frequency">radio.set_frequency</a>
+        <a class="quick-ref-item" href="#radio-set_spreading_factor" title="Set LoRa spreading factor">radio.set_spreading_factor</a>
+        <a class="quick-ref-item" href="#radio-set_sync_word" title="Set sync word">radio.set_sync_word</a>
+        <a class="quick-ref-item" href="#radio-set_tx_power" title="Set transmit power">radio.set_tx_power</a>
+        <a class="quick-ref-item" href="#radio-sleep" title="Put radio into sleep mode">radio.sleep</a>
+        <a class="quick-ref-item" href="#radio-start_receive" title="Start listening for packets">radio.start_receive</a>
+        <a class="quick-ref-item" href="#radio-wake" title="Wake radio from sleep">radio.wake</a>
+        <a class="quick-ref-item" href="#storage-append_file" title="Append content to file">storage.append_file</a>
+        <a class="quick-ref-item" href="#storage-clear_prefs" title="Clear all preferences">storage.clear_prefs</a>
+        <a class="quick-ref-item" href="#storage-exists" title="Check if file or directory exists">storage.exists</a>
+        <a class="quick-ref-item" href="#storage-file_size" title="Get file size in bytes">storage.file_size</a>
+        <a class="quick-ref-item" href="#storage-get_flash_info" title="Get flash storage info">storage.get_flash_info</a>
+        <a class="quick-ref-item" href="#storage-get_pref" title="Get preference value">storage.get_pref</a>
+        <a class="quick-ref-item" href="#storage-get_sd_info" title="Get SD card info">storage.get_sd_info</a>
+        <a class="quick-ref-item" href="#storage-is_sd_available" title="Check if SD card is mounted">storage.is_sd_available</a>
+        <a class="quick-ref-item" href="#storage-json_decode" title="Decode JSON string to Lua value">storage.json_decode</a>
+        <a class="quick-ref-item" href="#storage-json_encode" title="Encode Lua value to JSON string">storage.json_encode</a>
+        <a class="quick-ref-item" href="#storage-list_dir" title="List directory contents">storage.list_dir</a>
+        <a class="quick-ref-item" href="#storage-mkdir" title="Create directory">storage.mkdir</a>
+        <a class="quick-ref-item" href="#storage-read_bytes" title="Read bytes from file at specific offset (for random access)">storage.read_bytes</a>
+        <a class="quick-ref-item" href="#storage-read_file" title="Read entire file contents">storage.read_file</a>
+        <a class="quick-ref-item" href="#storage-remove" title="Delete a file">storage.remove</a>
+        <a class="quick-ref-item" href="#storage-remove_pref" title="Remove a preference">storage.remove_pref</a>
+        <a class="quick-ref-item" href="#storage-rename" title="Rename or move a file">storage.rename</a>
+        <a class="quick-ref-item" href="#storage-rmdir" title="Remove empty directory">storage.rmdir</a>
+        <a class="quick-ref-item" href="#storage-set_pref" title="Set preference value">storage.set_pref</a>
+        <a class="quick-ref-item" href="#storage-write_file" title="Write content to file (creates/overwrites)">storage.write_file</a>
+        <a class="quick-ref-item" href="#system-cancel_timer" title="Cancel a scheduled timer">system.cancel_timer</a>
+        <a class="quick-ref-item" href="#system-chip_model" title="Get ESP32 chip model name">system.chip_model</a>
+        <a class="quick-ref-item" href="#system-cpu_freq" title="Get CPU frequency">system.cpu_freq</a>
+        <a class="quick-ref-item" href="#system-delay" title="Blocking delay execution">system.delay</a>
+        <a class="quick-ref-item" href="#system-gc" title="Force full garbage collection">system.gc</a>
+        <a class="quick-ref-item" href="#system-gc_step" title="Perform incremental garbage collection">system.gc_step</a>
+        <a class="quick-ref-item" href="#system-get_battery_percent" title="Get battery charge level">system.get_battery_percent</a>
+        <a class="quick-ref-item" href="#system-get_battery_voltage" title="Get battery voltage">system.get_battery_voltage</a>
+        <a class="quick-ref-item" href="#system-get_firmware_info" title="Get firmware partition info">system.get_firmware_info</a>
+        <a class="quick-ref-item" href="#system-get_free_heap" title="Get free internal RAM">system.get_free_heap</a>
+        <a class="quick-ref-item" href="#system-get_free_psram" title="Get free PSRAM">system.get_free_psram</a>
+        <a class="quick-ref-item" href="#system-get_last_error" title="Get last Lua error message">system.get_last_error</a>
+        <a class="quick-ref-item" href="#system-get_loop_delay" title="Get the current main loop delay in milliseconds">system.get_loop_delay</a>
+        <a class="quick-ref-item" href="#system-get_lua_memory" title="Get memory used by Lua runtime">system.get_lua_memory</a>
+        <a class="quick-ref-item" href="#system-get_time" title="Get current wall clock time">system.get_time</a>
+        <a class="quick-ref-item" href="#system-get_time_unix" title="Get current Unix timestamp">system.get_time_unix</a>
+        <a class="quick-ref-item" href="#system-get_timezone" title="Get current timezone UTC offset in hours">system.get_timezone</a>
+        <a class="quick-ref-item" href="#system-get_total_heap" title="Get total heap size">system.get_total_heap</a>
+        <a class="quick-ref-item" href="#system-get_total_psram" title="Get total PSRAM size">system.get_total_psram</a>
+        <a class="quick-ref-item" href="#system-is_low_memory" title="Check if memory is critically low">system.is_low_memory</a>
+        <a class="quick-ref-item" href="#system-is_sd_available" title="Check if SD card is available">system.is_sd_available</a>
+        <a class="quick-ref-item" href="#system-is_usb_msc_active" title="Check if USB MSC mode is active">system.is_usb_msc_active</a>
+        <a class="quick-ref-item" href="#system-millis" title="Returns milliseconds since boot">system.millis</a>
+        <a class="quick-ref-item" href="#system-reload_scripts" title="Reload all Lua scripts (hot reload)">system.reload_scripts</a>
+        <a class="quick-ref-item" href="#system-restart" title="Restart the device">system.restart</a>
+        <a class="quick-ref-item" href="#system-set_interval" title="Schedule a repeating callback">system.set_interval</a>
+        <a class="quick-ref-item" href="#system-set_loop_delay" title="Set the main loop delay in milliseconds">system.set_loop_delay</a>
+        <a class="quick-ref-item" href="#system-set_time" title="Set system clock time">system.set_time</a>
+        <a class="quick-ref-item" href="#system-set_time_unix" title="Set system clock from Unix timestamp">system.set_time_unix</a>
+        <a class="quick-ref-item" href="#system-set_timer" title="Schedule a one-shot callback">system.set_timer</a>
+        <a class="quick-ref-item" href="#system-set_timezone" title="Set timezone using POSIX TZ string">system.set_timezone</a>
+        <a class="quick-ref-item" href="#system-start_usb_msc" title="Start USB Mass Storage mode to access SD card from PC">system.start_usb_msc</a>
+        <a class="quick-ref-item" href="#system-stop_usb_msc" title="Stop USB Mass Storage mode">system.stop_usb_msc</a>
+        <a class="quick-ref-item" href="#system-uptime" title="Get device uptime">system.uptime</a>
+        <a class="quick-ref-item" href="#system-yield" title="Yield execution to allow C++ background tasks to run">system.yield</a>
     </div>
 </div>
 
 <div class="toc">
     <div class="toc-title">Modules</div>
     <div class="toc-grid">
-        <a href="#audio">tdeck.audio <span style="opacity:0.5">(9)</span></a>
-        <a href="#bus">tdeck.bus <span style="opacity:0.5">(5)</span></a>
-        <a href="#crypto">tdeck.crypto <span style="opacity:0.5">(13)</span></a>
-        <a href="#display">tdeck.display <span style="opacity:0.5">(36)</span></a>
-        <a href="#keyboard">tdeck.keyboard <span style="opacity:0.5">(26)</span></a>
-        <a href="#mesh">tdeck.mesh <span style="opacity:0.5">(42)</span></a>
-        <a href="#radio">tdeck.radio <span style="opacity:0.5">(19)</span></a>
-        <a href="#storage">tdeck.storage <span style="opacity:0.5">(20)</span></a>
-        <a href="#system">tdeck.system <span style="opacity:0.5">(34)</span></a>
+        <a href="#audio">ez.audio <span style="opacity:0.5">(9)</span></a>
+        <a href="#bus">ez.bus <span style="opacity:0.5">(5)</span></a>
+        <a href="#crypto">ez.crypto <span style="opacity:0.5">(13)</span></a>
+        <a href="#display">ez.display <span style="opacity:0.5">(42)</span></a>
+        <a href="#ez">ez.ez <span style="opacity:0.5">(1)</span></a>
+        <a href="#keyboard">ez.keyboard <span style="opacity:0.5">(28)</span></a>
+        <a href="#mesh">ez.mesh <span style="opacity:0.5">(42)</span></a>
+        <a href="#radio">ez.radio <span style="opacity:0.5">(19)</span></a>
+        <a href="#storage">ez.storage <span style="opacity:0.5">(20)</span></a>
+        <a href="#system">ez.system <span style="opacity:0.5">(35)</span></a>
     </div>
 </div>
 
 <div class="module">
     <div class="module-header">
-        <h2 id="audio">tdeck.audio</h2>
+        <h2 id="audio">ez.audio</h2>
         <span class="func-count">9 functions</span>
     </div>
     <div class="func" id="audio-beep">
-        <div class="sig">tdeck.audio.beep(count, frequency, on_ms, off_ms)</div>
+        <div class="sig">ez.audio.beep(count, frequency, on_ms, off_ms)</div>
         <div class="desc">Play a series of beeps (blocking)</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -641,17 +652,17 @@
         </div>
     </div>
     <div class="func" id="audio-get_volume">
-        <div class="sig">tdeck.audio.get_volume() -&gt; integer</div>
+        <div class="sig">ez.audio.get_volume() -&gt; integer</div>
         <div class="desc">Get current volume level</div>
         <div class="returns"><strong>Returns:</strong> Volume level 0-100</div>
     </div>
     <div class="func" id="audio-is_playing">
-        <div class="sig">tdeck.audio.is_playing() -&gt; boolean</div>
+        <div class="sig">ez.audio.is_playing() -&gt; boolean</div>
         <div class="desc">Check if audio is playing</div>
         <div class="returns"><strong>Returns:</strong> true if playing</div>
     </div>
     <div class="func" id="audio-play_sample">
-        <div class="sig">tdeck.audio.play_sample(filename) -&gt; boolean</div>
+        <div class="sig">ez.audio.play_sample(filename) -&gt; boolean</div>
         <div class="desc">Play a PCM sample file from LittleFS</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -663,7 +674,7 @@
         <div class="returns"><strong>Returns:</strong> true if played successfully</div>
     </div>
     <div class="func" id="audio-play_tone">
-        <div class="sig">tdeck.audio.play_tone(frequency, duration_ms) -&gt; boolean</div>
+        <div class="sig">ez.audio.play_tone(frequency, duration_ms) -&gt; boolean</div>
         <div class="desc">Play a tone for specified duration</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -676,7 +687,7 @@
         <div class="returns"><strong>Returns:</strong> true if started successfully</div>
     </div>
     <div class="func" id="audio-set_frequency">
-        <div class="sig">tdeck.audio.set_frequency(frequency) -&gt; boolean</div>
+        <div class="sig">ez.audio.set_frequency(frequency) -&gt; boolean</div>
         <div class="desc">Set playback frequency for continuous tones</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -688,7 +699,7 @@
         <div class="returns"><strong>Returns:</strong> true if valid frequency</div>
     </div>
     <div class="func" id="audio-set_volume">
-        <div class="sig">tdeck.audio.set_volume(level)</div>
+        <div class="sig">ez.audio.set_volume(level)</div>
         <div class="desc">Set audio volume level</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -699,22 +710,22 @@
         </div>
     </div>
     <div class="func" id="audio-start">
-        <div class="sig">tdeck.audio.start()</div>
+        <div class="sig">ez.audio.start()</div>
         <div class="desc">Start continuous tone at current frequency</div>
     </div>
     <div class="func" id="audio-stop">
-        <div class="sig">tdeck.audio.stop()</div>
+        <div class="sig">ez.audio.stop()</div>
         <div class="desc">Stop audio playback</div>
     </div>
 </div>
 
 <div class="module">
     <div class="module-header">
-        <h2 id="bus">tdeck.bus</h2>
+        <h2 id="bus">ez.bus</h2>
         <span class="func-count">5 functions</span>
     </div>
     <div class="func" id="bus-has_subscribers">
-        <div class="sig">tdeck.bus.has_subscribers(topic) -&gt; boolean</div>
+        <div class="sig">ez.bus.has_subscribers(topic) -&gt; boolean</div>
         <div class="desc">Check if a topic has any active subscribers</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -726,12 +737,12 @@
         <div class="returns"><strong>Returns:</strong> true if one or more subscribers exist</div>
     </div>
     <div class="func" id="bus-pending_count">
-        <div class="sig">tdeck.bus.pending_count() -&gt; integer</div>
+        <div class="sig">ez.bus.pending_count() -&gt; integer</div>
         <div class="desc">Get number of messages waiting in queue</div>
         <div class="returns"><strong>Returns:</strong> Number of pending messages</div>
     </div>
     <div class="func" id="bus-post">
-        <div class="sig">tdeck.bus.post(topic, data)</div>
+        <div class="sig">ez.bus.post(topic, data)</div>
         <div class="desc">Post a message to a topic</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -743,7 +754,7 @@
         </div>
     </div>
     <div class="func" id="bus-subscribe">
-        <div class="sig">tdeck.bus.subscribe(topic, callback) -&gt; subscription_id</div>
+        <div class="sig">ez.bus.subscribe(topic, callback) -&gt; subscription_id</div>
         <div class="desc">Subscribe to a topic with a callback function</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -755,7 +766,7 @@
         </div>
     </div>
     <div class="func" id="bus-unsubscribe">
-        <div class="sig">tdeck.bus.unsubscribe(subscription_id) -&gt; boolean</div>
+        <div class="sig">ez.bus.unsubscribe(subscription_id) -&gt; boolean</div>
         <div class="desc">Unsubscribe from a topic</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -770,11 +781,11 @@
 
 <div class="module">
     <div class="module-header">
-        <h2 id="crypto">tdeck.crypto</h2>
+        <h2 id="crypto">ez.crypto</h2>
         <span class="func-count">13 functions</span>
     </div>
     <div class="func" id="crypto-aes128_ecb_decrypt">
-        <div class="sig">tdeck.crypto.aes128_ecb_decrypt(key, ciphertext) -&gt; string</div>
+        <div class="sig">ez.crypto.aes128_ecb_decrypt(key, ciphertext) -&gt; string</div>
         <div class="desc">Decrypt data with AES-128-ECB</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -787,7 +798,7 @@
         <div class="returns"><strong>Returns:</strong> Decrypted data as binary string (with padding zeros)</div>
     </div>
     <div class="func" id="crypto-aes128_ecb_encrypt">
-        <div class="sig">tdeck.crypto.aes128_ecb_encrypt(key, plaintext) -&gt; string</div>
+        <div class="sig">ez.crypto.aes128_ecb_encrypt(key, plaintext) -&gt; string</div>
         <div class="desc">Encrypt data with AES-128-ECB</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -800,7 +811,7 @@
         <div class="returns"><strong>Returns:</strong> Encrypted data as binary string</div>
     </div>
     <div class="func" id="crypto-base64_decode">
-        <div class="sig">tdeck.crypto.base64_decode(encoded) -&gt; string</div>
+        <div class="sig">ez.crypto.base64_decode(encoded) -&gt; string</div>
         <div class="desc">Decode base64 string to binary data</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -812,7 +823,7 @@
         <div class="returns"><strong>Returns:</strong> Binary string, or nil on error</div>
     </div>
     <div class="func" id="crypto-base64_encode">
-        <div class="sig">tdeck.crypto.base64_encode(data) -&gt; string</div>
+        <div class="sig">ez.crypto.base64_encode(data) -&gt; string</div>
         <div class="desc">Encode binary data to base64 string</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -824,7 +835,7 @@
         <div class="returns"><strong>Returns:</strong> Base64 encoded string</div>
     </div>
     <div class="func" id="crypto-bytes_to_hex">
-        <div class="sig">tdeck.crypto.bytes_to_hex(data) -&gt; string</div>
+        <div class="sig">ez.crypto.bytes_to_hex(data) -&gt; string</div>
         <div class="desc">Convert binary data to hex string</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -836,7 +847,7 @@
         <div class="returns"><strong>Returns:</strong> Hex string (lowercase)</div>
     </div>
     <div class="func" id="crypto-channel_hash">
-        <div class="sig">tdeck.crypto.channel_hash(key) -&gt; integer</div>
+        <div class="sig">ez.crypto.channel_hash(key) -&gt; integer</div>
         <div class="desc">Compute channel hash from key (SHA256(key)[0])</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -848,7 +859,7 @@
         <div class="returns"><strong>Returns:</strong> Single byte hash as integer (0-255)</div>
     </div>
     <div class="func" id="crypto-derive_channel_key">
-        <div class="sig">tdeck.crypto.derive_channel_key(input) -&gt; string</div>
+        <div class="sig">ez.crypto.derive_channel_key(input) -&gt; string</div>
         <div class="desc">Derive 16-byte channel key from password/name using SHA256</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -860,7 +871,7 @@
         <div class="returns"><strong>Returns:</strong> 16-byte key as binary string</div>
     </div>
     <div class="func" id="crypto-hex_to_bytes">
-        <div class="sig">tdeck.crypto.hex_to_bytes(hex) -&gt; string</div>
+        <div class="sig">ez.crypto.hex_to_bytes(hex) -&gt; string</div>
         <div class="desc">Convert hex string to binary data</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -872,7 +883,7 @@
         <div class="returns"><strong>Returns:</strong> Binary string, or nil on error</div>
     </div>
     <div class="func" id="crypto-hmac_sha256">
-        <div class="sig">tdeck.crypto.hmac_sha256(key, data) -&gt; string</div>
+        <div class="sig">ez.crypto.hmac_sha256(key, data) -&gt; string</div>
         <div class="desc">Compute HMAC-SHA256</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -885,12 +896,12 @@
         <div class="returns"><strong>Returns:</strong> 32-byte MAC as binary string</div>
     </div>
     <div class="func" id="crypto-public_channel_key">
-        <div class="sig">tdeck.crypto.public_channel_key() -&gt; string</div>
+        <div class="sig">ez.crypto.public_channel_key() -&gt; string</div>
         <div class="desc">Get the well-known #Public channel key</div>
         <div class="returns"><strong>Returns:</strong> 16-byte key as binary string</div>
     </div>
     <div class="func" id="crypto-random_bytes">
-        <div class="sig">tdeck.crypto.random_bytes(count) -&gt; string</div>
+        <div class="sig">ez.crypto.random_bytes(count) -&gt; string</div>
         <div class="desc">Generate cryptographically secure random bytes</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -902,7 +913,7 @@
         <div class="returns"><strong>Returns:</strong> Random bytes as binary string</div>
     </div>
     <div class="func" id="crypto-sha256">
-        <div class="sig">tdeck.crypto.sha256(data) -&gt; string</div>
+        <div class="sig">ez.crypto.sha256(data) -&gt; string</div>
         <div class="desc">Compute SHA-256 hash</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -914,7 +925,7 @@
         <div class="returns"><strong>Returns:</strong> 32-byte hash as binary string</div>
     </div>
     <div class="func" id="crypto-sha512">
-        <div class="sig">tdeck.crypto.sha512(data) -&gt; string</div>
+        <div class="sig">ez.crypto.sha512(data) -&gt; string</div>
         <div class="desc">Compute SHA-512 hash</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -929,15 +940,19 @@
 
 <div class="module">
     <div class="module-header">
-        <h2 id="display">tdeck.display</h2>
-        <span class="func-count">36 functions</span>
+        <h2 id="display">ez.display</h2>
+        <span class="func-count">42 functions</span>
     </div>
     <div class="func" id="display-clear">
-        <div class="sig">tdeck.display.clear()</div>
+        <div class="sig">ez.display.clear()</div>
         <div class="desc">Clear display buffer to black</div>
     </div>
+    <div class="func" id="display-create_sprite">
+        <div class="sig">display.create_sprite(width, height) -&gt; Sprite</div>
+        <div class="desc">Create an off-screen sprite for alpha compositing</div>
+    </div>
     <div class="func" id="display-draw_battery">
-        <div class="sig">tdeck.display.draw_battery(x, y, percent)</div>
+        <div class="sig">ez.display.draw_battery(x, y, percent)</div>
         <div class="desc">Draw battery indicator icon</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -950,7 +965,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_bitmap">
-        <div class="sig">tdeck.display.draw_bitmap(x, y, width, height, data)</div>
+        <div class="sig">ez.display.draw_bitmap(x, y, width, height, data)</div>
         <div class="desc">Draw a bitmap image from raw RGB565 data</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -965,7 +980,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_bitmap_1bit">
-        <div class="sig">tdeck.display.draw_bitmap_1bit(x, y, width, height, data, scale, color)</div>
+        <div class="sig">ez.display.draw_bitmap_1bit(x, y, width, height, data, scale, color)</div>
         <div class="desc">Draw a 1-bit bitmap with scaling and colorization</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -982,7 +997,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_bitmap_transparent">
-        <div class="sig">tdeck.display.draw_bitmap_transparent(x, y, width, height, data, transparent_color)</div>
+        <div class="sig">ez.display.draw_bitmap_transparent(x, y, width, height, data, transparent_color)</div>
         <div class="desc">Draw a bitmap with transparency</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -998,7 +1013,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_box">
-        <div class="sig">tdeck.display.draw_box(x, y, w, h, title, border_color, title_color)</div>
+        <div class="sig">ez.display.draw_box(x, y, w, h, title, border_color, title_color)</div>
         <div class="desc">Draw bordered box with optional title</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1015,7 +1030,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_char">
-        <div class="sig">tdeck.display.draw_char(x, y, char, color)</div>
+        <div class="sig">ez.display.draw_char(x, y, char, color)</div>
         <div class="desc">Draw a single character</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1029,7 +1044,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_circle">
-        <div class="sig">tdeck.display.draw_circle(x, y, r, color)</div>
+        <div class="sig">ez.display.draw_circle(x, y, r, color)</div>
         <div class="desc">Draw circle outline</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1043,7 +1058,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_hline">
-        <div class="sig">tdeck.display.draw_hline(x, y, w, left_connect, right_connect, color)</div>
+        <div class="sig">ez.display.draw_hline(x, y, w, left_connect, right_connect, color)</div>
         <div class="desc">Draw horizontal line with optional connectors</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1059,7 +1074,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_indexed_bitmap">
-        <div class="sig">tdeck.display.draw_indexed_bitmap(x, y, width, height, data, palette)</div>
+        <div class="sig">ez.display.draw_indexed_bitmap(x, y, width, height, data, palette)</div>
         <div class="desc">Draw a 3-bit indexed bitmap using a color palette</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1075,7 +1090,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_indexed_bitmap_scaled">
-        <div class="sig">tdeck.display.draw_indexed_bitmap_scaled(x, y, dest_w, dest_h, data, palette, src_x, src_y, src_w, src_h)</div>
+        <div class="sig">ez.display.draw_indexed_bitmap_scaled(x, y, dest_w, dest_h, data, palette, src_x, src_y, src_w, src_h)</div>
         <div class="desc">Draw a scaled portion of a 3-bit indexed bitmap</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1095,7 +1110,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_line">
-        <div class="sig">tdeck.display.draw_line(x1, y1, x2, y2, color)</div>
+        <div class="sig">ez.display.draw_line(x1, y1, x2, y2, color)</div>
         <div class="desc">Draw a line between two points</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1110,7 +1125,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_pixel">
-        <div class="sig">tdeck.display.draw_pixel(x, y, color)</div>
+        <div class="sig">ez.display.draw_pixel(x, y, color)</div>
         <div class="desc">Draw a single pixel</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1123,7 +1138,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_progress">
-        <div class="sig">tdeck.display.draw_progress(x, y, w, h, progress, fg_color, bg_color)</div>
+        <div class="sig">ez.display.draw_progress(x, y, w, h, progress, fg_color, bg_color)</div>
         <div class="desc">Draw a progress bar</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1140,7 +1155,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_rect">
-        <div class="sig">tdeck.display.draw_rect(x, y, w, h, color)</div>
+        <div class="sig">ez.display.draw_rect(x, y, w, h, color)</div>
         <div class="desc">Draw rectangle outline</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1155,11 +1170,11 @@
         </div>
     </div>
     <div class="func" id="display-draw_round_rect">
-        <div class="sig">tdeck.display.draw_round_rect(x, y, w, h, r, color)</div>
+        <div class="sig">ez.display.draw_round_rect(x, y, w, h, r, color)</div>
         <div class="desc">Draw rounded rectangle outline</div>
     </div>
     <div class="func" id="display-draw_signal">
-        <div class="sig">tdeck.display.draw_signal(x, y, bars)</div>
+        <div class="sig">ez.display.draw_signal(x, y, bars)</div>
         <div class="desc">Draw signal strength indicator</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1172,7 +1187,7 @@
         </div>
     </div>
     <div class="func" id="display-draw_text">
-        <div class="sig">tdeck.display.draw_text(x, y, text, color)</div>
+        <div class="sig">ez.display.draw_text(x, y, text, color)</div>
         <div class="desc">Draw text at pixel coordinates</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1185,8 +1200,24 @@
             </table>
         </div>
     </div>
+    <div class="func" id="display-draw_text_bg">
+        <div class="sig">ez.display.draw_text_bg(x, y, text, fg_color, bg_color, padding)</div>
+        <div class="desc">Draw text with a background rectangle</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>text</td><td>Text string to draw</td></tr>
+                <tr><td>fg_color</td><td>Text color</td></tr>
+                <tr><td>bg_color</td><td>Background color</td></tr>
+                <tr><td>padding</td><td>Padding around text (optional, defaults to 1)</td></tr>
+            </table>
+        </div>
+    </div>
     <div class="func" id="display-draw_text_centered">
-        <div class="sig">tdeck.display.draw_text_centered(y, text, color)</div>
+        <div class="sig">ez.display.draw_text_centered(y, text, color)</div>
         <div class="desc">Draw horizontally centered text</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1198,12 +1229,28 @@
             </table>
         </div>
     </div>
+    <div class="func" id="display-draw_text_shadow">
+        <div class="sig">ez.display.draw_text_shadow(x, y, text, fg_color, shadow_color, offset)</div>
+        <div class="desc">Draw text with a shadow offset</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>text</td><td>Text string to draw</td></tr>
+                <tr><td>fg_color</td><td>Text color</td></tr>
+                <tr><td>shadow_color</td><td>Shadow color (optional, defaults to black)</td></tr>
+                <tr><td>offset</td><td>Shadow offset in pixels (optional, defaults to 1)</td></tr>
+            </table>
+        </div>
+    </div>
     <div class="func" id="display-draw_triangle">
-        <div class="sig">tdeck.display.draw_triangle(x1, y1, x2, y2, x3, y3, color)</div>
+        <div class="sig">ez.display.draw_triangle(x1, y1, x2, y2, x3, y3, color)</div>
         <div class="desc">Draw triangle outline</div>
     </div>
     <div class="func" id="display-fill_circle">
-        <div class="sig">tdeck.display.fill_circle(x, y, r, color)</div>
+        <div class="sig">ez.display.fill_circle(x, y, r, color)</div>
         <div class="desc">Draw filled circle</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1217,7 +1264,7 @@
         </div>
     </div>
     <div class="func" id="display-fill_rect">
-        <div class="sig">tdeck.display.fill_rect(x, y, w, h, color)</div>
+        <div class="sig">ez.display.fill_rect(x, y, w, h, color)</div>
         <div class="desc">Fill a rectangle with color</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1231,50 +1278,98 @@
             </table>
         </div>
     </div>
+    <div class="func" id="display-fill_rect_dithered">
+        <div class="sig">ez.display.fill_rect_dithered(x, y, w, h, color, density)</div>
+        <div class="desc">Fill a rectangle with dithered pattern (simulates transparency)</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>w</td><td>Width in pixels</td></tr>
+                <tr><td>h</td><td>Height in pixels</td></tr>
+                <tr><td>color</td><td>Fill color</td></tr>
+                <tr><td>density</td><td>Percentage of pixels filled (0-100, default 50 for checkerboard)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-fill_rect_hlines">
+        <div class="sig">ez.display.fill_rect_hlines(x, y, w, h, color, spacing)</div>
+        <div class="desc">Fill a rectangle with horizontal line pattern</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>w</td><td>Width in pixels</td></tr>
+                <tr><td>h</td><td>Height in pixels</td></tr>
+                <tr><td>color</td><td>Fill color</td></tr>
+                <tr><td>spacing</td><td>Line spacing (2 = 50%, 3 = 33%, etc., default 2)</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="func" id="display-fill_rect_vlines">
+        <div class="sig">ez.display.fill_rect_vlines(x, y, w, h, color, spacing)</div>
+        <div class="desc">Fill a rectangle with vertical line pattern</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>x</td><td>X position in pixels</td></tr>
+                <tr><td>y</td><td>Y position in pixels</td></tr>
+                <tr><td>w</td><td>Width in pixels</td></tr>
+                <tr><td>h</td><td>Height in pixels</td></tr>
+                <tr><td>color</td><td>Fill color</td></tr>
+                <tr><td>spacing</td><td>Line spacing (2 = 50%, 3 = 33%, etc., default 2)</td></tr>
+            </table>
+        </div>
+    </div>
     <div class="func" id="display-fill_round_rect">
-        <div class="sig">tdeck.display.fill_round_rect(x, y, w, h, r, color)</div>
+        <div class="sig">ez.display.fill_round_rect(x, y, w, h, r, color)</div>
         <div class="desc">Draw filled rounded rectangle</div>
     </div>
     <div class="func" id="display-fill_triangle">
-        <div class="sig">tdeck.display.fill_triangle(x1, y1, x2, y2, x3, y3, color)</div>
+        <div class="sig">ez.display.fill_triangle(x1, y1, x2, y2, x3, y3, color)</div>
         <div class="desc">Draw filled triangle</div>
     </div>
     <div class="func" id="display-flush">
-        <div class="sig">tdeck.display.flush()</div>
+        <div class="sig">ez.display.flush()</div>
         <div class="desc">Flush buffer to physical display</div>
     </div>
     <div class="func" id="display-get_cols">
-        <div class="sig">tdeck.display.get_cols() -&gt; integer</div>
+        <div class="sig">ez.display.get_cols() -&gt; integer</div>
         <div class="desc">Get display columns</div>
         <div class="returns"><strong>Returns:</strong> Number of character columns</div>
     </div>
     <div class="func" id="display-get_font_height">
-        <div class="sig">tdeck.display.get_font_height() -&gt; integer</div>
+        <div class="sig">ez.display.get_font_height() -&gt; integer</div>
         <div class="desc">Get font character height</div>
         <div class="returns"><strong>Returns:</strong> Character height in pixels</div>
     </div>
     <div class="func" id="display-get_font_width">
-        <div class="sig">tdeck.display.get_font_width() -&gt; integer</div>
+        <div class="sig">ez.display.get_font_width() -&gt; integer</div>
         <div class="desc">Get font character width</div>
         <div class="returns"><strong>Returns:</strong> Character width in pixels</div>
     </div>
     <div class="func" id="display-get_height">
-        <div class="sig">tdeck.display.get_height() -&gt; integer</div>
+        <div class="sig">ez.display.get_height() -&gt; integer</div>
         <div class="desc">Get display height</div>
         <div class="returns"><strong>Returns:</strong> Height in pixels</div>
     </div>
     <div class="func" id="display-get_rows">
-        <div class="sig">tdeck.display.get_rows() -&gt; integer</div>
+        <div class="sig">ez.display.get_rows() -&gt; integer</div>
         <div class="desc">Get display rows</div>
         <div class="returns"><strong>Returns:</strong> Number of character rows</div>
     </div>
     <div class="func" id="display-get_width">
-        <div class="sig">tdeck.display.get_width() -&gt; integer</div>
+        <div class="sig">ez.display.get_width() -&gt; integer</div>
         <div class="desc">Get display width</div>
         <div class="returns"><strong>Returns:</strong> Width in pixels</div>
     </div>
     <div class="func" id="display-rgb">
-        <div class="sig">tdeck.display.rgb(r, g, b) -&gt; integer</div>
+        <div class="sig">ez.display.rgb(r, g, b) -&gt; integer</div>
         <div class="desc">Convert RGB to RGB565 color value</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1288,7 +1383,7 @@
         <div class="returns"><strong>Returns:</strong> RGB565 color value</div>
     </div>
     <div class="func" id="display-save_screenshot">
-        <div class="sig">tdeck.display.save_screenshot(path) -&gt; boolean</div>
+        <div class="sig">ez.display.save_screenshot(path) -&gt; boolean</div>
         <div class="desc">Save current display contents as BMP screenshot to SD card</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1300,7 +1395,7 @@
         <div class="returns"><strong>Returns:</strong> true if saved successfully, false on error</div>
     </div>
     <div class="func" id="display-set_brightness">
-        <div class="sig">tdeck.display.set_brightness(level)</div>
+        <div class="sig">ez.display.set_brightness(level)</div>
         <div class="desc">Set backlight brightness</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1311,7 +1406,7 @@
         </div>
     </div>
     <div class="func" id="display-set_font_size">
-        <div class="sig">tdeck.display.set_font_size(size)</div>
+        <div class="sig">ez.display.set_font_size(size)</div>
         <div class="desc">Set font size</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1322,7 +1417,7 @@
         </div>
     </div>
     <div class="func" id="display-text_width">
-        <div class="sig">tdeck.display.text_width(text) -&gt; integer</div>
+        <div class="sig">ez.display.text_width(text) -&gt; integer</div>
         <div class="desc">Get pixel width of text string</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1337,76 +1432,104 @@
 
 <div class="module">
     <div class="module-header">
-        <h2 id="keyboard">tdeck.keyboard</h2>
-        <span class="func-count">26 functions</span>
+        <h2 id="ez">ez.ez</h2>
+        <span class="func-count">1 functions</span>
+    </div>
+    <div class="func" id="ez-log">
+        <div class="sig">ez.log(message)</div>
+        <div class="desc">Log message to serial output</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>message</td><td>Text to log</td></tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="module">
+    <div class="module-header">
+        <h2 id="keyboard">ez.keyboard</h2>
+        <span class="func-count">28 functions</span>
     </div>
     <div class="func" id="keyboard-available">
-        <div class="sig">tdeck.keyboard.available() -&gt; boolean</div>
+        <div class="sig">ez.keyboard.available() -&gt; boolean</div>
         <div class="desc">Check if a key is waiting</div>
         <div class="returns"><strong>Returns:</strong> true if a key is available to read</div>
     </div>
     <div class="func" id="keyboard-get_backlight">
-        <div class="sig">tdeck.keyboard.get_backlight() -&gt; integer</div>
+        <div class="sig">ez.keyboard.get_backlight() -&gt; integer</div>
         <div class="desc">Get current keyboard backlight level</div>
         <div class="returns"><strong>Returns:</strong> Backlight level (0-255, 0 = off)</div>
     </div>
     <div class="func" id="keyboard-get_mode">
-        <div class="sig">tdeck.keyboard.get_mode() -&gt; string</div>
+        <div class="sig">ez.keyboard.get_mode() -&gt; string</div>
         <div class="desc">Get current keyboard input mode</div>
         <div class="returns"><strong>Returns:</strong> &quot;normal&quot; or &quot;raw&quot;</div>
     </div>
+    <div class="func" id="keyboard-get_pin_states">
+        <div class="sig">ez.keyboard.get_pin_states() -&gt; string</div>
+        <div class="desc">Debug function to get raw GPIO pin states for wake detection</div>
+        <div class="returns"><strong>Returns:</strong> String with pin states: &quot;KB_INT=X TB_UP=X TB_DOWN=X TB_LEFT=X TB_RIGHT=X TB_CLICK=X&quot;</div>
+    </div>
     <div class="func" id="keyboard-get_raw_matrix_bits">
-        <div class="sig">tdeck.keyboard.get_raw_matrix_bits() -&gt; integer</div>
+        <div class="sig">ez.keyboard.get_raw_matrix_bits() -&gt; integer</div>
         <div class="desc">Get full matrix state as 64-bit integer (raw mode)</div>
         <div class="returns"><strong>Returns:</strong> 49-bit value (7 cols × 7 rows), bits 0-6 = col 0, bits 7-13 = col 1, etc.</div>
     </div>
     <div class="func" id="keyboard-get_repeat_delay">
-        <div class="sig">tdeck.keyboard.get_repeat_delay() -&gt; integer</div>
+        <div class="sig">ez.keyboard.get_repeat_delay() -&gt; integer</div>
         <div class="desc">Get initial delay before key repeat starts</div>
         <div class="returns"><strong>Returns:</strong> Delay in milliseconds</div>
     </div>
     <div class="func" id="keyboard-get_repeat_enabled">
-        <div class="sig">tdeck.keyboard.get_repeat_enabled() -&gt; boolean</div>
+        <div class="sig">ez.keyboard.get_repeat_enabled() -&gt; boolean</div>
         <div class="desc">Check if key repeat is enabled</div>
         <div class="returns"><strong>Returns:</strong> true if key repeat is enabled</div>
     </div>
     <div class="func" id="keyboard-get_repeat_rate">
-        <div class="sig">tdeck.keyboard.get_repeat_rate() -&gt; integer</div>
+        <div class="sig">ez.keyboard.get_repeat_rate() -&gt; integer</div>
         <div class="desc">Get key repeat rate (interval between repeats)</div>
         <div class="returns"><strong>Returns:</strong> Rate in milliseconds</div>
     </div>
     <div class="func" id="keyboard-get_trackball_mode">
-        <div class="sig">tdeck.keyboard.get_trackball_mode() -&gt; string</div>
+        <div class="sig">ez.keyboard.get_trackball_mode() -&gt; string</div>
         <div class="desc">Get current trackball input mode</div>
         <div class="returns"><strong>Returns:</strong> &quot;polling&quot; or &quot;interrupt&quot;</div>
     </div>
     <div class="func" id="keyboard-get_trackball_sensitivity">
-        <div class="sig">tdeck.keyboard.get_trackball_sensitivity() -&gt; integer</div>
+        <div class="sig">ez.keyboard.get_trackball_sensitivity() -&gt; integer</div>
         <div class="desc">Get trackball sensitivity level</div>
         <div class="returns"><strong>Returns:</strong> Sensitivity value</div>
     </div>
+    <div class="func" id="keyboard-has_key_activity">
+        <div class="sig">ez.keyboard.has_key_activity() -&gt; boolean</div>
+        <div class="desc">Check if keyboard interrupt pin indicates key activity</div>
+        <div class="returns"><strong>Returns:</strong> true if a key press is detected via hardware interrupt pin</div>
+    </div>
     <div class="func" id="keyboard-has_trackball">
-        <div class="sig">tdeck.keyboard.has_trackball() -&gt; boolean</div>
+        <div class="sig">ez.keyboard.has_trackball() -&gt; boolean</div>
         <div class="desc">Check if device has trackball</div>
         <div class="returns"><strong>Returns:</strong> true if trackball is available</div>
     </div>
     <div class="func" id="keyboard-is_alt_held">
-        <div class="sig">tdeck.keyboard.is_alt_held() -&gt; boolean</div>
+        <div class="sig">ez.keyboard.is_alt_held() -&gt; boolean</div>
         <div class="desc">Check if Alt is currently held</div>
         <div class="returns"><strong>Returns:</strong> true if Alt is held</div>
     </div>
     <div class="func" id="keyboard-is_ctrl_held">
-        <div class="sig">tdeck.keyboard.is_ctrl_held() -&gt; boolean</div>
+        <div class="sig">ez.keyboard.is_ctrl_held() -&gt; boolean</div>
         <div class="desc">Check if Ctrl is currently held</div>
         <div class="returns"><strong>Returns:</strong> true if Ctrl is held</div>
     </div>
     <div class="func" id="keyboard-is_fn_held">
-        <div class="sig">tdeck.keyboard.is_fn_held() -&gt; boolean</div>
+        <div class="sig">ez.keyboard.is_fn_held() -&gt; boolean</div>
         <div class="desc">Check if Fn is currently held</div>
         <div class="returns"><strong>Returns:</strong> true if Fn is held</div>
     </div>
     <div class="func" id="keyboard-is_key_pressed">
-        <div class="sig">tdeck.keyboard.is_key_pressed(col, row) -&gt; boolean</div>
+        <div class="sig">ez.keyboard.is_key_pressed(col, row) -&gt; boolean</div>
         <div class="desc">Check if a specific matrix key is pressed (raw mode)</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1419,17 +1542,17 @@
         <div class="returns"><strong>Returns:</strong> true if key is pressed</div>
     </div>
     <div class="func" id="keyboard-is_shift_held">
-        <div class="sig">tdeck.keyboard.is_shift_held() -&gt; boolean</div>
+        <div class="sig">ez.keyboard.is_shift_held() -&gt; boolean</div>
         <div class="desc">Check if Shift is currently held</div>
         <div class="returns"><strong>Returns:</strong> true if Shift is held</div>
     </div>
     <div class="func" id="keyboard-read">
-        <div class="sig">tdeck.keyboard.read() -&gt; table</div>
+        <div class="sig">ez.keyboard.read() -&gt; table</div>
         <div class="desc">Read next key event (non-blocking)</div>
         <div class="returns"><strong>Returns:</strong> Key event table or nil if no key available</div>
     </div>
     <div class="func" id="keyboard-read_blocking">
-        <div class="sig">tdeck.keyboard.read_blocking(timeout_ms) -&gt; table</div>
+        <div class="sig">ez.keyboard.read_blocking(timeout_ms) -&gt; table</div>
         <div class="desc">Read key with optional timeout (blocking)</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1441,17 +1564,17 @@
         <div class="returns"><strong>Returns:</strong> Key event table or nil on timeout</div>
     </div>
     <div class="func" id="keyboard-read_raw_code">
-        <div class="sig">tdeck.keyboard.read_raw_code() -&gt; integer|nil</div>
+        <div class="sig">ez.keyboard.read_raw_code() -&gt; integer|nil</div>
         <div class="desc">Read raw key code byte directly from I2C (no translation)</div>
         <div class="returns"><strong>Returns:</strong> Raw byte (0x00-0xFF) or nil if no key available</div>
     </div>
     <div class="func" id="keyboard-read_raw_matrix">
-        <div class="sig">tdeck.keyboard.read_raw_matrix() -&gt; table|nil</div>
+        <div class="sig">ez.keyboard.read_raw_matrix() -&gt; table|nil</div>
         <div class="desc">Read raw key matrix state (only works in raw mode)</div>
         <div class="returns"><strong>Returns:</strong> Table of 7 bytes (one per column, 7 bits = rows), or nil on error</div>
     </div>
     <div class="func" id="keyboard-set_backlight">
-        <div class="sig">tdeck.keyboard.set_backlight(level)</div>
+        <div class="sig">ez.keyboard.set_backlight(level)</div>
         <div class="desc">Set keyboard backlight brightness</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1462,7 +1585,7 @@
         </div>
     </div>
     <div class="func" id="keyboard-set_mode">
-        <div class="sig">tdeck.keyboard.set_mode(mode) -&gt; boolean</div>
+        <div class="sig">ez.keyboard.set_mode(mode) -&gt; boolean</div>
         <div class="desc">Set keyboard input mode</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1474,7 +1597,7 @@
         <div class="returns"><strong>Returns:</strong> true if mode was set successfully</div>
     </div>
     <div class="func" id="keyboard-set_repeat_delay">
-        <div class="sig">tdeck.keyboard.set_repeat_delay(delay_ms)</div>
+        <div class="sig">ez.keyboard.set_repeat_delay(delay_ms)</div>
         <div class="desc">Set initial delay before key repeat starts</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1485,7 +1608,7 @@
         </div>
     </div>
     <div class="func" id="keyboard-set_repeat_enabled">
-        <div class="sig">tdeck.keyboard.set_repeat_enabled(enabled)</div>
+        <div class="sig">ez.keyboard.set_repeat_enabled(enabled)</div>
         <div class="desc">Enable or disable key repeat</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1496,7 +1619,7 @@
         </div>
     </div>
     <div class="func" id="keyboard-set_repeat_rate">
-        <div class="sig">tdeck.keyboard.set_repeat_rate(rate_ms)</div>
+        <div class="sig">ez.keyboard.set_repeat_rate(rate_ms)</div>
         <div class="desc">Set key repeat rate (interval between repeats)</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1507,7 +1630,7 @@
         </div>
     </div>
     <div class="func" id="keyboard-set_trackball_mode">
-        <div class="sig">tdeck.keyboard.set_trackball_mode(mode)</div>
+        <div class="sig">ez.keyboard.set_trackball_mode(mode)</div>
         <div class="desc">Set trackball input mode</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1518,7 +1641,7 @@
         </div>
     </div>
     <div class="func" id="keyboard-set_trackball_sensitivity">
-        <div class="sig">tdeck.keyboard.set_trackball_sensitivity(value)</div>
+        <div class="sig">ez.keyboard.set_trackball_sensitivity(value)</div>
         <div class="desc">Set trackball sensitivity level</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1532,11 +1655,11 @@
 
 <div class="module">
     <div class="module-header">
-        <h2 id="mesh">tdeck.mesh</h2>
+        <h2 id="mesh">ez.mesh</h2>
         <span class="func-count">42 functions</span>
     </div>
     <div class="func" id="mesh-build_packet">
-        <div class="sig">tdeck.mesh.build_packet(route_type, payload_type, payload, path) -&gt; string|nil</div>
+        <div class="sig">ez.mesh.build_packet(route_type, payload_type, payload, path) -&gt; string|nil</div>
         <div class="desc">Build a raw mesh packet for transmission</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1551,7 +1674,7 @@
         <div class="returns"><strong>Returns:</strong> Serialized packet as binary string, or nil on error</div>
     </div>
     <div class="func" id="mesh-calc_shared_secret">
-        <div class="sig">tdeck.mesh.calc_shared_secret(other_pub_key) -&gt; string|nil</div>
+        <div class="sig">ez.mesh.calc_shared_secret(other_pub_key) -&gt; string|nil</div>
         <div class="desc">Calculate ECDH shared secret with another node</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1563,15 +1686,15 @@
         <div class="returns"><strong>Returns:</strong> 32-byte shared secret as binary string, or nil on error</div>
     </div>
     <div class="func" id="mesh-clear_packet_queue">
-        <div class="sig">tdeck.mesh.clear_packet_queue()</div>
+        <div class="sig">ez.mesh.clear_packet_queue()</div>
         <div class="desc">Clear all packets from the queue</div>
     </div>
     <div class="func" id="mesh-clear_tx_queue">
-        <div class="sig">tdeck.mesh.clear_tx_queue()</div>
+        <div class="sig">ez.mesh.clear_tx_queue()</div>
         <div class="desc">Clear all packets from transmit queue</div>
     </div>
     <div class="func" id="mesh-ed25519_sign">
-        <div class="sig">tdeck.mesh.ed25519_sign(data) -&gt; signature</div>
+        <div class="sig">ez.mesh.ed25519_sign(data) -&gt; signature</div>
         <div class="desc">Sign data with this node&#x27;s private key</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1583,7 +1706,7 @@
         <div class="returns"><strong>Returns:</strong> 64-byte Ed25519 signature as binary string, or nil on error</div>
     </div>
     <div class="func" id="mesh-ed25519_verify">
-        <div class="sig">tdeck.mesh.ed25519_verify(data, signature, pub_key) -&gt; boolean</div>
+        <div class="sig">ez.mesh.ed25519_verify(data, signature, pub_key) -&gt; boolean</div>
         <div class="desc">Verify an Ed25519 signature</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1597,7 +1720,7 @@
         <div class="returns"><strong>Returns:</strong> true if signature is valid</div>
     </div>
     <div class="func" id="mesh-enable_packet_queue">
-        <div class="sig">tdeck.mesh.enable_packet_queue(enabled)</div>
+        <div class="sig">ez.mesh.enable_packet_queue(enabled)</div>
         <div class="desc">Enable or disable packet queuing for polling</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1608,97 +1731,97 @@
         </div>
     </div>
     <div class="func" id="mesh-get_announce_interval">
-        <div class="sig">tdeck.mesh.get_announce_interval() -&gt; integer</div>
+        <div class="sig">ez.mesh.get_announce_interval() -&gt; integer</div>
         <div class="desc">Get current auto-announce interval</div>
         <div class="returns"><strong>Returns:</strong> Interval in milliseconds (0 = disabled)</div>
     </div>
     <div class="func" id="mesh-get_node_count">
-        <div class="sig">tdeck.mesh.get_node_count() -&gt; integer</div>
+        <div class="sig">ez.mesh.get_node_count() -&gt; integer</div>
         <div class="desc">Get number of known nodes</div>
         <div class="returns"><strong>Returns:</strong> Node count</div>
     </div>
     <div class="func" id="mesh-get_node_id">
-        <div class="sig">tdeck.mesh.get_node_id() -&gt; string</div>
+        <div class="sig">ez.mesh.get_node_id() -&gt; string</div>
         <div class="desc">Get this node&#x27;s full ID</div>
         <div class="returns"><strong>Returns:</strong> 6-byte hex string</div>
     </div>
     <div class="func" id="mesh-get_node_name">
-        <div class="sig">tdeck.mesh.get_node_name() -&gt; string</div>
+        <div class="sig">ez.mesh.get_node_name() -&gt; string</div>
         <div class="desc">Get this node&#x27;s display name</div>
         <div class="returns"><strong>Returns:</strong> Node name string</div>
     </div>
     <div class="func" id="mesh-get_nodes">
-        <div class="sig">tdeck.mesh.get_nodes() -&gt; table</div>
+        <div class="sig">ez.mesh.get_nodes() -&gt; table</div>
         <div class="desc">Get list of discovered mesh nodes</div>
         <div class="returns"><strong>Returns:</strong> Array of node tables with path_hash, name, rssi, snr, last_seen, hops, pub_key_hex</div>
     </div>
     <div class="func" id="mesh-get_path_check">
-        <div class="sig">tdeck.mesh.get_path_check() -&gt; boolean</div>
+        <div class="sig">ez.mesh.get_path_check() -&gt; boolean</div>
         <div class="desc">Get current path check setting</div>
         <div class="returns"><strong>Returns:</strong> true if path check is enabled</div>
     </div>
     <div class="func" id="mesh-get_path_hash">
-        <div class="sig">tdeck.mesh.get_path_hash() -&gt; integer</div>
+        <div class="sig">ez.mesh.get_path_hash() -&gt; integer</div>
         <div class="desc">Get this node&#x27;s path hash (first byte of public key)</div>
         <div class="returns"><strong>Returns:</strong> Path hash as integer (0-255)</div>
     </div>
     <div class="func" id="mesh-get_public_key">
-        <div class="sig">tdeck.mesh.get_public_key() -&gt; string</div>
+        <div class="sig">ez.mesh.get_public_key() -&gt; string</div>
         <div class="desc">Get this node&#x27;s public key as binary string</div>
         <div class="returns"><strong>Returns:</strong> 32-byte Ed25519 public key</div>
     </div>
     <div class="func" id="mesh-get_public_key_hex">
-        <div class="sig">tdeck.mesh.get_public_key_hex() -&gt; string</div>
+        <div class="sig">ez.mesh.get_public_key_hex() -&gt; string</div>
         <div class="desc">Get this node&#x27;s public key as hex string</div>
         <div class="returns"><strong>Returns:</strong> 64-character hex string</div>
     </div>
     <div class="func" id="mesh-get_rx_count">
-        <div class="sig">tdeck.mesh.get_rx_count() -&gt; integer</div>
+        <div class="sig">ez.mesh.get_rx_count() -&gt; integer</div>
         <div class="desc">Get total packets received</div>
         <div class="returns"><strong>Returns:</strong> Receive count</div>
     </div>
     <div class="func" id="mesh-get_short_id">
-        <div class="sig">tdeck.mesh.get_short_id() -&gt; string</div>
+        <div class="sig">ez.mesh.get_short_id() -&gt; string</div>
         <div class="desc">Get this node&#x27;s short ID</div>
         <div class="returns"><strong>Returns:</strong> 3-byte hex string (6 chars)</div>
     </div>
     <div class="func" id="mesh-get_tx_count">
-        <div class="sig">tdeck.mesh.get_tx_count() -&gt; integer</div>
+        <div class="sig">ez.mesh.get_tx_count() -&gt; integer</div>
         <div class="desc">Get total packets transmitted</div>
         <div class="returns"><strong>Returns:</strong> Transmit count</div>
     </div>
     <div class="func" id="mesh-get_tx_queue_capacity">
-        <div class="sig">tdeck.mesh.get_tx_queue_capacity() -&gt; integer</div>
+        <div class="sig">ez.mesh.get_tx_queue_capacity() -&gt; integer</div>
         <div class="desc">Get maximum transmit queue capacity</div>
         <div class="returns"><strong>Returns:</strong> Max queue size</div>
     </div>
     <div class="func" id="mesh-get_tx_queue_size">
-        <div class="sig">tdeck.mesh.get_tx_queue_size() -&gt; integer</div>
+        <div class="sig">ez.mesh.get_tx_queue_size() -&gt; integer</div>
         <div class="desc">Get number of packets waiting in transmit queue</div>
         <div class="returns"><strong>Returns:</strong> Queue size</div>
     </div>
     <div class="func" id="mesh-get_tx_throttle">
-        <div class="sig">tdeck.mesh.get_tx_throttle() -&gt; integer</div>
+        <div class="sig">ez.mesh.get_tx_throttle() -&gt; integer</div>
         <div class="desc">Get current throttle interval</div>
         <div class="returns"><strong>Returns:</strong> Milliseconds between transmissions</div>
     </div>
     <div class="func" id="mesh-has_packets">
-        <div class="sig">tdeck.mesh.has_packets() -&gt; boolean</div>
+        <div class="sig">ez.mesh.has_packets() -&gt; boolean</div>
         <div class="desc">Check if packets are available in the queue</div>
         <div class="returns"><strong>Returns:</strong> true if one or more packets are queued</div>
     </div>
     <div class="func" id="mesh-is_initialized">
-        <div class="sig">tdeck.mesh.is_initialized() -&gt; boolean</div>
+        <div class="sig">ez.mesh.is_initialized() -&gt; boolean</div>
         <div class="desc">Check if mesh networking is initialized</div>
         <div class="returns"><strong>Returns:</strong> true if mesh is ready</div>
     </div>
     <div class="func" id="mesh-is_tx_queue_full">
-        <div class="sig">tdeck.mesh.is_tx_queue_full() -&gt; boolean</div>
+        <div class="sig">ez.mesh.is_tx_queue_full() -&gt; boolean</div>
         <div class="desc">Check if transmit queue is full</div>
         <div class="returns"><strong>Returns:</strong> true if queue is full</div>
     </div>
     <div class="func" id="mesh-make_header">
-        <div class="sig">tdeck.mesh.make_header(route_type, payload_type, version) -&gt; integer</div>
+        <div class="sig">ez.mesh.make_header(route_type, payload_type, version) -&gt; integer</div>
         <div class="desc">Create a packet header byte from components</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1712,7 +1835,7 @@
         <div class="returns"><strong>Returns:</strong> Header byte as integer</div>
     </div>
     <div class="func" id="mesh-on_group_packet">
-        <div class="sig">tdeck.mesh.on_group_packet(callback)</div>
+        <div class="sig">ez.mesh.on_group_packet(callback)</div>
         <div class="desc">Set callback for raw group packets (DEPRECATED - use bus.subscribe(&quot;mesh/group_packet&quot;) instead)</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1723,7 +1846,7 @@
         </div>
     </div>
     <div class="func" id="mesh-on_node_discovered">
-        <div class="sig">tdeck.mesh.on_node_discovered(callback)</div>
+        <div class="sig">ez.mesh.on_node_discovered(callback)</div>
         <div class="desc">Set callback for node discovery (DEPRECATED - use bus.subscribe(&quot;mesh/node_discovered&quot;) instead)</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1734,7 +1857,7 @@
         </div>
     </div>
     <div class="func" id="mesh-on_packet">
-        <div class="sig">tdeck.mesh.on_packet(callback)</div>
+        <div class="sig">ez.mesh.on_packet(callback)</div>
         <div class="desc">Set callback for ALL incoming packets (DEPRECATED - use bus.subscribe(&quot;mesh/packet&quot;) instead)</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1745,12 +1868,12 @@
         </div>
     </div>
     <div class="func" id="mesh-packet_count">
-        <div class="sig">tdeck.mesh.packet_count() -&gt; integer</div>
+        <div class="sig">ez.mesh.packet_count() -&gt; integer</div>
         <div class="desc">Get number of packets in queue</div>
         <div class="returns"><strong>Returns:</strong> Number of queued packets</div>
     </div>
     <div class="func" id="mesh-parse_header">
-        <div class="sig">tdeck.mesh.parse_header(header_byte) -&gt; route_type, payload_type, version</div>
+        <div class="sig">ez.mesh.parse_header(header_byte) -&gt; route_type, payload_type, version</div>
         <div class="desc">Parse a packet header byte into components</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1762,12 +1885,12 @@
         <div class="returns"><strong>Returns:</strong> route_type, payload_type, version as integers</div>
     </div>
     <div class="func" id="mesh-pop_packet">
-        <div class="sig">tdeck.mesh.pop_packet() -&gt; table|nil</div>
+        <div class="sig">ez.mesh.pop_packet() -&gt; table|nil</div>
         <div class="desc">Get and remove the next packet from queue</div>
         <div class="returns"><strong>Returns:</strong> Packet table or nil if queue is empty</div>
     </div>
     <div class="func" id="mesh-queue_send">
-        <div class="sig">tdeck.mesh.queue_send(data) -&gt; boolean</div>
+        <div class="sig">ez.mesh.queue_send(data) -&gt; boolean</div>
         <div class="desc">Queue packet for transmission (throttled, non-blocking)</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1779,7 +1902,7 @@
         <div class="returns"><strong>Returns:</strong> true if queued successfully, false if queue full or error</div>
     </div>
     <div class="func" id="mesh-schedule_rebroadcast">
-        <div class="sig">tdeck.mesh.schedule_rebroadcast(data)</div>
+        <div class="sig">ez.mesh.schedule_rebroadcast(data)</div>
         <div class="desc">Schedule raw packet data for rebroadcast</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1790,12 +1913,12 @@
         </div>
     </div>
     <div class="func" id="mesh-send_announce">
-        <div class="sig">tdeck.mesh.send_announce() -&gt; boolean</div>
+        <div class="sig">ez.mesh.send_announce() -&gt; boolean</div>
         <div class="desc">Broadcast node announcement</div>
         <div class="returns"><strong>Returns:</strong> true if sent successfully</div>
     </div>
     <div class="func" id="mesh-send_group_packet">
-        <div class="sig">tdeck.mesh.send_group_packet(channel_hash, encrypted_data) -&gt; boolean</div>
+        <div class="sig">ez.mesh.send_group_packet(channel_hash, encrypted_data) -&gt; boolean</div>
         <div class="desc">Send raw encrypted group packet</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1808,7 +1931,7 @@
         <div class="returns"><strong>Returns:</strong> true if sent successfully</div>
     </div>
     <div class="func" id="mesh-send_raw">
-        <div class="sig">tdeck.mesh.send_raw(data) -&gt; boolean</div>
+        <div class="sig">ez.mesh.send_raw(data) -&gt; boolean</div>
         <div class="desc">Send raw packet data directly via radio (bypasses queue, immediate)</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1820,7 +1943,7 @@
         <div class="returns"><strong>Returns:</strong> true if sent successfully</div>
     </div>
     <div class="func" id="mesh-set_announce_interval">
-        <div class="sig">tdeck.mesh.set_announce_interval(ms)</div>
+        <div class="sig">ez.mesh.set_announce_interval(ms)</div>
         <div class="desc">Set auto-announce interval in milliseconds (0 = disabled)</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1831,7 +1954,7 @@
         </div>
     </div>
     <div class="func" id="mesh-set_node_name">
-        <div class="sig">tdeck.mesh.set_node_name(name) -&gt; boolean</div>
+        <div class="sig">ez.mesh.set_node_name(name) -&gt; boolean</div>
         <div class="desc">Set this node&#x27;s display name</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1843,7 +1966,7 @@
         <div class="returns"><strong>Returns:</strong> true if successful</div>
     </div>
     <div class="func" id="mesh-set_path_check">
-        <div class="sig">tdeck.mesh.set_path_check(enabled)</div>
+        <div class="sig">ez.mesh.set_path_check(enabled)</div>
         <div class="desc">Enable or disable path check for flood routing</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1854,7 +1977,7 @@
         </div>
     </div>
     <div class="func" id="mesh-set_tx_throttle">
-        <div class="sig">tdeck.mesh.set_tx_throttle(ms)</div>
+        <div class="sig">ez.mesh.set_tx_throttle(ms)</div>
         <div class="desc">Set minimum interval between transmissions</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1865,63 +1988,63 @@
         </div>
     </div>
     <div class="func" id="mesh-update">
-        <div class="sig">tdeck.mesh.update()</div>
+        <div class="sig">ez.mesh.update()</div>
         <div class="desc">Process incoming mesh packets</div>
     </div>
 </div>
 
 <div class="module">
     <div class="module-header">
-        <h2 id="radio">tdeck.radio</h2>
+        <h2 id="radio">ez.radio</h2>
         <span class="func-count">19 functions</span>
     </div>
     <div class="func" id="radio-available">
-        <div class="sig">tdeck.radio.available() -&gt; boolean</div>
+        <div class="sig">ez.radio.available() -&gt; boolean</div>
         <div class="desc">Check if data is available</div>
         <div class="returns"><strong>Returns:</strong> true if packet waiting</div>
     </div>
     <div class="func" id="radio-get_config">
-        <div class="sig">tdeck.radio.get_config() -&gt; table</div>
+        <div class="sig">ez.radio.get_config() -&gt; table</div>
         <div class="desc">Get current radio configuration</div>
         <div class="returns"><strong>Returns:</strong> Table with frequency, bandwidth, spreading_factor, etc.</div>
     </div>
     <div class="func" id="radio-get_last_rssi">
-        <div class="sig">tdeck.radio.get_last_rssi() -&gt; number</div>
+        <div class="sig">ez.radio.get_last_rssi() -&gt; number</div>
         <div class="desc">Get last received signal strength</div>
         <div class="returns"><strong>Returns:</strong> RSSI in dBm</div>
     </div>
     <div class="func" id="radio-get_last_snr">
-        <div class="sig">tdeck.radio.get_last_snr() -&gt; number</div>
+        <div class="sig">ez.radio.get_last_snr() -&gt; number</div>
         <div class="desc">Get last signal-to-noise ratio</div>
         <div class="returns"><strong>Returns:</strong> SNR in dB</div>
     </div>
     <div class="func" id="radio-is_busy">
-        <div class="sig">tdeck.radio.is_busy() -&gt; boolean</div>
+        <div class="sig">ez.radio.is_busy() -&gt; boolean</div>
         <div class="desc">Check if radio is busy</div>
         <div class="returns"><strong>Returns:</strong> true if transmitting or receiving</div>
     </div>
     <div class="func" id="radio-is_initialized">
-        <div class="sig">tdeck.radio.is_initialized() -&gt; boolean</div>
+        <div class="sig">ez.radio.is_initialized() -&gt; boolean</div>
         <div class="desc">Check if radio is initialized</div>
         <div class="returns"><strong>Returns:</strong> true if radio is ready</div>
     </div>
     <div class="func" id="radio-is_receiving">
-        <div class="sig">tdeck.radio.is_receiving() -&gt; boolean</div>
+        <div class="sig">ez.radio.is_receiving() -&gt; boolean</div>
         <div class="desc">Check if in receive mode</div>
         <div class="returns"><strong>Returns:</strong> true if listening</div>
     </div>
     <div class="func" id="radio-is_transmitting">
-        <div class="sig">tdeck.radio.is_transmitting() -&gt; boolean</div>
+        <div class="sig">ez.radio.is_transmitting() -&gt; boolean</div>
         <div class="desc">Check if currently transmitting</div>
         <div class="returns"><strong>Returns:</strong> true if transmission in progress</div>
     </div>
     <div class="func" id="radio-receive">
-        <div class="sig">tdeck.radio.receive() -&gt; string, number, number</div>
+        <div class="sig">ez.radio.receive() -&gt; string, number, number</div>
         <div class="desc">Receive a packet</div>
         <div class="returns"><strong>Returns:</strong> Data string, RSSI, SNR or nil if no data</div>
     </div>
     <div class="func" id="radio-send">
-        <div class="sig">tdeck.radio.send(data) -&gt; string</div>
+        <div class="sig">ez.radio.send(data) -&gt; string</div>
         <div class="desc">Transmit data</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1933,7 +2056,7 @@
         <div class="returns"><strong>Returns:</strong> Result string</div>
     </div>
     <div class="func" id="radio-set_bandwidth">
-        <div class="sig">tdeck.radio.set_bandwidth(khz) -&gt; string</div>
+        <div class="sig">ez.radio.set_bandwidth(khz) -&gt; string</div>
         <div class="desc">Set radio bandwidth</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1945,7 +2068,7 @@
         <div class="returns"><strong>Returns:</strong> Result string</div>
     </div>
     <div class="func" id="radio-set_coding_rate">
-        <div class="sig">tdeck.radio.set_coding_rate(cr) -&gt; string</div>
+        <div class="sig">ez.radio.set_coding_rate(cr) -&gt; string</div>
         <div class="desc">Set LoRa coding rate</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1957,7 +2080,7 @@
         <div class="returns"><strong>Returns:</strong> Result string</div>
     </div>
     <div class="func" id="radio-set_frequency">
-        <div class="sig">tdeck.radio.set_frequency(mhz) -&gt; string</div>
+        <div class="sig">ez.radio.set_frequency(mhz) -&gt; string</div>
         <div class="desc">Set radio frequency</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1969,7 +2092,7 @@
         <div class="returns"><strong>Returns:</strong> Result string (ok, error_init, etc.)</div>
     </div>
     <div class="func" id="radio-set_spreading_factor">
-        <div class="sig">tdeck.radio.set_spreading_factor(sf) -&gt; string</div>
+        <div class="sig">ez.radio.set_spreading_factor(sf) -&gt; string</div>
         <div class="desc">Set LoRa spreading factor</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1981,7 +2104,7 @@
         <div class="returns"><strong>Returns:</strong> Result string</div>
     </div>
     <div class="func" id="radio-set_sync_word">
-        <div class="sig">tdeck.radio.set_sync_word(sw) -&gt; string</div>
+        <div class="sig">ez.radio.set_sync_word(sw) -&gt; string</div>
         <div class="desc">Set sync word</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -1993,7 +2116,7 @@
         <div class="returns"><strong>Returns:</strong> Result string</div>
     </div>
     <div class="func" id="radio-set_tx_power">
-        <div class="sig">tdeck.radio.set_tx_power(dbm) -&gt; string</div>
+        <div class="sig">ez.radio.set_tx_power(dbm) -&gt; string</div>
         <div class="desc">Set transmit power</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2005,17 +2128,17 @@
         <div class="returns"><strong>Returns:</strong> Result string</div>
     </div>
     <div class="func" id="radio-sleep">
-        <div class="sig">tdeck.radio.sleep() -&gt; string</div>
+        <div class="sig">ez.radio.sleep() -&gt; string</div>
         <div class="desc">Put radio into sleep mode</div>
         <div class="returns"><strong>Returns:</strong> Result string</div>
     </div>
     <div class="func" id="radio-start_receive">
-        <div class="sig">tdeck.radio.start_receive() -&gt; string</div>
+        <div class="sig">ez.radio.start_receive() -&gt; string</div>
         <div class="desc">Start listening for packets</div>
         <div class="returns"><strong>Returns:</strong> Result string</div>
     </div>
     <div class="func" id="radio-wake">
-        <div class="sig">tdeck.radio.wake() -&gt; string</div>
+        <div class="sig">ez.radio.wake() -&gt; string</div>
         <div class="desc">Wake radio from sleep</div>
         <div class="returns"><strong>Returns:</strong> Result string</div>
     </div>
@@ -2023,11 +2146,11 @@
 
 <div class="module">
     <div class="module-header">
-        <h2 id="storage">tdeck.storage</h2>
+        <h2 id="storage">ez.storage</h2>
         <span class="func-count">20 functions</span>
     </div>
     <div class="func" id="storage-append_file">
-        <div class="sig">tdeck.storage.append_file(path, content) -&gt; boolean</div>
+        <div class="sig">ez.storage.append_file(path, content) -&gt; boolean</div>
         <div class="desc">Append content to file</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2040,12 +2163,12 @@
         <div class="returns"><strong>Returns:</strong> true if successful</div>
     </div>
     <div class="func" id="storage-clear_prefs">
-        <div class="sig">tdeck.storage.clear_prefs() -&gt; boolean</div>
+        <div class="sig">ez.storage.clear_prefs() -&gt; boolean</div>
         <div class="desc">Clear all preferences</div>
         <div class="returns"><strong>Returns:</strong> true if cleared</div>
     </div>
     <div class="func" id="storage-exists">
-        <div class="sig">tdeck.storage.exists(path) -&gt; boolean</div>
+        <div class="sig">ez.storage.exists(path) -&gt; boolean</div>
         <div class="desc">Check if file or directory exists</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2057,7 +2180,7 @@
         <div class="returns"><strong>Returns:</strong> true if exists</div>
     </div>
     <div class="func" id="storage-file_size">
-        <div class="sig">tdeck.storage.file_size(path) -&gt; integer</div>
+        <div class="sig">ez.storage.file_size(path) -&gt; integer</div>
         <div class="desc">Get file size in bytes</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2069,12 +2192,12 @@
         <div class="returns"><strong>Returns:</strong> File size or nil with error message</div>
     </div>
     <div class="func" id="storage-get_flash_info">
-        <div class="sig">tdeck.storage.get_flash_info() -&gt; table</div>
+        <div class="sig">ez.storage.get_flash_info() -&gt; table</div>
         <div class="desc">Get flash storage info</div>
         <div class="returns"><strong>Returns:</strong> Table with total_bytes, used_bytes, free_bytes</div>
     </div>
     <div class="func" id="storage-get_pref">
-        <div class="sig">tdeck.storage.get_pref(key, default) -&gt; string</div>
+        <div class="sig">ez.storage.get_pref(key, default) -&gt; string</div>
         <div class="desc">Get preference value</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2087,17 +2210,17 @@
         <div class="returns"><strong>Returns:</strong> Stored value or default</div>
     </div>
     <div class="func" id="storage-get_sd_info">
-        <div class="sig">tdeck.storage.get_sd_info() -&gt; table</div>
+        <div class="sig">ez.storage.get_sd_info() -&gt; table</div>
         <div class="desc">Get SD card info</div>
         <div class="returns"><strong>Returns:</strong> Table with total_bytes, used_bytes, free_bytes or nil</div>
     </div>
     <div class="func" id="storage-is_sd_available">
-        <div class="sig">tdeck.storage.is_sd_available() -&gt; boolean</div>
+        <div class="sig">ez.storage.is_sd_available() -&gt; boolean</div>
         <div class="desc">Check if SD card is mounted</div>
         <div class="returns"><strong>Returns:</strong> true if SD card available</div>
     </div>
     <div class="func" id="storage-json_decode">
-        <div class="sig">tdeck.storage.json_decode(json_string) -&gt; value</div>
+        <div class="sig">ez.storage.json_decode(json_string) -&gt; value</div>
         <div class="desc">Decode JSON string to Lua value</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2109,7 +2232,7 @@
         <div class="returns"><strong>Returns:</strong> Lua value or nil on error</div>
     </div>
     <div class="func" id="storage-json_encode">
-        <div class="sig">tdeck.storage.json_encode(value) -&gt; string</div>
+        <div class="sig">ez.storage.json_encode(value) -&gt; string</div>
         <div class="desc">Encode Lua value to JSON string</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2121,7 +2244,7 @@
         <div class="returns"><strong>Returns:</strong> JSON string or nil on error</div>
     </div>
     <div class="func" id="storage-list_dir">
-        <div class="sig">tdeck.storage.list_dir(path) -&gt; table</div>
+        <div class="sig">ez.storage.list_dir(path) -&gt; table</div>
         <div class="desc">List directory contents</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2133,7 +2256,7 @@
         <div class="returns"><strong>Returns:</strong> Array of tables with name, is_dir, size</div>
     </div>
     <div class="func" id="storage-mkdir">
-        <div class="sig">tdeck.storage.mkdir(path) -&gt; boolean</div>
+        <div class="sig">ez.storage.mkdir(path) -&gt; boolean</div>
         <div class="desc">Create directory</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2145,7 +2268,7 @@
         <div class="returns"><strong>Returns:</strong> true if created</div>
     </div>
     <div class="func" id="storage-read_bytes">
-        <div class="sig">tdeck.storage.read_bytes(path, offset, length) -&gt; string</div>
+        <div class="sig">ez.storage.read_bytes(path, offset, length) -&gt; string</div>
         <div class="desc">Read bytes from file at specific offset (for random access)</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2159,7 +2282,7 @@
         <div class="returns"><strong>Returns:</strong> Binary data as string, or nil with error message</div>
     </div>
     <div class="func" id="storage-read_file">
-        <div class="sig">tdeck.storage.read_file(path) -&gt; string</div>
+        <div class="sig">ez.storage.read_file(path) -&gt; string</div>
         <div class="desc">Read entire file contents</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2171,7 +2294,7 @@
         <div class="returns"><strong>Returns:</strong> File content or nil, error_message</div>
     </div>
     <div class="func" id="storage-remove">
-        <div class="sig">tdeck.storage.remove(path) -&gt; boolean</div>
+        <div class="sig">ez.storage.remove(path) -&gt; boolean</div>
         <div class="desc">Delete a file</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2183,7 +2306,7 @@
         <div class="returns"><strong>Returns:</strong> true if deleted</div>
     </div>
     <div class="func" id="storage-remove_pref">
-        <div class="sig">tdeck.storage.remove_pref(key) -&gt; boolean</div>
+        <div class="sig">ez.storage.remove_pref(key) -&gt; boolean</div>
         <div class="desc">Remove a preference</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2195,7 +2318,7 @@
         <div class="returns"><strong>Returns:</strong> true if removed</div>
     </div>
     <div class="func" id="storage-rename">
-        <div class="sig">tdeck.storage.rename(old_path, new_path) -&gt; boolean</div>
+        <div class="sig">ez.storage.rename(old_path, new_path) -&gt; boolean</div>
         <div class="desc">Rename or move a file</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2208,7 +2331,7 @@
         <div class="returns"><strong>Returns:</strong> true if renamed</div>
     </div>
     <div class="func" id="storage-rmdir">
-        <div class="sig">tdeck.storage.rmdir(path) -&gt; boolean</div>
+        <div class="sig">ez.storage.rmdir(path) -&gt; boolean</div>
         <div class="desc">Remove empty directory</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2220,7 +2343,7 @@
         <div class="returns"><strong>Returns:</strong> true if removed</div>
     </div>
     <div class="func" id="storage-set_pref">
-        <div class="sig">tdeck.storage.set_pref(key, value) -&gt; boolean</div>
+        <div class="sig">ez.storage.set_pref(key, value) -&gt; boolean</div>
         <div class="desc">Set preference value</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2233,7 +2356,7 @@
         <div class="returns"><strong>Returns:</strong> true if saved successfully</div>
     </div>
     <div class="func" id="storage-write_file">
-        <div class="sig">tdeck.storage.write_file(path, content) -&gt; boolean</div>
+        <div class="sig">ez.storage.write_file(path, content) -&gt; boolean</div>
         <div class="desc">Write content to file (creates/overwrites)</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2249,11 +2372,11 @@
 
 <div class="module">
     <div class="module-header">
-        <h2 id="system">tdeck.system</h2>
-        <span class="func-count">34 functions</span>
+        <h2 id="system">ez.system</h2>
+        <span class="func-count">35 functions</span>
     </div>
     <div class="func" id="system-cancel_timer">
-        <div class="sig">tdeck.system.cancel_timer(timer_id)</div>
+        <div class="sig">ez.system.cancel_timer(timer_id)</div>
         <div class="desc">Cancel a scheduled timer</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2264,17 +2387,17 @@
         </div>
     </div>
     <div class="func" id="system-chip_model">
-        <div class="sig">tdeck.system.chip_model() -&gt; string</div>
+        <div class="sig">ez.system.chip_model() -&gt; string</div>
         <div class="desc">Get ESP32 chip model name</div>
         <div class="returns"><strong>Returns:</strong> Chip model string</div>
     </div>
     <div class="func" id="system-cpu_freq">
-        <div class="sig">tdeck.system.cpu_freq() -&gt; integer</div>
+        <div class="sig">ez.system.cpu_freq() -&gt; integer</div>
         <div class="desc">Get CPU frequency</div>
         <div class="returns"><strong>Returns:</strong> Frequency in MHz</div>
     </div>
     <div class="func" id="system-delay">
-        <div class="sig">tdeck.system.delay(ms)</div>
+        <div class="sig">ez.system.delay(ms)</div>
         <div class="desc">Blocking delay execution</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2285,11 +2408,11 @@
         </div>
     </div>
     <div class="func" id="system-gc">
-        <div class="sig">tdeck.system.gc()</div>
+        <div class="sig">ez.system.gc()</div>
         <div class="desc">Force full garbage collection</div>
     </div>
     <div class="func" id="system-gc_step">
-        <div class="sig">tdeck.system.gc_step(steps) -&gt; integer</div>
+        <div class="sig">ez.system.gc_step(steps) -&gt; integer</div>
         <div class="desc">Perform incremental garbage collection</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2301,107 +2424,100 @@
         <div class="returns"><strong>Returns:</strong> Result from lua_gc</div>
     </div>
     <div class="func" id="system-get_battery_percent">
-        <div class="sig">tdeck.system.get_battery_percent() -&gt; integer</div>
+        <div class="sig">ez.system.get_battery_percent() -&gt; integer</div>
         <div class="desc">Get battery charge level</div>
         <div class="returns"><strong>Returns:</strong> Battery percentage (0-100)</div>
     </div>
     <div class="func" id="system-get_battery_voltage">
-        <div class="sig">tdeck.system.get_battery_voltage() -&gt; number</div>
+        <div class="sig">ez.system.get_battery_voltage() -&gt; number</div>
         <div class="desc">Get battery voltage</div>
         <div class="returns"><strong>Returns:</strong> Estimated battery voltage in volts</div>
     </div>
     <div class="func" id="system-get_firmware_info">
-        <div class="sig">tdeck.system.get_firmware_info() -&gt; table</div>
+        <div class="sig">ez.system.get_firmware_info() -&gt; table</div>
         <div class="desc">Get firmware partition info</div>
         <div class="returns"><strong>Returns:</strong> Table with partition_size, app_size, free_bytes</div>
     </div>
     <div class="func" id="system-get_free_heap">
-        <div class="sig">tdeck.system.get_free_heap() -&gt; integer</div>
+        <div class="sig">ez.system.get_free_heap() -&gt; integer</div>
         <div class="desc">Get free internal RAM</div>
         <div class="returns"><strong>Returns:</strong> Free heap memory in bytes</div>
     </div>
     <div class="func" id="system-get_free_psram">
-        <div class="sig">tdeck.system.get_free_psram() -&gt; integer</div>
+        <div class="sig">ez.system.get_free_psram() -&gt; integer</div>
         <div class="desc">Get free PSRAM</div>
         <div class="returns"><strong>Returns:</strong> Free PSRAM in bytes</div>
     </div>
     <div class="func" id="system-get_last_error">
-        <div class="sig">tdeck.system.get_last_error() -&gt; string</div>
+        <div class="sig">ez.system.get_last_error() -&gt; string</div>
         <div class="desc">Get last Lua error message</div>
         <div class="returns"><strong>Returns:</strong> Error message or nil if no error</div>
     </div>
+    <div class="func" id="system-get_loop_delay">
+        <div class="sig">ez.system.get_loop_delay() -&gt; integer</div>
+        <div class="desc">Get the current main loop delay in milliseconds</div>
+    </div>
     <div class="func" id="system-get_lua_memory">
-        <div class="sig">tdeck.system.get_lua_memory() -&gt; integer</div>
+        <div class="sig">ez.system.get_lua_memory() -&gt; integer</div>
         <div class="desc">Get memory used by Lua runtime</div>
         <div class="returns"><strong>Returns:</strong> Memory usage in bytes</div>
     </div>
     <div class="func" id="system-get_time">
-        <div class="sig">tdeck.system.get_time() -&gt; table|nil</div>
+        <div class="sig">ez.system.get_time() -&gt; table|nil</div>
         <div class="desc">Get current wall clock time</div>
         <div class="returns"><strong>Returns:</strong> Table with hour, minute, second, or nil if time not set</div>
     </div>
     <div class="func" id="system-get_time_unix">
-        <div class="sig">tdeck.system.get_time_unix() -&gt; integer</div>
+        <div class="sig">ez.system.get_time_unix() -&gt; integer</div>
         <div class="desc">Get current Unix timestamp</div>
         <div class="returns"><strong>Returns:</strong> Unix timestamp (seconds since 1970-01-01), or 0 if time not set</div>
     </div>
     <div class="func" id="system-get_timezone">
-        <div class="sig">tdeck.system.get_timezone() -&gt; integer</div>
+        <div class="sig">ez.system.get_timezone() -&gt; integer</div>
         <div class="desc">Get current timezone UTC offset in hours</div>
         <div class="returns"><strong>Returns:</strong> UTC offset in hours</div>
     </div>
     <div class="func" id="system-get_total_heap">
-        <div class="sig">tdeck.system.get_total_heap() -&gt; integer</div>
+        <div class="sig">ez.system.get_total_heap() -&gt; integer</div>
         <div class="desc">Get total heap size</div>
         <div class="returns"><strong>Returns:</strong> Total heap memory in bytes</div>
     </div>
     <div class="func" id="system-get_total_psram">
-        <div class="sig">tdeck.system.get_total_psram() -&gt; integer</div>
+        <div class="sig">ez.system.get_total_psram() -&gt; integer</div>
         <div class="desc">Get total PSRAM size</div>
         <div class="returns"><strong>Returns:</strong> Total PSRAM in bytes</div>
     </div>
     <div class="func" id="system-is_low_memory">
-        <div class="sig">tdeck.system.is_low_memory() -&gt; boolean</div>
+        <div class="sig">ez.system.is_low_memory() -&gt; boolean</div>
         <div class="desc">Check if memory is critically low</div>
         <div class="returns"><strong>Returns:</strong> true if less than 32KB available</div>
     </div>
     <div class="func" id="system-is_sd_available">
-        <div class="sig">tdeck.system.is_sd_available() -&gt; boolean</div>
+        <div class="sig">ez.system.is_sd_available() -&gt; boolean</div>
         <div class="desc">Check if SD card is available</div>
         <div class="returns"><strong>Returns:</strong> true if SD card is present and accessible</div>
     </div>
     <div class="func" id="system-is_usb_msc_active">
-        <div class="sig">tdeck.system.is_usb_msc_active() -&gt; boolean</div>
+        <div class="sig">ez.system.is_usb_msc_active() -&gt; boolean</div>
         <div class="desc">Check if USB MSC mode is active</div>
         <div class="returns"><strong>Returns:</strong> true if MSC mode is active</div>
     </div>
-    <div class="func" id="system-log">
-        <div class="sig">tdeck.system.log(message)</div>
-        <div class="desc">Log message to serial output</div>
-        <div class="params">
-            <div class="params-title">Parameters</div>
-            <table class="params-table">
-                <tr><th>Parameter</th><th>Description</th></tr>
-                <tr><td>message</td><td>Text to log</td></tr>
-            </table>
-        </div>
-    </div>
     <div class="func" id="system-millis">
-        <div class="sig">tdeck.system.millis() -&gt; integer</div>
+        <div class="sig">ez.system.millis() -&gt; integer</div>
         <div class="desc">Returns milliseconds since boot</div>
         <div class="returns"><strong>Returns:</strong> Milliseconds elapsed since device started</div>
     </div>
     <div class="func" id="system-reload_scripts">
-        <div class="sig">tdeck.system.reload_scripts() -&gt; boolean</div>
+        <div class="sig">ez.system.reload_scripts() -&gt; boolean</div>
         <div class="desc">Reload all Lua scripts (hot reload)</div>
         <div class="returns"><strong>Returns:</strong> true if successful</div>
     </div>
     <div class="func" id="system-restart">
-        <div class="sig">tdeck.system.restart()</div>
+        <div class="sig">ez.system.restart()</div>
         <div class="desc">Restart the device</div>
     </div>
     <div class="func" id="system-set_interval">
-        <div class="sig">tdeck.system.set_interval(ms, callback) -&gt; integer</div>
+        <div class="sig">ez.system.set_interval(ms, callback) -&gt; integer</div>
         <div class="desc">Schedule a repeating callback</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2413,8 +2529,19 @@
         </div>
         <div class="returns"><strong>Returns:</strong> Timer ID for cancellation</div>
     </div>
+    <div class="func" id="system-set_loop_delay">
+        <div class="sig">ez.system.set_loop_delay(ms)</div>
+        <div class="desc">Set the main loop delay in milliseconds</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>ms</td><td>Delay in milliseconds (0-100, default 0)</td></tr>
+            </table>
+        </div>
+    </div>
     <div class="func" id="system-set_time">
-        <div class="sig">tdeck.system.set_time(year, month, day, hour, minute, second) -&gt; boolean</div>
+        <div class="sig">ez.system.set_time(year, month, day, hour, minute, second) -&gt; boolean</div>
         <div class="desc">Set system clock time</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2431,7 +2558,7 @@
         <div class="returns"><strong>Returns:</strong> true if time was set successfully</div>
     </div>
     <div class="func" id="system-set_time_unix">
-        <div class="sig">tdeck.system.set_time_unix(timestamp) -&gt; boolean</div>
+        <div class="sig">ez.system.set_time_unix(timestamp) -&gt; boolean</div>
         <div class="desc">Set system clock from Unix timestamp</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2443,7 +2570,7 @@
         <div class="returns"><strong>Returns:</strong> true if time was set successfully</div>
     </div>
     <div class="func" id="system-set_timer">
-        <div class="sig">tdeck.system.set_timer(ms, callback) -&gt; integer</div>
+        <div class="sig">ez.system.set_timer(ms, callback) -&gt; integer</div>
         <div class="desc">Schedule a one-shot callback</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2456,7 +2583,7 @@
         <div class="returns"><strong>Returns:</strong> Timer ID for cancellation</div>
     </div>
     <div class="func" id="system-set_timezone">
-        <div class="sig">tdeck.system.set_timezone(tz_string) -&gt; boolean</div>
+        <div class="sig">ez.system.set_timezone(tz_string) -&gt; boolean</div>
         <div class="desc">Set timezone using POSIX TZ string</div>
         <div class="params">
             <div class="params-title">Parameters</div>
@@ -2468,21 +2595,21 @@
         <div class="returns"><strong>Returns:</strong> true if timezone was set successfully</div>
     </div>
     <div class="func" id="system-start_usb_msc">
-        <div class="sig">tdeck.system.start_usb_msc() -&gt; boolean</div>
+        <div class="sig">ez.system.start_usb_msc() -&gt; boolean</div>
         <div class="desc">Start USB Mass Storage mode to access SD card from PC</div>
         <div class="returns"><strong>Returns:</strong> true if started successfully</div>
     </div>
     <div class="func" id="system-stop_usb_msc">
-        <div class="sig">tdeck.system.stop_usb_msc()</div>
+        <div class="sig">ez.system.stop_usb_msc()</div>
         <div class="desc">Stop USB Mass Storage mode</div>
     </div>
     <div class="func" id="system-uptime">
-        <div class="sig">tdeck.system.uptime() -&gt; integer</div>
+        <div class="sig">ez.system.uptime() -&gt; integer</div>
         <div class="desc">Get device uptime</div>
         <div class="returns"><strong>Returns:</strong> Seconds since boot</div>
     </div>
     <div class="func" id="system-yield">
-        <div class="sig">tdeck.system.yield(ms)</div>
+        <div class="sig">ez.system.yield(ms)</div>
         <div class="desc">Yield execution to allow C++ background tasks to run</div>
         <div class="params">
             <div class="params-title">Parameters</div>

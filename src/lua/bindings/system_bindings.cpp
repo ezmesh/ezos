@@ -566,6 +566,27 @@ LUA_FUNCTION(l_system_get_firmware_info) {
     return 1;
 }
 
+// Global loop delay setting (accessed by main.cpp)
+uint32_t g_loopDelayMs = 0;
+
+// @lua ez.system.set_loop_delay(ms)
+// @brief Set the main loop delay in milliseconds
+// @param ms Delay in milliseconds (0-100, default 0)
+LUA_FUNCTION(l_system_set_loop_delay) {
+    int ms = luaL_checkinteger(L, 1);
+    if (ms < 0) ms = 0;
+    if (ms > 100) ms = 100;
+    g_loopDelayMs = ms;
+    return 0;
+}
+
+// @lua ez.system.get_loop_delay() -> integer
+// @brief Get the current main loop delay in milliseconds
+LUA_FUNCTION(l_system_get_loop_delay) {
+    lua_pushinteger(L, g_loopDelayMs);
+    return 1;
+}
+
 // @lua ez.system.yield(ms)
 // @brief Yield execution to allow C++ background tasks to run
 // @param ms Optional sleep time in milliseconds (default 1, max 100)
@@ -625,6 +646,8 @@ static const luaL_Reg system_funcs[] = {
     {"is_sd_available",    l_system_is_sd_available},
     {"get_firmware_info",  l_system_get_firmware_info},
     {"yield",              l_system_yield},
+    {"set_loop_delay",     l_system_set_loop_delay},
+    {"get_loop_delay",     l_system_get_loop_delay},
     {nullptr, nullptr}
 };
 

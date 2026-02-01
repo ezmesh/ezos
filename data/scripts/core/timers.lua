@@ -8,9 +8,9 @@ local Timers = {}
 
 -- Initialize timer globals (called from boot.lua after Scheduler is loaded)
 function Timers.init(Scheduler)
-    -- Set a one-shot timer
+    -- Set a one-shot timeout
     function _G.set_timeout(callback, delay_ms)
-        return Scheduler.set_timer(delay_ms, callback)
+        return Scheduler.set_timeout(delay_ms, callback)
     end
 
     -- Cancel a timeout

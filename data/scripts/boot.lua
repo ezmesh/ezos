@@ -179,6 +179,12 @@ local function boot_sequence()
             ez.system.set_timezone(tz_posix)
         end
 
+        -- Loop delay (default 0 for maximum FPS)
+        local loop_delay = tonumber(get_pref("loopDelay", 0)) or 0
+        if ez.system and ez.system.set_loop_delay then
+            ez.system.set_loop_delay(loop_delay)
+        end
+
         ez.log("[Boot] Settings applied")
     end
 

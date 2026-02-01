@@ -98,9 +98,6 @@ function MainLoop.step()
         run_gc("step", nil, 10)  -- Small incremental step, no context to reduce log noise
         MainLoop.last_gc = now
     end
-
-    -- Yield to allow C++ background tasks and process timers
-    ez.system.yield(10)
 end
 
 -- Start the Lua main loop

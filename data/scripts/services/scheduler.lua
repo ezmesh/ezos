@@ -83,11 +83,11 @@ function Scheduler.list_services()
     return list
 end
 
--- Set a one-shot timer
+-- Set a one-shot timeout (fires once after delay)
 -- @param delay_ms: milliseconds until callback
 -- @param callback: function to call
 -- @return timer_id that can be used to cancel
-function Scheduler.set_timer(delay_ms, callback)
+function Scheduler.set_timeout(delay_ms, callback)
     local id = Scheduler.next_timer_id
     Scheduler.next_timer_id = Scheduler.next_timer_id + 1
 

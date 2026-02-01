@@ -15,6 +15,7 @@ local TestingMenu = {
 
     items = {
         {label = "Components",  description = "UI component test", icon_path = "settings"},
+        {label = "Sprite Alpha", description = "Alpha blending",   icon_path = "settings"},
         {label = "GPS Test",    description = "Location & time",   icon_path = "settings"},
         {label = "Radio Test",  description = "LoRa module",       icon_path = "settings"},
         {label = "Color Range", description = "Display colors",    icon_path = "settings"},
@@ -188,17 +189,18 @@ function TestingMenu:activate_selected()
     local item = self.items[self.selected]
 
     local screens = {
-        ["Components"]  = "/scripts/ui/screens/component_test.lua",
-        ["GPS Test"]    = "/scripts/ui/screens/gps_test.lua",
-        ["Radio Test"]  = "/scripts/ui/screens/radio_test.lua",
-        ["Color Range"] = "/scripts/ui/screens/color_test.lua",
-        ["Fonts Test"]  = "/scripts/ui/screens/font_test.lua",
-        ["Sound Test"]  = "/scripts/ui/screens/sound_test.lua",
-        ["Trackball"]   = "/scripts/ui/screens/trackball_test.lua",
-        ["Key Matrix"]  = "/scripts/ui/screens/keyboard_matrix.lua",
-        ["Key Repeat"]  = "/scripts/ui/screens/key_repeat_test.lua",
-        ["System Info"] = "/scripts/ui/screens/system_info.lua",
-        ["Message Bus"] = "/scripts/ui/screens/bus_test.lua",
+        ["Components"]   = "/scripts/ui/screens/component_test.lua",
+        ["Sprite Alpha"] = "/scripts/ui/screens/sprite_test.lua",
+        ["GPS Test"]     = "/scripts/ui/screens/gps_test.lua",
+        ["Radio Test"]   = "/scripts/ui/screens/radio_test.lua",
+        ["Color Range"]  = "/scripts/ui/screens/color_test.lua",
+        ["Fonts Test"]   = "/scripts/ui/screens/font_test.lua",
+        ["Sound Test"]   = "/scripts/ui/screens/sound_test.lua",
+        ["Trackball"]    = "/scripts/ui/screens/trackball_test.lua",
+        ["Key Matrix"]   = "/scripts/ui/screens/keyboard_matrix.lua",
+        ["Key Repeat"]   = "/scripts/ui/screens/key_repeat_test.lua",
+        ["System Info"]  = "/scripts/ui/screens/system_info.lua",
+        ["Message Bus"]  = "/scripts/ui/screens/bus_test.lua",
     }
 
     local path = screens[item.label]

@@ -238,6 +238,7 @@ async function preloadScripts() {
         'ui/screens/testing_menu.lua',
         'ui/screens/bus_test.lua',
         'ui/screens/component_test.lua',
+        'ui/screens/sprite_test.lua',
     ];
 
     log(`Preloading ${scripts.length} scripts...`, 'info');
