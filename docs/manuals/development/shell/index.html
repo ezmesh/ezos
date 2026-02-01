@@ -397,7 +397,7 @@
 
 <!-- Quick Reference Index -->
 <div class="quick-ref">
-    <div class="quick-ref-title">Quick Reference <span>223 methods</span></div>
+    <div class="quick-ref-title">Quick Reference <span>229 methods</span></div>
     <div class="quick-ref-list">
         <a class="quick-ref-item" href="#audio-beep" title="Play a series of beeps (blocking)">audio.beep</a>
         <a class="quick-ref-item" href="#audio-get_volume" title="Get current volume level">audio.get_volume</a>
@@ -569,9 +569,11 @@
         <a class="quick-ref-item" href="#radio-wake" title="Wake radio from sleep">radio.wake</a>
         <a class="quick-ref-item" href="#storage-append_file" title="Append content to file">storage.append_file</a>
         <a class="quick-ref-item" href="#storage-clear_prefs" title="Clear all preferences">storage.clear_prefs</a>
+        <a class="quick-ref-item" href="#storage-copy_file" title="Copy a file from source to destination">storage.copy_file</a>
         <a class="quick-ref-item" href="#storage-exists" title="Check if file or directory exists">storage.exists</a>
         <a class="quick-ref-item" href="#storage-file_size" title="Get file size in bytes">storage.file_size</a>
         <a class="quick-ref-item" href="#storage-get_flash_info" title="Get flash storage info">storage.get_flash_info</a>
+        <a class="quick-ref-item" href="#storage-get_free_space" title="Get free space on filesystem in bytes">storage.get_free_space</a>
         <a class="quick-ref-item" href="#storage-get_pref" title="Get preference value">storage.get_pref</a>
         <a class="quick-ref-item" href="#storage-get_sd_info" title="Get SD card info">storage.get_sd_info</a>
         <a class="quick-ref-item" href="#storage-is_sd_available" title="Check if SD card is mounted">storage.is_sd_available</a>
@@ -590,6 +592,7 @@
         <a class="quick-ref-item" href="#system-cancel_timer" title="Cancel a scheduled timer">system.cancel_timer</a>
         <a class="quick-ref-item" href="#system-chip_model" title="Get ESP32 chip model name">system.chip_model</a>
         <a class="quick-ref-item" href="#system-cpu_freq" title="Get CPU frequency">system.cpu_freq</a>
+        <a class="quick-ref-item" href="#system-deep_sleep" title="Enter deep sleep mode, device will reboot on wake">system.deep_sleep</a>
         <a class="quick-ref-item" href="#system-delay" title="Blocking delay execution">system.delay</a>
         <a class="quick-ref-item" href="#system-gc" title="Force full garbage collection">system.gc</a>
         <a class="quick-ref-item" href="#system-gc_step" title="Perform incremental garbage collection">system.gc_step</a>
@@ -601,14 +604,17 @@
         <a class="quick-ref-item" href="#system-get_last_error" title="Get last Lua error message">system.get_last_error</a>
         <a class="quick-ref-item" href="#system-get_loop_delay" title="Get the current main loop delay in milliseconds">system.get_loop_delay</a>
         <a class="quick-ref-item" href="#system-get_lua_memory" title="Get memory used by Lua runtime">system.get_lua_memory</a>
+        <a class="quick-ref-item" href="#system-get_mac_address" title="Get the device MAC address">system.get_mac_address</a>
         <a class="quick-ref-item" href="#system-get_time" title="Get current wall clock time">system.get_time</a>
         <a class="quick-ref-item" href="#system-get_time_unix" title="Get current Unix timestamp">system.get_time_unix</a>
         <a class="quick-ref-item" href="#system-get_timezone" title="Get current timezone UTC offset in hours">system.get_timezone</a>
         <a class="quick-ref-item" href="#system-get_total_heap" title="Get total heap size">system.get_total_heap</a>
         <a class="quick-ref-item" href="#system-get_total_psram" title="Get total PSRAM size">system.get_total_psram</a>
+        <a class="quick-ref-item" href="#system-get_wake_reason" title="Get the reason the device woke from sleep">system.get_wake_reason</a>
         <a class="quick-ref-item" href="#system-is_low_memory" title="Check if memory is critically low">system.is_low_memory</a>
         <a class="quick-ref-item" href="#system-is_sd_available" title="Check if SD card is available">system.is_sd_available</a>
         <a class="quick-ref-item" href="#system-is_usb_msc_active" title="Check if USB MSC mode is active">system.is_usb_msc_active</a>
+        <a class="quick-ref-item" href="#system-light_sleep" title="Enter light sleep mode, execution continues on wake">system.light_sleep</a>
         <a class="quick-ref-item" href="#system-millis" title="Returns milliseconds since boot">system.millis</a>
         <a class="quick-ref-item" href="#system-reload_scripts" title="Reload all Lua scripts (hot reload)">system.reload_scripts</a>
         <a class="quick-ref-item" href="#system-restart" title="Restart the device">system.restart</a>
@@ -637,8 +643,8 @@
         <a href="#keyboard">ez.keyboard <span style="opacity:0.5">(28)</span></a>
         <a href="#mesh">ez.mesh <span style="opacity:0.5">(42)</span></a>
         <a href="#radio">ez.radio <span style="opacity:0.5">(19)</span></a>
-        <a href="#storage">ez.storage <span style="opacity:0.5">(20)</span></a>
-        <a href="#system">ez.system <span style="opacity:0.5">(35)</span></a>
+        <a href="#storage">ez.storage <span style="opacity:0.5">(22)</span></a>
+        <a href="#system">ez.system <span style="opacity:0.5">(39)</span></a>
     </div>
 </div>
 
@@ -2208,7 +2214,7 @@
 <div class="module">
     <div class="module-header">
         <h2 id="storage">ez.storage</h2>
-        <span class="func-count">20 functions</span>
+        <span class="func-count">22 functions</span>
     </div>
     <div class="func" id="storage-append_file">
         <div class="sig">ez.storage.append_file(path, content) -&gt; boolean</div>
@@ -2227,6 +2233,19 @@
         <div class="sig">ez.storage.clear_prefs() -&gt; boolean</div>
         <div class="desc">Clear all preferences</div>
         <div class="returns"><strong>Returns:</strong> true if cleared</div>
+    </div>
+    <div class="func" id="storage-copy_file">
+        <div class="sig">ez.storage.copy_file(src, dst) -&gt; boolean</div>
+        <div class="desc">Copy a file from source to destination</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>src</td><td>Source file path</td></tr>
+                <tr><td>dst</td><td>Destination file path</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> true if successful</div>
     </div>
     <div class="func" id="storage-exists">
         <div class="sig">ez.storage.exists(path) -&gt; boolean</div>
@@ -2256,6 +2275,18 @@
         <div class="sig">ez.storage.get_flash_info() -&gt; table</div>
         <div class="desc">Get flash storage info</div>
         <div class="returns"><strong>Returns:</strong> Table with total_bytes, used_bytes, free_bytes</div>
+    </div>
+    <div class="func" id="storage-get_free_space">
+        <div class="sig">ez.storage.get_free_space(path) -&gt; integer</div>
+        <div class="desc">Get free space on filesystem in bytes</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>path</td><td>Path to check (&quot;/sd/&quot; for SD card, otherwise LittleFS)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Free space in bytes, or 0 on error</div>
     </div>
     <div class="func" id="storage-get_pref">
         <div class="sig">ez.storage.get_pref(key, default) -&gt; string</div>
@@ -2434,7 +2465,7 @@
 <div class="module">
     <div class="module-header">
         <h2 id="system">ez.system</h2>
-        <span class="func-count">35 functions</span>
+        <span class="func-count">39 functions</span>
     </div>
     <div class="func" id="system-cancel_timer">
         <div class="sig">ez.system.cancel_timer(timer_id)</div>
@@ -2456,6 +2487,17 @@
         <div class="sig">ez.system.cpu_freq() -&gt; integer</div>
         <div class="desc">Get CPU frequency</div>
         <div class="returns"><strong>Returns:</strong> Frequency in MHz</div>
+    </div>
+    <div class="func" id="system-deep_sleep">
+        <div class="sig">ez.system.deep_sleep(seconds)</div>
+        <div class="desc">Enter deep sleep mode, device will reboot on wake</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>seconds</td><td>Sleep duration (0 = indefinite, wake on GPIO only)</td></tr>
+            </table>
+        </div>
     </div>
     <div class="func" id="system-delay">
         <div class="sig">ez.system.delay(ms)</div>
@@ -2523,6 +2565,11 @@
         <div class="desc">Get memory used by Lua runtime</div>
         <div class="returns"><strong>Returns:</strong> Memory usage in bytes</div>
     </div>
+    <div class="func" id="system-get_mac_address">
+        <div class="sig">ez.system.get_mac_address() -&gt; string</div>
+        <div class="desc">Get the device MAC address</div>
+        <div class="returns"><strong>Returns:</strong> MAC address as hex string (e.g., &quot;AA:BB:CC:DD:EE:FF&quot;)</div>
+    </div>
     <div class="func" id="system-get_time">
         <div class="sig">ez.system.get_time() -&gt; table|nil</div>
         <div class="desc">Get current wall clock time</div>
@@ -2548,6 +2595,11 @@
         <div class="desc">Get total PSRAM size</div>
         <div class="returns"><strong>Returns:</strong> Total PSRAM in bytes</div>
     </div>
+    <div class="func" id="system-get_wake_reason">
+        <div class="sig">ez.system.get_wake_reason() -&gt; string</div>
+        <div class="desc">Get the reason the device woke from sleep</div>
+        <div class="returns"><strong>Returns:</strong> Wake reason: &quot;timer&quot;, &quot;gpio&quot;, &quot;touch&quot;, &quot;ulp&quot;, &quot;reset&quot;</div>
+    </div>
     <div class="func" id="system-is_low_memory">
         <div class="sig">ez.system.is_low_memory() -&gt; boolean</div>
         <div class="desc">Check if memory is critically low</div>
@@ -2562,6 +2614,18 @@
         <div class="sig">ez.system.is_usb_msc_active() -&gt; boolean</div>
         <div class="desc">Check if USB MSC mode is active</div>
         <div class="returns"><strong>Returns:</strong> true if MSC mode is active</div>
+    </div>
+    <div class="func" id="system-light_sleep">
+        <div class="sig">ez.system.light_sleep(seconds) -&gt; string</div>
+        <div class="desc">Enter light sleep mode, execution continues on wake</div>
+        <div class="params">
+            <div class="params-title">Parameters</div>
+            <table class="params-table">
+                <tr><th>Parameter</th><th>Description</th></tr>
+                <tr><td>seconds</td><td>Sleep duration (0 = indefinite, wake on GPIO only)</td></tr>
+            </table>
+        </div>
+        <div class="returns"><strong>Returns:</strong> Wake reason: &quot;timer&quot;, &quot;gpio&quot;, or &quot;unknown&quot;</div>
     </div>
     <div class="func" id="system-millis">
         <div class="sig">ez.system.millis() -&gt; integer</div>

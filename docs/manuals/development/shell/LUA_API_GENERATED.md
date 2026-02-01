@@ -176,9 +176,11 @@
 | [`radio.wake`](#radio-wake) | Wake radio from sleep |
 | [`storage.append_file`](#storage-append_file) | Append content to file |
 | [`storage.clear_prefs`](#storage-clear_prefs) | Clear all preferences |
+| [`storage.copy_file`](#storage-copy_file) | Copy a file from source to destination |
 | [`storage.exists`](#storage-exists) | Check if file or directory exists |
 | [`storage.file_size`](#storage-file_size) | Get file size in bytes |
 | [`storage.get_flash_info`](#storage-get_flash_info) | Get flash storage info |
+| [`storage.get_free_space`](#storage-get_free_space) | Get free space on filesystem in bytes |
 | [`storage.get_pref`](#storage-get_pref) | Get preference value |
 | [`storage.get_sd_info`](#storage-get_sd_info) | Get SD card info |
 | [`storage.is_sd_available`](#storage-is_sd_available) | Check if SD card is mounted |
@@ -197,6 +199,7 @@
 | [`system.cancel_timer`](#system-cancel_timer) | Cancel a scheduled timer |
 | [`system.chip_model`](#system-chip_model) | Get ESP32 chip model name |
 | [`system.cpu_freq`](#system-cpu_freq) | Get CPU frequency |
+| [`system.deep_sleep`](#system-deep_sleep) | Enter deep sleep mode, device will reboot on wake |
 | [`system.delay`](#system-delay) | Blocking delay execution |
 | [`system.gc`](#system-gc) | Force full garbage collection |
 | [`system.gc_step`](#system-gc_step) | Perform incremental garbage collection |
@@ -208,14 +211,17 @@
 | [`system.get_last_error`](#system-get_last_error) | Get last Lua error message |
 | [`system.get_loop_delay`](#system-get_loop_delay) | Get the current main loop delay in milliseconds |
 | [`system.get_lua_memory`](#system-get_lua_memory) | Get memory used by Lua runtime |
+| [`system.get_mac_address`](#system-get_mac_address) | Get the device MAC address |
 | [`system.get_time`](#system-get_time) | Get current wall clock time |
 | [`system.get_time_unix`](#system-get_time_unix) | Get current Unix timestamp |
 | [`system.get_timezone`](#system-get_timezone) | Get current timezone UTC offset in hours |
 | [`system.get_total_heap`](#system-get_total_heap) | Get total heap size |
 | [`system.get_total_psram`](#system-get_total_psram) | Get total PSRAM size |
+| [`system.get_wake_reason`](#system-get_wake_reason) | Get the reason the device woke from sleep |
 | [`system.is_low_memory`](#system-is_low_memory) | Check if memory is critically low |
 | [`system.is_sd_available`](#system-is_sd_available) | Check if SD card is available |
 | [`system.is_usb_msc_active`](#system-is_usb_msc_active) | Check if USB MSC mode is active |
+| [`system.light_sleep`](#system-light_sleep) | Enter light sleep mode, execution continues on wake |
 | [`system.millis`](#system-millis) | Returns milliseconds since boot |
 | [`system.reload_scripts`](#system-reload_scripts) | Reload all Lua scripts (hot reload) |
 | [`system.restart`](#system-restart) | Restart the device |
@@ -2510,6 +2516,23 @@ Clear all preferences
 
 **Returns:** true if cleared
 
+#### <a name="storage-copy_file"></a>copy_file
+
+```lua
+ez.storage.copy_file(src, dst) -> boolean
+```
+
+Copy a file from source to destination
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `src` | Source file path |
+| `dst` | Destination file path |
+
+**Returns:** true if successful
+
 #### <a name="storage-exists"></a>exists
 
 ```lua
@@ -2551,6 +2574,22 @@ ez.storage.get_flash_info() -> table
 Get flash storage info
 
 **Returns:** Table with total_bytes, used_bytes, free_bytes
+
+#### <a name="storage-get_free_space"></a>get_free_space
+
+```lua
+ez.storage.get_free_space(path) -> integer
+```
+
+Get free space on filesystem in bytes
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `path` | Path to check ("/sd/" for SD card, otherwise LittleFS) |
+
+**Returns:** Free space in bytes, or 0 on error
 
 #### <a name="storage-get_pref"></a>get_pref
 
@@ -2824,6 +2863,20 @@ Get CPU frequency
 
 **Returns:** Frequency in MHz
 
+#### <a name="system-deep_sleep"></a>deep_sleep
+
+```lua
+ez.system.deep_sleep(seconds)
+```
+
+Enter deep sleep mode, device will reboot on wake
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `seconds` | Sleep duration (0 = indefinite, wake on GPIO only) |
+
 #### <a name="system-delay"></a>delay
 
 ```lua
@@ -2940,6 +2993,16 @@ Get memory used by Lua runtime
 
 **Returns:** Memory usage in bytes
 
+#### <a name="system-get_mac_address"></a>get_mac_address
+
+```lua
+ez.system.get_mac_address() -> string
+```
+
+Get the device MAC address
+
+**Returns:** MAC address as hex string (e.g., "AA:BB:CC:DD:EE:FF")
+
 #### <a name="system-get_time"></a>get_time
 
 ```lua
@@ -2990,6 +3053,16 @@ Get total PSRAM size
 
 **Returns:** Total PSRAM in bytes
 
+#### <a name="system-get_wake_reason"></a>get_wake_reason
+
+```lua
+ez.system.get_wake_reason() -> string
+```
+
+Get the reason the device woke from sleep
+
+**Returns:** Wake reason: "timer", "gpio", "touch", "ulp", "reset"
+
 #### <a name="system-is_low_memory"></a>is_low_memory
 
 ```lua
@@ -3019,6 +3092,22 @@ ez.system.is_usb_msc_active() -> boolean
 Check if USB MSC mode is active
 
 **Returns:** true if MSC mode is active
+
+#### <a name="system-light_sleep"></a>light_sleep
+
+```lua
+ez.system.light_sleep(seconds) -> string
+```
+
+Enter light sleep mode, execution continues on wake
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `seconds` | Sleep duration (0 = indefinite, wake on GPIO only) |
+
+**Returns:** Wake reason: "timer", "gpio", or "unknown"
 
 #### <a name="system-millis"></a>millis
 

@@ -8,6 +8,8 @@
 #include <esp_heap_caps.h>
 #include <esp_partition.h>
 #include <esp_ota_ops.h>
+#include <esp_sleep.h>
+#include <esp_mac.h>
 #include <LittleFS.h>
 #include <SD.h>
 #include <sys/time.h>
@@ -609,6 +611,95 @@ LUA_FUNCTION(l_system_yield) {
     return 0;
 }
 
+// @lua ez.system.deep_sleep(seconds)
+// @brief Enter deep sleep mode, device will reboot on wake
+// @param seconds Sleep duration (0 = indefinite, wake on GPIO only)
+LUA_FUNCTION(l_system_deep_sleep) {
+    int seconds = luaL_optinteger(L, 1, 0);
+
+    // Configure timer wake source if duration specified
+    if (seconds > 0) {
+        esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
+    }
+
+    // Configure GPIO wake source (trackball button on GPIO 0)
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
+
+    Serial.println("[System] Entering deep sleep...");
+    Serial.flush();
+
+    // Enter deep sleep - does not return, device reboots on wake
+    esp_deep_sleep_start();
+
+    return 0;  // Never reached
+}
+
+// @lua ez.system.light_sleep(seconds) -> string
+// @brief Enter light sleep mode, execution continues on wake
+// @param seconds Sleep duration (0 = indefinite, wake on GPIO only)
+// @return Wake reason: "timer", "gpio", or "unknown"
+LUA_FUNCTION(l_system_light_sleep) {
+    int seconds = luaL_optinteger(L, 1, 0);
+
+    // Configure timer wake source if duration specified
+    if (seconds > 0) {
+        esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
+    }
+
+    // Configure GPIO wake source (trackball button on GPIO 0)
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
+
+    // Enter light sleep - blocks until wake
+    esp_err_t err = esp_light_sleep_start();
+
+    if (err != ESP_OK) {
+        lua_pushstring(L, "error");
+        return 1;
+    }
+
+    // Return wake reason
+    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+    switch (cause) {
+        case ESP_SLEEP_WAKEUP_TIMER: lua_pushstring(L, "timer"); break;
+        case ESP_SLEEP_WAKEUP_EXT0:  lua_pushstring(L, "gpio"); break;
+        case ESP_SLEEP_WAKEUP_EXT1:  lua_pushstring(L, "gpio"); break;
+        default:                      lua_pushstring(L, "unknown"); break;
+    }
+    return 1;
+}
+
+// @lua ez.system.get_wake_reason() -> string
+// @brief Get the reason the device woke from sleep
+// @return Wake reason: "timer", "gpio", "touch", "ulp", "reset"
+LUA_FUNCTION(l_system_get_wake_reason) {
+    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+
+    switch (cause) {
+        case ESP_SLEEP_WAKEUP_TIMER:     lua_pushstring(L, "timer"); break;
+        case ESP_SLEEP_WAKEUP_EXT0:      lua_pushstring(L, "gpio"); break;
+        case ESP_SLEEP_WAKEUP_EXT1:      lua_pushstring(L, "gpio"); break;
+        case ESP_SLEEP_WAKEUP_TOUCHPAD:  lua_pushstring(L, "touch"); break;
+        case ESP_SLEEP_WAKEUP_ULP:       lua_pushstring(L, "ulp"); break;
+        default:                          lua_pushstring(L, "reset"); break;
+    }
+    return 1;
+}
+
+// @lua ez.system.get_mac_address() -> string
+// @brief Get the device MAC address
+// @return MAC address as hex string (e.g., "AA:BB:CC:DD:EE:FF")
+LUA_FUNCTION(l_system_get_mac_address) {
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+
+    char macStr[18];
+    snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    lua_pushstring(L, macStr);
+    return 1;
+}
+
 // Function table for ez.system
 static const luaL_Reg system_funcs[] = {
     {"millis",             l_system_millis},
@@ -648,6 +739,11 @@ static const luaL_Reg system_funcs[] = {
     {"yield",              l_system_yield},
     {"set_loop_delay",     l_system_set_loop_delay},
     {"get_loop_delay",     l_system_get_loop_delay},
+    // Power management
+    {"deep_sleep",         l_system_deep_sleep},
+    {"light_sleep",        l_system_light_sleep},
+    {"get_wake_reason",    l_system_get_wake_reason},
+    {"get_mac_address",    l_system_get_mac_address},
     {nullptr, nullptr}
 };
 

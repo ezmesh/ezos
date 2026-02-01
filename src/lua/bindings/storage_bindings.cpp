@@ -700,6 +700,80 @@ LUA_FUNCTION(l_storage_json_decode) {
     return 1;
 }
 
+// @lua ez.storage.copy_file(src, dst) -> boolean
+// @brief Copy a file from source to destination
+// @param src Source file path
+// @param dst Destination file path
+// @return true if successful
+LUA_FUNCTION(l_storage_copy_file) {
+    LUA_CHECK_ARGC(L, 2);
+    const char* src = luaL_checkstring(L, 1);
+    const char* dst = luaL_checkstring(L, 2);
+
+    const char* srcPath;
+    const char* dstPath;
+    fs::FS* srcFs = getFS(src, &srcPath);
+    fs::FS* dstFs = getFS(dst, &dstPath);
+
+    if (!srcFs || !dstFs) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    File srcFile = srcFs->open(srcPath, "r");
+    if (!srcFile) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    File dstFile = dstFs->open(dstPath, "w");
+    if (!dstFile) {
+        srcFile.close();
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    // Copy in chunks
+    uint8_t buffer[512];
+    size_t bytesRead;
+    bool success = true;
+
+    while ((bytesRead = srcFile.read(buffer, sizeof(buffer))) > 0) {
+        if (dstFile.write(buffer, bytesRead) != bytesRead) {
+            success = false;
+            break;
+        }
+    }
+
+    srcFile.close();
+    dstFile.close();
+
+    lua_pushboolean(L, success);
+    return 1;
+}
+
+// @lua ez.storage.get_free_space(path) -> integer
+// @brief Get free space on filesystem in bytes
+// @param path Path to check ("/sd/" for SD card, otherwise LittleFS)
+// @return Free space in bytes, or 0 on error
+LUA_FUNCTION(l_storage_get_free_space) {
+    const char* path = luaL_optstring(L, 1, "/sd/");
+
+    if (strncmp(path, "/sd/", 4) == 0 || strcmp(path, "/sd") == 0) {
+        if (!initSD()) {
+            lua_pushinteger(L, 0);
+            return 1;
+        }
+        uint64_t freeSpace = SD.totalBytes() - SD.usedBytes();
+        lua_pushinteger(L, (lua_Integer)freeSpace);
+    } else {
+        size_t totalBytes = LittleFS.totalBytes();
+        size_t usedBytes = LittleFS.usedBytes();
+        lua_pushinteger(L, (lua_Integer)(totalBytes - usedBytes));
+    }
+    return 1;
+}
+
 // Function table for ez.storage
 static const luaL_Reg storage_funcs[] = {
     {"read_file",       l_storage_read_file},
@@ -722,6 +796,8 @@ static const luaL_Reg storage_funcs[] = {
     {"get_flash_info",  l_storage_get_flash_info},
     {"json_encode",     l_storage_json_encode},
     {"json_decode",     l_storage_json_decode},
+    {"copy_file",       l_storage_copy_file},
+    {"get_free_space",  l_storage_get_free_space},
     // Aliases for shorter names
     {"read",            l_storage_read_file},
     {"write",           l_storage_write_file},
