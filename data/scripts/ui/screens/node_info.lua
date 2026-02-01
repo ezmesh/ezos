@@ -168,7 +168,7 @@ function NodeInfo:get_menu_items()
             if ez.mesh.is_initialized() then
                 local ok = ez.mesh.send_announce()
                 if ok then
-                    ez.system.log("[NodeInfo] Sent ADVERT")
+                    ez.log("[NodeInfo] Sent ADVERT")
                     if _G.MessageBox then
                         _G.MessageBox.show({title = "Advert sent"})
                     end

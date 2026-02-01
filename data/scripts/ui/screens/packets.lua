@@ -55,9 +55,9 @@ function Packets:on_enter()
     if ez.mesh and ez.mesh.enable_packet_queue then
         ez.mesh.enable_packet_queue(true)
         self.queue_enabled = true
-        ez.system.log("[Packets] Packet queue enabled")
+        ez.log("[Packets] Packet queue enabled")
     else
-        ez.system.log("[Packets] ERROR: ez.mesh.enable_packet_queue not available")
+        ez.log("[Packets] ERROR: ez.mesh.enable_packet_queue not available")
     end
 
     -- Register update callback to poll packets

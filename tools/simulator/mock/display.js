@@ -8,19 +8,17 @@ import { FONTS, getFont, renderText, measureText, loadFonts } from '../fonts.js'
 // Export loadFonts for initialization
 export { loadFonts };
 
-// Convert BGR565 to CSS color (T-Deck uses BGR565 format)
+// Convert RGB565 to CSS color
 function rgb565ToCSS(color) {
-    // BGR565: BBBBBGGGGGGRRRRR
-    const b = ((color >> 11) & 0x1F) << 3;
+    const r = ((color >> 11) & 0x1F) << 3;
     const g = ((color >> 5) & 0x3F) << 2;
-    const r = (color & 0x1F) << 3;
+    const b = (color & 0x1F) << 3;
     return `rgb(${r},${g},${b})`;
 }
 
-// Convert RGB to BGR565 (to match T-Deck hardware)
+// Convert RGB to RGB565
 function rgbToRgb565(r, g, b) {
-    // Output BGR565: BBBBBGGGGGGRRRRR
-    return ((b >> 3) << 11) | ((g >> 2) << 5) | (r >> 3);
+    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
 }
 
 export function createDisplayModule(ctx, canvas) {
@@ -38,17 +36,17 @@ export function createDisplayModule(ctx, canvas) {
     ctx.mozImageSmoothingEnabled = false;
     ctx.msImageSmoothingEnabled = false;
 
-    // Pre-defined colors (BGR565 values to match T-Deck hardware)
+    // Pre-defined colors (RGB565 values)
     const colors = {
         BLACK: 0x0000,
         WHITE: 0xFFFF,
-        RED: 0x001F,      // BGR565: red in low bits
-        GREEN: 0x07E0,    // Green stays the same
-        BLUE: 0xF800,     // BGR565: blue in high bits
-        YELLOW: 0x07FF,   // BGR565: red + green
-        CYAN: 0xFFE0,     // BGR565: green + blue
-        MAGENTA: 0xF81F,  // BGR565: red + blue
-        ORANGE: 0x051F,   // BGR565: orange
+        RED: 0xF800,
+        GREEN: 0x07E0,
+        BLUE: 0x001F,
+        YELLOW: 0xFFE0,
+        CYAN: 0x07FF,
+        MAGENTA: 0xF81F,
+        ORANGE: 0xFD20,
         GRAY: 0x8410,
         DARK_GRAY: 0x4208,
         LIGHT_GRAY: 0xC618,
@@ -502,15 +500,14 @@ export function createDisplayModule(ctx, canvas) {
             const pixels = imageData.data;
 
             for (let i = 0; i < w * h && i * 2 + 1 < data.length; i++) {
-                // BGR565 is little-endian
+                // RGB565 is little-endian
                 const lo = data.charCodeAt(i * 2);
                 const hi = data.charCodeAt(i * 2 + 1);
                 const color = (hi << 8) | lo;
 
-                // BGR565: BBBBBGGGGGGRRRRR
-                const b = ((color >> 11) & 0x1F) << 3;
+                const r = ((color >> 11) & 0x1F) << 3;
                 const g = ((color >> 5) & 0x3F) << 2;
-                const r = (color & 0x1F) << 3;
+                const b = (color & 0x1F) << 3;
 
                 pixels[i * 4] = r;
                 pixels[i * 4 + 1] = g;
@@ -763,7 +760,7 @@ export function createDisplayModule(ctx, canvas) {
             const pixels = imageData.data;
 
             for (let i = 0; i < w * h && i * 2 + 1 < data.length; i++) {
-                // BGR565 is little-endian
+                // RGB565 is little-endian
                 const lo = data.charCodeAt(i * 2);
                 const hi = data.charCodeAt(i * 2 + 1);
                 const color = (hi << 8) | lo;
@@ -774,10 +771,9 @@ export function createDisplayModule(ctx, canvas) {
                     continue;
                 }
 
-                // BGR565: BBBBBGGGGGGRRRRR
-                const b = ((color >> 11) & 0x1F) << 3;
+                const r = ((color >> 11) & 0x1F) << 3;
                 const g = ((color >> 5) & 0x3F) << 2;
-                const r = (color & 0x1F) << 3;
+                const b = (color & 0x1F) << 3;
 
                 pixels[i * 4] = r;
                 pixels[i * 4 + 1] = g;

@@ -42,7 +42,7 @@ function Contacts.init()
         end)
     end
 
-    ez.system.log("[Contacts] Initialized: " .. Contacts._count_saved() .. " saved, " ..
+    ez.log("[Contacts] Initialized: " .. Contacts._count_saved() .. " saved, " ..
           Contacts._count_discovered() .. " cached")
 end
 
@@ -80,7 +80,7 @@ function Contacts.add(node, notes)
     end
 
     if not pub_key_hex or #pub_key_hex < 64 then
-        ez.system.log("[Contacts] Cannot add contact: no valid public key")
+        ez.log("[Contacts] Cannot add contact: no valid public key")
         return false
     end
 
@@ -92,7 +92,7 @@ function Contacts.add(node, notes)
     }
 
     Contacts._save()
-    ez.system.log("[Contacts] Added contact: " .. (node.name or pub_key_hex:sub(1, 8)))
+    ez.log("[Contacts] Added contact: " .. (node.name or pub_key_hex:sub(1, 8)))
     return true
 end
 
@@ -104,7 +104,7 @@ function Contacts.remove(pub_key_hex)
         local name = Contacts.saved[pub_key_hex].name
         Contacts.saved[pub_key_hex] = nil
         Contacts._save()
-        ez.system.log("[Contacts] Removed contact: " .. name)
+        ez.log("[Contacts] Removed contact: " .. name)
         return true
     end
     return false
@@ -264,7 +264,7 @@ function Contacts._check_auto_time_sync(node)
     local ok = ez.system.set_time_unix(corrected_time)
     if ok then
         local contact_name = Contacts.saved[pub_key_hex].name
-        ez.system.log("[Contacts] Auto time sync from " .. contact_name)
+        ez.log("[Contacts] Auto time sync from " .. contact_name)
         ez.storage.set_pref("lastTimeSet", corrected_time)
     end
 end
@@ -387,7 +387,7 @@ end
 -- Clear discovered node cache (keeps saved contacts)
 function Contacts.clear_discovered()
     Contacts.discovered = {}
-    ez.system.log("[Contacts] Discovered node cache cleared")
+    ez.log("[Contacts] Discovered node cache cleared")
 end
 
 return Contacts

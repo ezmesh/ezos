@@ -226,9 +226,9 @@ function Compose:send()
 
     -- Use Lua Channels service to send message
     if _G.Channels and _G.Channels.send(self.channel, self.text) then
-        ez.system.log("Sent to " .. self.channel .. ": " .. self.text)
+        ez.log("Sent to " .. self.channel .. ": " .. self.text)
     else
-        ez.system.log("Failed to send message")
+        ez.log("Failed to send message")
     end
 end
 

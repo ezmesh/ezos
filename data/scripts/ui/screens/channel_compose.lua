@@ -129,19 +129,19 @@ end
 
 function ChannelCompose:send()
     if #self.text == 0 then
-        ez.system.log("Cannot send empty message")
+        ez.log("Cannot send empty message")
         return
     end
 
     local ChannelsService = _G.Channels
     if ChannelsService then
         if ChannelsService.send(self.channel_name, self.text) then
-            ez.system.log("Sent to " .. self.channel_name .. ": " .. self.text)
+            ez.log("Sent to " .. self.channel_name .. ": " .. self.text)
         else
-            ez.system.log("Failed to send channel message")
+            ez.log("Failed to send channel message")
         end
     else
-        ez.system.log("Channels service not available")
+        ez.log("Channels service not available")
     end
 end
 

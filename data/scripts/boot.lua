@@ -24,7 +24,7 @@ function _G.run_gc(mode, context, arg)
     local freed = after - before
     local ctx = context and (" [" .. context .. "]") or ""
     if freed ~= 0 then
-        ez.system.log(string.format("[GC]%s %dKB -> %dKB (%+dKB)", ctx, before, after, freed))
+        ez.log(string.format("[GC]%s %dKB -> %dKB (%+dKB)", ctx, before, after, freed))
     end
 end
 
@@ -94,7 +94,7 @@ function _G.spawn(fn)
         -- Simulator: run directly (no coroutine needed, async_read is synchronous)
         local ok, err = pcall(fn)
         if not ok then
-            ez.system.log("[spawn] Error: " .. tostring(err))
+            ez.log("[spawn] Error: " .. tostring(err))
         end
         return nil
     else
@@ -117,7 +117,7 @@ function _G.spawn_screen(path, ...)
     return spawn(function()
         local ok, Screen = pcall(load_module, path)
         if not ok then
-            ez.system.log("[spawn_screen] Load error: " .. tostring(Screen))
+            ez.log("[spawn_screen] Load error: " .. tostring(Screen))
             return
         end
         if Screen and _G.ScreenManager then
@@ -140,7 +140,7 @@ function _G.spawn_module(path, method, ...)
     return spawn(function()
         local ok, Module = pcall(load_module, path)
         if not ok then
-            ez.system.log("[spawn_module] Load error: " .. tostring(Module))
+            ez.log("[spawn_module] Load error: " .. tostring(Module))
             return
         end
         if Module and Module[method] then
@@ -159,7 +159,7 @@ end
 
 -- The actual boot sequence runs inside a coroutine so load_module can yield
 local function boot_sequence()
-    ez.system.log("[Boot] Start, free=" .. mem() .. "KB")
+    ez.log("[Boot] Start, free=" .. mem() .. "KB")
 
     -- Ensure keyboard is in normal mode (in case of crash while in raw mode)
     ez.keyboard.set_mode("normal")
@@ -167,39 +167,23 @@ local function boot_sequence()
     -- Disable key repeat at boot (can be enabled in testing menu)
     ez.keyboard.set_repeat_enabled(false)
 
-    -- Load only essential modules at boot (defer others to save memory)
-    ez.system.log("[Boot] Loading Scheduler...")
-    local Scheduler = load_module("/scripts/services/scheduler.lua")
-    ez.system.log("[Boot] Scheduler loaded, free=" .. mem() .. "KB")
+    -- Load a module with logging
+    local function load(path)
+        ez.log("[Boot] Loading " .. path .. "...")
+        local result = load_module(path)
+        ez.log("[Boot] Loaded, free=" .. mem() .. "KB")
+        return result
+    end
 
-    ez.system.log("[Boot] Loading Overlays...")
-    local Overlays = load_module("/scripts/ui/overlays.lua")
-    ez.system.log("[Boot] Overlays loaded, free=" .. mem() .. "KB")
-
-    ez.system.log("[Boot] Loading StatusBar...")
-    local StatusBar = load_module("/scripts/ui/status_bar.lua")
-    ez.system.log("[Boot] StatusBar loaded, free=" .. mem() .. "KB")
-
-    ez.system.log("[Boot] Loading ThemeManager...")
-    local ThemeManager = load_module("/scripts/services/theme.lua")
-    ez.system.log("[Boot] ThemeManager loaded, free=" .. mem() .. "KB")
-
-    ez.system.log("[Boot] Loading TitleBar...")
-    local TitleBar = load_module("/scripts/ui/title_bar.lua")
-    ez.system.log("[Boot] TitleBar loaded, free=" .. mem() .. "KB")
-
-    ez.system.log("[Boot] Loading ScreenManager...")
-    local ScreenManager = load_module("/scripts/services/screen_manager.lua")
-    ez.system.log("[Boot] ScreenManager loaded, free=" .. mem() .. "KB")
-
-    ez.system.log("[Boot] Loading MainLoop...")
-    local MainLoop = load_module("/scripts/services/main_loop.lua")
-    ez.system.log("[Boot] MainLoop loaded, free=" .. mem() .. "KB")
-
-    ez.system.log("[Boot] Loading Logger...")
-    local Logger = load_module("/scripts/services/logger.lua")
+    local Scheduler = load("/scripts/services/scheduler.lua")
+    local Overlays = load("/scripts/ui/overlays.lua")
+    local StatusBar = load("/scripts/ui/status_bar.lua")
+    local ThemeManager = load("/scripts/services/theme.lua")
+    local TitleBar = load("/scripts/ui/title_bar.lua")
+    local ScreenManager = load("/scripts/services/screen_manager.lua")
+    local MainLoop = load("/scripts/services/main_loop.lua")
+    local Logger = load("/scripts/services/logger.lua")
     Logger.init()
-    ez.system.log("[Boot] Logger loaded, free=" .. mem() .. "KB")
 
     -- Make commonly used modules globally available
     _G.Scheduler = Scheduler
@@ -243,7 +227,7 @@ local function boot_sequence()
     -- Shows the error screen with the given message
     -- Note: Uses spawn since load_module requires a coroutine context
     function _G.show_error(message, source)
-        ez.system.log("[Error] " .. tostring(message))
+        ez.log("[Error] " .. tostring(message))
         spawn(function()
             local ok, ErrorScreen = pcall(load_module, "/scripts/ui/screens/error_screen.lua")
             if ok and ErrorScreen and _G.ScreenManager then
@@ -261,26 +245,18 @@ local function boot_sequence()
     -- Register status bar as an overlay (after MainLoop.init)
     StatusBar.register()
 
-    -- Load AppMenu overlay
-    ez.system.log("[Boot] Loading AppMenu...")
-    local AppMenu = load_module("/scripts/ui/screens/app_menu.lua")
+    -- Load overlays
+    local AppMenu = load("/scripts/ui/screens/app_menu.lua")
     _G.AppMenu = AppMenu
     AppMenu.init()
-    ez.system.log("[Boot] AppMenu loaded, free=" .. mem() .. "KB")
 
-    -- Load MessageBox overlay
-    ez.system.log("[Boot] Loading MessageBox...")
-    local MessageBox = load_module("/scripts/ui/messagebox.lua")
+    local MessageBox = load("/scripts/ui/messagebox.lua")
     _G.MessageBox = MessageBox
     MessageBox.init()
-    ez.system.log("[Boot] MessageBox loaded, free=" .. mem() .. "KB")
 
-    -- Load Toast overlay
-    ez.system.log("[Boot] Loading Toast...")
-    local Toast = load_module("/scripts/ui/toast.lua")
+    local Toast = load("/scripts/ui/toast.lua")
     _G.Toast = Toast
     Toast.init()
-    ez.system.log("[Boot] Toast loaded, free=" .. mem() .. "KB")
 
     -- Set initial status values
     StatusBar.set_radio(ez.radio.is_initialized(), 0)
@@ -367,69 +343,47 @@ local function boot_sequence()
             ez.system.set_timezone(tz_posix)
         end
 
-        ez.system.log("[Boot] Settings applied")
+        ez.log("[Boot] Settings applied")
     end
 
     apply_saved_settings()
 
-    -- Show splash screen (loads, displays, and unloads itself)
-    load_module("/scripts/ui/splash.lua")
+    -- Show splash screen (self-contained: loads, displays, unloads)
+    load("/scripts/ui/splash.lua")
     run_gc("collect", "post-splash")
 
-    -- Load and start status bar update services
-    ez.system.log("[Boot] Loading StatusServices, free=" .. mem() .. "KB")
-    local StatusServices = load_module("/scripts/services/status_services.lua")
+    -- Load services
+    local StatusServices = load("/scripts/services/status_services.lua")
     _G.StatusServices = StatusServices
-    ez.system.log("[Boot] StatusServices loaded, free=" .. mem() .. "KB")
-    if StatusServices and StatusServices.init_all then
-        StatusServices.init_all()
-    end
+    StatusServices.init_all()
 
-    -- Load and initialize Contacts service (handles contact persistence, node cache, auto time sync)
-    ez.system.log("[Boot] Loading Contacts, free=" .. mem() .. "KB")
-    local Contacts = load_module("/scripts/services/contacts.lua")
+    local Contacts = load("/scripts/services/contacts.lua")
     _G.Contacts = Contacts
     Contacts.init()
-    ez.system.log("[Boot] Contacts initialized, free=" .. mem() .. "KB")
 
-    -- Load and initialize DirectMessages service (handles direct messaging over MeshCore)
-    ez.system.log("[Boot] Loading DirectMessages, free=" .. mem() .. "KB")
-    local DirectMessages = load_module("/scripts/services/direct_messages.lua")
+    local DirectMessages = load("/scripts/services/direct_messages.lua")
     _G.DirectMessages = DirectMessages
     DirectMessages.init()
-    ez.system.log("[Boot] DirectMessages initialized, free=" .. mem() .. "KB")
 
-    -- Load and initialize Screen Timeout service (dims and turns off screen after inactivity)
-    ez.system.log("[Boot] Loading ScreenTimeout, free=" .. mem() .. "KB")
-    local ScreenTimeout = load_module("/scripts/services/screen_timeout.lua")
+    local ScreenTimeout = load("/scripts/services/screen_timeout.lua")
     _G.ScreenTimeout = ScreenTimeout
     ScreenTimeout.init()
     ScreenTimeout.register()
-    ez.system.log("[Boot] ScreenTimeout initialized, free=" .. mem() .. "KB")
 
-    -- Load Debug utilities (for remote control debugging)
-    ez.system.log("[Boot] Loading Debug, free=" .. mem() .. "KB")
-    load_module("/scripts/services/debug.lua")
-    ez.system.log("[Boot] Debug loaded, free=" .. mem() .. "KB")
+    load("/scripts/services/debug.lua")
 
-    -- Load and initialize TimezoneSync service (auto timezone from GPS)
-    ez.system.log("[Boot] Loading TimezoneSync, free=" .. mem() .. "KB")
-    local TimezoneSync = load_module("/scripts/services/timezone_sync.lua")
+    local TimezoneSync = load("/scripts/services/timezone_sync.lua")
     TimezoneSync.init()
-    ez.system.log("[Boot] TimezoneSync initialized, free=" .. mem() .. "KB")
 
     -- Load and push main menu
-    ez.system.log("[Boot] Loading MainMenu, free=" .. mem() .. "KB")
-    local MainMenu = load_module("/scripts/ui/screens/main_menu.lua")
-    ez.system.log("[Boot] MainMenu loaded, free=" .. mem() .. "KB")
+    local MainMenu = load("/scripts/ui/screens/main_menu.lua")
     ScreenManager.push(MainMenu:new())
-    ez.system.log("[Boot] MainMenu pushed, free=" .. mem() .. "KB")
 
     -- Start the Lua main loop
     -- This takes over from C++ and handles all input/rendering
     MainLoop.start()
 
-    ez.system.log("[Boot] Boot complete, free=" .. mem() .. "KB")
+    ez.log("[Boot] Boot complete, free=" .. mem() .. "KB")
 end
 
 -- Start boot sequence
@@ -440,7 +394,7 @@ if __SIMULATOR__ then
     -- Simulator: run directly (async_read is synchronous)
     local ok, err = pcall(boot_sequence)
     if not ok then
-        ez.system.log("[Boot] FATAL: " .. tostring(err))
+        ez.log("[Boot] FATAL: " .. tostring(err))
     end
 else
     -- Real hardware: use coroutine for async I/O
@@ -448,7 +402,7 @@ else
     local ok, err = coroutine.resume(boot_co)
     if not ok then
         -- Boot failed - try to show error
-        ez.system.log("[Boot] FATAL: " .. tostring(err))
+        ez.log("[Boot] FATAL: " .. tostring(err))
         -- Can't use show_error here since it needs load_module
         -- Just log the error - C++ will handle display
     end

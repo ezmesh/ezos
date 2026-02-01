@@ -74,13 +74,13 @@ local function wait_for_modules()
     show()
 
     -- Load Icons module (the main thing we're waiting for)
-    ez.system.log("[Splash] Loading Icons...")
+    ez.log("[Splash] Loading Icons...")
     local ok, Icons = pcall(load_module, "/scripts/ui/icons.lua")
     if ok and Icons then
         _G.Icons = Icons
-        ez.system.log("[Splash] Icons loaded")
+        ez.log("[Splash] Icons loaded")
     else
-        ez.system.log("[Splash] Icons failed to load: " .. tostring(Icons))
+        ez.log("[Splash] Icons failed to load: " .. tostring(Icons))
     end
 
     -- Ensure minimum display time
@@ -89,7 +89,7 @@ local function wait_for_modules()
         ez.system.delay(MIN_DISPLAY_MS - elapsed)
     end
 
-    ez.system.log("[Splash] Done, waited " .. (ez.system.millis() - start_time) .. "ms")
+    ez.log("[Splash] Done, waited " .. (ez.system.millis() - start_time) .. "ms")
 end
 
 -- Execute immediately

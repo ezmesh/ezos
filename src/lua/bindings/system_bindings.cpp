@@ -212,7 +212,7 @@ LUA_FUNCTION(l_system_get_total_psram) {
     return 1;
 }
 
-// @lua ez.system.log(message)
+// @lua ez.log(message)
 // @brief Log message to serial output
 // @param message Text to log
 LUA_FUNCTION(l_system_log) {
@@ -601,7 +601,6 @@ static const luaL_Reg system_funcs[] = {
     {"get_free_psram",     l_system_get_free_psram},
     {"get_total_heap",     l_system_get_total_heap},
     {"get_total_psram",    l_system_get_total_psram},
-    {"log",                l_system_log},
     {"restart",            l_system_restart},
     {"uptime",             l_system_uptime},
     {"get_time",           l_system_get_time},
@@ -728,6 +727,12 @@ static int l_dofile_script(lua_State* L) {
 
 void registerSystemModule(lua_State* L) {
     lua_register_module(L, "system", system_funcs);
+
+    // Add ez.log as shorthand for ez.system.log
+    lua_getglobal(L, "ez");
+    lua_pushcfunction(L, l_system_log);
+    lua_setfield(L, -2, "log");
+    lua_pop(L, 1);
 
     // Override global dofile with our custom version (checks SD first, then LittleFS)
     lua_pushcfunction(L, l_dofile_script);

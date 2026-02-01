@@ -100,7 +100,7 @@ function Overlays.render_all(display)
         if layer.enabled and layer.render then
             local ok, err = pcall(layer.render, display)
             if not ok then
-                ez.system.log("Overlay error (" .. layer.name .. "): " .. tostring(err))
+                ez.log("Overlay error (" .. layer.name .. "): " .. tostring(err))
             end
         end
     end
@@ -117,7 +117,7 @@ function Overlays.process_key(key)
             if ok and handled then
                 return true
             elseif not ok then
-                ez.system.log("Overlay key error (" .. layer.name .. "): " .. tostring(handled))
+                ez.log("Overlay key error (" .. layer.name .. "): " .. tostring(handled))
             end
         end
     end

@@ -165,7 +165,7 @@ function TimezoneSync.sync_from_gps()
     end
 
     if not ez.gps.has_fix() then
-        ez.system.log("[TimezoneSync] No GPS fix, skipping")
+        ez.log("[TimezoneSync] No GPS fix, skipping")
         return false
     end
 
@@ -189,7 +189,7 @@ function TimezoneSync.sync_from_gps()
     local tz_posix = TIMEZONE_POSIX[nearest_city]
 
     if not tz_posix then
-        ez.system.log("[TimezoneSync] No POSIX string for " .. nearest_city)
+        ez.log("[TimezoneSync] No POSIX string for " .. nearest_city)
         return false
     end
 
@@ -217,7 +217,7 @@ function TimezoneSync.sync_from_gps()
     TimezoneSync.last_sync_lat = lat
     TimezoneSync.last_sync_lon = lon
 
-    ez.system.log(string.format("[TimezoneSync] Set timezone to %s (%.0f km away)", nearest_city, dist))
+    ez.log(string.format("[TimezoneSync] Set timezone to %s (%.0f km away)", nearest_city, dist))
 
     -- Show toast notification
     if _G.Toast and _G.Toast.show then
@@ -246,7 +246,7 @@ function TimezoneSync.init()
     if TimezoneSync.enabled then
         -- Start periodic checks (every 30 seconds)
         TimezoneSync.check_interval = set_interval(check_gps_timezone, 30000)
-        ez.system.log("[TimezoneSync] Enabled, checking GPS periodically")
+        ez.log("[TimezoneSync] Enabled, checking GPS periodically")
 
         -- Try to sync immediately if GPS already has a fix
         TimezoneSync.sync_from_gps()

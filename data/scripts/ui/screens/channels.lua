@@ -48,7 +48,7 @@ function Channels:refresh_channels()
     -- Use global Channels service
     local ChannelsService = _G.Channels
     if not ChannelsService then
-        ez.system.log("[Channels] Service not available")
+        ez.log("[Channels] Service not available")
         return
     end
 

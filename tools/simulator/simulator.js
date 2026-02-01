@@ -287,6 +287,15 @@ async function initLua() {
     lua.global.set('_crypto', cryptoMod);
     lua.global.set('_bus', bus);
 
+    // Create ez.log function
+    lua.global.set('_log', (msg) => {
+        if (log) {
+            log(String(msg), 'log');
+        } else {
+            console.log('[Lua]', msg);
+        }
+    });
+
     // Create the ez namespace in Lua to avoid JS object nesting issues
     await lua.doString(`
         ez = {
@@ -300,6 +309,7 @@ async function initLua() {
             gps = _gps,
             crypto = _crypto,
             bus = _bus,
+            log = _log,
         }
         -- Also set global aliases
         display = _display
@@ -321,6 +331,7 @@ async function initLua() {
         _gps = nil
         _crypto = nil
         _bus = nil
+        _log = nil
     `);
 
     // Simulator flag
@@ -342,7 +353,7 @@ async function initLua() {
     // Other async functions (synchronous in simulator)
     lua.global.set('async_write', (path, data) => storage.write(path, data));
     lua.global.set('async_exists', (path) => storage.exists(path));
-    lua.global.set('async_read_bytes', (path, offset, len) => {
+    lua.global.set('_raw_async_read_bytes', (path, offset, len) => {
         // Use storage.read_bytes which handles both binary files and localStorage
         // Now synchronous - uses XMLHttpRequest for Range requests
         try {
@@ -357,6 +368,34 @@ async function initLua() {
             return undefined;
         }
     });
+
+    // Wrapper that converts byte arrays to strings (Wasmoon returns arrays to avoid null-byte truncation)
+    await lua.doString(`
+        do
+            local raw_read = _raw_async_read_bytes  -- Capture in local before clearing global
+            function async_read_bytes(path, offset, len)
+                local result = raw_read(path, offset, len)
+                if result == nil then return nil end
+                if type(result) == "string" then return result end
+                -- Convert array/table/userdata to string
+                local chars = {}
+                local length = result.length or #result
+                -- Detect 1-indexed (Wasmoon tables have nil at [0] but value at [1])
+                local start_idx = 0
+                if result[0] == nil and result[1] ~= nil then
+                    start_idx = 1
+                end
+                for i = 0, length - 1 do
+                    local byte = result[start_idx + i]
+                    if byte then
+                        chars[#chars + 1] = string.char(byte)
+                    end
+                end
+                return table.concat(chars)
+            end
+        end
+        _raw_async_read_bytes = nil  -- Clean up global
+    `);
 
     // RLE decompression for map tiles
     // Format: 0xFF <count> <value> = repeat value count times, otherwise literal byte

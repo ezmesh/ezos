@@ -11,7 +11,7 @@ local ScreenManager = {
 -- Push a new screen onto the stack
 function ScreenManager.push(screen)
     if not screen then
-        ez.system.log("[ScreenManager] Error: attempted to push nil screen")
+        ez.log("[ScreenManager] Error: attempted to push nil screen")
         return
     end
 
@@ -74,7 +74,7 @@ end
 -- Replace current screen without stack growth
 function ScreenManager.replace(screen)
     if not screen then
-        ez.system.log("[ScreenManager] Error: attempted to replace with nil screen")
+        ez.log("[ScreenManager] Error: attempted to replace with nil screen")
         return
     end
 

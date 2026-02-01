@@ -469,7 +469,7 @@ function ThemeManager.init()
     -- Apply color theme
     ThemeManager.apply_color_theme()
 
-    ez.system.log("[Theme] Init - wp:" .. ThemeManager.current_wallpaper .. " colors:" .. ThemeManager.current_color_theme)
+    ez.log("[Theme] Init - wp:" .. ThemeManager.current_wallpaper .. " colors:" .. ThemeManager.current_color_theme)
 end
 
 -- Apply current color theme to the colors table

@@ -66,7 +66,7 @@ function Logger._log(level, msg)
     end
 
     -- Also log to serial
-    ez.system.log(line)
+    ez.log(line)
 
     -- Add to in-memory buffer
     table.insert(Logger.entries, line)
@@ -82,7 +82,7 @@ function Logger.info(msg) Logger._log(Logger.LEVELS.INFO, msg) end
 function Logger.warn(msg) Logger._log(Logger.LEVELS.WARN, msg) end
 function Logger.error(msg) Logger._log(Logger.LEVELS.ERROR, msg) end
 
--- Alias for compatibility with ez.system.log pattern
+-- Alias for compatibility with ez.log pattern
 function Logger.log(msg) Logger._log(Logger.LEVELS.INFO, msg) end
 
 -- Save log to file (call periodically or on exit)

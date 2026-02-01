@@ -95,15 +95,6 @@ export function createSystemModule(log) {
             return true;
         },
 
-        // Log message
-        log(msg) {
-            if (log) {
-                log(String(msg), 'log');
-            } else {
-                console.log('[Lua]', msg);
-            }
-        },
-
         // Log error
         log_error(msg) {
             if (log) {

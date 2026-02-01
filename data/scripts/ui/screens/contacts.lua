@@ -237,7 +237,7 @@ function Contacts:ping()
     if #self.contacts == 0 then return end
 
     local contact = self.contacts[self.selected]
-    ez.system.log("Ping " .. (contact.name or "unknown"))
+    ez.log("Ping " .. (contact.name or "unknown"))
 end
 
 function Contacts:remove_contact()

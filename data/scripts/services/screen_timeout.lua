@@ -43,7 +43,7 @@ function ScreenTimeout.on_activity()
 
     -- Wake screen if it was dimmed or off
     if was_off or was_dimmed then
-        ez.system.log("[ScreenTimeout] Activity detected while " .. ScreenTimeout.state .. ", waking...")
+        ez.log("[ScreenTimeout] Activity detected while " .. ScreenTimeout.state .. ", waking...")
         ScreenTimeout.wake()
         return true  -- Signal that we consumed this as a wake event
     end
@@ -53,13 +53,13 @@ end
 
 function ScreenTimeout.wake()
     if ScreenTimeout.state ~= "active" then
-        ez.system.log("[ScreenTimeout] Waking from " .. ScreenTimeout.state .. ", brightness=" .. ScreenTimeout.saved_brightness)
+        ez.log("[ScreenTimeout] Waking from " .. ScreenTimeout.state .. ", brightness=" .. ScreenTimeout.saved_brightness)
 
         -- Ensure saved_brightness is valid (not 0)
         local brightness = tonumber(ScreenTimeout.saved_brightness) or 200
         if brightness <= 0 then
             brightness = 200
-            ez.system.log("[ScreenTimeout] Brightness was 0, reset to 200")
+            ez.log("[ScreenTimeout] Brightness was 0, reset to 200")
         end
         ScreenTimeout.saved_brightness = brightness
 
@@ -73,7 +73,7 @@ function ScreenTimeout.wake()
         if _G.ScreenManager then
             _G.ScreenManager.invalidate()
         end
-        ez.system.log("[ScreenTimeout] Wake complete")
+        ez.log("[ScreenTimeout] Wake complete")
     end
 end
 

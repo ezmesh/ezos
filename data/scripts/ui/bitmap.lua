@@ -9,7 +9,7 @@ Bitmap.TRANSPARENT = 0xF81F
 -- Internal: parse bitmap data and return bitmap table
 local function parse_bitmap_data(data, path, size)
     if not data then
-        ez.system.log("Bitmap: Failed to load " .. path)
+        ez.log("Bitmap: Failed to load " .. path)
         return nil
     end
 
@@ -32,13 +32,13 @@ local function parse_bitmap_data(data, path, size)
             width = sqrt
             height = sqrt
         else
-            ez.system.log("Bitmap: Cannot determine size for " .. path)
+            ez.log("Bitmap: Cannot determine size for " .. path)
             return nil
         end
     end
 
     if #data < width * height * 2 then
-        ez.system.log("Bitmap: File too small for " .. width .. "x" .. height)
+        ez.log("Bitmap: File too small for " .. width .. "x" .. height)
         return nil
     end
 

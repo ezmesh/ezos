@@ -464,15 +464,15 @@ function DMConversation:handle_key(key)
 
     -- Debug: log all key events to help diagnose input issues
     if key.character then
-        ez.system.log("[DMConv] key: char='" .. key.character .. "' input_len=" .. #self.input_text .. " sel=" .. tostring(self.selected_msg_index))
+        ez.log("[DMConv] key: char='" .. key.character .. "' input_len=" .. #self.input_text .. " sel=" .. tostring(self.selected_msg_index))
     elseif key.special then
-        ez.system.log("[DMConv] key: special=" .. key.special .. " input_len=" .. #self.input_text .. " sel=" .. tostring(self.selected_msg_index))
+        ez.log("[DMConv] key: special=" .. key.special .. " input_len=" .. #self.input_text .. " sel=" .. tostring(self.selected_msg_index))
     end
 
     if key.special == "ENTER" then
         if self.selected_msg_index then
             -- Open app menu when a message is selected
-            ez.system.log("[DMConv] ENTER on selected message #" .. self.selected_msg_index)
+            ez.log("[DMConv] ENTER on selected message #" .. self.selected_msg_index)
             if _G.AppMenu then
                 _G.AppMenu.show()
             end
@@ -482,7 +482,7 @@ function DMConversation:handle_key(key)
             -- Empty input, no selection: select the last message for quick interaction
             self.selected_msg_index = #self.messages
             self:scroll_to_selected()
-            ez.system.log("[DMConv] ENTER: auto-selected last message #" .. self.selected_msg_index)
+            ez.log("[DMConv] ENTER: auto-selected last message #" .. self.selected_msg_index)
         end
     elseif key.special == "BACKSPACE" then
         if self.selected_msg_index then

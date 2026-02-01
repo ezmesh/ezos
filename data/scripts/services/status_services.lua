@@ -31,7 +31,7 @@ function StatusServices.init_battery_service()
 
         -- Low battery warning at 10%
         if percent <= 10 then
-            ez.system.log("[Battery] Low battery: " .. percent .. "%")
+            ez.log("[Battery] Low battery: " .. percent .. "%")
         end
     end, 30000)  -- Every 30 seconds
 end
@@ -116,7 +116,7 @@ end
 
 -- Initialize all status services
 function StatusServices.init_all()
-    ez.system.log("[StatusServices] Starting status bar update services...")
+    ez.log("[StatusServices] Starting status bar update services...")
 
     -- NOTE: Channels service is loaded on-demand via get_channels()
     -- to save memory at boot
@@ -125,7 +125,7 @@ function StatusServices.init_all()
     StatusServices.init_mesh_service()
     StatusServices.init_radio_service()
 
-    ez.system.log("[StatusServices] Services started")
+    ez.log("[StatusServices] Services started")
 end
 
 -- Stop all status services

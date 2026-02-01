@@ -50,9 +50,6 @@ local MapViewer = {
     pan_dx = 0,  -- Pan velocity for prefetch direction
     pan_dy = 0,
 
-    -- Debug counter for tile searches
-    _search_count = 0,
-
     -- Cache for tiles confirmed not in archive (cleared on zoom change)
     missing_tiles = {},
 
@@ -164,68 +161,6 @@ function MapViewer:new(archive_path)
     return o
 end
 
--- Convert byte array (table) to binary string
--- Needed because Wasmoon truncates strings at null bytes
-local function bytes_to_string(bytes)
-    if type(bytes) == "string" then
-        return bytes  -- Already a string (native platform)
-    end
-    if type(bytes) ~= "table" then
-        -- Handle userdata with array-like access (Wasmoon JS arrays)
-        if type(bytes) == "userdata" then
-            local len = bytes.length or #bytes
-            if len and len > 0 then
-                local chunks = {}
-                local chunk_size = 4096
-                -- Wasmoon converts JS arrays to 1-indexed Lua access
-                -- Detect by checking if [0] is nil but [1] has a value
-                local start_idx = 0
-                if bytes[0] == nil and bytes[1] ~= nil then
-                    start_idx = 1  -- 1-indexed (Wasmoon)
-                end
-                for i = start_idx, start_idx + len - 1, chunk_size do
-                    local chunk_end = math.min(i + chunk_size - 1, start_idx + len - 1)
-                    local chunk_bytes = {}
-                    for j = i, chunk_end do
-                        local b = bytes[j]
-                        -- IMPORTANT: Use type check since 0 is a valid byte value
-                        -- but Wasmoon might convert JS 0 to something falsy
-                        if type(b) == "number" then
-                            chunk_bytes[#chunk_bytes + 1] = b
-                        elseif b == nil then
-                            -- Skip nil values (missing array elements)
-                        else
-                            -- Unexpected type - try to convert or skip
-                            local num = tonumber(b)
-                            if num then
-                                chunk_bytes[#chunk_bytes + 1] = num
-                            end
-                        end
-                    end
-                    if #chunk_bytes > 0 then
-                        chunks[#chunks + 1] = string.char(table.unpack(chunk_bytes))
-                    end
-                end
-                return table.concat(chunks)
-            end
-        end
-        return nil
-    end
-    -- Convert table of byte values to string using string.char
-    -- Process in chunks to avoid stack overflow with large arrays
-    local chunks = {}
-    local chunk_size = 4096
-    for i = 1, #bytes, chunk_size do
-        local chunk_end = math.min(i + chunk_size - 1, #bytes)
-        local chunk_bytes = {}
-        for j = i, chunk_end do
-            chunk_bytes[#chunk_bytes + 1] = bytes[j]
-        end
-        chunks[#chunks + 1] = string.char(table.unpack(chunk_bytes))
-    end
-    return table.concat(chunks)
-end
-
 -- Parse little-endian integers from binary string
 local function read_u8(data, offset)
     return string.byte(data, offset + 1) or 0
@@ -264,7 +199,7 @@ function MapViewer:load_archive_async()
     local function do_load()
         -- Check if archive exists
         if not ez.storage.exists(self_ref.archive_path) then
-            if _G.StatusBar then _G.StatusBar.hide_loading() end
+            StatusBar.hide_loading()
             self_ref.error_msg = "Map file not found:\n" .. self_ref.archive_path
             self_ref.loading = false
             ScreenManager.invalidate()
@@ -272,41 +207,19 @@ function MapViewer:load_archive_async()
         end
 
         -- Read header asynchronously (32 bytes)
-        local header = bytes_to_string(async_read_bytes(self_ref.archive_path, 0, self_ref.HEADER_SIZE))
+        local header = async_read_bytes(self_ref.archive_path, 0, self_ref.HEADER_SIZE)
         if not header then
-            if _G.StatusBar then _G.StatusBar.hide_loading() end
+            StatusBar.hide_loading()
             self_ref.error_msg = "Failed to read map header"
             self_ref.loading = false
             ScreenManager.invalidate()
             return
         end
 
-        -- Debug: show header info
-        ez.system.log("[Map] Header length: " .. #header)
-        local hex = ""
-        for i = 1, math.min(33, #header) do
-            hex = hex .. string.format("%02X ", string.byte(header, i))
-        end
-        ez.system.log("[Map] Header bytes: " .. hex)
-        -- Debug: show label offset bytes (positions 26-33, 1-indexed)
-        if #header >= 33 then
-            local label_hex = ""
-            for i = 26, 33 do
-                label_hex = label_hex .. string.format("%02X ", string.byte(header, i))
-            end
-            ez.system.log("[Map] Label offset/count bytes (26-33): " .. label_hex)
-        end
-
         -- Verify magic (compare first 5 chars without null - more reliable across platforms)
         local magic = string.sub(header, 1, 5)
         if magic ~= "TDMAP" then
-            if _G.StatusBar then _G.StatusBar.hide_loading() end
-            -- Debug: show what we actually got
-            local hex = ""
-            for i = 1, math.min(10, #header) do
-                hex = hex .. string.format("%02X ", string.byte(header, i))
-            end
-            ez.system.log("[Map] Magic check failed. Got: " .. hex)
+            StatusBar.hide_loading()
             self_ref.error_msg = "Invalid map file format"
             self_ref.loading = false
             ScreenManager.invalidate()
@@ -331,7 +244,7 @@ function MapViewer:load_archive_async()
         end
 
         if version ~= 4 then
-            if _G.StatusBar then _G.StatusBar.hide_loading() end
+            StatusBar.hide_loading()
             self_ref.error_msg = "Unsupported map version: " .. version .. " (need v4)"
             self_ref.loading = false
             ScreenManager.invalidate()
@@ -361,15 +274,10 @@ function MapViewer:load_archive_async()
             label_count = label_count,
         }
 
-        ez.system.log(string.format("[Map] Loaded archive: v%d, %d tiles, zoom %d-%d, index@%d, data@%d, tile_size=%d",
-            version, tile_count, min_zoom, max_zoom, index_offset, data_offset, tile_size))
-
         -- Load tile index into memory for fast binary search (avoids SD reads per tile lookup)
-        -- Index size: 11 bytes per tile, typically 5-50KB total
         local index_size = tile_count * self_ref.INDEX_ENTRY_SIZE
-        ez.system.log(string.format("[Map] Loading tile index: %d tiles, %d bytes", tile_count, index_size))
 
-        local index_data = bytes_to_string(async_read_bytes(self_ref.archive_path, index_offset, index_size))
+        local index_data = async_read_bytes(self_ref.archive_path, index_offset, index_size)
         if index_data and #index_data >= index_size then
             -- Parse index into memory table for fast lookup
             self_ref.tile_index = {}
@@ -384,22 +292,15 @@ function MapViewer:load_archive_async()
                 local key = string.format("%d/%d/%d", z, x, y)
                 self_ref.tile_index[key] = { offset = data_offset, size = data_size }
             end
-            ez.system.log(string.format("[Map] Tile index loaded: %d entries", tile_count))
         else
-            ez.system.log("[Map] Warning: Failed to load tile index, falling back to lazy loading")
             self_ref.tile_index = nil
         end
 
         -- Load labels (v4: flat list with lat/lon coords)
-        -- Limit label loading to avoid memory issues on constrained devices
-        -- Each label table uses ~100 bytes in Lua, so 5000 labels = ~500KB
+        -- Limit to 5000 labels to avoid memory issues (~100 bytes per label in Lua)
         local max_label_entries = 5000
-        ez.system.log(string.format("[Map] Label info: version=%d count=%d offset=%d", version, label_count, label_data_offset))
         if label_count > 0 and label_data_offset > 0 then
             local load_count = math.min(label_count, max_label_entries)
-            if label_count > max_label_entries then
-                ez.system.log(string.format("[Map] Limiting labels: loading %d of %d (memory constraint)", load_count, label_count))
-            end
             self_ref:load_labels_v4(label_data_offset, load_count)
         end
 
@@ -411,7 +312,7 @@ function MapViewer:load_archive_async()
         self_ref.center_x, self_ref.center_y = self_ref:lat_lon_to_tile(lat, lon, self_ref.zoom)
 
         -- Done loading
-        if _G.StatusBar then _G.StatusBar.hide_loading() end
+        StatusBar.hide_loading()
         self_ref.loading = false
         ScreenManager.invalidate()
     end
@@ -435,9 +336,8 @@ function MapViewer:load_labels_v4(data_offset, count)
 
     while labels_loaded < count do
         -- Read next chunk
-        local chunk = bytes_to_string(async_read_bytes(self.archive_path, file_offset, CHUNK_SIZE))
+        local chunk = async_read_bytes(self.archive_path, file_offset, CHUNK_SIZE)
         if not chunk then
-            ez.system.log("[Map] Failed to read label chunk at offset " .. file_offset)
             break
         end
 
@@ -485,8 +385,6 @@ function MapViewer:load_labels_v4(data_offset, count)
             break
         end
     end
-
-    ez.system.log(string.format("[Map] Loaded %d labels", #self.labels))
 end
 
 -- Get labels visible at current zoom and position
@@ -770,7 +668,7 @@ function MapViewer:on_enter()
 
     if not self.archive and not self.loading then
         self.loading = true
-        if _G.StatusBar then _G.StatusBar.show_loading("Loading map...") end
+        StatusBar.show_loading("Loading map...")
         self:load_archive_async()
     end
 end

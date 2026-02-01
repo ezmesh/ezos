@@ -1,12 +1,12 @@
 """
 Land mask module for determining tile backgrounds.
 
-Uses Natural Earth land polygons to determine whether a tile
-should have a land or water background. This removes the need for heuristics
-and ensures consistent tile edges.
+Uses OpenStreetMap simplified land polygons to determine whether a tile
+should have a land or water background. This ensures coastlines align
+with OSM road data at all zoom levels.
 
-On first run, downloads the Natural Earth 10m land shapefile (~5MB).
-This provides detailed coastlines suitable for zoom levels 0-14.
+On first run, downloads the OSM simplified land polygons (~24MB).
+This provides coastlines suitable for zoom levels 0-14.
 """
 
 import os
@@ -20,46 +20,65 @@ import math
 try:
     from shapely.geometry import box, shape
     from shapely.prepared import prep
-    from shapely.ops import unary_union
+    from shapely.ops import unary_union, transform
     import json
     HAS_SHAPELY = True
 except ImportError:
     HAS_SHAPELY = False
 
-# Natural Earth 10m land polygons (detailed, ~5MB) - suitable for zoom 0-14
-# Use 10m for best coastline detail at high zoom levels
-NATURAL_EARTH_URL = "https://naciscdn.org/naturalearth/10m/physical/ne_10m_land.zip"
+# OSM simplified land polygons (~24MB) - generalized to ~300m, suitable for zoom 0-14
+# Uses Mercator projection (EPSG:3857), will be transformed to WGS84 on load
+OSM_LAND_URL = "https://osmdata.openstreetmap.de/download/simplified-land-polygons-complete-3857.zip"
 CACHE_DIR = Path(__file__).parent / ".cache"
-LAND_SHAPEFILE = CACHE_DIR / "ne_10m_land" / "ne_10m_land.shp"
-LAND_GEOJSON = CACHE_DIR / "ne_10m_land.geojson"
+LAND_SHAPEFILE = CACHE_DIR / "simplified-land-polygons-complete-3857" / "simplified_land_polygons.shp"
+LAND_GEOJSON = CACHE_DIR / "osm_land_wgs84.geojson"
 
 
-def download_natural_earth() -> bool:
-    """Download Natural Earth land polygons if not cached."""
+def mercator_to_wgs84(x: float, y: float) -> Tuple[float, float]:
+    """
+    Convert Web Mercator (EPSG:3857) coordinates to WGS84 (EPSG:4326).
+
+    Returns (longitude, latitude) in degrees.
+    """
+    # Web Mercator to WGS84 conversion
+    # x is in meters, y is in meters
+    EARTH_RADIUS = 6378137.0  # WGS84 semi-major axis
+
+    lon = (x / EARTH_RADIUS) * (180.0 / math.pi)
+    lat = (2.0 * math.atan(math.exp(y / EARTH_RADIUS)) - math.pi / 2.0) * (180.0 / math.pi)
+
+    return (lon, lat)
+
+
+def transform_mercator_to_wgs84(geom):
+    """Transform a shapely geometry from Mercator to WGS84."""
+    return transform(lambda x, y: mercator_to_wgs84(x, y), geom)
+
+
+def download_osm_land() -> bool:
+    """Download OSM simplified land polygons if not cached."""
     if LAND_GEOJSON.exists():
         return True
 
     CACHE_DIR.mkdir(exist_ok=True)
-    zip_path = CACHE_DIR / "ne_10m_land.zip"
+    zip_path = CACHE_DIR / "simplified-land-polygons-complete-3857.zip"
 
-    print(f"Downloading Natural Earth 10m land data (~5MB)...")
+    print(f"Downloading OSM simplified land polygons (~24MB)...")
     try:
-        urllib.request.urlretrieve(NATURAL_EARTH_URL, zip_path)
+        urllib.request.urlretrieve(OSM_LAND_URL, zip_path)
     except Exception as e:
-        print(f"Failed to download Natural Earth data: {e}")
+        print(f"Failed to download OSM land data: {e}")
         return False
 
     print("Extracting...")
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
-            zf.extractall(CACHE_DIR / "ne_10m_land")
+            zf.extractall(CACHE_DIR)
     except Exception as e:
         print(f"Failed to extract: {e}")
         return False
 
-    # Convert to GeoJSON for easier loading (requires fiona or manual parsing)
-    # For simplicity, we'll use the shapefile directly with pyshp or shapely
-    print("Natural Earth data ready.")
+    print("OSM land data ready.")
     return True
 
 
@@ -67,10 +86,9 @@ class LandMask:
     """
     Determines whether map tiles are over land or water.
 
-    Uses Natural Earth 10m detailed land polygons for accurate lookups.
-    The 10m resolution provides detailed coastlines suitable for zoom
-    levels 0-14 (the actual coastline from vector tiles will be drawn
-    on top for final rendering).
+    Uses OSM simplified land polygons for accurate lookups that align
+    with OSM road data. The simplified version (~300m resolution) is
+    suitable for zoom levels 0-14.
     """
 
     def __init__(self):
@@ -90,23 +108,24 @@ class LandMask:
             print("Falling back to simple latitude-based heuristic.")
             return False
 
-        # Try to load cached GeoJSON first
+        # Try to load cached GeoJSON first (already in WGS84)
         if LAND_GEOJSON.exists():
             return self._load_geojson()
 
-        # Try to load from shapefile
+        # Try to load from shapefile (Mercator, needs transform)
         if LAND_SHAPEFILE.exists():
             return self._load_shapefile()
 
-        # Download Natural Earth data
-        if not download_natural_earth():
+        # Download OSM land data
+        if not download_osm_land():
             return False
 
         return self._load_shapefile()
 
     def _load_geojson(self) -> bool:
-        """Load land polygons from cached GeoJSON."""
+        """Load land polygons from cached GeoJSON (already WGS84)."""
         try:
+            print("Loading OSM land mask from cache...")
             with open(LAND_GEOJSON, 'r') as f:
                 data = json.load(f)
 
@@ -117,14 +136,14 @@ class LandMask:
 
             self.land_polygons = unary_union(polygons)
             self.prepared_land = prep(self.land_polygons)
-            print(f"Loaded land mask from GeoJSON")
+            print(f"Loaded OSM land mask from GeoJSON cache")
             return True
         except Exception as e:
             print(f"Failed to load GeoJSON: {e}")
             return False
 
     def _load_shapefile(self) -> bool:
-        """Load land polygons from shapefile and cache as GeoJSON."""
+        """Load land polygons from shapefile, transform to WGS84, and cache."""
         try:
             import shapefile  # pyshp
         except ImportError:
@@ -132,17 +151,25 @@ class LandMask:
             return False
 
         try:
+            print("Loading OSM land polygons from shapefile...")
             sf = shapefile.Reader(str(LAND_SHAPEFILE))
             polygons = []
 
-            for shape_rec in sf.shapeRecords():
+            total = len(sf.shapeRecords())
+            for i, shape_rec in enumerate(sf.shapeRecords()):
+                if (i + 1) % 1000 == 0:
+                    print(f"  Processing polygon {i + 1}/{total}...")
                 geom = shape(shape_rec.shape.__geo_interface__)
-                polygons.append(geom)
+                # Transform from Mercator to WGS84
+                geom_wgs84 = transform_mercator_to_wgs84(geom)
+                polygons.append(geom_wgs84)
 
+            print("Merging polygons...")
             self.land_polygons = unary_union(polygons)
             self.prepared_land = prep(self.land_polygons)
 
             # Cache as GeoJSON for faster future loads
+            print("Caching as GeoJSON for faster future loads...")
             geojson = {
                 'type': 'FeatureCollection',
                 'features': [{
@@ -154,10 +181,12 @@ class LandMask:
             with open(LAND_GEOJSON, 'w') as f:
                 json.dump(geojson, f)
 
-            print(f"Loaded land mask from shapefile, cached as GeoJSON")
+            print(f"Loaded OSM land mask, cached as GeoJSON")
             return True
         except Exception as e:
             print(f"Failed to load shapefile: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def tile_to_bbox(self, z: int, x: int, y: int) -> Tuple[float, float, float, float]:
@@ -186,7 +215,6 @@ class LandMask:
         """
         if self.prepared_land is None:
             # Fallback: simple latitude-based heuristic
-            # This is very rough but better than nothing
             return self._simple_land_check(z, x, y)
 
         west, south, east, north = self.tile_to_bbox(z, x, y)
@@ -249,7 +277,6 @@ class LandMask:
             return False
 
         # Very rough ocean detection (Atlantic, Pacific centers)
-        # This is NOT accurate, just a fallback
         if -30 < center_lon < -10 and -60 < center_lat < 60:
             return False  # Atlantic
         if 150 < abs(center_lon) and -60 < center_lat < 60:

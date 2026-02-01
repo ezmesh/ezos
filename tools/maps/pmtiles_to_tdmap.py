@@ -12,9 +12,10 @@ Usage:
 Requirements:
     pip install pmtiles mapbox-vector-tile Pillow numpy shapely pyshp
 
-    shapely + pyshp are used for the Natural Earth land mask which determines
-    whether tiles are over land or water. On first run, downloads ~800KB of
-    Natural Earth 110m land polygons for consistent tile backgrounds.
+    shapely + pyshp are used for the OSM land mask which determines
+    whether tiles are over land or water. On first run, downloads ~24MB of
+    OSM simplified land polygons for consistent tile backgrounds that align
+    with OSM road data.
 
 The script renders vector tiles using semantic feature indices:
 - Land (background for inland tiles)
@@ -227,7 +228,7 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
 
     # Determine background and whether to draw land mask polygons
     # For tiles WITHOUT coastline data (common at low zoom in regional extracts),
-    # we need to draw land/water from the Natural Earth land mask
+    # we need to draw land/water from the OSM land mask
     draw_land_from_mask = False
 
     if has_coastline_data:
@@ -245,7 +246,7 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
             img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
         else:
             # Mixed land/water tile without coastline data in vector tile
-            # Draw land polygons from Natural Earth mask
+            # Draw land polygons from OSM mask
             img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
             draw_land_from_mask = True
     else:
@@ -254,7 +255,7 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
 
     draw = ImageDraw.Draw(img)
 
-    # Draw land from Natural Earth mask for tiles without coastline data
+    # Draw land from OSM mask for tiles without coastline data
     if draw_land_from_mask and land_mask is not None and land_mask.land_polygons is not None:
         from shapely.geometry import box
         west, south, east, north = land_mask.tile_to_bbox(zoom, tile_x, tile_y)
@@ -826,11 +827,11 @@ def convert_pmtiles(
     print(f"Opening PMTiles: {input_path}")
     print(f"Using {workers} parallel workers")
 
-    # Initialize land mask (downloads Natural Earth data on first run)
+    # Initialize land mask (downloads OSM data on first run)
     print("Initializing land mask...")
     land_mask = get_land_mask()
     if land_mask.land_polygons is not None:
-        print("  Land mask ready (Natural Earth 110m)")
+        print("  Land mask ready (OSM simplified)")
     else:
         print("  Warning: Land mask not available, using fallback heuristics")
 

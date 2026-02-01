@@ -1,7 +1,7 @@
 # Virtual environment
 venv/
 
-# Natural Earth data cache (downloaded on first run)
+# OSM land polygon cache (downloaded on first run)
 .cache/
 
 # Output files

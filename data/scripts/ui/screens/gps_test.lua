@@ -192,9 +192,9 @@ function GPSTest:handle_key(key)
         if ez.gps and ez.gps.sync_time then
             local success = ez.gps.sync_time()
             if success then
-                ez.system.log("[GPS] Time synced manually")
+                ez.log("[GPS] Time synced manually")
             else
-                ez.system.log("[GPS] Time sync failed (no valid time)")
+                ez.log("[GPS] Time sync failed (no valid time)")
             end
         end
         ScreenManager.invalidate()

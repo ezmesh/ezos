@@ -19,7 +19,7 @@ function MainLoop.init(screen_manager)
     MainLoop.screen_manager = screen_manager
     MainLoop.running = false
     MainLoop.update_callbacks = {}
-    ez.system.log("[MainLoop] Initialized")
+    ez.log("[MainLoop] Initialized")
 end
 
 -- Register an update callback (called each frame)
@@ -89,7 +89,7 @@ function MainLoop.step()
     for name, callback in pairs(MainLoop.update_callbacks) do
         local ok, err = pcall(callback)
         if not ok then
-            ez.system.log("[MainLoop] Update callback '" .. name .. "' error: " .. tostring(err))
+            ez.log("[MainLoop] Update callback '" .. name .. "' error: " .. tostring(err))
         end
     end
 
@@ -107,12 +107,12 @@ end
 -- Sets global main_loop function that C++ calls each frame
 function MainLoop.start()
     if MainLoop.running then
-        ez.system.log("[MainLoop] Already running")
+        ez.log("[MainLoop] Already running")
         return
     end
 
     if not MainLoop.screen_manager then
-        ez.system.log("[MainLoop] Error: screen_manager not set")
+        ez.log("[MainLoop] Error: screen_manager not set")
         return
     end
 
@@ -125,7 +125,7 @@ function MainLoop.start()
         end
     end
 
-    ez.system.log("[MainLoop] Started")
+    ez.log("[MainLoop] Started")
 end
 
 -- Stop the Lua main loop
@@ -137,7 +137,7 @@ function MainLoop.stop()
     MainLoop.running = false
     _G.main_loop = nil
 
-    ez.system.log("[MainLoop] Stopped")
+    ez.log("[MainLoop] Stopped")
 end
 
 return MainLoop

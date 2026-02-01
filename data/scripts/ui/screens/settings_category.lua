@@ -565,7 +565,7 @@ function SettingsCategory:start_editing()
     local setting = self.settings[self.selected]
 
     if setting.type == "text" then
-        ez.system.log("TODO: Text input for " .. setting.name)
+        ez.log("TODO: Text input for " .. setting.name)
     elseif setting.type == "button" then
         if setting.name == "usb" then
             spawn_screen("/scripts/ui/screens/usb_transfer.lua")

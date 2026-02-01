@@ -130,13 +130,13 @@ end
 function JoinChannel:do_join()
     local channel_name = self.channel_input:get_value()
     if #channel_name < 2 then
-        ez.system.log("Channel name too short")
+        ez.log("Channel name too short")
         return
     end
 
     local ChannelsService = _G.Channels
     if not ChannelsService then
-        ez.system.log("Channels service not available")
+        ez.log("Channels service not available")
         return
     end
 
@@ -144,9 +144,9 @@ function JoinChannel:do_join()
     if #password == 0 then password = nil end
 
     if ChannelsService.join(channel_name, password) then
-        ez.system.log("Joined channel: " .. channel_name)
+        ez.log("Joined channel: " .. channel_name)
     else
-        ez.system.log("Failed to join channel")
+        ez.log("Failed to join channel")
     end
 end
 

@@ -429,19 +429,19 @@ function StatusBar.take_screenshot()
         local filename = "/screenshots/screen_" .. os.time() .. ".bmp"
         local ok = ez.display.save_screenshot(filename)
         if ok then
-            ez.system.log("[Screenshot] Saved: " .. filename)
+            ez.log("[Screenshot] Saved: " .. filename)
             if _G.SoundUtils and _G.SoundUtils.is_enabled() then
                 _G.SoundUtils.confirm()
             end
         else
-            ez.system.log("[Screenshot] Failed to save")
+            ez.log("[Screenshot] Failed to save")
             if _G.SoundUtils and _G.SoundUtils.is_enabled() then
                 _G.SoundUtils.error()
             end
         end
         return ok
     else
-        ez.system.log("[Screenshot] Not available")
+        ez.log("[Screenshot] Not available")
         return false
     end
 end
