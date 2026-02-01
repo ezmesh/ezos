@@ -4,6 +4,12 @@ A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 wi
 
 > ⚠️ **Warning:** This firmware has only been tested on the **T-Deck Plus**. Use at your own risk - no warranty or guarantee is provided.
 
+<p align="center">
+  <img src="docs/screenshots/main-menu.png" alt="Main Menu" width="240"/>
+  <img src="docs/screenshots/map-viewer.png" alt="Map Viewer" width="240"/>
+  <img src="docs/screenshots/mesh-chat.png" alt="Mesh Chat" width="240"/>
+</p>
+
 ## Download & Flash
 
 **Easiest method** - Use the web flasher (no software install required):
@@ -25,12 +31,6 @@ A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 wi
 - 🎮 **Games** - 2048, Tetris, Pong, Poker, Blackjack, Snake, Solitaire, Sudoku
 - 🎨 **Customizable UI** - Themes, wallpapers, icon packs
 - 🖥️ **Lua Shell** - Scriptable interface with full API access
-
-<p align="center">
-  <img src="docs/screenshots/main-menu.png" alt="Main Menu" width="240"/>
-  <img src="docs/screenshots/map-viewer.png" alt="Map Viewer" width="240"/>
-  <img src="docs/screenshots/mesh-chat.png" alt="Mesh Chat" width="240"/>
-</p>
 
 ## Make It Yours
 
