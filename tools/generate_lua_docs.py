@@ -37,6 +37,7 @@ class LuaFunction:
     name: str
     signature: str
     brief: str = ""
+    description: str = ""  # Longer multi-line description
     params: List[LuaParam] = field(default_factory=list)
     returns: str = ""
     example: str = ""
@@ -60,10 +61,10 @@ def parse_binding_file(filepath: Path) -> List[LuaFunction]:
         content = f.read()
 
     # Pattern to find doc blocks
-    # Matches: // @lua ... followed by other @-tagged lines
+    # Matches: // @lua ... followed by any comment lines (// ...)
     doc_pattern = re.compile(
         r'// @lua\s+(.+?)\s*\n'
-        r'((?:// @\w+.*\n)*)',
+        r'((?://.*\n)*)',
         re.MULTILINE
     )
 
@@ -99,7 +100,9 @@ def parse_binding_file(filepath: Path) -> List[LuaFunction]:
 
         # Parse doc block lines
         in_example = False
+        in_description = False
         example_lines = []
+        description_lines = []
 
         for line in doc_block.split('\n'):
             line = line.strip()
@@ -108,8 +111,16 @@ def parse_binding_file(filepath: Path) -> List[LuaFunction]:
             line = line[2:].strip()
 
             if line.startswith('@brief'):
+                in_description = False
                 func.brief = line[6:].strip()
+            elif line.startswith('@description'):
+                in_description = True
+                # Allow inline content after @description
+                content = line[12:].strip()
+                if content:
+                    description_lines.append(content)
             elif line.startswith('@param'):
+                in_description = False
                 param_match = re.match(r'@param\s+(\w+)\s+(.*)', line)
                 if param_match:
                     func.params.append(LuaParam(
@@ -117,14 +128,24 @@ def parse_binding_file(filepath: Path) -> List[LuaFunction]:
                         description=param_match.group(2)
                     ))
             elif line.startswith('@return'):
+                in_description = False
                 func.returns = line[7:].strip()
             elif line.startswith('@example'):
+                in_description = False
                 in_example = True
             elif line.startswith('@end'):
                 in_example = False
                 func.example = '\n'.join(example_lines)
+            elif line.startswith('@'):
+                # Unknown tag, stop description capture
+                in_description = False
             elif in_example:
                 example_lines.append(line)
+            elif in_description:
+                description_lines.append(line)
+
+        if description_lines:
+            func.description = '\n'.join(description_lines)
 
         functions.append(func)
 
@@ -209,6 +230,9 @@ def generate_markdown(modules: Dict[str, LuaModule]) -> str:
 
             if func.brief:
                 lines.extend([func.brief, ""])
+
+            if func.description:
+                lines.extend([func.description, ""])
 
             if func.params:
                 lines.append("**Parameters:**")
@@ -514,6 +538,17 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
             font-size: 15px;
         }
 
+        .desc-detail {
+            margin-top: 12px;
+            padding: 12px 16px;
+            background: var(--bg-code);
+            border-left: 3px solid var(--border);
+            border-radius: 0 6px 6px 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
         .params {
             margin-top: 16px;
         }
@@ -679,6 +714,11 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
 
             if func.brief:
                 html_parts.append(f'        <div class="desc">{html.escape(func.brief)}</div>\n')
+
+            if func.description:
+                # Convert newlines to <br> for HTML display
+                desc_html = html.escape(func.description).replace('\n', '<br>\n')
+                html_parts.append(f'        <div class="desc-detail">{desc_html}</div>\n')
 
             if func.params:
                 html_parts.append('        <div class="params">\n')

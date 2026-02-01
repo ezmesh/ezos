@@ -613,6 +613,11 @@ LUA_FUNCTION(l_system_yield) {
 
 // @lua ez.system.deep_sleep(seconds)
 // @brief Enter deep sleep mode, device will reboot on wake
+// @description Deep sleep is the lowest power mode (~10µA). The CPU and most RAM
+// are powered off, so all program state is lost. When the device wakes (via timer
+// or GPIO), it performs a full reboot and starts from setup().
+// Use this for long idle periods (hours/days) where you want maximum battery life.
+// For shorter pauses where you need to preserve state, use light_sleep() instead.
 // @param seconds Sleep duration (0 = indefinite, wake on GPIO only)
 LUA_FUNCTION(l_system_deep_sleep) {
     int seconds = luaL_optinteger(L, 1, 0);

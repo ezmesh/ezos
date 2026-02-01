@@ -275,6 +275,17 @@
             font-size: 15px;
         }
 
+        .desc-detail {
+            margin-top: 12px;
+            padding: 12px 16px;
+            background: var(--bg-code);
+            border-left: 3px solid var(--border);
+            border-radius: 0 6px 6px 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
         .params {
             margin-top: 16px;
         }
@@ -780,6 +791,7 @@
                 <tr><td>callback</td><td>Function(topic, data) called when message received</td></tr>
             </table>
         </div>
+        <div class="returns"><strong>Returns:</strong> Subscription ID for use with unsubscribe</div>
     </div>
     <div class="func" id="bus-unsubscribe">
         <div class="sig">ez.bus.unsubscribe(subscription_id) -&gt; boolean</div>
@@ -1011,6 +1023,8 @@
                 <tr><td>color</td><td>RGB565 color for &quot;on&quot; pixels - optional, default WHITE</td></tr>
             </table>
         </div>
+        <pre><code>-- 8x8 icon (8 bytes), scaled 3x, cyan color
+display.draw_bitmap_1bit(10, 10, 8, 8, icon_data, 3, colors.CYAN)</code></pre>
     </div>
     <div class="func" id="display-draw_bitmap_transparent">
         <div class="sig">ez.display.draw_bitmap_transparent(x, y, width, height, data, transparent_color)</div>
@@ -1104,6 +1118,8 @@
                 <tr><td>palette</td><td>Table of 8 RGB565 color values</td></tr>
             </table>
         </div>
+        <pre><code>local palette = {0x0000, 0x2104, 0x4208, 0x630C, 0x8410, 0xC618, 0xE71C, 0xFFFF}
+display.draw_indexed_bitmap(0, 0, 256, 256, tile_data, palette)</code></pre>
     </div>
     <div class="func" id="display-draw_indexed_bitmap_scaled">
         <div class="sig">ez.display.draw_indexed_bitmap_scaled(x, y, dest_w, dest_h, data, palette, src_x, src_y, src_w, src_h)</div>
@@ -1409,6 +1425,7 @@
             </table>
         </div>
         <div class="returns"><strong>Returns:</strong> true if saved successfully, false on error</div>
+        <pre><code>local ok = display.save_screenshot(&quot;/screenshots/capture.bmp&quot;)</code></pre>
     </div>
     <div class="func" id="display-set_brightness">
         <div class="sig">ez.display.set_brightness(level)</div>
@@ -2491,6 +2508,11 @@
     <div class="func" id="system-deep_sleep">
         <div class="sig">ez.system.deep_sleep(seconds)</div>
         <div class="desc">Enter deep sleep mode, device will reboot on wake</div>
+        <div class="desc-detail">Deep sleep is the lowest power mode (~10µA). The CPU and most RAM<br>
+are powered off, so all program state is lost. When the device wakes (via timer<br>
+or GPIO), it performs a full reboot and starts from setup().<br>
+Use this for long idle periods (hours/days) where you want maximum battery life.<br>
+For shorter pauses where you need to preserve state, use light_sleep() instead.</div>
         <div class="params">
             <div class="params-title">Parameters</div>
             <table class="params-table">
@@ -2574,6 +2596,8 @@
         <div class="sig">ez.system.get_time() -&gt; table|nil</div>
         <div class="desc">Get current wall clock time</div>
         <div class="returns"><strong>Returns:</strong> Table with hour, minute, second, or nil if time not set</div>
+        <pre><code>local t = ez.system.get_time()
+if t then print(t.hour .. &quot;:&quot; .. t.minute) end</code></pre>
     </div>
     <div class="func" id="system-get_time_unix">
         <div class="sig">ez.system.get_time_unix() -&gt; integer</div>
@@ -2653,6 +2677,7 @@
             </table>
         </div>
         <div class="returns"><strong>Returns:</strong> Timer ID for cancellation</div>
+        <pre><code>local id = ez.system.set_interval(1000, function() print(&quot;tick&quot;) end)</code></pre>
     </div>
     <div class="func" id="system-set_loop_delay">
         <div class="sig">ez.system.set_loop_delay(ms)</div>
@@ -2706,6 +2731,7 @@
             </table>
         </div>
         <div class="returns"><strong>Returns:</strong> Timer ID for cancellation</div>
+        <pre><code>ez.system.set_timer(1000, function() print(&quot;Done!&quot;) end)</code></pre>
     </div>
     <div class="func" id="system-set_timezone">
         <div class="sig">ez.system.set_timezone(tz_string) -&gt; boolean</div>
@@ -2718,6 +2744,9 @@
             </table>
         </div>
         <div class="returns"><strong>Returns:</strong> true if timezone was set successfully</div>
+        <pre><code>ez.system.set_timezone(&quot;CET-1CEST,M3.5.0,M10.5.0/3&quot;)  -- Amsterdam/Berlin
+ez.system.set_timezone(&quot;EST5EDT,M3.2.0,M11.1.0&quot;)      -- New York
+ez.system.set_timezone(&quot;GMT0BST,M3.5.0/1,M10.5.0&quot;)    -- London</code></pre>
     </div>
     <div class="func" id="system-start_usb_msc">
         <div class="sig">ez.system.start_usb_msc() -&gt; boolean</div>

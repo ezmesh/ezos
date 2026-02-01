@@ -432,6 +432,8 @@ Subscribe to a topic with a callback function
 | `topic` | Topic string to subscribe to |
 | `callback` | Function(topic, data) called when message received |
 
+**Returns:** Subscription ID for use with unsubscribe
+
 #### <a name="bus-unsubscribe"></a>unsubscribe
 
 ```lua
@@ -731,6 +733,12 @@ Draw a 1-bit bitmap with scaling and colorization
 | `scale` | Scale factor (1, 2, 3, etc.) - optional, default 1 |
 | `color` | RGB565 color for "on" pixels - optional, default WHITE |
 
+**Example:**
+```lua
+-- 8x8 icon (8 bytes), scaled 3x, cyan color
+display.draw_bitmap_1bit(10, 10, 8, 8, icon_data, 3, colors.CYAN)
+```
+
 #### <a name="display-draw_bitmap_transparent"></a>draw_bitmap_transparent
 
 ```lua
@@ -841,6 +849,12 @@ Draw a 3-bit indexed bitmap using a color palette
 | `height` | Bitmap height in pixels |
 | `data` | Packed 3-bit pixel indices (8 pixels packed into 3 bytes) |
 | `palette` | Table of 8 RGB565 color values |
+
+**Example:**
+```lua
+local palette = {0x0000, 0x2104, 0x4208, 0x630C, 0x8410, 0xC618, 0xE71C, 0xFFFF}
+display.draw_indexed_bitmap(0, 0, 256, 256, tile_data, palette)
+```
 
 #### <a name="display-draw_indexed_bitmap_scaled"></a>draw_indexed_bitmap_scaled
 
@@ -1249,6 +1263,11 @@ Save current display contents as BMP screenshot to SD card
 | `path` | File path on SD card (e.g., "/screenshots/screen_001.bmp") |
 
 **Returns:** true if saved successfully, false on error
+
+**Example:**
+```lua
+local ok = display.save_screenshot("/screenshots/capture.bmp")
+```
 
 #### <a name="display-set_brightness"></a>set_brightness
 
@@ -2871,6 +2890,12 @@ ez.system.deep_sleep(seconds)
 
 Enter deep sleep mode, device will reboot on wake
 
+Deep sleep is the lowest power mode (~10µA). The CPU and most RAM
+are powered off, so all program state is lost. When the device wakes (via timer
+or GPIO), it performs a full reboot and starts from setup().
+Use this for long idle periods (hours/days) where you want maximum battery life.
+For shorter pauses where you need to preserve state, use light_sleep() instead.
+
 **Parameters:**
 
 | Parameter | Description |
@@ -3013,6 +3038,12 @@ Get current wall clock time
 
 **Returns:** Table with hour, minute, second, or nil if time not set
 
+**Example:**
+```lua
+local t = ez.system.get_time()
+if t then print(t.hour .. ":" .. t.minute) end
+```
+
 #### <a name="system-get_time_unix"></a>get_time_unix
 
 ```lua
@@ -3154,6 +3185,11 @@ Schedule a repeating callback
 
 **Returns:** Timer ID for cancellation
 
+**Example:**
+```lua
+local id = ez.system.set_interval(1000, function() print("tick") end)
+```
+
 #### <a name="system-set_loop_delay"></a>set_loop_delay
 
 ```lua
@@ -3222,6 +3258,11 @@ Schedule a one-shot callback
 
 **Returns:** Timer ID for cancellation
 
+**Example:**
+```lua
+ez.system.set_timer(1000, function() print("Done!") end)
+```
+
 #### <a name="system-set_timezone"></a>set_timezone
 
 ```lua
@@ -3237,6 +3278,13 @@ Set timezone using POSIX TZ string
 | `tz_string` | POSIX timezone string (e.g., "CET-1CEST,M3.5.0,M10.5.0/3") |
 
 **Returns:** true if timezone was set successfully
+
+**Example:**
+```lua
+ez.system.set_timezone("CET-1CEST,M3.5.0,M10.5.0/3")  -- Amsterdam/Berlin
+ez.system.set_timezone("EST5EDT,M3.2.0,M11.1.0")      -- New York
+ez.system.set_timezone("GMT0BST,M3.5.0/1,M10.5.0")    -- London
+```
 
 #### <a name="system-start_usb_msc"></a>start_usb_msc
 
