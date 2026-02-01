@@ -30,7 +30,6 @@ end
 function NumberInput:render(display, x, y, focused)
     local colors = get_colors(display)
     local fh = display.get_font_height()
-    local fw = display.get_font_width()
 
     -- Background
     local bg_color = focused and colors.SURFACE_ALT or colors.SURFACE
@@ -46,8 +45,8 @@ function NumberInput:render(display, x, y, focused)
         value_str = "< " .. value_str .. " >"
     end
 
-    -- Center the value
-    local text_w = #value_str * fw
+    -- Center the value (allow overflow if needed)
+    local text_w = display.text_width(value_str)
     local text_x = x + math.floor((self.width - text_w) / 2)
     local text_color = focused and colors.ACCENT or colors.TEXT
     display.draw_text(text_x, y + 2, value_str, text_color)

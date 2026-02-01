@@ -22,14 +22,14 @@ end
 -- Get size for layout measurement
 function RadioGroup:get_size(display)
     local fh = display.get_font_height()
-    local fw = display.get_font_width()
     local radius = math.floor((fh - 2) / 2)
     local diameter = radius * 2
 
     local total_w, total_h = 0, 0
 
     for i, option in ipairs(self.options) do
-        local item_w = diameter + 4 + #option * fw + 8
+        local label_width = display.text_width(option)
+        local item_w = diameter + 4 + label_width + 8
 
         if self.horizontal then
             total_w = total_w + item_w
@@ -46,7 +46,6 @@ end
 function RadioGroup:render(display, x, y, focused, focus_index)
     local colors = get_colors(display)
     local fh = display.get_font_height()
-    local fw = display.get_font_width()
     local radius = math.floor((fh - 2) / 2)
     local diameter = radius * 2
 
@@ -72,7 +71,8 @@ function RadioGroup:render(display, x, y, focused, focus_index)
         local label_color = is_focused and colors.ACCENT or colors.TEXT
         display.draw_text(cx + diameter + 4, cy, option, label_color)
 
-        local item_w = diameter + 4 + #option * fw + 8
+        local label_width = display.text_width(option)
+        local item_w = diameter + 4 + label_width + 8
 
         if self.horizontal then
             cx = cx + item_w

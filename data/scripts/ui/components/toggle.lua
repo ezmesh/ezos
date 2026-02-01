@@ -20,15 +20,14 @@ end
 
 function Toggle:get_size(display)
     local fh = display.get_font_height()
-    local fw = display.get_font_width()
     local switch_w = 32
-    return switch_w + (#self.label > 0 and (8 + #self.label * fw) or 0), fh
+    local label_width = #self.label > 0 and (8 + display.text_width(self.label)) or 0
+    return switch_w + label_width, fh
 end
 
 function Toggle:render(display, x, y, focused)
     local colors = get_colors(display)
     local fh = display.get_font_height()
-    local fw = display.get_font_width()
 
     local switch_w = 32
     local switch_h = fh
@@ -47,12 +46,14 @@ function Toggle:render(display, x, y, focused)
     display.fill_rect(knob_x, y + 2, switch_h - 4, switch_h - 4, colors.WHITE)
 
     -- Label
+    local label_width = 0
     if #self.label > 0 then
         local label_color = focused and colors.ACCENT or colors.TEXT
         display.draw_text(x + switch_w + 8, y, self.label, label_color)
+        label_width = 8 + display.text_width(self.label)
     end
 
-    return switch_w + (#self.label > 0 and (8 + #self.label * fw) or 0), switch_h
+    return switch_w + label_width, switch_h
 end
 
 function Toggle:handle_key(key)

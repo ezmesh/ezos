@@ -21,17 +21,19 @@ end
 
 function Button:get_size(display)
     local fh = display.get_font_height()
-    local fw = display.get_font_width()
-    local width = self.width or (#self.label * fw + 12)
+    local text_width = display.text_width(self.label)
+    -- Return actual text width for layout measurement, even if visual width is smaller
+    local width = math.max(self.width or 0, text_width + 12)
     return width, fh + 6
 end
 
 function Button:render(display, x, y, focused)
     local colors = get_colors(display)
     local fh = display.get_font_height()
-    local fw = display.get_font_width()
+    local text_width = display.text_width(self.label)
 
-    local width = self.width or (#self.label * fw + 12)
+    -- Visual width (may be smaller than text)
+    local width = self.width or (text_width + 12)
     local height = fh + 6
 
     -- Background
@@ -52,9 +54,9 @@ function Button:render(display, x, y, focused)
     end
     display.draw_rect(x, y, width, height, border_color)
 
-    -- Label centered
+    -- Label centered (may overflow button bounds)
     local text_color = self.disabled and colors.TEXT_SECONDARY or (focused and colors.ACCENT or colors.TEXT)
-    local text_x = x + math.floor((width - #self.label * fw) / 2)
+    local text_x = x + math.floor((width - text_width) / 2)
     local text_y = y + 3
     display.draw_text(text_x, text_y, self.label, text_color)
 

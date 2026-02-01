@@ -129,10 +129,11 @@ function ComponentTest:render(display)
     -- Content area
     local content_y = _G.ThemeManager and _G.ThemeManager.LIST_START_Y or 31
     local content_height = h - content_y - 20
-    local padding = 4
+    local padding_left = 4
+    local padding_right = 12  -- Extra space for scrollbar
 
     -- Get grid size
-    local grid_width = w - padding * 2
+    local grid_width = w - padding_left - padding_right
     local _, grid_height = self.grid:get_size(display, grid_width)
 
     -- Clamp scroll
@@ -195,11 +196,11 @@ function ComponentTest:render(display)
                         end
 
                         -- Horizontal alignment
-                        local cx = padding + col_x
+                        local cx = padding_left + col_x
                         if cell.align == "right" then
-                            cx = padding + col_x + col_w - comp_w
+                            cx = padding_left + col_x + col_w - comp_w
                         elseif cell.align == "center" then
-                            cx = padding + col_x + math.floor((col_w - comp_w) / 2)
+                            cx = padding_left + col_x + math.floor((col_w - comp_w) / 2)
                         end
 
                         -- Vertical alignment (center)
@@ -223,7 +224,7 @@ function ComponentTest:render(display)
         local col_w = layout.col_widths[self.interactive_col] or 100
 
         local comp_w, comp_h = dropdown_comp:get_size(display, col_w)
-        local cx = padding + col_x + col_w - comp_w
+        local cx = padding_left + col_x + col_w - comp_w
         local cy = screen_y + math.floor((row_h - comp_h) / 2)
 
         dropdown_comp:render(display, cx, cy, true)

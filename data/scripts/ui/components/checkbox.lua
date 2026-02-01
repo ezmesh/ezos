@@ -20,15 +20,14 @@ end
 
 function Checkbox:get_size(display)
     local fh = display.get_font_height()
-    local fw = display.get_font_width()
     local box_size = fh - 2
-    return box_size + (#self.label > 0 and (4 + #self.label * fw) or 0), fh
+    local label_width = #self.label > 0 and (4 + display.text_width(self.label)) or 0
+    return box_size + label_width, fh
 end
 
 function Checkbox:render(display, x, y, focused)
     local colors = get_colors(display)
     local fh = display.get_font_height()
-    local fw = display.get_font_width()
     local box_size = fh - 2
 
     -- Checkbox box
@@ -42,12 +41,14 @@ function Checkbox:render(display, x, y, focused)
     end
 
     -- Label
+    local label_width = 0
     if #self.label > 0 then
         local label_color = focused and colors.ACCENT or colors.TEXT
         display.draw_text(x + box_size + 4, y, self.label, label_color)
+        label_width = 4 + display.text_width(self.label)
     end
 
-    return box_size + (#self.label > 0 and (4 + #self.label * fw) or 0), fh
+    return box_size + label_width, fh
 end
 
 function Checkbox:handle_key(key)
