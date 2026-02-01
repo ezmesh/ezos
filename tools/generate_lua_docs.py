@@ -1693,9 +1693,12 @@ def generate_module_html(module: LuaModule, bus_messages: List[BusMessage],
                line-height: 1.7; margin: 0; padding: 24px; max-width: 900px; margin: 0 auto; }}
         a {{ color: var(--accent); text-decoration: none; }}
         a:hover {{ text-decoration: underline; }}
-        h1 {{ color: var(--accent); border-bottom: 2px solid var(--border); padding-bottom: 12px; }}
+        h1 {{ color: var(--accent); border-bottom: 2px solid var(--border); padding-bottom: 12px; margin-top: 0; }}
         h2 {{ margin-top: 32px; color: var(--text-primary); }}
         code {{ background: var(--bg-code); padding: 2px 6px; border-radius: 4px; font-size: 14px; }}
+        .page-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }}
+        .theme-toggle {{ background: var(--bg-code); border: 1px solid var(--border); border-radius: 8px;
+                        padding: 8px 12px; cursor: pointer; color: var(--text-primary); font-size: 16px; }}
         .module-nav {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px;
                       padding: 12px; background: var(--bg-secondary); border-radius: 8px; }}
         .module-nav a {{ padding: 4px 10px; border-radius: 4px; font-size: 13px;
@@ -1745,7 +1748,10 @@ def generate_module_html(module: LuaModule, bus_messages: List[BusMessage],
 </head>
 <body>
 <nav class="nav"><a href="../">← Back to API Reference</a></nav>
-<h1>ez.{module.name}</h1>
+<div class="page-header">
+    <h1>ez.{module.name}</h1>
+    <button class="theme-toggle" onclick="toggleTheme()"><span id="theme-icon">&#9790;</span></button>
+</div>
 ''']
 
     # Module quick links
@@ -1837,7 +1843,28 @@ def generate_module_html(module: LuaModule, bus_messages: List[BusMessage],
                 html_parts.append(f'<pre><code>{highlighted}</code></pre>\n')
             html_parts.append('</div>\n</details>\n')
 
-    html_parts.append('</body></html>')
+    html_parts.append('''
+<script>
+    function toggleTheme() {
+        const html = document.documentElement;
+        const isDark = html.getAttribute('data-theme') === 'dark';
+        html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+        document.getElementById('theme-icon').innerHTML = isDark ? '&#9790;' : '&#9788;';
+        localStorage.setItem('theme', isDark ? 'light' : 'dark');
+    }
+
+    // Load saved theme or use system preference
+    (function() {
+        const saved = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = saved || (prefersDark ? 'dark' : 'light');
+        if (theme === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            document.getElementById('theme-icon').innerHTML = '&#9788;';
+        }
+    })();
+</script>
+</body></html>''')
     return ''.join(html_parts)
 
 def generate_module_markdown(module: LuaModule, bus_messages: List[BusMessage],

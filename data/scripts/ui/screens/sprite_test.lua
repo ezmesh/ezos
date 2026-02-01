@@ -74,8 +74,13 @@ function SpriteTest:render(display)
     if self.sprite then
         local sprite = self.sprite
         local sprite_bg = display.rgb(40, 40, 80)
+        local transparent = 0xF81F  -- Magenta as transparent color
 
-        sprite:clear(sprite_bg)
+        -- Use transparency for corners, solid background for content area
+        sprite:set_transparent_color(transparent)
+        sprite:clear(transparent)
+        -- Draw solid background with rounded corners (interior)
+        sprite:fill_round_rect(0, 0, 180, 100, 8, sprite_bg)
         sprite:draw_round_rect(0, 0, 180, 100, 8, colors.ACCENT)
         sprite:draw_text(10, 10, "Sprite Overlay", colors.WHITE)
         sprite:draw_text(10, 30, string.format("Alpha: %d", self.alpha), colors.CYAN or display.rgb(0, 255, 255))
