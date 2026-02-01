@@ -268,8 +268,9 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
                 # Convert to tile pixel coordinates and draw
                 def geo_to_pixel(lon, lat):
                     px = (lon - west) / (east - west) * TILE_SIZE
-                    # Use Y-up coordinates (same as MVT) - the final FLIP_TOP_BOTTOM will correct it
-                    py = (lat - south) / (north - south) * TILE_SIZE
+                    # Use Y-down screen coordinates (north at top y=0, south at bottom y=TILE_SIZE)
+                    # This matches MVT's screen coordinate convention
+                    py = (north - lat) / (north - south) * TILE_SIZE
                     return (px, py)
 
                 def draw_polygon_geo(geom):
@@ -382,9 +383,9 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
                 scaled_width = width * (zoom / 14.0)
                 render_line(draw, geom, extent, feature_idx, scaled_width)
 
-    # MVT coordinates use Y-up (geographic) convention within tiles,
-    # but PIL uses Y-down (screen) convention, so flip vertically
-    return img.transpose(Image.FLIP_TOP_BOTTOM)
+    # MVT uses screen coordinates (Y-down, origin at top-left), same as PIL
+    # No flip needed since both land mask and MVT use the same convention
+    return img
 
 
 def tile_pixel_to_lat_lon(zoom: int, tile_x: int, tile_y: int, pixel_x: float, pixel_y: float, extent: int = 4096) -> Tuple[float, float]:
@@ -401,12 +402,11 @@ def tile_pixel_to_lat_lon(zoom: int, tile_x: int, tile_y: int, pixel_x: float, p
         (latitude, longitude) in degrees
     """
     n = 2 ** zoom
-    # MVT coordinates have Y=0 at the bottom (south), but web tiles use Y=0 at top (north)
-    # Flip the Y coordinate to match web tile convention
-    pixel_y_flipped = extent - pixel_y
+    # MVT uses screen coordinates (Y=0 at top/north, Y=extent at bottom/south)
+    # This matches web tile convention where tile_y increases southward
     # Convert pixel offset to fraction of tile (0 to 1)
     frac_x = pixel_x / extent
-    frac_y = pixel_y_flipped / extent
+    frac_y = pixel_y / extent
     # Full tile coordinates including fractional part
     full_x = tile_x + frac_x
     full_y = tile_y + frac_y
