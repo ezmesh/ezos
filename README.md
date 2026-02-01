@@ -2,8 +2,6 @@
 
 A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 with LoRa), featuring encrypted mesh networking, offline maps, and a Lua-scripted user interface.
 
-> ⚠️ **Warning:** This firmware has only been tested on the **T-Deck Plus**. Use at your own risk - no warranty or guarantee is provided.
-
 <p align="center">
   <img src="docs/screenshots/main-menu.png" alt="Main Menu" width="240"/>
   <img src="docs/screenshots/map-viewer.png" alt="Map Viewer" width="240"/>
@@ -11,6 +9,8 @@ A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 wi
 </p>
 
 ## Download & Flash
+
+> ⚠️ **Warning:** This firmware has only been tested on the **T-Deck Plus**. Use at your own risk - no warranty or guarantee is provided.
 
 **Easiest method** - Use the web flasher (no software install required):
 
