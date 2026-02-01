@@ -262,7 +262,21 @@ function ComponentTest:handle_key(key)
         end
     end
 
-    -- Navigation
+    -- Escape to go back
+    if key.special == "ESCAPE" or key.character == "q" then
+        return "pop"
+    end
+
+    -- Let component try to handle the key first
+    if comp and comp.handle_key then
+        local result = comp:handle_key(key)
+        if result then
+            ScreenManager.invalidate()
+            return "continue"
+        end
+    end
+
+    -- Navigation (only if component didn't handle the key)
     if key.special == "UP" then
         if self.focused_row > 1 then
             self.focused_row = self.focused_row - 1
@@ -275,16 +289,6 @@ function ComponentTest:handle_key(key)
             ScreenManager.invalidate()
         end
         return "continue"
-    elseif key.special == "ESCAPE" or key.character == "q" then
-        return "pop"
-    end
-
-    -- Pass key to focused component
-    if comp and comp.handle_key then
-        local result = comp:handle_key(key)
-        if result then
-            ScreenManager.invalidate()
-        end
     end
 
     return "continue"
