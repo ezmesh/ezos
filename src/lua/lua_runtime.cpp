@@ -27,6 +27,8 @@ void registerStorageModule(lua_State* L);
 void registerCryptoModule(lua_State* L);
 // GPS module
 #include "bindings/gps_bindings.h"
+// WiFi module
+void registerWifiModule(lua_State* L);
 // Message bus module
 #include "bindings/bus_bindings.h"
 
@@ -177,6 +179,9 @@ void LuaRuntime::registerAllModules() {
 
     // Message bus module
     registerBusModule(_state);
+
+    // WiFi module
+    registerWifiModule(_state);
 
     Serial.println("[LuaRuntime] Modules registered");
 }

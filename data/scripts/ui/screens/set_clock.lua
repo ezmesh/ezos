@@ -204,7 +204,7 @@ function TimeSync:apply_time()
     if ok then
         if _G.SoundUtils then pcall(_G.SoundUtils.confirm) end
         -- Save to preferences
-        ez.storage.set_pref("lastTimeSet", ez.system.get_time_unix())
+        ez.storage.set_pref("time_last_set", ez.system.get_time_unix())
         if _G.MessageBox then
             _G.MessageBox.show({title = "Clock set"})
         end

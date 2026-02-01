@@ -4,6 +4,15 @@
 #include "bus_bindings.h"
 #include <Arduino.h>
 
+// @module ez.bus
+// @brief Publish/subscribe message bus for decoupled communication
+// @description
+// Enables loose coupling between components through topic-based messaging.
+// Any component can post messages to topics, and any component can subscribe
+// to receive them. Messages are delivered synchronously during the next
+// scheduler update. See the Message Bus tab for available system topics.
+// @end
+
 // Singleton instance
 MessageBus& MessageBus::instance() {
     static MessageBus bus;

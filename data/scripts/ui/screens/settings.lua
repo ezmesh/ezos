@@ -15,6 +15,7 @@ local Settings = {
     -- Settings categories
     categories = {
         {key = "radio",   label = "Radio",   description = "Node, region, TX power", icon = "channels"},
+        {key = "wifi",    label = "WiFi",    description = "Network, credentials", icon = "channels"},
         {key = "display", label = "Display", description = "Brightness, wallpaper, colors", icon = "info"},
         {key = "time",    label = "Time",    description = "Format, timezone, sync", icon = "info"},
         {key = "input",   label = "Input",   description = "Font, trackball", icon = "settings"},

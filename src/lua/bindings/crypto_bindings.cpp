@@ -5,6 +5,15 @@
 #include <Arduino.h>
 #include <esp_random.h>
 
+// @module ez.crypto
+// @brief Cryptographic primitives for hashing, encryption, and encoding
+// @description
+// Provides SHA-256/512 hashing, HMAC, AES-128-ECB encryption, base64 and
+// hex encoding/decoding, and secure random number generation. Used internally
+// for MeshCore channel encryption and message authentication. All operations
+// use hardware-accelerated mbedTLS where available.
+// @end
+
 // mbedTLS includes
 #include "mbedtls/aes.h"
 #include "mbedtls/md.h"

@@ -4,6 +4,15 @@
 #include "../lua_bindings.h"
 #include "../../hardware/radio.h"
 
+// @module ez.radio
+// @brief Low-level LoRa radio configuration and status
+// @description
+// Direct control of the SX1262 LoRa radio hardware. Configure frequency,
+// bandwidth, spreading factor, and transmit power. Most applications should
+// use ez.mesh instead, which provides higher-level mesh networking on top
+// of the radio. The radio status indicator shows "!RF" if initialization fails.
+// @end
+
 // External reference to the global radio instance
 extern Radio* radio;
 

@@ -36,12 +36,12 @@ local FALLBACK_TONES = {
 
 -- Initialize from saved preferences
 function SoundUtils.init()
-    local enabled = ez.storage.get_pref("uiSoundsEnabled")
+    local enabled = ez.storage.get_pref("sound_enabled")
     if enabled ~= nil then
         SoundUtils.enabled = enabled
     end
 
-    local vol = ez.storage.get_pref("uiSoundsVolume")
+    local vol = ez.storage.get_pref("sound_volume")
     if vol then
         SoundUtils.volume = vol
     end
@@ -55,7 +55,7 @@ end
 -- Enable/disable sounds
 function SoundUtils.set_enabled(enabled)
     SoundUtils.enabled = enabled
-    ez.storage.set_pref("uiSoundsEnabled", enabled)
+    ez.storage.set_pref("sound_enabled", enabled)
 end
 
 function SoundUtils.is_enabled()
@@ -66,7 +66,7 @@ end
 function SoundUtils.set_volume(level)
     level = math.max(0, math.min(100, level))
     SoundUtils.volume = level
-    ez.storage.set_pref("uiSoundsVolume", level)
+    ez.storage.set_pref("sound_volume", level)
 
     if ez.audio and ez.audio.set_volume then
         ez.audio.set_volume(level)

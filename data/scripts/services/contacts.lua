@@ -31,7 +31,7 @@ function Contacts.init()
     Contacts._load()
 
     -- Load auto time sync setting
-    local auto_sync = ez.storage.get_pref("autoTimeSyncContacts", "true")
+    local auto_sync = ez.storage.get_pref("time_auto_sync", "true")
     Contacts.auto_time_sync = (auto_sync == "true" or auto_sync == true)
 
     -- Subscribe to node discovery events via message bus
@@ -265,7 +265,7 @@ function Contacts._check_auto_time_sync(node)
     if ok then
         local contact_name = Contacts.saved[pub_key_hex].name
         ez.log("[Contacts] Auto time sync from " .. contact_name)
-        ez.storage.set_pref("lastTimeSet", corrected_time)
+        ez.storage.set_pref("time_last_set", corrected_time)
     end
 end
 
@@ -381,7 +381,7 @@ end
 -- Set auto time sync setting
 function Contacts.set_auto_time_sync(enabled)
     Contacts.auto_time_sync = enabled
-    ez.storage.set_pref("autoTimeSyncContacts", enabled and "true" or "false")
+    ez.storage.set_pref("time_auto_sync", enabled and "true" or "false")
 end
 
 -- Clear discovered node cache (keeps saved contacts)

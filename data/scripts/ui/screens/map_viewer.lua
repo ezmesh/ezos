@@ -644,9 +644,9 @@ function MapViewer:on_enter()
     -- Load preferences
     local old_theme = self.theme
     if ez.storage and ez.storage.get_pref then
-        self.theme = ez.storage.get_pref("mapTheme", "light")
+        self.theme = ez.storage.get_pref("map_theme", "light")
         -- Pan speed: 1-5 setting maps to 0.05-0.25 tile units
-        local speed_setting = ez.storage.get_pref("mapPanSpeed", 2)
+        local speed_setting = ez.storage.get_pref("map_pan_speed", 2)
         self.pan_speed = speed_setting * 0.05
     end
 

@@ -12,6 +12,10 @@ local StatusBar = {
     free_psram_kb = 0,
     total_psram_kb = 0,
 
+    -- WiFi status
+    wifi_status = "off",  -- "off", "disconnected", "connecting", "connected"
+    wifi_rssi = 0,
+
     -- Memory history (small ring buffers)
     heap_history = {},
     heap_idx = 1,
@@ -37,13 +41,13 @@ local StatusBar = {
     menu_check_interval = 100,
     menu_last_check = 0,
     menu_triggered = false,
-    -- Default hotkey: sym key (column 0, row 2 = 0x04)
+    -- Default hotkey: LShift + RShift
     -- Format: matrix bits packed as col0*128^0 + col1*128^1 + ...
     menu_hotkey = 139264,  -- LShift (col1=0x40) + RShift (col2=0x08)
     menu_hotkey_loaded = false,
 
     -- Screenshot hotkey detection
-    screenshot_hotkey = 2097156,  -- Default: Mic (col3=0x01) + Sym (col0=0x04) = 2097156
+    screenshot_hotkey = 2097156,  -- Default: Mic (col3=0x01) + Sym (col0=0x04)
     screenshot_hotkey_loaded = false,
     screenshot_triggered = false,
 }
@@ -110,7 +114,28 @@ end
 
 function StatusBar.load_fps_setting()
     if ez.storage and ez.storage.get_pref then
-        StatusBar.show_fps = ez.storage.get_pref("showFps", false)
+        StatusBar.show_fps = ez.storage.get_pref("display_show_fps", false)
+    end
+end
+
+function StatusBar.update_wifi()
+    if not ez.wifi then
+        StatusBar.wifi_status = "off"
+        return
+    end
+
+    local status = ez.wifi.get_status()
+    if status == "connected" then
+        StatusBar.wifi_status = "connected"
+        StatusBar.wifi_rssi = ez.wifi.get_rssi() or 0
+    elseif status == "connecting" then
+        StatusBar.wifi_status = "connecting"
+    elseif status == "idle" or status == "no_ssid_avail" or status == "connection_failed" or status == "disconnected" then
+        StatusBar.wifi_status = "disconnected"
+    else
+        -- WiFi radio might be off or unknown state
+        local enabled = ez.storage and ez.storage.get_pref("wifi_enabled", false)
+        StatusBar.wifi_status = enabled and "disconnected" or "off"
     end
 end
 
@@ -311,10 +336,47 @@ function StatusBar._render_impl(display)
         display.fill_rect(batt_x + 2 + i * 4, by + 2, 3, 6, c)
     end
 
-    -- Signal bars (2px gap before battery) - 4 bars * 4px = 16px, max 12px tall
+    -- WiFi indicator (left of battery) - 12px wide, shows connection status
+    local wifi_width = 12
+    local wifi_x = batt_x - 4 - wifi_width
+    local wifi_cy = center_y
+
+    if StatusBar.wifi_status == "connected" then
+        -- Draw WiFi arcs (3 arcs showing signal strength)
+        local wifi_bars = 3  -- Default full strength
+        if StatusBar.wifi_rssi < -70 then wifi_bars = 1
+        elseif StatusBar.wifi_rssi < -60 then wifi_bars = 2 end
+
+        local wc = get_level_color(wifi_bars * 33, colors)
+        local wcx = wifi_x + 6
+        local wcy = wifi_cy + 4
+
+        -- Draw dot at bottom center
+        display.fill_rect(wcx - 1, wcy - 1, 2, 2, wc)
+
+        -- Draw arcs (simplified as horizontal lines at different heights)
+        for i = 1, 3 do
+            local arc_width = i * 3
+            local arc_y = wcy - i * 3
+            local c = (i <= wifi_bars) and wc or colors.SURFACE
+            display.fill_rect(wcx - math.floor(arc_width / 2), arc_y, arc_width, 1, c)
+        end
+    elseif StatusBar.wifi_status == "connecting" then
+        -- Blinking indicator when connecting
+        local blink = math.floor(ez.system.millis() / 500) % 2 == 0
+        if blink then
+            display.draw_text(wifi_x, y, "W", colors.WARNING)
+        end
+    elseif StatusBar.wifi_status == "disconnected" then
+        -- Show dimmed WiFi icon when enabled but not connected
+        display.draw_text(wifi_x, y, "W", colors.TEXT_MUTED)
+    end
+    -- If wifi_status == "off", show nothing
+
+    -- Signal bars (2px gap before WiFi) - 4 bars * 4px = 16px, max 12px tall
     local signal_width = 16
     local signal_height = 12
-    local signal_x = batt_x - 2 - signal_width
+    local signal_x = wifi_x - 4 - signal_width
     local signal_base_y = center_y + math.floor(signal_height / 2)
 
     if StatusBar.radio_ok then
@@ -349,7 +411,7 @@ function StatusBar._render_impl(display)
         -- Load time format preference (1 = 24h, 2 = 12h AM/PM)
         local format = StatusBar.time_format
         if ez.storage and ez.storage.get_pref then
-            format = ez.storage.get_pref("timeFormat", 1)
+            format = ez.storage.get_pref("time_format", 1)
         end
 
         if format == 2 then
@@ -387,7 +449,7 @@ function StatusBar.load_hotkey()
     StatusBar.menu_hotkey_loaded = true
 
     if ez.storage and ez.storage.get_pref then
-        local saved = ez.storage.get_pref("menuHotkey", nil)
+        local saved = ez.storage.get_pref("hotkey_menu", nil)
         if saved and saved > 0 then
             StatusBar.menu_hotkey = saved
         end
@@ -409,7 +471,7 @@ function StatusBar.load_screenshot_hotkey()
     StatusBar.screenshot_hotkey_loaded = true
 
     if ez.storage and ez.storage.get_pref then
-        local saved = ez.storage.get_pref("screenshotHotkey", nil)
+        local saved = ez.storage.get_pref("hotkey_screenshot", nil)
         if saved and saved > 0 then
             StatusBar.screenshot_hotkey = saved
         end
@@ -522,6 +584,7 @@ end
 
 function StatusBar.update()
     StatusBar.update_memory()
+    StatusBar.update_wifi()
     StatusBar.check_menu_trigger()
 end
 

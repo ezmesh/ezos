@@ -14,7 +14,7 @@ local HotkeyConfig = {
     recorded_matrix = nil,
     current_matrix = nil,
     hotkey_id = "menu",      -- Identifier for this hotkey
-    pref_key = "menuHotkey", -- Preferences key for storage
+    pref_key = "hotkey_menu", -- Preferences key for storage
     default_desc = "LShift+RShift",  -- Default description
 }
 

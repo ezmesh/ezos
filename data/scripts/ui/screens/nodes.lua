@@ -396,7 +396,7 @@ function Nodes:get_menu_items()
                                 end
                                 -- Save sync timestamp
                                 if ez.storage and ez.storage.set_pref then
-                                    ez.storage.set_pref("lastTimeSet", ez.system.get_time_unix())
+                                    ez.storage.set_pref("time_last_set", ez.system.get_time_unix())
                                 end
                             else
                                 if _G.SoundUtils then pcall(_G.SoundUtils.error) end

@@ -4,8 +4,59 @@
 #include "../lua_bindings.h"
 #include "../../hardware/display.h"
 
+// @module ez.display
+// @brief 2D drawing primitives and text rendering for the 320x240 LCD
+// @description
+// All drawing operations write to a double-buffered framebuffer in PSRAM.
+// Call flush() once per frame to transfer the buffer to the physical display
+// via DMA. Drawing functions use pixel coordinates (0,0 at top-left) and
+// RGB565 color format. Use rgb(r,g,b) to convert from 8-bit RGB values.
+// @end
+
 // External reference to the global display instance
 extern Display* display;
+
+// =============================================================================
+// Bus Message Topics (display/theme module)
+// =============================================================================
+
+// @bus theme/wallpaper
+// @brief Posted when the wallpaper is changed
+// @payload string Wallpaper name (e.g., "clouds", "mountains", "none")
+// @description
+// Fired when ThemeManager.set_wallpaper() is called. Screens can
+// subscribe to update their rendering if they display the wallpaper.
+// @example
+// ez.bus.subscribe("theme/wallpaper", function(name)
+//     print("Wallpaper changed to: " .. name)
+// end)
+// @end
+
+// @bus theme/icons
+// @brief Posted when the icon pack is changed
+// @payload string Icon pack name
+// @description
+// Fired when ThemeManager.set_icon_pack() is called. Components
+// displaying icons should refresh their cached icon references.
+// @example
+// ez.bus.subscribe("theme/icons", function(pack)
+//     self:reload_icons()
+// end)
+// @end
+
+// @bus theme/colors
+// @brief Posted when the color scheme is changed
+// @payload string Color scheme name
+// @description
+// Fired when ThemeManager.set_colors() is called. UI components
+// should refresh their color values.
+// @example
+// ez.bus.subscribe("theme/colors", function(scheme)
+//     self.bg_color = ThemeManager.colors.background
+// end)
+// @end
+
+// =============================================================================
 
 // @lua ez.display.clear()
 // @brief Clear display buffer to black
@@ -1329,6 +1380,15 @@ static Sprite* checkSprite(lua_State* L, int idx) {
     }
     return *pp;
 }
+
+// @module sprite
+// @brief Off-screen drawing surface for compositing and overlays
+// @description
+// Sprites are off-screen RGB565 buffers allocated in PSRAM. Create with
+// ez.display.create_sprite(w,h), draw to them using the same primitives as
+// the display, then push() to composite onto the screen with optional alpha.
+// Useful for UI overlays, menus, and cached graphics. Call destroy() when done.
+// @end
 
 // @lua sprite:clear(color)
 // @brief Clear sprite to a color

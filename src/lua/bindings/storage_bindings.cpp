@@ -10,6 +10,15 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 
+// @module ez.storage
+// @brief File I/O for internal flash (LittleFS) and SD card
+// @description
+// Read and write files on the internal LittleFS partition (for Lua scripts and
+// small data) or the removable SD card (for maps, logs, and large files).
+// Also provides persistent key-value preferences stored in NVS flash that
+// survive reboots. Paths starting with "/" access LittleFS; use "/sd/" for SD.
+// @end
+
 // Storage state
 static bool sdInitialized = false;
 static Preferences prefs;

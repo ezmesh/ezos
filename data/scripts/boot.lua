@@ -114,51 +114,51 @@ local function boot_sequence()
         local get_pref = Utils.get_pref
 
         -- Display brightness
-        local brightness = get_pref("brightness", 200)
+        local brightness = get_pref("display_brightness", 200)
         if ez.display and ez.display.set_brightness then
             ez.display.set_brightness(brightness)
         end
 
         -- Keyboard backlight
-        local kb_backlight = get_pref("kbBacklight", 0)
+        local kb_backlight = get_pref("kb_backlight", 0)
         if ez.keyboard and ez.keyboard.set_backlight then
             ez.keyboard.set_backlight(kb_backlight)
         end
 
         -- Trackball sensitivity
-        local tb_sens = get_pref("tbSens", 1)
+        local tb_sens = get_pref("tb_sensitivity", 1)
         if ez.keyboard and ez.keyboard.set_trackball_sensitivity then
             ez.keyboard.set_trackball_sensitivity(tb_sens)
         end
 
         -- Trackball mode (polling or interrupt)
-        local tb_mode = get_pref("tbMode", "polling")
+        local tb_mode = get_pref("tb_mode", "polling")
         if ez.keyboard and ez.keyboard.set_trackball_mode then
             ez.keyboard.set_trackball_mode(tb_mode)
         end
 
         -- Mesh node name (if mesh is initialized)
         if ez.mesh and ez.mesh.is_initialized and ez.mesh.is_initialized() then
-            local node_name = get_pref("nodeName", nil)
+            local node_name = get_pref("mesh_node_name", nil)
             if node_name and ez.mesh.set_node_name then
                 ez.mesh.set_node_name(node_name)
             end
         end
 
         -- Radio TX power
-        local tx_power = get_pref("txPower", 22)
+        local tx_power = get_pref("radio_tx_power", 22)
         if ez.radio and ez.radio.set_tx_power then
             ez.radio.set_tx_power(tx_power)
         end
 
         -- Mesh path check (skip packets where our hash is in path)
-        local path_check = get_pref("pathCheck", true)
+        local path_check = get_pref("mesh_path_check", true)
         if ez.mesh and ez.mesh.set_path_check then
             ez.mesh.set_path_check(path_check)
         end
 
         -- Auto-advert interval (default: Off)
-        local auto_advert = tonumber(get_pref("autoAdvert", 1)) or 1
+        local auto_advert = tonumber(get_pref("mesh_auto_advert", 1)) or 1
         if ez.mesh and ez.mesh.set_announce_interval then
             -- Convert option index to milliseconds: 1=Off, 2=1h, 3=4h, 4=8h, 5=12h, 6=24h
             local intervals = {0, 3600000, 14400000, 28800000, 43200000, 86400000}
@@ -167,22 +167,34 @@ local function boot_sequence()
         end
 
         -- UI Sounds (lazy-loaded when enabled)
-        local ui_sounds = get_pref("uiSoundsEnabled", false)
+        local ui_sounds = get_pref("sound_enabled", false)
         if ui_sounds then
             _G.SoundUtils = load_module("/scripts/ui/sound_utils.lua")
             _G.SoundUtils.init()
         end
 
         -- Timezone (apply POSIX string directly)
-        local tz_posix = get_pref("timezonePosix", nil)
+        local tz_posix = get_pref("time_zone_posix", nil)
         if tz_posix and ez.system and ez.system.set_timezone then
             ez.system.set_timezone(tz_posix)
         end
 
         -- Loop delay (default 0 for maximum FPS)
-        local loop_delay = tonumber(get_pref("loopDelay", 0)) or 0
+        local loop_delay = tonumber(get_pref("system_loop_delay", 0)) or 0
         if ez.system and ez.system.set_loop_delay then
             ez.system.set_loop_delay(loop_delay)
+        end
+
+        -- WiFi auto-connect
+        local wifi_enabled = get_pref("wifi_enabled", false)
+        local wifi_auto = get_pref("wifi_auto_connect", false)
+        if wifi_enabled and wifi_auto and ez.wifi then
+            local ssid = get_pref("wifi_ssid", "")
+            local password = get_pref("wifi_password", "")
+            if ssid ~= "" then
+                ez.log("[Boot] Auto-connecting to WiFi: " .. ssid)
+                ez.wifi.connect(ssid, password)
+            end
         end
 
         ez.log("[Boot] Settings applied")

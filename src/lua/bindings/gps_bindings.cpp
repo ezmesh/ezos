@@ -1,6 +1,15 @@
 #include "gps_bindings.h"
 #include "../../hardware/gps.h"
 
+// @module ez.gps
+// @brief GPS receiver for location, time, and navigation data
+// @description
+// Interfaces with the optional GPS module for position, altitude, speed, and
+// satellite-synchronized time. The GPS runs continuously in the background
+// once initialized, updating location data as fixes are acquired. Can auto-sync
+// the system clock from GPS time for accurate timestamps without network access.
+// @end
+
 // @lua ez.gps.init() -> boolean
 // @brief Initialize the GPS module
 // @description Initializes the UART connection to the GPS module. Must be called

@@ -7,6 +7,84 @@
 #include "bus_bindings.h"
 #include <deque>
 
+// @module ez.mesh
+// @brief LoRa mesh networking with MeshCore protocol
+// @description
+// Provides access to the MeshCore mesh network for peer-to-peer communication.
+// Supports node discovery, channel messaging, direct messages, and identity
+// management with Ed25519 cryptography. The mesh runs in the background,
+// automatically handling packet routing and retransmission. Subscribe to
+// bus messages (channel/message, message/received) for incoming data.
+// @end
+
+// =============================================================================
+// Bus Message Topics (mesh module)
+// =============================================================================
+
+// @bus mesh/node_count
+// @brief Posted when the known node count changes
+// @payload string Number of nodes as string
+// @description
+// Fired when nodes are discovered or expire from the mesh network.
+// The status bar subscribes to this to update the node count display.
+// @example
+// ez.bus.subscribe("mesh/node_count", function(count)
+//     self.node_count = tonumber(count) or 0
+// end)
+// @end
+
+// @bus channel/message
+// @brief Posted when a new channel message is received
+// @payload table {channel, sender, sender_name, text, timestamp, is_self}
+// @description
+// Fired when a message arrives on any subscribed channel. Contains
+// the full message details for display or processing.
+// @example
+// ez.bus.subscribe("channel/message", function(msg)
+//     print(string.format("[%s] %s: %s",
+//         msg.channel, msg.sender_name, msg.text))
+// end)
+// @end
+
+// @bus channel/unread
+// @brief Posted when a channel's unread count changes
+// @payload string Format: "channel_name:count"
+// @description
+// Fired when new messages arrive or are marked as read.
+// UI components can update badges or indicators.
+// @example
+// ez.bus.subscribe("channel/unread", function(data)
+//     local channel, count = data:match("(.+):(%d+)")
+//     self:update_badge(channel, tonumber(count))
+// end)
+// @end
+
+// @bus message/received
+// @brief Posted when a direct message is received
+// @payload table {from, from_name, text, timestamp, conversation_id}
+// @description
+// Fired when a private message arrives from another node.
+// The DM screen and notification system subscribe to this.
+// @example
+// ez.bus.subscribe("message/received", function(msg)
+//     Toast.show("DM from " .. msg.from_name)
+// end)
+// @end
+
+// @bus message/acked
+// @brief Posted when a sent message is acknowledged
+// @payload string Message ID that was acknowledged
+// @description
+// Fired when the recipient confirms receipt of a direct message.
+// Used to update message status indicators (checkmarks).
+// @example
+// ez.bus.subscribe("message/acked", function(msg_id)
+//     self:mark_delivered(msg_id)
+// end)
+// @end
+
+// =============================================================================
+
 // External reference to the global mesh instance
 extern MeshCore* mesh;
 

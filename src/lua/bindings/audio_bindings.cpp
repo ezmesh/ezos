@@ -9,6 +9,18 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <LittleFS.h>
+#include <SD.h>
+#include "MP3DecoderHelix.h"
+
+// @module ez.audio
+// @brief Audio synthesis and playback via I2S DAC
+// @description
+// Plays audio through the T-Deck speaker via I2S. Supports multiple formats:
+// WAV files (PCM, 8/16-bit, mono/stereo), MP3 files (decoded with Helix), and
+// raw PCM samples. Also provides tone synthesis for beeps and alerts. Use
+// play() for automatic format detection, or play_wav()/play_mp3() directly.
+// Audio output is mono at 44100Hz with volume control.
+// @end
 
 // I2S configuration
 static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
@@ -391,8 +403,636 @@ LUA_FUNCTION(l_audio_play_sample) {
     return 1;
 }
 
+// WAV header structure
+struct WavHeader {
+    char riff[4];           // "RIFF"
+    uint32_t fileSize;      // File size - 8
+    char wave[4];           // "WAVE"
+    char fmt[4];            // "fmt "
+    uint32_t fmtSize;       // Format chunk size (16 for PCM)
+    uint16_t audioFormat;   // 1 = PCM
+    uint16_t numChannels;   // 1 = mono, 2 = stereo
+    uint32_t sampleRate;    // Sample rate in Hz
+    uint32_t byteRate;      // Bytes per second
+    uint16_t blockAlign;    // Bytes per sample frame
+    uint16_t bitsPerSample; // Bits per sample
+};
+
+// Parse WAV file header and find data chunk
+static bool parseWavHeader(File& file, WavHeader& header, uint32_t& dataSize) {
+    // Read RIFF header
+    if (file.read((uint8_t*)&header, sizeof(WavHeader)) != sizeof(WavHeader)) {
+        return false;
+    }
+
+    // Verify RIFF/WAVE signature
+    if (memcmp(header.riff, "RIFF", 4) != 0 || memcmp(header.wave, "WAVE", 4) != 0) {
+        Serial.println("[Audio] Invalid WAV: missing RIFF/WAVE");
+        return false;
+    }
+
+    // Verify fmt chunk
+    if (memcmp(header.fmt, "fmt ", 4) != 0) {
+        Serial.println("[Audio] Invalid WAV: missing fmt chunk");
+        return false;
+    }
+
+    // Only support PCM format
+    if (header.audioFormat != 1) {
+        Serial.printf("[Audio] Unsupported WAV format: %d (only PCM supported)\n", header.audioFormat);
+        return false;
+    }
+
+    // Only support 8 or 16 bit samples
+    if (header.bitsPerSample != 8 && header.bitsPerSample != 16) {
+        Serial.printf("[Audio] Unsupported bits per sample: %d\n", header.bitsPerSample);
+        return false;
+    }
+
+    // Skip any extra format bytes
+    if (header.fmtSize > 16) {
+        file.seek(file.position() + header.fmtSize - 16);
+    }
+
+    // Find data chunk
+    char chunkId[4];
+    uint32_t chunkSize;
+    while (file.available()) {
+        if (file.read((uint8_t*)chunkId, 4) != 4) return false;
+        if (file.read((uint8_t*)&chunkSize, 4) != 4) return false;
+
+        if (memcmp(chunkId, "data", 4) == 0) {
+            dataSize = chunkSize;
+            return true;
+        }
+        // Skip unknown chunks
+        file.seek(file.position() + chunkSize);
+    }
+
+    Serial.println("[Audio] Invalid WAV: no data chunk found");
+    return false;
+}
+
+// @lua ez.audio.play_wav(filename) -> boolean
+// @brief Play a WAV audio file
+// @description Plays a WAV file from the /sounds/ directory or SD card. Supports
+// PCM format with 8 or 16 bit samples, mono or stereo, at any sample rate (resampled
+// to 44100Hz). This function blocks until playback completes. WAV is ideal for
+// short sound effects and UI feedback.
+// @param filename Path to .wav file (relative to /sounds/ for LittleFS, or full path starting with /sd/ for SD card)
+// @return true if played successfully, false on error
+// @example
+// -- Play from internal storage
+// ez.audio.play_wav("click.wav")
+// -- Play from SD card
+// ez.audio.play_wav("/sd/music/song.wav")
+// @end
+LUA_FUNCTION(l_audio_play_wav) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* filename = luaL_checkstring(L, 1);
+
+    if (!initI2S()) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    // Stop any running audio
+    audioRunning = false;
+
+    // Determine file source (SD card or LittleFS)
+    File file;
+    bool useSD = (strncmp(filename, "/sd/", 4) == 0);
+
+    if (useSD) {
+        file = SD.open(filename + 3);  // Skip "/sd" prefix
+    } else {
+        String path = "/sounds/";
+        path += filename;
+        file = LittleFS.open(path, "r");
+    }
+
+    if (!file) {
+        Serial.printf("[Audio] Failed to open WAV: %s\n", filename);
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    // Parse WAV header
+    WavHeader header;
+    uint32_t dataSize;
+    if (!parseWavHeader(file, header, dataSize)) {
+        file.close();
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    Serial.printf("[Audio] WAV: %dHz, %d-bit, %s, %u bytes\n",
+                  header.sampleRate, header.bitsPerSample,
+                  header.numChannels == 1 ? "mono" : "stereo", dataSize);
+
+    // Calculate resampling ratio
+    float resampleRatio = (float)SAMPLE_RATE / header.sampleRate;
+    float volumeScale = audioVolume / 100.0f;
+    bool is16bit = (header.bitsPerSample == 16);
+    bool isStereo = (header.numChannels == 2);
+    int bytesPerSample = (header.bitsPerSample / 8) * header.numChannels;
+
+    // Buffers for reading and playback
+    uint8_t readBuf[512];
+    int16_t playBuf[512];
+
+    float srcPos = 0;  // Position in source samples
+    int16_t prevSample = 0;
+    size_t bytesRemaining = dataSize;
+
+    while (bytesRemaining > 0) {
+        size_t toRead = min((size_t)sizeof(readBuf), bytesRemaining);
+        size_t bytesRead = file.read(readBuf, toRead);
+        if (bytesRead == 0) break;
+        bytesRemaining -= bytesRead;
+
+        int srcSamples = bytesRead / bytesPerSample;
+        int playPos = 0;
+
+        // Resample and convert to 16-bit mono
+        while (srcPos < srcSamples && playPos < 512) {
+            int srcIdx = (int)srcPos;
+            int16_t sample;
+
+            if (is16bit) {
+                int16_t* src16 = (int16_t*)readBuf;
+                if (isStereo) {
+                    // Mix stereo to mono
+                    sample = (src16[srcIdx * 2] + src16[srcIdx * 2 + 1]) / 2;
+                } else {
+                    sample = src16[srcIdx];
+                }
+            } else {
+                // Convert 8-bit unsigned to 16-bit signed
+                uint8_t* src8 = readBuf;
+                if (isStereo) {
+                    int mono = ((int)src8[srcIdx * 2] + src8[srcIdx * 2 + 1]) / 2;
+                    sample = (mono - 128) << 8;
+                } else {
+                    sample = (src8[srcIdx] - 128) << 8;
+                }
+            }
+
+            playBuf[playPos++] = (int16_t)(sample * volumeScale);
+            srcPos += 1.0f / resampleRatio;
+        }
+
+        // Adjust source position for next chunk
+        srcPos -= srcSamples;
+
+        // Write to I2S
+        if (playPos > 0) {
+            size_t bytesWritten;
+            i2s_write(I2S_PORT, playBuf, playPos * sizeof(int16_t), &bytesWritten, portMAX_DELAY);
+        }
+    }
+
+    file.close();
+
+    // Flush with silence
+    int16_t silence[256] = {0};
+    size_t bytesWritten;
+    i2s_write(I2S_PORT, silence, sizeof(silence), &bytesWritten, 10);
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+// MP3 decoder state
+static libhelix::MP3DecoderHelix* mp3Decoder = nullptr;
+static volatile bool mp3Playing = false;
+static File mp3File;
+
+// Preloaded audio sample storage
+struct PreloadedSample {
+    int16_t* samples;
+    size_t sampleCount;
+    uint32_t sampleRate;
+    bool valid;
+};
+
+// Maximum preloaded samples
+static constexpr size_t MAX_PRELOADED = 8;
+static PreloadedSample preloadedSamples[MAX_PRELOADED] = {0};
+
+// Find a free preload slot or return -1
+static int findFreePreloadSlot() {
+    for (int i = 0; i < MAX_PRELOADED; i++) {
+        if (!preloadedSamples[i].valid) return i;
+    }
+    return -1;
+}
+
+// Free a preloaded sample
+static void freePreloadedSample(int index) {
+    if (index >= 0 && index < MAX_PRELOADED && preloadedSamples[index].valid) {
+        if (preloadedSamples[index].samples) {
+            free(preloadedSamples[index].samples);
+            preloadedSamples[index].samples = nullptr;
+        }
+        preloadedSamples[index].valid = false;
+    }
+}
+
+// Callback for decoded MP3 samples (MP3FrameInfo is in global namespace from mp3dec.h)
+static void mp3DataCallback(MP3FrameInfo& info, short* pcm_buffer, size_t len, void* ref) {
+    if (!mp3Playing || len == 0) return;
+
+    float volumeScale = audioVolume / 100.0f;
+
+    // Resample if needed (MP3 can be 44100, 22050, etc.)
+    if (info.samprate == SAMPLE_RATE && info.nChans == 1) {
+        // Direct playback - just apply volume
+        int16_t* scaledBuf = (int16_t*)ps_malloc(len * sizeof(int16_t));
+        if (scaledBuf) {
+            for (size_t i = 0; i < len; i++) {
+                scaledBuf[i] = (int16_t)(pcm_buffer[i] * volumeScale);
+            }
+            size_t bytesWritten;
+            i2s_write(I2S_PORT, scaledBuf, len * sizeof(int16_t), &bytesWritten, portMAX_DELAY);
+            free(scaledBuf);
+        }
+    } else {
+        // Resample and/or mix to mono
+        float resampleRatio = (float)SAMPLE_RATE / info.samprate;
+        int16_t playBuf[1024];
+        int playPos = 0;
+
+        size_t srcSamples = len / info.nChans;
+
+        for (float srcPos = 0; srcPos < srcSamples && playPos < 1024; srcPos += 1.0f / resampleRatio) {
+            int srcIdx = (int)srcPos;
+            int16_t sample;
+
+            if (info.nChans == 2) {
+                // Mix stereo to mono
+                sample = (pcm_buffer[srcIdx * 2] + pcm_buffer[srcIdx * 2 + 1]) / 2;
+            } else {
+                sample = pcm_buffer[srcIdx];
+            }
+
+            playBuf[playPos++] = (int16_t)(sample * volumeScale);
+        }
+
+        if (playPos > 0) {
+            size_t bytesWritten;
+            i2s_write(I2S_PORT, playBuf, playPos * sizeof(int16_t), &bytesWritten, portMAX_DELAY);
+        }
+    }
+}
+
+// @lua ez.audio.play_mp3(filename) -> boolean
+// @brief Play an MP3 audio file
+// @description Plays an MP3 file from the /sounds/ directory or SD card. Supports
+// any valid MP3 file (MPEG Layer 3). Audio is decoded in real-time using the Helix
+// decoder. This function blocks until playback completes. MP3 is ideal for longer
+// audio clips and music due to its compression.
+// @param filename Path to .mp3 file (relative to /sounds/ for LittleFS, or full path starting with /sd/ for SD card)
+// @return true if played successfully, false on error
+// @example
+// -- Play from internal storage
+// ez.audio.play_mp3("startup.mp3")
+// -- Play from SD card
+// ez.audio.play_mp3("/sd/music/song.mp3")
+// @end
+LUA_FUNCTION(l_audio_play_mp3) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* filename = luaL_checkstring(L, 1);
+
+    if (!initI2S()) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    // Stop any running audio
+    audioRunning = false;
+    mp3Playing = false;
+
+    // Determine file source
+    bool useSD = (strncmp(filename, "/sd/", 4) == 0);
+
+    if (useSD) {
+        mp3File = SD.open(filename + 3);
+    } else {
+        String path = "/sounds/";
+        path += filename;
+        mp3File = LittleFS.open(path, "r");
+    }
+
+    if (!mp3File) {
+        Serial.printf("[Audio] Failed to open MP3: %s\n", filename);
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    Serial.printf("[Audio] Playing MP3: %s (%u bytes)\n", filename, mp3File.size());
+
+    // Create decoder if needed
+    if (!mp3Decoder) {
+        mp3Decoder = new libhelix::MP3DecoderHelix();
+        mp3Decoder->setDataCallback(mp3DataCallback);
+    }
+
+    mp3Decoder->begin();
+    mp3Playing = true;
+
+    // Read and decode file in chunks
+    uint8_t readBuf[1024];
+    while (mp3File.available() && mp3Playing) {
+        size_t bytesRead = mp3File.read(readBuf, sizeof(readBuf));
+        if (bytesRead > 0) {
+            mp3Decoder->write(readBuf, bytesRead);
+        }
+        // Allow other tasks to run
+        vTaskDelay(1);
+    }
+
+    mp3Decoder->end();
+    mp3File.close();
+    mp3Playing = false;
+
+    // Flush with silence
+    int16_t silence[256] = {0};
+    size_t bytesWritten;
+    i2s_write(I2S_PORT, silence, sizeof(silence), &bytesWritten, 10);
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+// @lua ez.audio.play(filename) -> boolean
+// @brief Play an audio file (auto-detects format)
+// @description Plays an audio file, automatically detecting the format from the
+// file extension. Supports .wav, .mp3, and .pcm formats. Files are loaded from
+// the /sounds/ directory (LittleFS) by default, or from SD card if the path starts
+// with /sd/. This is the recommended function for playing audio files.
+// @param filename Path to audio file (.wav, .mp3, or .pcm)
+// @return true if played successfully, false on error
+// @example
+// -- Play different formats
+// ez.audio.play("click.wav")
+// ez.audio.play("notify.mp3")
+// ez.audio.play("beep.pcm")
+// -- Play from SD card
+// ez.audio.play("/sd/sounds/music.mp3")
+// @end
+LUA_FUNCTION(l_audio_play) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* filename = luaL_checkstring(L, 1);
+
+    // Detect format from extension
+    size_t len = strlen(filename);
+    if (len < 4) {
+        Serial.printf("[Audio] Invalid filename: %s\n", filename);
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    const char* ext = filename + len - 4;
+
+    if (strcasecmp(ext, ".wav") == 0) {
+        return l_audio_play_wav(L);
+    } else if (strcasecmp(ext, ".mp3") == 0) {
+        return l_audio_play_mp3(L);
+    } else if (strcasecmp(ext, ".pcm") == 0) {
+        return l_audio_play_sample(L);
+    } else {
+        Serial.printf("[Audio] Unknown format: %s\n", ext);
+        lua_pushboolean(L, false);
+        return 1;
+    }
+}
+
+// @lua ez.audio.preload(filename) -> integer | nil
+// @brief Preload an audio file into memory for instant playback
+// @description Loads a WAV or PCM file entirely into PSRAM for zero-latency playback.
+// Returns a handle (integer) that can be passed to play_preloaded(). Useful for
+// UI feedback sounds and game audio where latency matters. Maximum 8 preloaded
+// sounds at once. Call unload() when the sound is no longer needed.
+// @param filename Path to .wav or .pcm file
+// @return Handle (1-8) on success, nil on error (file not found, memory full, or too many preloaded)
+// @example
+// -- Preload UI sounds at startup
+// local click = ez.audio.preload("click.wav")
+// local beep = ez.audio.preload("beep.wav")
+// -- Later, play with zero latency
+// ez.audio.play_preloaded(click)
+// @end
+LUA_FUNCTION(l_audio_preload) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* filename = luaL_checkstring(L, 1);
+
+    int slot = findFreePreloadSlot();
+    if (slot < 0) {
+        Serial.println("[Audio] Preload failed: all slots full");
+        lua_pushnil(L);
+        return 1;
+    }
+
+    // Determine file source and format
+    bool useSD = (strncmp(filename, "/sd/", 4) == 0);
+    File file;
+
+    if (useSD) {
+        file = SD.open(filename + 3);
+    } else {
+        String path = "/sounds/";
+        path += filename;
+        file = LittleFS.open(path, "r");
+    }
+
+    if (!file) {
+        Serial.printf("[Audio] Preload failed: cannot open %s\n", filename);
+        lua_pushnil(L);
+        return 1;
+    }
+
+    size_t len = strlen(filename);
+    bool isWav = (len >= 4 && strcasecmp(filename + len - 4, ".wav") == 0);
+
+    PreloadedSample& sample = preloadedSamples[slot];
+    sample.sampleRate = isWav ? SAMPLE_RATE : SAMPLE_RATE_PCM;
+
+    if (isWav) {
+        // Parse WAV header
+        WavHeader header;
+        uint32_t dataSize;
+        if (!parseWavHeader(file, header, dataSize)) {
+            file.close();
+            lua_pushnil(L);
+            return 1;
+        }
+
+        sample.sampleRate = header.sampleRate;
+        size_t numSamples = dataSize / (header.bitsPerSample / 8) / header.numChannels;
+
+        // Allocate in PSRAM
+        sample.samples = (int16_t*)ps_malloc(numSamples * sizeof(int16_t));
+        if (!sample.samples) {
+            Serial.println("[Audio] Preload failed: out of memory");
+            file.close();
+            lua_pushnil(L);
+            return 1;
+        }
+
+        // Read and convert to 16-bit mono
+        bool is16bit = (header.bitsPerSample == 16);
+        bool isStereo = (header.numChannels == 2);
+        int bytesPerFrame = (header.bitsPerSample / 8) * header.numChannels;
+        uint8_t readBuf[512];
+        size_t pos = 0;
+
+        while (file.available() && pos < numSamples) {
+            size_t toRead = min((size_t)sizeof(readBuf), dataSize);
+            size_t bytesRead = file.read(readBuf, toRead);
+            size_t frames = bytesRead / bytesPerFrame;
+
+            for (size_t i = 0; i < frames && pos < numSamples; i++) {
+                int16_t s;
+                if (is16bit) {
+                    int16_t* src16 = (int16_t*)&readBuf[i * bytesPerFrame];
+                    s = isStereo ? (src16[0] + src16[1]) / 2 : src16[0];
+                } else {
+                    uint8_t* src8 = &readBuf[i * bytesPerFrame];
+                    int mono = isStereo ? ((int)src8[0] + src8[1]) / 2 : src8[0];
+                    s = (mono - 128) << 8;
+                }
+                sample.samples[pos++] = s;
+            }
+        }
+
+        sample.sampleCount = pos;
+    } else {
+        // Raw PCM: 16-bit mono at 22050Hz
+        size_t fileSize = file.size();
+        sample.sampleCount = fileSize / 2;
+        sample.samples = (int16_t*)ps_malloc(sample.sampleCount * sizeof(int16_t));
+
+        if (!sample.samples) {
+            Serial.println("[Audio] Preload failed: out of memory");
+            file.close();
+            lua_pushnil(L);
+            return 1;
+        }
+
+        file.read((uint8_t*)sample.samples, fileSize);
+    }
+
+    file.close();
+    sample.valid = true;
+
+    Serial.printf("[Audio] Preloaded %s: %zu samples at %u Hz (slot %d)\n",
+                  filename, sample.sampleCount, sample.sampleRate, slot + 1);
+
+    lua_pushinteger(L, slot + 1);  // 1-indexed for Lua
+    return 1;
+}
+
+// @lua ez.audio.play_preloaded(handle) -> boolean
+// @brief Play a preloaded audio sample
+// @description Plays an audio sample that was previously loaded with preload().
+// This has minimal latency since the audio data is already in memory. The function
+// blocks until playback completes. For non-blocking playback, see start_preloaded().
+// @param handle Handle returned by preload()
+// @return true if played, false if invalid handle
+// @example
+// local click = ez.audio.preload("click.wav")
+// -- Play instantly when button is pressed
+// ez.audio.play_preloaded(click)
+// @end
+LUA_FUNCTION(l_audio_play_preloaded) {
+    LUA_CHECK_ARGC(L, 1);
+    int handle = luaL_checkinteger(L, 1);
+    int slot = handle - 1;  // Convert from 1-indexed
+
+    if (slot < 0 || slot >= MAX_PRELOADED || !preloadedSamples[slot].valid) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    if (!initI2S()) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    // Stop any running audio
+    audioRunning = false;
+
+    PreloadedSample& sample = preloadedSamples[slot];
+    float volumeScale = audioVolume / 100.0f;
+    float resampleRatio = (float)SAMPLE_RATE / sample.sampleRate;
+
+    int16_t playBuf[512];
+    size_t srcPos = 0;
+    float srcFrac = 0;
+
+    while (srcPos < sample.sampleCount) {
+        int playPos = 0;
+
+        while (srcPos < sample.sampleCount && playPos < 512) {
+            playBuf[playPos++] = (int16_t)(sample.samples[srcPos] * volumeScale);
+
+            srcFrac += 1.0f / resampleRatio;
+            if (srcFrac >= 1.0f) {
+                srcPos++;
+                srcFrac -= 1.0f;
+            } else if (resampleRatio >= 1.0f) {
+                // Upsampling: repeat sample
+            } else {
+                srcPos++;
+            }
+        }
+
+        if (playPos > 0) {
+            size_t bytesWritten;
+            i2s_write(I2S_PORT, playBuf, playPos * sizeof(int16_t), &bytesWritten, portMAX_DELAY);
+        }
+    }
+
+    // Flush with silence
+    int16_t silence[256] = {0};
+    size_t bytesWritten;
+    i2s_write(I2S_PORT, silence, sizeof(silence), &bytesWritten, 10);
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+// @lua ez.audio.unload(handle)
+// @brief Free a preloaded audio sample
+// @description Releases the memory used by a preloaded sample. Call this when
+// the sound is no longer needed to free PSRAM for other uses. After unloading,
+// the handle is invalid and cannot be played.
+// @param handle Handle returned by preload()
+// @example
+// local click = ez.audio.preload("click.wav")
+// -- ... use it ...
+// ez.audio.unload(click)  -- Free memory
+// @end
+LUA_FUNCTION(l_audio_unload) {
+    LUA_CHECK_ARGC(L, 1);
+    int handle = luaL_checkinteger(L, 1);
+    int slot = handle - 1;
+
+    if (slot >= 0 && slot < MAX_PRELOADED) {
+        freePreloadedSample(slot);
+    }
+    return 0;
+}
+
 // Function table for ez.audio
 static const luaL_Reg audio_funcs[] = {
+    {"play",          l_audio_play},
+    {"preload",       l_audio_preload},
+    {"play_preloaded", l_audio_play_preloaded},
+    {"unload",        l_audio_unload},
+    {"play_wav",      l_audio_play_wav},
+    {"play_mp3",      l_audio_play_mp3},
     {"play_tone",     l_audio_play_tone},
     {"play_sample",   l_audio_play_sample},
     {"stop",          l_audio_stop},

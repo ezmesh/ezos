@@ -17,6 +17,7 @@ import { createAudioModule } from './mock/audio.js';
 import { createGpsModule } from './mock/gps.js';
 import { createCryptoModule } from './mock/crypto.js';
 import { createBusModule } from './mock/bus.js';
+import { createWifiModule } from './mock/wifi.js';
 
 // UI Elements
 const canvas = document.getElementById('screen');
@@ -297,6 +298,7 @@ async function initLua() {
     const gps = createGpsModule();
     const cryptoMod = createCryptoModule();
     const bus = createBusModule();
+    const wifi = createWifiModule();
     busModule = bus;  // Store reference for main loop
 
     // Set up modules as top-level globals first
@@ -310,6 +312,7 @@ async function initLua() {
     lua.global.set('_gps', gps);
     lua.global.set('_crypto', cryptoMod);
     lua.global.set('_bus', bus);
+    lua.global.set('_wifi', wifi);
 
     // Create ez.log function
     lua.global.set('_log', (msg) => {
@@ -333,6 +336,7 @@ async function initLua() {
             gps = _gps,
             crypto = _crypto,
             bus = _bus,
+            wifi = _wifi,
             log = _log,
         }
         -- Also set global aliases

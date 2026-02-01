@@ -109,34 +109,104 @@ SettingsCategory.TIMEZONE_COORDS = {
     ["Buenos Aires"] = {-34.60, -58.38},
 }
 
--- All settings organized by category
-SettingsCategory.ALL_SETTINGS = {
+-- Category metadata for documentation
+-- @settings_categories
+SettingsCategory.CATEGORY_INFO = {
+    wifi = {
+        title = "WiFi",
+        desc = "Configure WiFi radio and network connections for internet access and NTP time sync.",
+    },
     radio = {
-        {name = "node_name", label = "Node Name", value = "MeshNode", type = "text", icon = "contacts"},
-        {name = "region", label = "Region", value = 1, type = "option", options = {"EU868", "US915", "AU915", "AS923"}, icon = "channels"},
-        {name = "tx_power", label = "TX Power", value = 22, type = "number", min = 0, max = 22, suffix = " dBm", icon = "channels"},
-        {name = "ttl", label = "TTL", value = 3, type = "number", min = 1, max = 10, suffix = " hops", icon = "channels"},
-        {name = "path_check", label = "Path Check", value = true, type = "toggle", icon = "channels"},
-        {name = "auto_advert", label = "Auto Advert", value = 1, type = "option", options = {"Off", "1 hour", "4 hours", "8 hours", "12 hours", "24 hours"}, icon = "channels"},
+        title = "Radio",
+        desc = "Configure LoRa mesh radio settings including frequency band, power, and routing.",
     },
     display = {
-        {name = "brightness", label = "Display", value = 200, type = "number", min = 25, max = 255, step = 25, suffix = "%", scale = 100/255, icon = "info"},
-        {name = "kb_backlight", label = "KB Light", value = 0, type = "number", min = 0, max = 255, step = 25, suffix = "%", scale = 100/255, icon = "info"},
-        {name = "wallpaper", label = "Wallpaper", value = 1, type = "option", options = {"Solid", "Grid", "Dots", "Dense", "H-Lines", "V-Lines", "Diag"}, icon = "settings"},
+        title = "Display",
+        desc = "Adjust screen brightness, keyboard backlight, themes, and power saving timeouts.",
+    },
+    time = {
+        title = "Time",
+        desc = "Configure clock format, timezone, and automatic time synchronization.",
+    },
+    input = {
+        title = "Input",
+        desc = "Adjust trackball sensitivity and input handling mode.",
+    },
+    sound = {
+        title = "Sound",
+        desc = "Enable UI feedback sounds and adjust volume.",
+    },
+    map = {
+        title = "Map",
+        desc = "Configure offline map viewer appearance and navigation speed.",
+    },
+    hotkeys = {
+        title = "Hotkeys",
+        desc = "Configure keyboard shortcuts for quick access to system functions.",
+    },
+    system = {
+        title = "System",
+        desc = "System utilities and advanced configuration options.",
+    },
+}
+
+-- All settings organized by category
+-- Each setting has: name (pref key), label (UI), value (default), type, and desc (documentation)
+-- @settings
+SettingsCategory.ALL_SETTINGS = {
+    wifi = {
+        {name = "wifi_enabled", label = "WiFi Radio", value = false, type = "toggle", icon = "channels",
+         desc = "Enable or disable the ESP32 WiFi radio. When enabled, the device can connect to WiFi networks for internet access and NTP time synchronization. Disabling saves battery."},
+        {name = "wifi_ssid", label = "Network SSID", value = "", type = "text", icon = "channels",
+         desc = "The name (SSID) of the WiFi network to connect to. Enter the exact network name as it appears in your router settings."},
+        {name = "wifi_password", label = "Password", value = "", type = "password", icon = "channels",
+         desc = "The password for the WiFi network. Stored securely in device preferences. Leave empty for open networks."},
+        {name = "wifi_auto_connect", label = "Auto Connect", value = false, type = "toggle", icon = "channels",
+         desc = "Automatically connect to the saved WiFi network on boot. When disabled, you must manually initiate connections."},
+        {name = "wifi_test", label = "WiFi Test", value = "", type = "button", icon = "channels",
+         desc = "Test the current WiFi configuration by attempting to connect and displaying the connection status."},
+    },
+    radio = {
+        {name = "mesh_node_name", label = "Node Name", value = "MeshNode", type = "text", icon = "contacts",
+         desc = "Your node's display name in the mesh network. Other users will see this name when you send messages or advertise your presence."},
+        {name = "radio_region", label = "Region", value = 1, type = "option", options = {"EU868", "US915", "AU915", "AS923"}, icon = "channels",
+         desc = "LoRa frequency band for your region. Must match other nodes in your mesh. EU868 for Europe, US915 for North America, AU915 for Australia, AS923 for Asia."},
+        {name = "radio_tx_power", label = "TX Power", value = 22, type = "number", min = 0, max = 22, suffix = " dBm", icon = "channels",
+         desc = "Radio transmission power in dBm. Higher values increase range but use more battery. Maximum 22 dBm (~158mW). Lower for indoor use."},
+        {name = "mesh_ttl", label = "TTL", value = 3, type = "number", min = 1, max = 10, suffix = " hops", icon = "channels",
+         desc = "Time-to-live for mesh packets. Messages can traverse this many nodes before expiring. Higher values reach further but increase network traffic."},
+        {name = "mesh_path_check", label = "Path Check", value = true, type = "toggle", icon = "channels",
+         desc = "Verify routing paths are still valid before sending. Improves reliability but adds latency. Disable for faster but less reliable delivery."},
+        {name = "mesh_auto_advert", label = "Auto Advert", value = 1, type = "option", options = {"Off", "1 hour", "4 hours", "8 hours", "12 hours", "24 hours"}, icon = "channels",
+         desc = "Automatically broadcast your presence to the mesh network at this interval. Other nodes use advertisements to discover you and build routing tables."},
+    },
+    display = {
+        {name = "display_brightness", label = "Display", value = 200, type = "number", min = 25, max = 255, step = 25, suffix = "%", scale = 100/255, icon = "info",
+         desc = "LCD backlight brightness level. Lower values save battery. Minimum 25 (10%) to maximum 255 (100%). Changes take effect immediately."},
+        {name = "kb_backlight", label = "KB Light", value = 0, type = "number", min = 0, max = 255, step = 25, suffix = "%", scale = 100/255, icon = "info",
+         desc = "Keyboard backlight brightness. Set to 0 to disable keyboard illumination and save battery. Useful in dark environments."},
+        {name = "wallpaper", label = "Wallpaper", value = 1, type = "option", options = {"Solid", "Grid", "Dots", "Dense", "H-Lines", "V-Lines", "Diag"}, icon = "settings",
+         desc = "Background pattern style for the UI. Solid uses a flat color, others add geometric patterns. Combine with wallpaper tint for custom looks."},
         {name = "color_theme", label = "Colors", value = 1, type = "option", options = {
             "Default", "Amber", "Ocean", "Sunset", "Forest", "Midnight",
             "Cyberpunk", "Cherry", "Aurora", "Coral", "Volcano", "Arctic",
             "JF", "Daylight", "Latte", "Mint", "Lavender", "Peach",
             "Cream", "Sky", "Rose", "Sage"
-        }, icon = "settings"},
-        {name = "wallpaper_tint", label = "Wallpaper Tint", value = "", type = "button", icon = "settings"},
-        {name = "screen_dim_timeout", label = "Dim After", value = 5, type = "option", options = {"Off", "1 min", "2 min", "5 min", "10 min", "15 min"}, icon = "info"},
-        {name = "screen_off_timeout", label = "Off After", value = 4, type = "option", options = {"Off", "5 min", "10 min", "15 min", "30 min"}, icon = "info"},
-        {name = "show_fps", label = "FPS Counter", value = false, type = "toggle", icon = "info"},
+        }, icon = "settings",
+         desc = "Color scheme for the UI. Each theme defines accent colors, text colors, and background tints. Changes apply immediately to all screens."},
+        {name = "wallpaper_tint", label = "Wallpaper Tint", value = "", type = "button", icon = "settings",
+         desc = "Open the color picker to choose a custom tint color for the wallpaper pattern. Use 'Auto' to derive the tint from the current color theme."},
+        {name = "screen_dim_timeout", label = "Dim After", value = 5, type = "option", options = {"Off", "1 min", "2 min", "5 min", "10 min", "15 min"}, icon = "info",
+         desc = "Automatically dim the display after this period of inactivity. Saves battery while keeping the screen readable. Set to Off to disable."},
+        {name = "screen_off_timeout", label = "Off After", value = 4, type = "option", options = {"Off", "5 min", "10 min", "15 min", "30 min"}, icon = "info",
+         desc = "Turn off the display completely after this period of inactivity (after dimming). Press any key to wake. Set to Off to keep screen always on."},
+        {name = "display_show_fps", label = "FPS Counter", value = false, type = "toggle", icon = "info",
+         desc = "Show frames-per-second counter in the status bar. Useful for debugging UI performance. The target is 30 FPS."},
     },
     time = {
-        {name = "time_format", label = "Time", value = 1, type = "option", options = {"24h", "12h AM/PM"}, icon = "info"},
-        {name = "timezone", label = "Timezone", value = 1, type = "option", options = {
+        {name = "time_format", label = "Time", value = 1, type = "option", options = {"24h", "12h AM/PM"}, icon = "info",
+         desc = "Time display format. 24-hour format (00:00-23:59) or 12-hour format with AM/PM indicator."},
+        {name = "time_zone", label = "Timezone", value = 1, type = "option", options = {
             "UTC",
             "London", "Amsterdam", "Berlin", "Paris", "Madrid", "Rome",
             "Helsinki", "Athens", "Moscow",
@@ -146,30 +216,44 @@ SettingsCategory.ALL_SETTINGS = {
             "Perth", "Sydney", "Brisbane", "Auckland",
             "Anchorage", "Los Angeles", "Denver", "Chicago", "New York",
             "Toronto", "Halifax", "Sao Paulo", "Buenos Aires"
-        }, icon = "info"},
-        {name = "time_sync", label = "Set Clock", value = "", type = "button", icon = "info"},
-        {name = "auto_time_sync", label = "Auto Clock Sync", value = true, type = "toggle", icon = "info"},
-        {name = "auto_timezone_gps", label = "Auto Timezone (GPS)", value = false, type = "toggle", icon = "map"},
+        }, icon = "info",
+         desc = "Local timezone for displaying times. Includes automatic daylight saving time adjustments for supported regions. UTC is Coordinated Universal Time (no offset)."},
+        {name = "time_sync", label = "Set Clock", value = "", type = "button", icon = "info",
+         desc = "Manually set the system clock. Opens a date/time picker to enter the current time. Use when GPS or NTP sync is unavailable."},
+        {name = "time_auto_sync", label = "Auto Clock Sync", value = true, type = "toggle", icon = "info",
+         desc = "Automatically synchronize the clock from GPS satellites or NTP servers (when WiFi is connected). Provides accurate time without manual adjustment."},
+        {name = "time_auto_zone_gps", label = "Auto Timezone (GPS)", value = false, type = "toggle", icon = "map",
+         desc = "Automatically detect timezone based on GPS location. Uses the nearest city's timezone. Useful when traveling across time zones."},
     },
     input = {
-        {name = "trackball", label = "Trackball Sens", value = 1, type = "number", min = 1, max = 10, suffix = "", icon = "settings"},
-        {name = "trackball_mode", label = "Trackball Mode", value = 1, type = "option", options = {"Polling", "Interrupt"}, icon = "settings"},
+        {name = "tb_sensitivity", label = "Trackball Sens", value = 1, type = "number", min = 1, max = 10, suffix = "", icon = "settings",
+         desc = "Trackball movement sensitivity. Higher values make the cursor move faster. Start at 1 and increase if scrolling feels too slow."},
+        {name = "tb_mode", label = "Trackball Mode", value = 1, type = "option", options = {"Polling", "Interrupt"}, icon = "settings",
+         desc = "Trackball input method. Polling checks for movement periodically (reliable). Interrupt responds to hardware signals (lower latency but may miss rapid movements)."},
     },
     sound = {
-        {name = "ui_sounds", label = "UI Sounds", value = false, type = "toggle", icon = "settings"},
-        {name = "ui_sounds_vol", label = "Sound Vol", value = 50, type = "number", min = 0, max = 100, step = 10, suffix = "%", icon = "settings"},
+        {name = "sound_enabled", label = "UI Sounds", value = false, type = "toggle", icon = "settings",
+         desc = "Enable audio feedback for UI interactions. Plays tones for navigation, selection, errors, and confirmations through the built-in speaker."},
+        {name = "sound_volume", label = "Sound Vol", value = 50, type = "number", min = 0, max = 100, step = 10, suffix = "%", icon = "settings",
+         desc = "Volume level for UI sounds. 0% is silent, 100% is maximum. Only applies when UI Sounds is enabled."},
     },
     map = {
-        {name = "map_theme", label = "Theme", value = 1, type = "option", options = {"Light", "Dark"}, icon = "map"},
-        {name = "map_pan_speed", label = "Pan Speed", value = 2, type = "number", min = 1, max = 5, suffix = "", icon = "map"},
+        {name = "map_theme", label = "Theme", value = 1, type = "option", options = {"Light", "Dark"}, icon = "map",
+         desc = "Color scheme for the offline map viewer. Light theme has white background, dark theme has black background. Choose based on lighting conditions."},
+        {name = "map_pan_speed", label = "Pan Speed", value = 2, type = "number", min = 1, max = 5, suffix = "", icon = "map",
+         desc = "How fast the map moves when panning with the trackball. Higher values cover more ground per movement but reduce precision."},
     },
     hotkeys = {
-        {name = "menu_hotkey", label = "Menu Hotkey", value = "", type = "button", icon = "settings"},
-        {name = "screenshot_hotkey", label = "Screenshot", value = "", type = "button", icon = "screenshot"},
+        {name = "hotkey_menu", label = "Menu Hotkey", value = "", type = "button", icon = "settings",
+         desc = "Configure the key combination to open the application menu from any screen. Default is Left Shift + Right Shift pressed together."},
+        {name = "hotkey_screenshot", label = "Screenshot", value = "", type = "button", icon = "screenshot",
+         desc = "Configure the key combination to take a screenshot. Screenshots are saved to the SD card in PNG format."},
     },
     system = {
-        {name = "usb", label = "USB Transfer", value = "", type = "button", icon = "files"},
-        {name = "loop_delay", label = "Loop Delay", value = 0, type = "number", min = 0, max = 100, step = 1, suffix = " ms", icon = "settings"},
+        {name = "usb", label = "USB Transfer", value = "", type = "button", icon = "files",
+         desc = "Enter USB mass storage mode to transfer files between the SD card and a computer. The device acts as a USB drive while in this mode."},
+        {name = "system_loop_delay", label = "Loop Delay", value = 0, type = "number", min = 0, max = 100, step = 1, suffix = " ms", icon = "settings",
+         desc = "Add artificial delay to the main loop (advanced). Can reduce CPU usage and heat but makes the UI less responsive. 0 for no delay."},
     }
 }
 
@@ -226,25 +310,33 @@ function SettingsCategory:load_settings()
     end
 
     for _, setting in ipairs(self.settings) do
-        if setting.name == "node_name" then
-            setting.value = get_pref("nodeName", "MeshNode")
-        elseif setting.name == "region" then
+        if setting.name == "wifi_enabled" then
+            setting.value = get_pref("wifi_enabled", false)
+        elseif setting.name == "wifi_ssid" then
+            setting.value = get_pref("wifi_ssid", "")
+        elseif setting.name == "wifi_password" then
+            setting.value = get_pref("wifi_password", "")
+        elseif setting.name == "wifi_auto_connect" then
+            setting.value = get_pref("wifi_auto_connect", false)
+        elseif setting.name == "mesh_node_name" then
+            setting.value = get_pref("mesh_node_name", "MeshNode")
+        elseif setting.name == "radio_region" then
             -- Ensure region is a valid number index (1-4)
-            local region = tonumber(get_pref("region", 1)) or 1
+            local region = tonumber(get_pref("radio_region", 1)) or 1
             if region < 1 or region > 4 then region = 1 end
             setting.value = region
-        elseif setting.name == "tx_power" then
-            setting.value = tonumber(get_pref("txPower", 22)) or 22
-        elseif setting.name == "ttl" then
-            setting.value = tonumber(get_pref("ttl", 3)) or 3
-        elseif setting.name == "path_check" then
-            setting.value = get_pref("pathCheck", true)
-        elseif setting.name == "auto_advert" then
-            setting.value = tonumber(get_pref("autoAdvert", 1)) or 1  -- Default: Off
-        elseif setting.name == "brightness" then
-            setting.value = tonumber(get_pref("brightness", 200)) or 200
+        elseif setting.name == "radio_tx_power" then
+            setting.value = tonumber(get_pref("radio_tx_power", 22)) or 22
+        elseif setting.name == "mesh_ttl" then
+            setting.value = tonumber(get_pref("mesh_ttl", 3)) or 3
+        elseif setting.name == "mesh_path_check" then
+            setting.value = get_pref("mesh_path_check", true)
+        elseif setting.name == "mesh_auto_advert" then
+            setting.value = tonumber(get_pref("mesh_auto_advert", 1)) or 1  -- Default: Off
+        elseif setting.name == "display_brightness" then
+            setting.value = tonumber(get_pref("display_brightness", 200)) or 200
         elseif setting.name == "kb_backlight" then
-            setting.value = tonumber(get_pref("kbBacklight", 0)) or 0
+            setting.value = tonumber(get_pref("kb_backlight", 0)) or 0
         elseif setting.name == "wallpaper" then
             if _G.ThemeManager then
                 setting.value = _G.ThemeManager.get_wallpaper_index()
@@ -254,32 +346,32 @@ function SettingsCategory:load_settings()
                 setting.value = _G.ThemeManager.get_color_theme_index()
             end
         elseif setting.name == "time_format" then
-            setting.value = tonumber(get_pref("timeFormat", 1)) or 1
-        elseif setting.name == "timezone" then
-            setting.value = tonumber(get_pref("timezone", 1)) or 1
-        elseif setting.name == "auto_time_sync" then
-            setting.value = get_pref("autoTimeSyncContacts", true)
-        elseif setting.name == "auto_timezone_gps" then
-            setting.value = get_pref("autoTimezoneGps", false)
-        elseif setting.name == "trackball" then
-            setting.value = tonumber(get_pref("tbSens", 1)) or 1
-        elseif setting.name == "trackball_mode" then
+            setting.value = tonumber(get_pref("time_format", 1)) or 1
+        elseif setting.name == "time_zone" then
+            setting.value = tonumber(get_pref("time_zone", 1)) or 1
+        elseif setting.name == "time_auto_sync" then
+            setting.value = get_pref("time_auto_sync", true)
+        elseif setting.name == "time_auto_zone_gps" then
+            setting.value = get_pref("time_auto_zone_gps", false)
+        elseif setting.name == "tb_sensitivity" then
+            setting.value = tonumber(get_pref("tb_sensitivity", 1)) or 1
+        elseif setting.name == "tb_mode" then
             -- 1 = Polling, 2 = Interrupt
-            local mode = get_pref("tbMode", "polling")
+            local mode = get_pref("tb_mode", "polling")
             setting.value = (mode == "interrupt") and 2 or 1
-        elseif setting.name == "ui_sounds" then
-            setting.value = get_pref("uiSoundsEnabled", false)
-        elseif setting.name == "ui_sounds_vol" then
-            setting.value = tonumber(get_pref("uiSoundsVolume", 50)) or 50
+        elseif setting.name == "sound_enabled" then
+            setting.value = get_pref("sound_enabled", false)
+        elseif setting.name == "sound_volume" then
+            setting.value = tonumber(get_pref("sound_volume", 50)) or 50
         elseif setting.name == "map_theme" then
             -- Convert theme string to option index: light=1, dark=2
-            local theme = get_pref("mapTheme", "light")
+            local theme = get_pref("map_theme", "light")
             setting.value = (theme == "dark") and 2 or 1
         elseif setting.name == "map_pan_speed" then
-            setting.value = tonumber(get_pref("mapPanSpeed", 2)) or 2
+            setting.value = tonumber(get_pref("map_pan_speed", 2)) or 2
         elseif setting.name == "screen_dim_timeout" then
             -- Convert minutes to option index: Off=1, 1=2, 2=3, 5=4, 10=5, 15=6
-            local mins = tonumber(get_pref("screenDimTimeout", 5)) or 5
+            local mins = tonumber(get_pref("screen_dim_timeout", 5)) or 5
             if mins == 0 then setting.value = 1
             elseif mins == 1 then setting.value = 2
             elseif mins == 2 then setting.value = 3
@@ -288,16 +380,16 @@ function SettingsCategory:load_settings()
             else setting.value = 6 end
         elseif setting.name == "screen_off_timeout" then
             -- Convert minutes to option index: Off=1, 5=2, 10=3, 15=4, 30=5
-            local mins = tonumber(get_pref("screenOffTimeout", 10)) or 10
+            local mins = tonumber(get_pref("screen_off_timeout", 10)) or 10
             if mins == 0 then setting.value = 1
             elseif mins == 5 then setting.value = 2
             elseif mins == 10 then setting.value = 3
             elseif mins == 15 then setting.value = 4
             else setting.value = 5 end
-        elseif setting.name == "show_fps" then
-            setting.value = get_pref("showFps", false)
-        elseif setting.name == "loop_delay" then
-            setting.value = tonumber(get_pref("loopDelay", 0)) or 0
+        elseif setting.name == "display_show_fps" then
+            setting.value = get_pref("display_show_fps", false)
+        elseif setting.name == "system_loop_delay" then
+            setting.value = tonumber(get_pref("system_loop_delay", 0)) or 0
         end
     end
 end
@@ -315,63 +407,75 @@ function SettingsCategory:save_setting(setting)
         ez.bus.post("settings/changed", setting.name .. "=" .. value_str)
     end
 
-    if setting.name == "node_name" then
-        set_pref("nodeName", setting.value)
-    elseif setting.name == "region" then
-        set_pref("region", setting.value)
-    elseif setting.name == "tx_power" then
-        set_pref("txPower", setting.value)
-    elseif setting.name == "ttl" then
-        set_pref("ttl", setting.value)
-    elseif setting.name == "path_check" then
-        set_pref("pathCheck", setting.value)
-    elseif setting.name == "auto_advert" then
-        set_pref("autoAdvert", setting.value)
-    elseif setting.name == "brightness" then
-        set_pref("brightness", setting.value)
+    if setting.name == "wifi_enabled" then
+        set_pref("wifi_enabled", setting.value)
+        -- Apply immediately
+        if ez.wifi then
+            ez.wifi.set_power(setting.value)
+        end
+    elseif setting.name == "wifi_ssid" then
+        set_pref("wifi_ssid", setting.value)
+    elseif setting.name == "wifi_password" then
+        set_pref("wifi_password", setting.value)
+    elseif setting.name == "wifi_auto_connect" then
+        set_pref("wifi_auto_connect", setting.value)
+    elseif setting.name == "mesh_node_name" then
+        set_pref("mesh_node_name", setting.value)
+    elseif setting.name == "radio_region" then
+        set_pref("radio_region", setting.value)
+    elseif setting.name == "radio_tx_power" then
+        set_pref("radio_tx_power", setting.value)
+    elseif setting.name == "mesh_ttl" then
+        set_pref("mesh_ttl", setting.value)
+    elseif setting.name == "mesh_path_check" then
+        set_pref("mesh_path_check", setting.value)
+    elseif setting.name == "mesh_auto_advert" then
+        set_pref("mesh_auto_advert", setting.value)
+    elseif setting.name == "display_brightness" then
+        set_pref("display_brightness", setting.value)
     elseif setting.name == "kb_backlight" then
-        set_pref("kbBacklight", setting.value)
+        set_pref("kb_backlight", setting.value)
     elseif setting.name == "time_format" then
-        set_pref("timeFormat", setting.value)
-    elseif setting.name == "timezone" then
-        set_pref("timezone", setting.value)
+        set_pref("time_format", setting.value)
+    elseif setting.name == "time_zone" then
+        set_pref("time_zone", setting.value)
         local tz_name = setting.options[setting.value]
         local tz_posix = SettingsCategory.TIMEZONE_POSIX[tz_name]
         if tz_posix then
-            set_pref("timezonePosix", tz_posix)
+            set_pref("time_zone_posix", tz_posix)
         end
-    elseif setting.name == "auto_time_sync" then
-        set_pref("autoTimeSyncContacts", setting.value)
-    elseif setting.name == "auto_timezone_gps" then
-        set_pref("autoTimezoneGps", setting.value)
-    elseif setting.name == "trackball" then
-        set_pref("tbSens", setting.value)
-    elseif setting.name == "trackball_mode" then
+    elseif setting.name == "time_auto_sync" then
+        set_pref("time_auto_sync", setting.value)
+    elseif setting.name == "time_auto_zone_gps" then
+        set_pref("time_auto_zone_gps", setting.value)
+    elseif setting.name == "tb_sensitivity" then
+        set_pref("tb_sensitivity", setting.value)
+    elseif setting.name == "tb_mode" then
         -- 1 = Polling, 2 = Interrupt
         local mode = (setting.value == 2) and "interrupt" or "polling"
-        set_pref("tbMode", mode)
-    elseif setting.name == "ui_sounds" then
-        set_pref("uiSoundsEnabled", setting.value)
-    elseif setting.name == "ui_sounds_vol" then
-        set_pref("uiSoundsVolume", setting.value)
+        set_pref("tb_mode", mode)
+    elseif setting.name == "sound_enabled" then
+        set_pref("sound_enabled", setting.value)
+    elseif setting.name == "sound_volume" then
+        set_pref("sound_volume", setting.value)
     elseif setting.name == "map_theme" then
         -- Convert option index to theme string: 1=light, 2=dark
         local theme = (setting.value == 2) and "dark" or "light"
-        set_pref("mapTheme", theme)
+        set_pref("map_theme", theme)
     elseif setting.name == "map_pan_speed" then
-        set_pref("mapPanSpeed", setting.value)
+        set_pref("map_pan_speed", setting.value)
     elseif setting.name == "screen_dim_timeout" then
         -- Convert option index to minutes: Off=0, 1=1, 2=2, 5=5, 10=10, 15=15
         local mins_map = {0, 1, 2, 5, 10, 15}
-        set_pref("screenDimTimeout", mins_map[setting.value] or 5)
+        set_pref("screen_dim_timeout", mins_map[setting.value] or 5)
     elseif setting.name == "screen_off_timeout" then
         -- Convert option index to minutes: Off=0, 5=5, 10=10, 15=15, 30=30
         local mins_map = {0, 5, 10, 15, 30}
-        set_pref("screenOffTimeout", mins_map[setting.value] or 10)
-    elseif setting.name == "show_fps" then
-        set_pref("showFps", setting.value)
-    elseif setting.name == "loop_delay" then
-        set_pref("loopDelay", setting.value)
+        set_pref("screen_off_timeout", mins_map[setting.value] or 10)
+    elseif setting.name == "display_show_fps" then
+        set_pref("display_show_fps", setting.value)
+    elseif setting.name == "system_loop_delay" then
+        set_pref("system_loop_delay", setting.value)
     end
 end
 
@@ -569,15 +673,35 @@ end
 function SettingsCategory:start_editing()
     local setting = self.settings[self.selected]
 
-    if setting.type == "text" then
-        ez.log("TODO: Text input for " .. setting.name)
+    if setting.type == "text" or setting.type == "password" then
+        -- Spawn text input screen
+        local self_ref = self
+        local setting_ref = setting
+        spawn(function()
+            local ok, TextInputScreen = pcall(load_module, "/scripts/ui/screens/text_input_screen.lua")
+            if not ok or not TextInputScreen then
+                ez.log("Failed to load text input screen")
+                return
+            end
+            ScreenManager.push(TextInputScreen:new({
+                title = setting_ref.label,
+                label = setting_ref.label .. ":",
+                value = setting_ref.value or "",
+                placeholder = setting_ref.type == "password" and "Enter password" or "Enter value",
+                password_mode = (setting_ref.type == "password"),
+                on_submit = function(value)
+                    setting_ref.value = value
+                    self_ref:save_setting(setting_ref)
+                end
+            }))
+        end)
     elseif setting.type == "button" then
         if setting.name == "usb" then
             spawn_screen("/scripts/ui/screens/usb_transfer.lua")
-        elseif setting.name == "menu_hotkey" then
-            spawn_screen("/scripts/ui/screens/hotkey_config.lua", "menu", "Menu Hotkey", "menuHotkey")
-        elseif setting.name == "screenshot_hotkey" then
-            spawn_screen("/scripts/ui/screens/hotkey_config.lua", "screenshot", "Screenshot Key", "screenshotHotkey")
+        elseif setting.name == "hotkey_menu" then
+            spawn_screen("/scripts/ui/screens/hotkey_config.lua", "menu", "Menu Hotkey", "hotkey_menu")
+        elseif setting.name == "hotkey_screenshot" then
+            spawn_screen("/scripts/ui/screens/hotkey_config.lua", "screenshot", "Screenshot Key", "hotkey_screenshot")
         elseif setting.name == "wallpaper_tint" then
             -- Color picker needs complex options, use spawn directly
             spawn(function()
@@ -598,6 +722,8 @@ function SettingsCategory:start_editing()
             end)
         elseif setting.name == "time_sync" then
             spawn_screen("/scripts/ui/screens/set_clock.lua")
+        elseif setting.name == "wifi_test" then
+            spawn_screen("/scripts/ui/screens/wifi_test.lua")
         end
     else
         self.editing = true
@@ -624,7 +750,7 @@ function SettingsCategory:adjust_value(delta)
     end
 
     -- Apply changes immediately for certain settings
-    if setting.name == "brightness" then
+    if setting.name == "display_brightness" then
         if ez.display and ez.display.set_brightness then
             ez.display.set_brightness(setting.value)
         end
@@ -640,7 +766,7 @@ function SettingsCategory:adjust_value(delta)
         if _G.ThemeManager then
             _G.ThemeManager.set_color_theme_by_index(setting.value)
         end
-    elseif setting.name == "timezone" then
+    elseif setting.name == "time_zone" then
         local tz_name = setting.options[setting.value]
         local tz_posix = SettingsCategory.TIMEZONE_POSIX[tz_name]
         if tz_posix then
@@ -648,38 +774,38 @@ function SettingsCategory:adjust_value(delta)
                 ez.system.set_timezone(tz_posix)
             end
             if ez.storage and ez.storage.set_pref then
-                ez.storage.set_pref("timezonePosix", tz_posix)
+                ez.storage.set_pref("time_zone_posix", tz_posix)
             end
         end
-    elseif setting.name == "trackball" then
+    elseif setting.name == "tb_sensitivity" then
         if ez.keyboard and ez.keyboard.set_trackball_sensitivity then
             ez.keyboard.set_trackball_sensitivity(setting.value)
         end
-    elseif setting.name == "trackball_mode" then
+    elseif setting.name == "tb_mode" then
         if ez.keyboard and ez.keyboard.set_trackball_mode then
             local mode = (setting.value == 2) and "interrupt" or "polling"
             ez.keyboard.set_trackball_mode(mode)
         end
-    elseif setting.name == "node_name" then
+    elseif setting.name == "mesh_node_name" then
         if ez.mesh and ez.mesh.set_node_name then
             ez.mesh.set_node_name(setting.value)
         end
-    elseif setting.name == "tx_power" then
+    elseif setting.name == "radio_tx_power" then
         if ez.radio and ez.radio.set_tx_power then
             ez.radio.set_tx_power(setting.value)
         end
-    elseif setting.name == "path_check" then
+    elseif setting.name == "mesh_path_check" then
         if ez.mesh and ez.mesh.set_path_check then
             ez.mesh.set_path_check(setting.value)
         end
-    elseif setting.name == "auto_advert" then
+    elseif setting.name == "mesh_auto_advert" then
         if ez.mesh and ez.mesh.set_announce_interval then
             -- Convert option index to milliseconds: 1=Off, 2=1h, 3=4h, 4=8h, 5=12h, 6=24h
             local intervals = {0, 3600000, 14400000, 28800000, 43200000, 86400000}
             local ms = intervals[setting.value] or 0
             ez.mesh.set_announce_interval(ms)
         end
-    elseif setting.name == "ui_sounds" then
+    elseif setting.name == "sound_enabled" then
         if setting.value then
             if not _G.SoundUtils then
                 local ok, result = pcall(dofile, "/scripts/ui/sound_utils.lua")
@@ -697,18 +823,18 @@ function SettingsCategory:adjust_value(delta)
                 pcall(function() _G.SoundUtils.set_enabled(false) end)
             end
         end
-    elseif setting.name == "ui_sounds_vol" then
+    elseif setting.name == "sound_volume" then
         if _G.SoundUtils and _G.SoundUtils.set_volume then
             pcall(function() _G.SoundUtils.set_volume(setting.value) end)
             if _G.SoundUtils.is_enabled and _G.SoundUtils.is_enabled() then
                 pcall(function() _G.SoundUtils.click() end)
             end
         end
-    elseif setting.name == "auto_time_sync" then
+    elseif setting.name == "time_auto_sync" then
         if _G.Contacts and _G.Contacts.set_auto_time_sync then
             _G.Contacts.set_auto_time_sync(setting.value)
         end
-    elseif setting.name == "auto_timezone_gps" then
+    elseif setting.name == "time_auto_zone_gps" then
         -- Enable/disable the TimezoneSync service
         if _G.TimezoneSync and _G.TimezoneSync.set_enabled then
             _G.TimezoneSync.set_enabled(setting.value)
@@ -718,12 +844,12 @@ function SettingsCategory:adjust_value(delta)
         if _G.ScreenTimeout and _G.ScreenTimeout.load_settings then
             _G.ScreenTimeout.load_settings()
         end
-    elseif setting.name == "show_fps" then
+    elseif setting.name == "display_show_fps" then
         -- Update the StatusBar FPS display setting
         if _G.StatusBar then
             _G.StatusBar.show_fps = setting.value
         end
-    elseif setting.name == "loop_delay" then
+    elseif setting.name == "system_loop_delay" then
         -- Update the C++ main loop delay
         if ez.system and ez.system.set_loop_delay then
             ez.system.set_loop_delay(setting.value)

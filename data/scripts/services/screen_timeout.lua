@@ -24,14 +24,14 @@ function ScreenTimeout.init()
 
     -- Get current brightness as saved value
     if ez.storage and ez.storage.get_pref then
-        ScreenTimeout.saved_brightness = ez.storage.get_pref("brightness", 200)
+        ScreenTimeout.saved_brightness = ez.storage.get_pref("display_brightness", 200)
     end
 end
 
 function ScreenTimeout.load_settings()
     if ez.storage and ez.storage.get_pref then
-        ScreenTimeout.dim_timeout = ez.storage.get_pref("screenDimTimeout", 5)
-        ScreenTimeout.off_timeout = ez.storage.get_pref("screenOffTimeout", 10)
+        ScreenTimeout.dim_timeout = ez.storage.get_pref("screen_dim_timeout", 5)
+        ScreenTimeout.off_timeout = ez.storage.get_pref("screen_off_timeout", 10)
     end
 end
 
@@ -81,7 +81,7 @@ function ScreenTimeout.dim()
     if ScreenTimeout.state == "active" then
         -- Save current brightness before dimming
         if ez.storage and ez.storage.get_pref then
-            ScreenTimeout.saved_brightness = ez.storage.get_pref("brightness", 200)
+            ScreenTimeout.saved_brightness = ez.storage.get_pref("display_brightness", 200)
         end
 
         -- Set dim brightness
@@ -97,7 +97,7 @@ function ScreenTimeout.turn_off()
         -- Save brightness if not already saved (in case we skipped dim)
         if ScreenTimeout.state == "active" then
             if ez.storage and ez.storage.get_pref then
-                ScreenTimeout.saved_brightness = ez.storage.get_pref("brightness", 200)
+                ScreenTimeout.saved_brightness = ez.storage.get_pref("display_brightness", 200)
             end
         end
 

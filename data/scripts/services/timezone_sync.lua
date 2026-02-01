@@ -194,7 +194,7 @@ function TimezoneSync.sync_from_gps()
     end
 
     -- Get current timezone to check if it's different
-    local current_tz = ez.storage.get_pref("timezonePosix", "UTC0")
+    local current_tz = ez.storage.get_pref("time_zone_posix", "UTC0")
     if current_tz == tz_posix then
         -- Already set to this timezone
         TimezoneSync.synced = true
@@ -210,8 +210,8 @@ function TimezoneSync.sync_from_gps()
 
     -- Save to preferences
     local tz_index = get_timezone_index(nearest_city)
-    ez.storage.set_pref("timezone", tz_index)
-    ez.storage.set_pref("timezonePosix", tz_posix)
+    ez.storage.set_pref("time_zone", tz_index)
+    ez.storage.set_pref("time_zone_posix", tz_posix)
 
     TimezoneSync.synced = true
     TimezoneSync.last_sync_lat = lat
@@ -240,7 +240,7 @@ end
 -- Initialize the service
 function TimezoneSync.init()
     -- Load setting from preferences
-    local enabled = ez.storage.get_pref("autoTimezoneGps", false)
+    local enabled = ez.storage.get_pref("time_auto_zone_gps", false)
     TimezoneSync.enabled = (enabled == true or enabled == "true")
 
     if TimezoneSync.enabled then

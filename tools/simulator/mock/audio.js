@@ -11,6 +11,7 @@ export function createAudioModule() {
     let currentGain = null;
     let currentFrequency = 440;
     let isPlaying = false;
+    const preloadedSounds = [];
 
     // Lazily create audio context (must be after user interaction)
     function getAudioContext() {
@@ -107,6 +108,61 @@ export function createAudioModule() {
             // In browser, just play a short beep as placeholder
             module.play_tone(800, 50);
             return true;
+        },
+
+        // Play any audio file (auto-detect format)
+        play(filename) {
+            if (!enabled) return false;
+            console.log(`[Audio] Would play file: ${filename}`);
+            // In browser, just play a short beep as placeholder
+            module.play_tone(800, 100);
+            return true;
+        },
+
+        // Play WAV file (mock - falls back to beep)
+        play_wav(filename) {
+            if (!enabled) return false;
+            console.log(`[Audio] Would play WAV: ${filename}`);
+            module.play_tone(600, 100);
+            return true;
+        },
+
+        // Play MP3 file (mock - falls back to beep)
+        play_mp3(filename) {
+            if (!enabled) return false;
+            console.log(`[Audio] Would play MP3: ${filename}`);
+            module.play_tone(500, 150);
+            return true;
+        },
+
+        // Preload audio file into memory (mock - returns handle)
+        preload(filename) {
+            const handle = preloadedSounds.length + 1;
+            preloadedSounds.push({ filename, handle });
+            console.log(`[Audio] Preloaded: ${filename} -> handle ${handle}`);
+            return handle;
+        },
+
+        // Play preloaded audio (mock - plays beep)
+        play_preloaded(handle) {
+            if (!enabled) return false;
+            const sound = preloadedSounds.find(s => s.handle === handle);
+            if (sound) {
+                console.log(`[Audio] Playing preloaded: ${sound.filename}`);
+                module.play_tone(700, 50);
+                return true;
+            }
+            console.warn(`[Audio] Invalid handle: ${handle}`);
+            return false;
+        },
+
+        // Unload preloaded audio
+        unload(handle) {
+            const idx = preloadedSounds.findIndex(s => s.handle === handle);
+            if (idx >= 0) {
+                console.log(`[Audio] Unloaded handle ${handle}`);
+                preloadedSounds.splice(idx, 1);
+            }
         },
 
         // Enable/disable audio

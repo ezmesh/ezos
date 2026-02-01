@@ -14,6 +14,74 @@
 #include <SD.h>
 #include <sys/time.h>
 
+// @module ez.system
+// @brief System utilities, timers, memory info, and power management
+// @description
+// Provides access to ESP32 system functions including heap/PSRAM memory stats,
+// time and date, timers (set_timeout/set_interval), sleep modes, timezone
+// configuration, and garbage collection control. Timer callbacks run in the
+// main Lua context during the scheduler update cycle.
+// @end
+
+// =============================================================================
+// Bus Message Topics (system module)
+// =============================================================================
+
+// @bus screen/pushed
+// @brief Posted when a screen is pushed onto the navigation stack
+// @payload string Screen title
+// @description
+// Fired after ScreenManager.push() completes. Useful for analytics,
+// logging navigation paths, or updating UI elements that depend on
+// the current screen.
+// @example
+// ez.bus.subscribe("screen/pushed", function(title)
+//     print("Navigated to: " .. title)
+// end)
+// @end
+
+// @bus screen/popped
+// @brief Posted when a screen is removed from the navigation stack
+// @payload string Screen title that was removed
+// @description
+// Fired after ScreenManager.pop() completes. The previous screen
+// is now active.
+// @example
+// ez.bus.subscribe("screen/popped", function(title)
+//     print("Left screen: " .. title)
+// end)
+// @end
+
+// @bus screen/replaced
+// @brief Posted when the current screen is replaced with another
+// @payload string Format: "old_title>new_title"
+// @description
+// Fired when ScreenManager.replace() swaps the current screen without
+// pushing to the stack. Useful for tracking screen transitions.
+// @example
+// ez.bus.subscribe("screen/replaced", function(data)
+//     local old, new = data:match("(.+)>(.+)")
+//     print("Replaced " .. old .. " with " .. new)
+// end)
+// @end
+
+// @bus settings/changed
+// @brief Posted when any setting value is modified
+// @payload string Format: "setting_name=value"
+// @description
+// Fired when user changes a setting in the Settings screen.
+// Can be used to react to configuration changes in real-time.
+// @example
+// ez.bus.subscribe("settings/changed", function(data)
+//     local name, value = data:match("(.+)=(.+)")
+//     if name == "brightness" then
+//         print("Brightness changed to: " .. value)
+//     end
+// end)
+// @end
+
+// =============================================================================
+
 // Timer entry for scheduled callbacks
 struct TimerEntry {
     int callbackRef;     // Registry reference to Lua callback
@@ -280,11 +348,11 @@ LUA_FUNCTION(l_system_get_total_psram) {
     return 1;
 }
 
-// @lua ez.log(message)
+// @lua ez.system.log(message)
 // @brief Log message to serial output
 // @description Sends a log message to the serial console. Messages are prefixed
 // with #LOG#[Lua] for easy filtering. Use for debugging during development.
-// Also available as ez.log() for convenience.
+// Also available as ez.log() shorthand for convenience.
 // @param message Text to log
 // @example
 // ez.log("Starting initialization")

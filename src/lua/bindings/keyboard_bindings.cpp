@@ -4,6 +4,15 @@
 #include "../lua_bindings.h"
 #include "../../hardware/keyboard.h"
 
+// @module ez.keyboard
+// @brief Physical keyboard and trackball input handling
+// @description
+// Reads input from the T-Deck's QWERTY keyboard and trackball. Supports
+// key events with modifiers (shift, ctrl, alt, fn), special keys (arrows,
+// enter, escape), and trackball movement/click. The keyboard is polled
+// during the main loop; use read() to get pending key events.
+// @end
+
 // External reference to the global keyboard instance
 extern Keyboard* keyboard;
 
