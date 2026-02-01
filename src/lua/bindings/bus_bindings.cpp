@@ -2,6 +2,7 @@
 // Global message bus for C++ and Lua communication
 
 #include "bus_bindings.h"
+#include "../../util/log.h"
 #include <Arduino.h>
 
 // @module ez.bus
@@ -37,7 +38,7 @@ int MessageBus::subscribe(lua_State* L, const char* topic, int callbackRef) {
     _luaSubscriptions[id] = sub;
     _cachedState = L;
 
-    Serial.printf("[MessageBus] Lua subscribe id=%d topic=%s\n", id, topic);
+    LOG("MessageBus", "Lua subscribe id=%d topic=%s", id, topic);
     return id;
 }
 
@@ -48,7 +49,7 @@ bool MessageBus::unsubscribe(int subscriptionId) {
     auto luaIt = _luaSubscriptions.find(subscriptionId);
     if (luaIt != _luaSubscriptions.end()) {
         luaIt->second.active = false;
-        Serial.printf("[MessageBus] Unsubscribed id=%d\n", subscriptionId);
+        LOG("MessageBus", "Unsubscribed id=%d", subscriptionId);
         return true;
     }
 
@@ -66,7 +67,7 @@ void MessageBus::post(const char* topic, const char* data) {
     std::lock_guard<std::mutex> lock(_mutex);
 
     if (_messageQueue.size() >= MAX_QUEUE_SIZE) {
-        Serial.println("[MessageBus] Queue full, dropping message");
+        LOG("MessageBus", "Queue full, dropping message");
         return;
     }
 
@@ -81,7 +82,7 @@ void MessageBus::postTable(const char* topic, TableBuilder builder) {
     std::lock_guard<std::mutex> lock(_mutex);
 
     if (_messageQueue.size() >= MAX_QUEUE_SIZE) {
-        Serial.println("[MessageBus] Queue full, dropping table message");
+        LOG("MessageBus", "Queue full, dropping table message");
         return;
     }
 
@@ -96,7 +97,7 @@ void MessageBus::postLuaTable(lua_State* L, const char* topic, int tableRef) {
     std::lock_guard<std::mutex> lock(_mutex);
 
     if (_messageQueue.size() >= MAX_QUEUE_SIZE) {
-        Serial.println("[MessageBus] Queue full, dropping Lua table message");
+        LOG("MessageBus", "Queue full, dropping Lua table message");
         // Release the reference since we're not using it
         luaL_unref(L, LUA_REGISTRYINDEX, tableRef);
         return;
@@ -186,8 +187,7 @@ void MessageBus::process(lua_State* L) {
 
                 // Call callback(topic, data)
                 if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
-                    Serial.printf("[MessageBus] Callback error: %s\n",
-                                 lua_tostring(L, -1));
+                    LOG("MessageBus", "Callback error: %s", lua_tostring(L, -1));
                     lua_pop(L, 1);
                 }
             } else {
@@ -214,7 +214,7 @@ int MessageBus::subscribeCpp(const char* topic, std::function<void(lua_State*, c
 
     _cppSubscriptions[id] = std::move(sub);
 
-    Serial.printf("[MessageBus] C++ subscribe id=%d topic=%s\n", id, topic);
+    LOG("MessageBus", "C++ subscribe id=%d topic=%s", id, topic);
     return id;
 }
 
@@ -264,7 +264,7 @@ void MessageBus::clearAll(lua_State* L) {
     _cppSubscriptions.clear();
     _messageQueue.clear();
 
-    Serial.println("[MessageBus] Cleared all subscriptions");
+    LOG("MessageBus", "Cleared all subscriptions");
 }
 
 // =============================================================================
@@ -431,5 +431,5 @@ void registerBusModule(lua_State* L) {
     // Set up built-in C++ handlers
     setupBuiltinHandlers();
 
-    Serial.println("[LuaRuntime] Registered ez.bus");
+    LOG("LuaRuntime", "Registered ez.bus");
 }

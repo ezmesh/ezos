@@ -2,6 +2,7 @@
 #include "async.h"
 #include "embedded_scripts.h"
 #include "../config.h"
+#include "../util/log.h"
 #include <esp_heap_caps.h>
 #include <LittleFS.h>
 #include <SD.h>
@@ -96,7 +97,7 @@ void LuaRuntime::reportError(const char* error) {
     _lastError[sizeof(_lastError) - 1] = '\0';
 
     // Log to serial
-    Serial.printf("[Lua Error] %s\n", error);
+    LOG("Lua Error", "%s", error);
 
     // Call error callback if set
     if (_errorCallback) {
@@ -106,11 +107,11 @@ void LuaRuntime::reportError(const char* error) {
 
 bool LuaRuntime::init() {
     if (_state != nullptr) {
-        Serial.println("[LuaRuntime] Already initialized");
+        LOG("LuaRuntime", "Already initialized");
         return true;
     }
 
-    Serial.println("[LuaRuntime] Initializing...");
+    LOG("LuaRuntime", "Initializing...");
 
     // Create Lua state with custom allocator
     _state = lua_newstate(luaAlloc, this);
@@ -131,10 +132,10 @@ bool LuaRuntime::init() {
 
     // Initialize async I/O system (worker task on Core 0)
     if (!AsyncIO::instance().init(_state)) {
-        Serial.println("[LuaRuntime] Warning: AsyncIO init failed");
+        LOG("LuaRuntime", "Warning: AsyncIO init failed");
     }
 
-    Serial.printf("[LuaRuntime] Initialized, memory: %u bytes\n", _memoryUsed);
+    LOG("LuaRuntime", "Initialized, memory: %u bytes", _memoryUsed);
     return true;
 }
 
@@ -143,7 +144,7 @@ void LuaRuntime::shutdown() {
         lua_close(_state);
         _state = nullptr;
         _memoryUsed = 0;
-        Serial.println("[LuaRuntime] Shutdown complete");
+        LOG("LuaRuntime", "Shutdown complete");
     }
 }
 
@@ -155,7 +156,7 @@ void LuaRuntime::createEzNamespace() {
 
 
 void LuaRuntime::registerAllModules() {
-    Serial.println("[LuaRuntime] Registering modules...");
+    LOG("LuaRuntime", "Registering modules...");
 
     // Each module adds itself to the tdeck table
     registerSystemModule(_state);
@@ -183,7 +184,7 @@ void LuaRuntime::registerAllModules() {
     // WiFi module
     registerWifiModule(_state);
 
-    Serial.println("[LuaRuntime] Modules registered");
+    LOG("LuaRuntime", "Modules registered");
 }
 
 bool LuaRuntime::executeString(const char* script, const char* name) {
@@ -454,7 +455,7 @@ bool LuaRuntime::reloadScripts() {
         return false;
     }
 
-    Serial.println("[LuaRuntime] Reloading scripts...");
+    LOG("LuaRuntime", "Reloading scripts...");
 
     // Force garbage collection before reload
     collectGarbage();
@@ -480,7 +481,7 @@ bool LuaRuntime::reloadScripts() {
     }
     lua_pop(_state, 1);
 
-    Serial.println("[LuaRuntime] Scripts reloaded");
+    LOG("LuaRuntime", "Scripts reloaded");
     return true;
 }
 
@@ -490,7 +491,7 @@ bool LuaRuntime::reloadBootScript() {
         return false;
     }
 
-    Serial.println("[LuaRuntime] Reloading boot script...");
+    LOG("LuaRuntime", "Reloading boot script...");
 
     // Clear cached modules
     reloadScripts();
@@ -506,7 +507,7 @@ void LuaRuntime::collectGarbage() {
     lua_gc(_state, LUA_GCCOLLECT, 0);
     size_t after = _memoryUsed;
 
-    Serial.printf("[LuaRuntime] GC: freed %u bytes (was %u, now %u)\n",
+    LOG("LuaRuntime", "GC: freed %u bytes (was %u, now %u)",
                   before - after, before, after);
 }
 

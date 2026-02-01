@@ -1,5 +1,6 @@
 #include "async.h"
 #include "embedded_scripts.h"
+#include "../util/log.h"
 #include <Arduino.h>
 #include <SD.h>
 #include <LittleFS.h>

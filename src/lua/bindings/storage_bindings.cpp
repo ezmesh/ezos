@@ -215,18 +215,12 @@ LUA_FUNCTION(l_storage_read_file) {
         return 2;
     }
 
-    // Debug: check if using LittleFS
-    bool isLittleFS = (fs == &LittleFS);
-    Serial.printf("[Storage] read_file: %s (using %s)\n", adjustedPath, isLittleFS ? "LittleFS" : "SD");
-
     File file = fs->open(adjustedPath, "r");
     if (!file) {
-        Serial.printf("[Storage] Failed to open: %s\n", adjustedPath);
         lua_pushnil(L);
         lua_pushstring(L, "File not found");
         return 2;
     }
-    Serial.printf("[Storage] Opened file, size: %d bytes\n", file.size());
 
     size_t size = file.size();
     if (size > 1024 * 1024) {  // 1MB limit
@@ -573,10 +567,35 @@ LUA_FUNCTION(l_storage_get_pref) {
         return 1;
     }
 
-    // Try to determine type and return appropriate value
-    // Preferences stores type info, but we'll store as string for simplicity
-    String value = prefs.getString(key, "");
-    lua_pushstring(L, value.c_str());
+    // Get the type of the stored preference and read accordingly
+    PreferenceType type = prefs.getType(key);
+    switch (type) {
+        case PT_I8:
+        case PT_U8:
+        case PT_I16:
+        case PT_U16:
+        case PT_I32:
+        case PT_U32:
+        case PT_I64:
+        case PT_U64:
+            lua_pushinteger(L, prefs.getInt(key, 0));
+            break;
+        case PT_STR:
+            lua_pushstring(L, prefs.getString(key, "").c_str());
+            break;
+        case PT_BLOB:
+            // For blobs, try to read as string
+            lua_pushstring(L, prefs.getString(key, "").c_str());
+            break;
+        default:
+            // For bool and unknown types, try bool first then string
+            // Note: ESP32 Preferences doesn't have PT_BOOL, bools are stored as U8
+            {
+                bool boolVal = prefs.getBool(key, false);
+                lua_pushboolean(L, boolVal);
+            }
+            break;
+    }
     return 1;
 }
 

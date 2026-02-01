@@ -120,10 +120,30 @@ class EzRemote:
         data = extra
         remaining = length - len(extra)
         if remaining > 0:
-            more_data = self.ser.read(remaining)
-            if len(more_data) < remaining:
-                raise TimeoutError(f"Timeout reading payload (got {len(data) + len(more_data)}/{length})")
-            data += more_data
+            # Read remaining payload, filtering out any log lines that appear mid-stream
+            while len(data) < length:
+                chunk = self.ser.read(min(remaining, 1024))
+                if not chunk:
+                    raise TimeoutError(f"Timeout reading payload (got {len(data)}/{length})")
+
+                # Check for embedded log lines and filter them out
+                # This handles logs that appear during payload transmission
+                filtered = bytearray()
+                i = 0
+                while i < len(chunk):
+                    # Check if this looks like start of a log line
+                    if chunk[i:i+5] == b'#LOG#':
+                        # Skip until newline
+                        while i < len(chunk) and chunk[i:i+1] != b'\n':
+                            i += 1
+                        if i < len(chunk):
+                            i += 1  # Skip the newline
+                    else:
+                        filtered.append(chunk[i])
+                        i += 1
+
+                data += bytes(filtered)
+                remaining = length - len(data)
 
         return status, data[:length]
 

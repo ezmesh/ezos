@@ -4,6 +4,7 @@
 #include "../lua_bindings.h"
 #include "../lua_runtime.h"
 #include "../../hardware/usb_msc.h"
+#include "../../util/log.h"
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 #include <esp_partition.h>
@@ -376,7 +377,7 @@ LUA_FUNCTION(l_system_log) {
 // ez.system.restart()
 // @end
 LUA_FUNCTION(l_system_restart) {
-    Serial.println("[Lua] Restart requested");
+    LOG("Lua", "Restart requested");
     delay(100);  // Allow serial to flush
     ESP.restart();
     return 0;  // Never reached
@@ -481,8 +482,8 @@ LUA_FUNCTION(l_system_set_time) {
     struct timeval tv = { .tv_sec = t, .tv_usec = 0 };
 
     int result = settimeofday(&tv, nullptr);
-    Serial.printf("[System] Time set to %04d-%02d-%02d %02d:%02d:%02d (result=%d)\n",
-                  year, month, day, hour, minute, second, result);
+    LOG("System", "Time set to %04d-%02d-%02d %02d:%02d:%02d (result=%d)",
+        year, month, day, hour, minute, second, result);
 
     lua_pushboolean(L, result == 0);
     return 1;
@@ -505,8 +506,8 @@ LUA_FUNCTION(l_system_set_time_unix) {
     struct timeval tv = { .tv_sec = (time_t)timestamp, .tv_usec = 0 };
     int result = settimeofday(&tv, nullptr);
 
-    Serial.printf("[System] Time set from Unix timestamp %lld (result=%d)\n",
-                  (long long)timestamp, result);
+    LOG("System", "Time set from Unix timestamp %lld (result=%d)",
+        (long long)timestamp, result);
 
     lua_pushboolean(L, result == 0);
     return 1;
@@ -556,7 +557,7 @@ LUA_FUNCTION(l_system_set_timezone) {
     setenv("TZ", tz, 1);
     tzset();
 
-    Serial.printf("[System] Timezone set: TZ=%s\n", tz);
+    LOG("System", "Timezone set: TZ=%s", tz);
 
     lua_pushboolean(L, true);
     return 1;
@@ -905,7 +906,7 @@ LUA_FUNCTION(l_system_deep_sleep) {
     // Configure GPIO wake source (trackball button on GPIO 0)
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
 
-    Serial.println("[System] Entering deep sleep...");
+    LOG("System", "Entering deep sleep...");
     Serial.flush();
 
     // Enter deep sleep - does not return, device reboots on wake
@@ -1038,7 +1039,7 @@ static bool loadScriptFile(lua_State* L, const char* path) {
     if (SD.exists(path)) {
         file = SD.open(path, "r");
         if (file) {
-            Serial.printf("[Lua] Loading from SD: %s\n", path);
+            LOG("Lua", "Loading from SD: %s", path);
         }
     }
 
@@ -1157,7 +1158,7 @@ void registerSystemModule(lua_State* L) {
     }
     lua_pop(L, 2);  // pop searchers and package
 
-    Serial.println("[LuaRuntime] Registered ez.system");
+    LOG("LuaRuntime", "Registered ez.system");
 }
 
 // Process pending timers (called from LuaRuntime::update())
@@ -1175,7 +1176,7 @@ void processLuaTimers() {
 
             // Call callback with no arguments
             if (lua_pcall(timerLuaState, 0, 0, 0) != LUA_OK) {
-                Serial.printf("[Lua Timer] Error: %s\n", lua_tostring(timerLuaState, -1));
+                LOG("Lua Timer", "Error: %s", lua_tostring(timerLuaState, -1));
                 lua_pop(timerLuaState, 1);
             }
 

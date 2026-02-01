@@ -1,6 +1,7 @@
 #include "script_loader.h"
 #include "lua_runtime.h"
 #include "../config.h"
+#include "../util/log.h"
 #include <LittleFS.h>
 #include <SD.h>
 #include <SPI.h>
@@ -25,25 +26,25 @@ ScriptLoader& ScriptLoader::instance() {
 bool ScriptLoader::init() {
     if (_initialized) return true;
 
-    Serial.println("[ScriptLoader] Initializing...");
+    LOG("ScriptLoader", "Initializing...");
 
     // Try to initialize SD card
     SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
     if (SD.begin(SD_CS)) {
         _sdAvailable = true;
-        Serial.println("[ScriptLoader] SD card available");
+        LOG("ScriptLoader", "SD card available");
 
         // Check if scripts directory exists on SD
         if (SD.exists("/scripts")) {
-            Serial.println("[ScriptLoader] Found /scripts on SD card");
+            LOG("ScriptLoader", "Found /scripts on SD card");
         }
     } else {
-        Serial.println("[ScriptLoader] SD card not available, using LittleFS only");
+        LOG("ScriptLoader", "SD card not available, using LittleFS only");
     }
 
     // Check LittleFS scripts directory
     if (LittleFS.exists("/scripts")) {
-        Serial.println("[ScriptLoader] Found /scripts on LittleFS");
+        LOG("ScriptLoader", "Found /scripts on LittleFS");
     }
 
     _initialized = true;
@@ -93,7 +94,7 @@ bool ScriptLoader::loadFromPath(lua_State* L, const char* path) {
     // Determine which filesystem to use
     if (strncmp(path, "/sd/", 4) == 0) {
         if (!_sdAvailable) {
-            Serial.printf("[ScriptLoader] SD not available for: %s\n", path);
+            LOG("ScriptLoader", "SD not available for: %s", path);
             return false;
         }
         file = SD.open(path + 3, "r");  // Skip "/sd" prefix
@@ -102,21 +103,21 @@ bool ScriptLoader::loadFromPath(lua_State* L, const char* path) {
     }
 
     if (!file) {
-        Serial.printf("[ScriptLoader] Cannot open: %s\n", path);
+        LOG("ScriptLoader", "Cannot open: %s", path);
         return false;
     }
 
     // Read file content
     size_t size = file.size();
     if (size > 512 * 1024) {  // 512KB limit for scripts
-        Serial.printf("[ScriptLoader] Script too large: %s (%u bytes)\n", path, size);
+        LOG("ScriptLoader", "Script too large: %s (%u bytes)", path, size);
         file.close();
         return false;
     }
 
     char* buffer = (char*)malloc(size + 1);
     if (!buffer) {
-        Serial.printf("[ScriptLoader] Out of memory loading: %s\n", path);
+        LOG("ScriptLoader", "Out of memory loading: %s", path);
         file.close();
         return false;
     }
@@ -125,7 +126,7 @@ bool ScriptLoader::loadFromPath(lua_State* L, const char* path) {
     buffer[size] = '\0';
     file.close();
 
-    Serial.printf("[ScriptLoader] Loading: %s (%u bytes)\n", path, size);
+    LOG("ScriptLoader", "Loading: %s (%u bytes)", path, size);
 
     // Execute the script
     bool success = LuaRuntime::instance().executeString(buffer, path);
@@ -137,7 +138,7 @@ bool ScriptLoader::loadFromPath(lua_State* L, const char* path) {
 bool ScriptLoader::loadScript(lua_State* L, const char* scriptName) {
     const char* path = findScript(scriptName);
     if (!path) {
-        Serial.printf("[ScriptLoader] Script not found: %s\n", scriptName);
+        LOG("ScriptLoader", "Script not found: %s", scriptName);
         return false;
     }
 
@@ -145,35 +146,35 @@ bool ScriptLoader::loadScript(lua_State* L, const char* scriptName) {
 }
 
 bool ScriptLoader::loadBootScript(lua_State* L) {
-    Serial.println("[ScriptLoader] Looking for boot script...");
+    LOG("ScriptLoader", "Looking for boot script...");
 
     // Try to find and load boot.lua
     const char* bootPath = findScript("boot");
     if (bootPath) {
-        Serial.printf("[ScriptLoader] Found boot script at: %s\n", bootPath);
+        LOG("ScriptLoader", "Found boot script at: %s", bootPath);
         return loadFromPath(L, bootPath);
     }
 
     // Try ui/boot as alternative
     bootPath = findScript("ui/boot");
     if (bootPath) {
-        Serial.printf("[ScriptLoader] Found boot script at: %s\n", bootPath);
+        LOG("ScriptLoader", "Found boot script at: %s", bootPath);
         return loadFromPath(L, bootPath);
     }
 
-    Serial.println("[ScriptLoader] No boot script found");
+    LOG("ScriptLoader", "No boot script found");
     return false;
 }
 
 bool ScriptLoader::reloadScripts(lua_State* L) {
-    Serial.println("[ScriptLoader] Reloading scripts...");
+    LOG("ScriptLoader", "Reloading scripts...");
 
     // Re-check SD card availability
     if (!_sdAvailable) {
         SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
         if (SD.begin(SD_CS)) {
             _sdAvailable = true;
-            Serial.println("[ScriptLoader] SD card now available");
+            LOG("ScriptLoader", "SD card now available");
         }
     }
 

@@ -1,5 +1,5 @@
 -- file_edit.lua - Basic nano-like text editor
--- Supports viewing and editing text files
+-- Supports viewing and editing text files with soft wrapping
 
 local ListMixin = load_module("/scripts/ui/list_mixin.lua")
 
@@ -9,11 +9,12 @@ local FileEdit = {
     lines = {},
     cursor_row = 1,
     cursor_col = 1,
-    scroll_row = 0,
-    scroll_col = 0,
+    scroll_visual_row = 0,  -- Scroll position in visual rows (accounts for wrapping)
     modified = false,
     message = nil,
-    message_time = 0
+    message_time = 0,
+    -- Cached layout info (recalculated on render)
+    wrap_width = 40,  -- Characters per visual line (set in render)
 }
 
 function FileEdit:new(path)
@@ -23,23 +24,25 @@ function FileEdit:new(path)
         lines = {""},
         cursor_row = 1,
         cursor_col = 1,
-        scroll_row = 0,
-        scroll_col = 0,
+        scroll_visual_row = 0,
         modified = false,
         message = nil,
-        message_time = 0
+        message_time = 0,
+        wrap_width = 40,
     }
     setmetatable(o, {__index = FileEdit})
+
+    -- Load file content immediately in constructor
+    if path then
+        o:load_file(path)
+    end
+
     return o
 end
 
 function FileEdit:on_enter()
     -- Set keyboard to input mode for text editing
     ez.keyboard.set_mode("input")
-
-    if self.file_path then
-        self:load_file(self.file_path)
-    end
 end
 
 function FileEdit:on_exit()
@@ -77,8 +80,7 @@ function FileEdit:load_file(path)
 
     self.cursor_row = 1
     self.cursor_col = 1
-    self.scroll_row = 0
-    self.scroll_col = 0
+    self.scroll_visual_row = 0
     self.modified = false
 end
 
@@ -122,7 +124,7 @@ function FileEdit:insert_char(char)
     local before = line:sub(1, self.cursor_col - 1)
     local after = line:sub(self.cursor_col)
     self:set_current_line(before .. char .. after)
-    self.cursor_col = self.cursor_col + 1
+    self.cursor_col = self.cursor_col + #char
 end
 
 function FileEdit:delete_char()
@@ -163,6 +165,33 @@ function FileEdit:insert_newline()
     self.cursor_col = 1
 end
 
+-- Calculate how many visual rows a line takes with soft wrapping
+function FileEdit:get_visual_line_count(line)
+    if #line == 0 then return 1 end
+    return math.ceil(#line / self.wrap_width)
+end
+
+-- Get the visual row offset for a cursor position within a line
+function FileEdit:get_cursor_visual_offset(col)
+    return math.floor((col - 1) / self.wrap_width)
+end
+
+-- Calculate total visual rows before a given logical line
+function FileEdit:get_visual_row_before_line(line_idx)
+    local total = 0
+    for i = 1, line_idx - 1 do
+        total = total + self:get_visual_line_count(self.lines[i] or "")
+    end
+    return total
+end
+
+-- Get cursor's absolute visual row (0-indexed)
+function FileEdit:get_cursor_visual_row()
+    local visual_row = self:get_visual_row_before_line(self.cursor_row)
+    visual_row = visual_row + self:get_cursor_visual_offset(self.cursor_col)
+    return visual_row
+end
+
 function FileEdit:move_cursor(dr, dc)
     -- Vertical movement
     if dr ~= 0 then
@@ -196,22 +225,17 @@ function FileEdit:move_cursor(dr, dc)
     end
 end
 
-function FileEdit:update_scroll_with_dims(rows, cols)
-    local visible_rows = rows - 3  -- Header and status lines
-    local visible_cols = cols - 6  -- Line numbers and margins
+function FileEdit:update_scroll(visible_rows)
+    local cursor_visual = self:get_cursor_visual_row()
 
-    -- Vertical scroll
-    if self.cursor_row <= self.scroll_row then
-        self.scroll_row = self.cursor_row - 1
-    elseif self.cursor_row > self.scroll_row + visible_rows then
-        self.scroll_row = self.cursor_row - visible_rows
+    -- Scroll up if cursor is above visible area
+    if cursor_visual < self.scroll_visual_row then
+        self.scroll_visual_row = cursor_visual
     end
 
-    -- Horizontal scroll
-    if self.cursor_col <= self.scroll_col then
-        self.scroll_col = self.cursor_col - 1
-    elseif self.cursor_col > self.scroll_col + visible_cols then
-        self.scroll_col = self.cursor_col - visible_cols
+    -- Scroll down if cursor is below visible area
+    if cursor_visual >= self.scroll_visual_row + visible_rows then
+        self.scroll_visual_row = cursor_visual - visible_rows + 1
     end
 end
 
@@ -287,22 +311,19 @@ local LUA_KEYWORDS = {
     ["until"] = true, ["while"] = true,
 }
 
--- Render a line with Lua syntax highlighting
--- Returns nothing, draws directly to display
-function FileEdit:render_lua_line(display, line, x, y, max_chars, colors)
+-- Render a line segment with Lua syntax highlighting
+function FileEdit:render_lua_segment(display, segment, x, y, colors)
     local fw = display.get_font_width()
     local pos = 1
-    local drawn = 0
+    local draw_x = x
 
-    while pos <= #line and drawn < max_chars do
-        local char = line:sub(pos, pos)
-        local color = colors.TEXT
-        local len = 1
+    while pos <= #segment do
+        local char = segment:sub(pos, pos)
 
         -- Comment (-- to end of line)
-        if line:sub(pos, pos + 1) == "--" then
-            local rest = line:sub(pos)
-            display.draw_text(x + drawn * fw, y, rest:sub(1, max_chars - drawn), colors.TEXT_MUTED)
+        if segment:sub(pos, pos + 1) == "--" then
+            local rest = segment:sub(pos)
+            display.draw_text(draw_x, y, rest, colors.TEXT_MUTED)
             return
         end
 
@@ -310,48 +331,45 @@ function FileEdit:render_lua_line(display, line, x, y, max_chars, colors)
         if char == '"' or char == "'" then
             local quote = char
             local end_pos = pos + 1
-            while end_pos <= #line do
-                if line:sub(end_pos, end_pos) == quote then
+            while end_pos <= #segment do
+                if segment:sub(end_pos, end_pos) == quote then
                     end_pos = end_pos + 1
                     break
-                elseif line:sub(end_pos, end_pos) == "\\" then
+                elseif segment:sub(end_pos, end_pos) == "\\" then
                     end_pos = end_pos + 2
                 else
                     end_pos = end_pos + 1
                 end
             end
-            local str = line:sub(pos, end_pos - 1)
-            local str_len = math.min(#str, max_chars - drawn)
-            display.draw_text(x + drawn * fw, y, str:sub(1, str_len), colors.SUCCESS)
-            drawn = drawn + str_len
+            local str = segment:sub(pos, end_pos - 1)
+            display.draw_text(draw_x, y, str, colors.SUCCESS)
+            draw_x = draw_x + #str * fw
             pos = end_pos
         -- Number
         elseif char:match("%d") then
             local end_pos = pos
-            while end_pos <= #line and line:sub(end_pos, end_pos):match("[%d%.xXaAbBcCdDeEfF]") do
+            while end_pos <= #segment and segment:sub(end_pos, end_pos):match("[%d%.xXaAbBcCdDeEfF]") do
                 end_pos = end_pos + 1
             end
-            local num = line:sub(pos, end_pos - 1)
-            local num_len = math.min(#num, max_chars - drawn)
-            display.draw_text(x + drawn * fw, y, num:sub(1, num_len), colors.WARNING)
-            drawn = drawn + num_len
+            local num = segment:sub(pos, end_pos - 1)
+            display.draw_text(draw_x, y, num, colors.WARNING)
+            draw_x = draw_x + #num * fw
             pos = end_pos
         -- Identifier or keyword
         elseif char:match("[%a_]") then
             local end_pos = pos
-            while end_pos <= #line and line:sub(end_pos, end_pos):match("[%w_]") do
+            while end_pos <= #segment and segment:sub(end_pos, end_pos):match("[%w_]") do
                 end_pos = end_pos + 1
             end
-            local word = line:sub(pos, end_pos - 1)
-            local word_len = math.min(#word, max_chars - drawn)
+            local word = segment:sub(pos, end_pos - 1)
             local word_color = LUA_KEYWORDS[word] and colors.ACCENT or colors.TEXT
-            display.draw_text(x + drawn * fw, y, word:sub(1, word_len), word_color)
-            drawn = drawn + word_len
+            display.draw_text(draw_x, y, word, word_color)
+            draw_x = draw_x + #word * fw
             pos = end_pos
         -- Other characters
         else
-            display.draw_text(x + drawn * fw, y, char, colors.TEXT)
-            drawn = drawn + 1
+            display.draw_text(draw_x, y, char, colors.TEXT)
+            draw_x = draw_x + fw
             pos = pos + 1
         end
     end
@@ -367,48 +385,86 @@ function FileEdit:render(display)
     local cols = display.get_cols()
     local rows = display.get_rows()
 
-    self:update_scroll_with_dims(rows, cols)
+    -- Calculate wrap width (text area width in characters)
+    local line_num_width = 4
+    self.wrap_width = cols - line_num_width - 2  -- Account for line numbers and margins
+
+    local visible_rows = rows - 3  -- Header and status lines
+    self:update_scroll(visible_rows)
 
     -- Fill background with theme wallpaper
     ListMixin.draw_background(display)
 
-    -- Header
+    -- Header bar with filename
     local title = self:basename(self.file_path or "untitled")
     if self.modified then
         title = title .. " *"
     end
-    display.draw_box(0, 0, cols, rows - 1, title, colors.ACCENT, colors.WHITE)
+    display.fill_rect(0, 0, cols * fw, fh, colors.ACCENT)
+    display.draw_text_bg(fw, 0, title, colors.WHITE, colors.ACCENT, 1)
 
-    -- Text area
-    local visible_rows = rows - 3
-    local visible_cols = cols - 6
-    local line_num_width = 4
+    -- Text area with soft wrapping
+    local text_x = (line_num_width + 1) * fw
     local is_lua = self:is_lua_file()
+    local cursor_visual_row = self:get_cursor_visual_row()
 
-    for i = 1, visible_rows do
-        local line_idx = self.scroll_row + i
-        local py = i * fh
+    -- Find which logical line corresponds to scroll_visual_row
+    local visual_row = 0
+    local start_line = 1
+    for i = 1, #self.lines do
+        local line_visual_count = self:get_visual_line_count(self.lines[i])
+        if visual_row + line_visual_count > self.scroll_visual_row then
+            start_line = i
+            break
+        end
+        visual_row = visual_row + line_visual_count
+    end
 
-        if line_idx <= #self.lines then
-            -- Line number
-            local line_num = string.format("%3d ", line_idx)
-            display.draw_text(fw, py, line_num, colors.TEXT_SECONDARY)
+    -- Calculate which wrap segment to start with in the first visible line
+    local skip_wraps = self.scroll_visual_row - visual_row
+
+    -- Render visible lines with wrapping
+    local screen_row = 1
+    local line_idx = start_line
+
+    while screen_row <= visible_rows and line_idx <= #self.lines do
+        local line = self.lines[line_idx]
+        local line_len = #line
+        local wrap_count = self:get_visual_line_count(line)
+        local start_wrap = (line_idx == start_line) and skip_wraps or 0
+
+        for wrap_idx = start_wrap, wrap_count - 1 do
+            if screen_row > visible_rows then break end
+
+            local py = screen_row * fh
+            local seg_start = wrap_idx * self.wrap_width + 1
+            local seg_end = math.min(seg_start + self.wrap_width - 1, line_len)
+            local segment = line:sub(seg_start, seg_end)
+
+            -- Line number (only on first wrap of each line)
+            if wrap_idx == 0 then
+                local line_num = string.format("%3d ", line_idx)
+                display.draw_text(fw, py, line_num, colors.TEXT_SECONDARY)
+            else
+                -- Continuation indicator
+                display.draw_text(fw, py, "  + ", colors.TEXT_MUTED)
+            end
 
             -- Line content
-            local line = self.lines[line_idx]
-            local visible_part = line:sub(self.scroll_col + 1, self.scroll_col + visible_cols)
-            local text_x = (line_num_width + 1) * fw
-
-            if is_lua then
-                self:render_lua_line(display, visible_part, text_x, py, visible_cols, colors)
-            else
-                display.draw_text(text_x, py, visible_part, colors.TEXT)
+            if #segment > 0 then
+                if is_lua then
+                    self:render_lua_segment(display, segment, text_x, py, colors)
+                else
+                    display.draw_text(text_x, py, segment, colors.TEXT)
+                end
             end
 
             -- Cursor
             if line_idx == self.cursor_row then
-                local cursor_x = (line_num_width + self.cursor_col - self.scroll_col) * fw
-                if cursor_x > line_num_width * fw and cursor_x < (cols - 1) * fw then
+                local cursor_wrap = self:get_cursor_visual_offset(self.cursor_col)
+                if cursor_wrap == wrap_idx then
+                    local cursor_col_in_wrap = ((self.cursor_col - 1) % self.wrap_width)
+                    local cursor_x = text_x + cursor_col_in_wrap * fw
                     -- Draw cursor as inverse block
                     display.fill_rect(cursor_x, py, fw, fh, colors.ACCENT)
                     local char_under = line:sub(self.cursor_col, self.cursor_col)
@@ -416,13 +472,21 @@ function FileEdit:render(display)
                     display.draw_text(cursor_x, py, char_under, colors.BLACK)
                 end
             end
-        else
-            -- Empty line indicator
-            display.draw_text(fw, py, "  ~ ", colors.TEXT_MUTED)
+
+            screen_row = screen_row + 1
         end
+
+        line_idx = line_idx + 1
     end
 
-    -- Status bar (only show messages, position is in header)
+    -- Fill remaining rows with empty line indicators
+    while screen_row <= visible_rows do
+        local py = screen_row * fh
+        display.draw_text(fw, py, "  ~ ", colors.TEXT_MUTED)
+        screen_row = screen_row + 1
+    end
+
+    -- Status bar
     local status_y = (rows - 2) * fh
     if self.message and (ez.system.millis() - self.message_time) < 2000 then
         display.draw_text(fw, status_y, self.message, colors.TEXT_SECONDARY)
