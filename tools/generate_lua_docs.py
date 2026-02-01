@@ -775,7 +775,7 @@ def main():
         f.write(generate_markdown(modules))
     print(f"\nGenerated {md_path}")
 
-    html_path = docs_dir / 'lua_api_generated.html'
+    html_path = docs_dir / 'index.html'
     with open(html_path, 'w') as f:
         f.write(generate_html(modules))
     print(f"Generated {html_path}")
