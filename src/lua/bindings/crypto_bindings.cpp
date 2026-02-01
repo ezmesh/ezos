@@ -17,8 +17,16 @@ constexpr size_t AES_BLOCK_SIZE = 16;
 
 // @lua ez.crypto.sha256(data) -> string
 // @brief Compute SHA-256 hash
+// @description Computes a SHA-256 cryptographic hash of the input data. Returns
+// a 32-byte binary string. Use bytes_to_hex() to convert to readable hex format.
+// SHA-256 is used for message digests, integrity checks, and key derivation.
 // @param data Binary string to hash
 // @return 32-byte hash as binary string
+// @example
+// local hash = ez.crypto.sha256("hello world")
+// print("SHA256:", ez.crypto.bytes_to_hex(hash))
+// -- Output: b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
+// @end
 LUA_FUNCTION(l_crypto_sha256) {
     LUA_CHECK_ARGC(L, 1);
 
@@ -40,8 +48,15 @@ LUA_FUNCTION(l_crypto_sha256) {
 
 // @lua ez.crypto.sha512(data) -> string
 // @brief Compute SHA-512 hash
+// @description Computes a SHA-512 cryptographic hash of the input data. Returns
+// a 64-byte binary string. SHA-512 provides stronger security than SHA-256 but
+// is slower. Use for high-security applications or when 256-bit hash is insufficient.
 // @param data Binary string to hash
 // @return 64-byte hash as binary string
+// @example
+// local hash = ez.crypto.sha512("secret data")
+// print("SHA512:", ez.crypto.bytes_to_hex(hash))
+// @end
 LUA_FUNCTION(l_crypto_sha512) {
     LUA_CHECK_ARGC(L, 1);
 
@@ -63,9 +78,20 @@ LUA_FUNCTION(l_crypto_sha512) {
 
 // @lua ez.crypto.hmac_sha256(key, data) -> string
 // @brief Compute HMAC-SHA256
-// @param key Binary string key
+// @description Computes a keyed-hash message authentication code (HMAC) using
+// SHA-256. Unlike plain hashing, HMAC requires a secret key, making it suitable
+// for message authentication where both parties share a secret. Returns nil and
+// error message on failure.
+// @param key Binary string key (any length, but 32 bytes recommended)
 // @param data Binary string to authenticate
-// @return 32-byte MAC as binary string
+// @return 32-byte MAC as binary string, or nil and error on failure
+// @example
+// local key = ez.crypto.random_bytes(32)
+// local mac = ez.crypto.hmac_sha256(key, "message to authenticate")
+// -- Verify by recomputing and comparing
+// local verify = ez.crypto.hmac_sha256(key, "message to authenticate")
+// if mac == verify then print("Authentic") end
+// @end
 LUA_FUNCTION(l_crypto_hmac_sha256) {
     LUA_CHECK_ARGC(L, 2);
 
@@ -124,9 +150,18 @@ LUA_FUNCTION(l_crypto_hmac_sha256) {
 
 // @lua ez.crypto.aes128_ecb_encrypt(key, plaintext) -> string
 // @brief Encrypt data with AES-128-ECB
-// @param key 16-byte key
+// @description Encrypts data using AES-128 in ECB mode. ECB mode encrypts each
+// 16-byte block independently - use for short data or when simplicity is needed.
+// Input is zero-padded to 16-byte boundary. For secure encryption of longer data,
+// consider using channel encryption which uses proper IV/nonce handling.
+// @param key 16-byte key (use derive_channel_key to create from password)
 // @param plaintext Data to encrypt (will be zero-padded to block boundary)
-// @return Encrypted data as binary string
+// @return Encrypted data as binary string, or nil and error on failure
+// @example
+// local key = ez.crypto.derive_channel_key("my secret")
+// local encrypted = ez.crypto.aes128_ecb_encrypt(key, "hello")
+// print("Encrypted:", ez.crypto.bytes_to_hex(encrypted))
+// @end
 LUA_FUNCTION(l_crypto_aes128_ecb_encrypt) {
     LUA_CHECK_ARGC(L, 2);
 
@@ -186,9 +221,18 @@ LUA_FUNCTION(l_crypto_aes128_ecb_encrypt) {
 
 // @lua ez.crypto.aes128_ecb_decrypt(key, ciphertext) -> string
 // @brief Decrypt data with AES-128-ECB
-// @param key 16-byte key
+// @description Decrypts data encrypted with aes128_ecb_encrypt. The ciphertext must
+// be a multiple of 16 bytes. The decrypted output includes zero padding bytes, so
+// you may need to trim trailing zeros for text data.
+// @param key 16-byte key (must match encryption key)
 // @param ciphertext Data to decrypt (must be multiple of 16 bytes)
-// @return Decrypted data as binary string (with padding zeros)
+// @return Decrypted data as binary string (with padding zeros), or nil and error
+// @example
+// local key = ez.crypto.derive_channel_key("my secret")
+// local encrypted = ez.crypto.aes128_ecb_encrypt(key, "hello")
+// local decrypted = ez.crypto.aes128_ecb_decrypt(key, encrypted)
+// print(decrypted:gsub("%z+$", ""))  -- Trim trailing zeros
+// @end
 LUA_FUNCTION(l_crypto_aes128_ecb_decrypt) {
     LUA_CHECK_ARGC(L, 2);
 
@@ -245,8 +289,16 @@ LUA_FUNCTION(l_crypto_aes128_ecb_decrypt) {
 
 // @lua ez.crypto.random_bytes(count) -> string
 // @brief Generate cryptographically secure random bytes
-// @param count Number of bytes to generate
-// @return Random bytes as binary string
+// @description Generates cryptographically secure random bytes using the ESP32's
+// hardware random number generator. Suitable for key generation, nonces, and
+// other security-sensitive applications. Maximum 256 bytes per call.
+// @param count Number of bytes to generate (1-256)
+// @return Random bytes as binary string, or nil and error if count invalid
+// @example
+// local key = ez.crypto.random_bytes(16)  -- Generate 128-bit key
+// local nonce = ez.crypto.random_bytes(12)  -- 96-bit nonce
+// print("Key:", ez.crypto.bytes_to_hex(key))
+// @end
 LUA_FUNCTION(l_crypto_random_bytes) {
     LUA_CHECK_ARGC(L, 1);
 
@@ -267,8 +319,17 @@ LUA_FUNCTION(l_crypto_random_bytes) {
 
 // @lua ez.crypto.channel_hash(key) -> integer
 // @brief Compute channel hash from key (SHA256(key)[0])
+// @description Computes a single-byte channel identifier from a channel key. This
+// is the first byte of SHA256(key) and is used in the MeshCore protocol to quickly
+// filter packets by channel. Each channel has a unique hash that identifies it
+// without revealing the encryption key.
 // @param key 16-byte channel key
 // @return Single byte hash as integer (0-255)
+// @example
+// local key = ez.crypto.public_channel_key()
+// local hash = ez.crypto.channel_hash(key)
+// print("Public channel hash:", hash)
+// @end
 LUA_FUNCTION(l_crypto_channel_hash) {
     LUA_CHECK_ARGC(L, 1);
 
@@ -290,8 +351,18 @@ LUA_FUNCTION(l_crypto_channel_hash) {
 
 // @lua ez.crypto.derive_channel_key(input) -> string
 // @brief Derive 16-byte channel key from password/name using SHA256
+// @description Derives a 16-byte AES-128 key from a password or channel name by
+// taking the first 16 bytes of SHA256(input). This allows users to join channels
+// using a memorable password instead of raw key bytes. All devices with the same
+// password will derive the same key.
 // @param input Password or channel name string
 // @return 16-byte key as binary string
+// @example
+// local key = ez.crypto.derive_channel_key("SecretChannel2024")
+// print("Key:", ez.crypto.bytes_to_hex(key))
+// local hash = ez.crypto.channel_hash(key)
+// print("Channel hash:", hash)
+// @end
 LUA_FUNCTION(l_crypto_derive_channel_key) {
     LUA_CHECK_ARGC(L, 1);
 
@@ -314,7 +385,16 @@ LUA_FUNCTION(l_crypto_derive_channel_key) {
 
 // @lua ez.crypto.public_channel_key() -> string
 // @brief Get the well-known #Public channel key
+// @description Returns the pre-defined key for the #Public channel. This is the
+// default channel that all MeshCore devices join on startup. The key is well-known
+// (8b3387e9c5cdea6ac9e5edbaa115cd72) so all devices can communicate without
+// configuration. For private communication, use a custom channel with derive_channel_key.
 // @return 16-byte key as binary string
+// @example
+// local public_key = ez.crypto.public_channel_key()
+// print("Public key:", ez.crypto.bytes_to_hex(public_key))
+// -- Output: 8b3387e9c5cdea6ac9e5edbaa115cd72
+// @end
 LUA_FUNCTION(l_crypto_public_channel_key) {
     // Well-known #Public channel key: 8b3387e9c5cdea6ac9e5edbaa115cd72
     static const uint8_t PUBLIC_KEY[16] = {
@@ -328,8 +408,16 @@ LUA_FUNCTION(l_crypto_public_channel_key) {
 
 // @lua ez.crypto.bytes_to_hex(data) -> string
 // @brief Convert binary data to hex string
+// @description Converts binary data to a lowercase hexadecimal string representation.
+// Each byte becomes two hex characters. Useful for displaying keys, hashes, and
+// other binary data in a readable format.
 // @param data Binary string
 // @return Hex string (lowercase)
+// @example
+// local hash = ez.crypto.sha256("test")
+// print(ez.crypto.bytes_to_hex(hash))
+// -- Shows 64-character hex string
+// @end
 LUA_FUNCTION(l_crypto_bytes_to_hex) {
     LUA_CHECK_ARGC(L, 1);
 
@@ -349,8 +437,15 @@ LUA_FUNCTION(l_crypto_bytes_to_hex) {
 
 // @lua ez.crypto.hex_to_bytes(hex) -> string
 // @brief Convert hex string to binary data
-// @param hex Hex string (case-insensitive)
-// @return Binary string, or nil on error
+// @description Converts a hexadecimal string to binary data. Accepts both upper
+// and lowercase hex characters. The input must have even length. Returns nil and
+// error message if the string contains invalid characters or has odd length.
+// @param hex Hex string (case-insensitive, must have even length)
+// @return Binary string, or nil and error message on failure
+// @example
+// local key = ez.crypto.hex_to_bytes("8b3387e9c5cdea6ac9e5edbaa115cd72")
+// print("Key length:", #key)  -- 16 bytes
+// @end
 LUA_FUNCTION(l_crypto_hex_to_bytes) {
     LUA_CHECK_ARGC(L, 1);
 
@@ -394,8 +489,15 @@ LUA_FUNCTION(l_crypto_hex_to_bytes) {
 
 // @lua ez.crypto.base64_encode(data) -> string
 // @brief Encode binary data to base64 string
+// @description Encodes binary data to base64 format. Base64 represents binary data
+// using only printable ASCII characters (A-Z, a-z, 0-9, +, /). The output is about
+// 33% larger than the input. Useful for transmitting binary data in text formats.
 // @param data Binary string to encode
-// @return Base64 encoded string
+// @return Base64 encoded string, or nil and error on failure
+// @example
+// local encoded = ez.crypto.base64_encode("Hello, World!")
+// print(encoded)  -- "SGVsbG8sIFdvcmxkIQ=="
+// @end
 LUA_FUNCTION(l_crypto_base64_encode) {
     LUA_CHECK_ARGC(L, 1);
 
@@ -426,8 +528,15 @@ LUA_FUNCTION(l_crypto_base64_encode) {
 
 // @lua ez.crypto.base64_decode(encoded) -> string
 // @brief Decode base64 string to binary data
+// @description Decodes a base64 encoded string back to binary data. Returns nil
+// and error message if the input contains invalid base64 characters or has
+// incorrect padding.
 // @param encoded Base64 encoded string
-// @return Binary string, or nil on error
+// @return Binary string, or nil and error on failure
+// @example
+// local decoded = ez.crypto.base64_decode("SGVsbG8sIFdvcmxkIQ==")
+// print(decoded)  -- "Hello, World!"
+// @end
 LUA_FUNCTION(l_crypto_base64_decode) {
     LUA_CHECK_ARGC(L, 1);
 

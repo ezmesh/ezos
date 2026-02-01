@@ -33,7 +33,16 @@ void processLuaTimers();
 
 // @lua ez.system.millis() -> integer
 // @brief Returns milliseconds since boot
+// @description Returns the number of milliseconds since the device started.
+// Wraps around approximately every 49 days. Use for timing, animations, and
+// measuring durations between events.
 // @return Milliseconds elapsed since device started
+// @example
+// local start = ez.system.millis()
+// -- do some work
+// local elapsed = ez.system.millis() - start
+// print("Took", elapsed, "ms")
+// @end
 LUA_FUNCTION(l_system_millis) {
     lua_pushinteger(L, millis());
     return 1;
@@ -41,7 +50,15 @@ LUA_FUNCTION(l_system_millis) {
 
 // @lua ez.system.delay(ms)
 // @brief Blocking delay execution
+// @description Pauses execution for the specified duration. Blocks all Lua code
+// but allows C++ background tasks to run. Use sparingly as it freezes the UI.
+// Prefer set_timer() or set_interval() for non-blocking delays.
 // @param ms Delay duration in milliseconds (max 60000)
+// @example
+// ez.audio.beep()
+// ez.system.delay(500)  -- Wait half second
+// ez.audio.beep()
+// @end
 LUA_FUNCTION(l_system_delay) {
     LUA_CHECK_ARGC(L, 1);
     int ms = luaL_checkinteger(L, 1);
@@ -141,7 +158,15 @@ LUA_FUNCTION(l_system_set_interval) {
 
 // @lua ez.system.cancel_timer(timer_id)
 // @brief Cancel a scheduled timer
+// @description Stops a one-shot or repeating timer before it fires. Use the ID
+// returned by set_timer() or set_interval(). Safe to call with an already-expired
+// timer ID.
 // @param timer_id ID returned by set_timer or set_interval
+// @example
+// local id = ez.system.set_interval(1000, tick)
+// -- Later...
+// ez.system.cancel_timer(id)  -- Stop the interval
+// @end
 LUA_FUNCTION(l_system_cancel_timer) {
     LUA_CHECK_ARGC(L, 1);
     int slot = luaL_checkinteger(L, 1);
@@ -156,7 +181,16 @@ LUA_FUNCTION(l_system_cancel_timer) {
 
 // @lua ez.system.get_battery_percent() -> integer
 // @brief Get battery charge level
+// @description Returns an estimated battery percentage based on ADC voltage reading.
+// The value is approximate and may need calibration for your specific battery.
+// Use for status display or low-battery warnings.
 // @return Battery percentage (0-100)
+// @example
+// local pct = ez.system.get_battery_percent()
+// if pct < 20 then
+//     print("Low battery!")
+// end
+// @end
 LUA_FUNCTION(l_system_get_battery_percent) {
     // Read battery ADC (pin 4 on T-Deck Plus)
     // This is a rough estimate - actual calibration may be needed
@@ -173,7 +207,14 @@ LUA_FUNCTION(l_system_get_battery_percent) {
 
 // @lua ez.system.get_battery_voltage() -> number
 // @brief Get battery voltage
+// @description Returns the estimated battery voltage. LiPo batteries are nominally
+// 3.7V, fully charged ~4.2V, and depleted at ~3.0V. The reading assumes a 2:1
+// voltage divider and may need calibration for accuracy.
 // @return Estimated battery voltage in volts
+// @example
+// local v = ez.system.get_battery_voltage()
+// print(string.format("Battery: %.2fV", v))
+// @end
 LUA_FUNCTION(l_system_get_battery_voltage) {
     int raw = analogRead(4);
     // Approximate conversion (calibration needed for accuracy)
@@ -184,7 +225,14 @@ LUA_FUNCTION(l_system_get_battery_voltage) {
 
 // @lua ez.system.get_free_heap() -> integer
 // @brief Get free internal RAM
+// @description Returns free internal SRAM. Critical for Lua operations and core
+// system functions. If this drops below 32KB, the system may become unstable.
+// Use get_free_psram() for larger allocations.
 // @return Free heap memory in bytes
+// @example
+// local heap = ez.system.get_free_heap()
+// print(string.format("Free heap: %d KB", heap / 1024))
+// @end
 LUA_FUNCTION(l_system_get_free_heap) {
     lua_pushinteger(L, ESP.getFreeHeap());
     return 1;
@@ -192,7 +240,14 @@ LUA_FUNCTION(l_system_get_free_heap) {
 
 // @lua ez.system.get_free_psram() -> integer
 // @brief Get free PSRAM
+// @description Returns free external PSRAM. The ESP32-S3 on T-Deck has 8MB PSRAM
+// for large allocations like framebuffers and caches. PSRAM is slower than internal
+// SRAM but much more abundant.
 // @return Free PSRAM in bytes
+// @example
+// local psram = ez.system.get_free_psram()
+// print(string.format("Free PSRAM: %.1f MB", psram / (1024 * 1024)))
+// @end
 LUA_FUNCTION(l_system_get_free_psram) {
     lua_pushinteger(L, ESP.getFreePsram());
     return 1;
@@ -200,7 +255,14 @@ LUA_FUNCTION(l_system_get_free_psram) {
 
 // @lua ez.system.get_total_heap() -> integer
 // @brief Get total heap size
+// @description Returns total internal SRAM available for heap allocations.
+// Use with get_free_heap() to calculate usage percentage.
 // @return Total heap memory in bytes
+// @example
+// local total = ez.system.get_total_heap()
+// local free = ez.system.get_free_heap()
+// print(string.format("Heap: %d%% used", 100 - (free * 100 / total)))
+// @end
 LUA_FUNCTION(l_system_get_total_heap) {
     lua_pushinteger(L, ESP.getHeapSize());
     return 1;
@@ -208,7 +270,11 @@ LUA_FUNCTION(l_system_get_total_heap) {
 
 // @lua ez.system.get_total_psram() -> integer
 // @brief Get total PSRAM size
+// @description Returns total external PSRAM size. T-Deck has 8MB (8388608 bytes).
 // @return Total PSRAM in bytes
+// @example
+// print("Total PSRAM:", ez.system.get_total_psram() / (1024*1024), "MB")
+// @end
 LUA_FUNCTION(l_system_get_total_psram) {
     lua_pushinteger(L, ESP.getPsramSize());
     return 1;
@@ -216,7 +282,14 @@ LUA_FUNCTION(l_system_get_total_psram) {
 
 // @lua ez.log(message)
 // @brief Log message to serial output
+// @description Sends a log message to the serial console. Messages are prefixed
+// with #LOG#[Lua] for easy filtering. Use for debugging during development.
+// Also available as ez.log() for convenience.
 // @param message Text to log
+// @example
+// ez.log("Starting initialization")
+// ez.log("Battery at " .. ez.system.get_battery_percent() .. "%")
+// @end
 LUA_FUNCTION(l_system_log) {
     LUA_CHECK_ARGC(L, 1);
     const char* msg = luaL_checkstring(L, 1);
@@ -227,6 +300,13 @@ LUA_FUNCTION(l_system_log) {
 
 // @lua ez.system.restart()
 // @brief Restart the device
+// @description Performs a full system reboot. All state is lost. Use for applying
+// settings that require restart or recovering from error conditions.
+// @example
+// print("Restarting in 3 seconds...")
+// ez.system.delay(3000)
+// ez.system.restart()
+// @end
 LUA_FUNCTION(l_system_restart) {
     Serial.println("[Lua] Restart requested");
     delay(100);  // Allow serial to flush
@@ -236,7 +316,14 @@ LUA_FUNCTION(l_system_restart) {
 
 // @lua ez.system.uptime() -> integer
 // @brief Get device uptime
+// @description Returns how long the device has been running since last boot.
+// Useful for status displays and monitoring.
 // @return Seconds since boot
+// @example
+// local up = ez.system.uptime()
+// print(string.format("Uptime: %d:%02d:%02d",
+//     up / 3600, (up % 3600) / 60, up % 60))
+// @end
 LUA_FUNCTION(l_system_uptime) {
     lua_pushinteger(L, millis() / 1000);
     return 1;
@@ -359,7 +446,16 @@ LUA_FUNCTION(l_system_set_time_unix) {
 
 // @lua ez.system.get_time_unix() -> integer
 // @brief Get current Unix timestamp
+// @description Returns the current time as a Unix timestamp (seconds since
+// 1970-01-01 00:00:00 UTC). Returns 0 if system time has not been set from
+// GPS or manual input.
 // @return Unix timestamp (seconds since 1970-01-01), or 0 if time not set
+// @example
+// local ts = ez.system.get_time_unix()
+// if ts > 0 then
+//     print("Current timestamp:", ts)
+// end
+// @end
 LUA_FUNCTION(l_system_get_time_unix) {
     time_t now;
     time(&now);
@@ -400,7 +496,14 @@ LUA_FUNCTION(l_system_set_timezone) {
 
 // @lua ez.system.get_timezone() -> integer
 // @brief Get current timezone UTC offset in hours
+// @description Returns the difference between local time and UTC in hours.
+// Positive values are east of UTC, negative are west. Accounts for DST if
+// the timezone string includes daylight saving rules.
 // @return UTC offset in hours
+// @example
+// local offset = ez.system.get_timezone()
+// print("Timezone: UTC" .. (offset >= 0 and "+" or "") .. offset)
+// @end
 LUA_FUNCTION(l_system_get_timezone) {
     // Get current time to force timezone calculation
     time_t now;
@@ -427,7 +530,11 @@ LUA_FUNCTION(l_system_get_timezone) {
 
 // @lua ez.system.chip_model() -> string
 // @brief Get ESP32 chip model name
-// @return Chip model string
+// @description Returns the specific ESP32 chip model. T-Deck Plus uses ESP32-S3.
+// @return Chip model string (e.g., "ESP32-S3")
+// @example
+// print("Running on:", ez.system.chip_model())
+// @end
 LUA_FUNCTION(l_system_chip_model) {
     lua_pushstring(L, ESP.getChipModel());
     return 1;
@@ -435,7 +542,12 @@ LUA_FUNCTION(l_system_chip_model) {
 
 // @lua ez.system.cpu_freq() -> integer
 // @brief Get CPU frequency
+// @description Returns the current CPU clock frequency. ESP32-S3 typically runs
+// at 240MHz but can be reduced for power saving.
 // @return Frequency in MHz
+// @example
+// print("CPU:", ez.system.cpu_freq(), "MHz")
+// @end
 LUA_FUNCTION(l_system_cpu_freq) {
     lua_pushinteger(L, ESP.getCpuFreqMHz());
     return 1;
@@ -443,7 +555,15 @@ LUA_FUNCTION(l_system_cpu_freq) {
 
 // @lua ez.system.reload_scripts() -> boolean
 // @brief Reload all Lua scripts (hot reload)
-// @return true if successful
+// @description Reinitializes the Lua runtime and reloads all scripts. Useful
+// during development to test changes without rebooting. Screen stack and state
+// are reset.
+// @return true if reload successful
+// @example
+// if ez.system.reload_scripts() then
+//     print("Scripts reloaded")
+// end
+// @end
 LUA_FUNCTION(l_system_reload_scripts) {
     bool result = LuaRuntime::instance().reloadScripts();
     lua_pushboolean(L, result);
@@ -452,6 +572,13 @@ LUA_FUNCTION(l_system_reload_scripts) {
 
 // @lua ez.system.gc()
 // @brief Force full garbage collection
+// @description Runs a complete garbage collection cycle immediately. Use after
+// unloading screens or when memory is low. The main loop runs incremental GC
+// automatically, so manual calls are rarely needed.
+// @example
+// unload_module("large_module")
+// ez.system.gc()  -- Reclaim memory immediately
+// @end
 LUA_FUNCTION(l_system_gc) {
     LuaRuntime::instance().collectGarbage();
     return 0;
@@ -459,8 +586,13 @@ LUA_FUNCTION(l_system_gc) {
 
 // @lua ez.system.gc_step(steps) -> integer
 // @brief Perform incremental garbage collection
+// @description Runs a limited number of GC steps without completing a full cycle.
+// Used by the main loop to spread GC work across frames, preventing frame drops.
 // @param steps Number of GC steps (default 10)
-// @return Result from lua_gc
+// @return 1 if collection finished, 0 if more work needed
+// @example
+// ez.system.gc_step(5)  -- Do a little GC work
+// @end
 LUA_FUNCTION(l_system_gc_step) {
     int steps = luaL_optinteger(L, 1, 10);
     int result = lua_gc(L, LUA_GCSTEP, steps);
@@ -470,7 +602,12 @@ LUA_FUNCTION(l_system_gc_step) {
 
 // @lua ez.system.get_lua_memory() -> integer
 // @brief Get memory used by Lua runtime
+// @description Returns memory currently allocated by the Lua VM for scripts,
+// tables, and strings. Use to monitor memory growth and detect leaks.
 // @return Memory usage in bytes
+// @example
+// print("Lua using:", ez.system.get_lua_memory() / 1024, "KB")
+// @end
 LUA_FUNCTION(l_system_get_lua_memory) {
     lua_pushinteger(L, LuaRuntime::instance().getMemoryUsed());
     return 1;
@@ -478,7 +615,15 @@ LUA_FUNCTION(l_system_get_lua_memory) {
 
 // @lua ez.system.is_low_memory() -> boolean
 // @brief Check if memory is critically low
-// @return true if less than 32KB available
+// @description Returns true when free heap drops below 32KB. At this level, the
+// system may become unstable. Consider unloading unused modules or triggering GC.
+// @return true if less than 32KB heap available
+// @example
+// if ez.system.is_low_memory() then
+//     ez.system.gc()
+//     print("Warning: Low memory")
+// end
+// @end
 LUA_FUNCTION(l_system_is_low_memory) {
     lua_pushboolean(L, LuaRuntime::instance().isLowMemory());
     return 1;
@@ -486,7 +631,13 @@ LUA_FUNCTION(l_system_is_low_memory) {
 
 // @lua ez.system.get_last_error() -> string
 // @brief Get last Lua error message
-// @return Error message or nil if no error
+// @description Returns the most recent error message from a failed Lua operation.
+// Useful for debugging when pcall returns false or a module fails to load.
+// @return Error message string, or nil if no error
+// @example
+// local err = ez.system.get_last_error()
+// if err then print("Last error:", err) end
+// @end
 LUA_FUNCTION(l_system_get_last_error) {
     const char* err = LuaRuntime::instance().getLastError();
     if (err && err[0] != '\0') {
@@ -499,7 +650,16 @@ LUA_FUNCTION(l_system_get_last_error) {
 
 // @lua ez.system.start_usb_msc() -> boolean
 // @brief Start USB Mass Storage mode to access SD card from PC
-// @return true if started successfully
+// @description Presents the SD card as a USB drive to the connected computer.
+// The device appears as a removable drive for file transfer. While MSC mode
+// is active, ezOS cannot access the SD card. Call stop_usb_msc() to resume
+// normal operation.
+// @return true if MSC mode started successfully
+// @example
+// if ez.system.start_usb_msc() then
+//     print("SD card now accessible from PC")
+// end
+// @end
 LUA_FUNCTION(l_system_start_usb_msc) {
     lua_pushboolean(L, SDCardUSB::start());
     return 1;
@@ -507,6 +667,12 @@ LUA_FUNCTION(l_system_start_usb_msc) {
 
 // @lua ez.system.stop_usb_msc()
 // @brief Stop USB Mass Storage mode
+// @description Exits USB Mass Storage mode and returns SD card control to ezOS.
+// Always call this after file transfers are complete to restore normal operation.
+// @example
+// ez.system.stop_usb_msc()
+// print("SD card returned to ezOS")
+// @end
 LUA_FUNCTION(l_system_stop_usb_msc) {
     SDCardUSB::stop();
     return 0;
@@ -514,7 +680,14 @@ LUA_FUNCTION(l_system_stop_usb_msc) {
 
 // @lua ez.system.is_usb_msc_active() -> boolean
 // @brief Check if USB MSC mode is active
+// @description Returns true if the device is currently in USB Mass Storage mode.
+// SD card operations will fail while MSC is active.
 // @return true if MSC mode is active
+// @example
+// if ez.system.is_usb_msc_active() then
+//     print("USB mode - SD not available to Lua")
+// end
+// @end
 LUA_FUNCTION(l_system_is_usb_msc_active) {
     lua_pushboolean(L, SDCardUSB::isActive());
     return 1;
@@ -522,7 +695,14 @@ LUA_FUNCTION(l_system_is_usb_msc_active) {
 
 // @lua ez.system.is_sd_available() -> boolean
 // @brief Check if SD card is available
+// @description Checks if an SD card is inserted and accessible. Returns false
+// if no card is present, card is damaged, or USB MSC mode is active.
 // @return true if SD card is present and accessible
+// @example
+// if not ez.system.is_sd_available() then
+//     print("Please insert SD card")
+// end
+// @end
 LUA_FUNCTION(l_system_is_sd_available) {
     lua_pushboolean(L, SDCardUSB::isSDAvailable());
     return 1;
@@ -530,7 +710,14 @@ LUA_FUNCTION(l_system_is_sd_available) {
 
 // @lua ez.system.get_firmware_info() -> table
 // @brief Get firmware partition info
-// @return Table with partition_size, app_size, free_bytes
+// @description Returns information about the running firmware partition including
+// size, app binary size, and available space for OTA updates.
+// @return Table with partition_size, app_size, free_bytes, partition_label, flash_chip_size
+// @example
+// local info = ez.system.get_firmware_info()
+// print("Partition:", info.partition_label)
+// print("App size:", info.app_size / 1024, "KB")
+// @end
 LUA_FUNCTION(l_system_get_firmware_info) {
     lua_newtable(L);
 
@@ -573,7 +760,13 @@ uint32_t g_loopDelayMs = 0;
 
 // @lua ez.system.set_loop_delay(ms)
 // @brief Set the main loop delay in milliseconds
+// @description Adds a delay at the end of each main loop iteration. Can reduce
+// CPU usage and heat when fast updates aren't needed. Default 0 for maximum
+// responsiveness.
 // @param ms Delay in milliseconds (0-100, default 0)
+// @example
+// ez.system.set_loop_delay(10)  -- ~100 FPS max
+// @end
 LUA_FUNCTION(l_system_set_loop_delay) {
     int ms = luaL_checkinteger(L, 1);
     if (ms < 0) ms = 0;
@@ -584,6 +777,11 @@ LUA_FUNCTION(l_system_set_loop_delay) {
 
 // @lua ez.system.get_loop_delay() -> integer
 // @brief Get the current main loop delay in milliseconds
+// @description Returns the delay added at the end of each main loop iteration.
+// @return Current loop delay in milliseconds
+// @example
+// print("Loop delay:", ez.system.get_loop_delay(), "ms")
+// @end
 LUA_FUNCTION(l_system_get_loop_delay) {
     lua_pushinteger(L, g_loopDelayMs);
     return 1;
@@ -591,8 +789,17 @@ LUA_FUNCTION(l_system_get_loop_delay) {
 
 // @lua ez.system.yield(ms)
 // @brief Yield execution to allow C++ background tasks to run
+// @description Temporarily yields execution to allow background C++ tasks (radio,
+// GPS, timers) to run. Also processes Lua timers. Essential in custom main loops
+// to prevent watchdog timeouts and keep mesh networking responsive.
 // @param ms Optional sleep time in milliseconds (default 1, max 100)
-// @note Call this regularly in Lua main loops to prevent watchdog timeouts
+// @example
+// while game_running do
+//     update_game()
+//     render_game()
+//     ez.system.yield(10)  -- Give background tasks time to run
+// end
+// @end
 LUA_FUNCTION(l_system_yield) {
     int ms = luaL_optinteger(L, 1, 1);
     if (ms < 0) ms = 0;

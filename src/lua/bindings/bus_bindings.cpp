@@ -264,10 +264,18 @@ void MessageBus::clearAll(lua_State* L) {
 
 // @lua ez.bus.subscribe(topic, callback) -> subscription_id
 // @brief Subscribe to a topic with a callback function
+// @description The message bus provides pub/sub communication between Lua scripts
+// and C++ code. Topics are strings like "screen/pushed" or "mesh/message". When a
+// message is posted to a topic, all subscribers receive it with the topic name and
+// data payload. Keep the returned subscription ID to unsubscribe later.
 // @param topic Topic string to subscribe to
 // @param callback Function(topic, data) called when message received
-//                 data can be a string or table depending on the event
 // @return Subscription ID for use with unsubscribe
+// @example
+// local sub_id = ez.bus.subscribe("mesh/message", function(topic, data)
+//     print("Received:", data.text, "from", data.sender)
+// end)
+// @end
 LUA_FUNCTION(l_bus_subscribe) {
     LUA_CHECK_ARGC(L, 2);
 
@@ -286,8 +294,18 @@ LUA_FUNCTION(l_bus_subscribe) {
 
 // @lua ez.bus.unsubscribe(subscription_id) -> boolean
 // @brief Unsubscribe from a topic
+// @description Removes a subscription created with subscribe(). Always unsubscribe
+// when a screen exits or a service shuts down to prevent memory leaks and stale
+// callbacks. Returns false if the subscription ID was not found.
 // @param subscription_id ID returned from subscribe()
 // @return true if subscription was found and removed
+// @example
+// function MyScreen:on_exit()
+//     if self.sub_id then
+//         ez.bus.unsubscribe(self.sub_id)
+//     end
+// end
+// @end
 LUA_FUNCTION(l_bus_unsubscribe) {
     LUA_CHECK_ARGC(L, 1);
 
@@ -302,8 +320,18 @@ LUA_FUNCTION(l_bus_unsubscribe) {
 
 // @lua ez.bus.post(topic, data)
 // @brief Post a message to a topic
+// @description Sends a message to all subscribers of the given topic. The data can
+// be a string or a table. Messages are queued and delivered on the next main loop
+// iteration, so posting is non-blocking. Use consistent topic naming like
+// "module/event" (e.g., "screen/pushed", "mesh/node_discovered").
 // @param topic Topic string to post to
 // @param data Message data (string or table)
+// @example
+// -- Post a string message
+// ez.bus.post("status/update", "connected")
+// -- Post a table with structured data
+// ez.bus.post("chat/message", {sender = "Alice", text = "Hello!"})
+// @end
 LUA_FUNCTION(l_bus_post) {
     LUA_CHECK_ARGC(L, 2);
 
@@ -326,8 +354,15 @@ LUA_FUNCTION(l_bus_post) {
 
 // @lua ez.bus.has_subscribers(topic) -> boolean
 // @brief Check if a topic has any active subscribers
+// @description Useful for avoiding expensive work when no one is listening. For
+// example, skip serializing debug data if no debug panel is subscribed.
 // @param topic Topic string to check
 // @return true if one or more subscribers exist
+// @example
+// if ez.bus.has_subscribers("debug/memory") then
+//     ez.bus.post("debug/memory", {heap = ez.system.get_free_heap()})
+// end
+// @end
 LUA_FUNCTION(l_bus_has_subscribers) {
     LUA_CHECK_ARGC(L, 1);
 
@@ -339,7 +374,16 @@ LUA_FUNCTION(l_bus_has_subscribers) {
 
 // @lua ez.bus.pending_count() -> integer
 // @brief Get number of messages waiting in queue
+// @description Returns the number of messages posted but not yet delivered to
+// subscribers. Messages are delivered during the main loop, so this count is
+// typically 0 or low. A high count might indicate subscribers are slow.
 // @return Number of pending messages
+// @example
+// local pending = ez.bus.pending_count()
+// if pending > 10 then
+//     print("Warning: message queue backing up")
+// end
+// @end
 LUA_FUNCTION(l_bus_pending_count) {
     lua_pushinteger(L, MessageBus::instance().getPendingCount());
     return 1;

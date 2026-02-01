@@ -55,10 +55,20 @@ static fs::FS* getFS(const char* path, const char** adjustedPath) {
 
 // @lua ez.storage.read_bytes(path, offset, length) -> string
 // @brief Read bytes from file at specific offset (for random access)
+// @description Reads a specific range of bytes from a file without loading the
+// entire file into memory. Useful for reading headers, seeking within large files,
+// or implementing file formats with random access. Maximum read size is 64KB.
 // @param path File path (prefix /sd/ for SD card)
-// @param offset Byte offset to start reading from
-// @param length Number of bytes to read
+// @param offset Byte offset to start reading from (0-based)
+// @param length Number of bytes to read (max 65536)
 // @return Binary data as string, or nil with error message
+// @example
+// -- Read file header (first 16 bytes)
+// local header = ez.storage.read_bytes("/sd/maps/tiles.bin", 0, 16)
+// -- Read a specific tile from a map file
+// local tile_offset = header_size + (tile_index * tile_size)
+// local tile_data = ez.storage.read_bytes("/sd/maps/tiles.bin", tile_offset, 4096)
+// @end
 LUA_FUNCTION(l_storage_read_bytes) {
     LUA_CHECK_ARGC(L, 3);
     const char* path = luaL_checkstring(L, 1);
@@ -126,8 +136,16 @@ LUA_FUNCTION(l_storage_read_bytes) {
 
 // @lua ez.storage.file_size(path) -> integer
 // @brief Get file size in bytes
+// @description Returns the size of a file in bytes. Useful for checking if a file
+// is empty, allocating buffers, or calculating offsets for random access reads.
 // @param path File path (prefix /sd/ for SD card)
-// @return File size or nil with error message
+// @return File size in bytes, or nil with error message if file not found
+// @example
+// local size = ez.storage.file_size("/config.json")
+// if size then
+//     print("Config file is", size, "bytes")
+// end
+// @end
 LUA_FUNCTION(l_storage_file_size) {
     LUA_CHECK_ARGC(L, 1);
     const char* path = luaL_checkstring(L, 1);
@@ -156,8 +174,17 @@ LUA_FUNCTION(l_storage_file_size) {
 
 // @lua ez.storage.read_file(path) -> string
 // @brief Read entire file contents
+// @description Reads an entire file into memory and returns it as a string. Files
+// up to 1MB are supported. For larger files or binary data, use read_bytes() for
+// random access. Paths starting with /sd/ read from SD card, others from LittleFS.
 // @param path File path (prefix /sd/ for SD card)
-// @return File content or nil, error_message
+// @return File content as string, or nil with error message
+// @example
+// local content = ez.storage.read_file("/config.json")
+// if content then
+//     local config = ez.storage.json_decode(content)
+// end
+// @end
 LUA_FUNCTION(l_storage_read_file) {
     LUA_CHECK_ARGC(L, 1);
     const char* path = luaL_checkstring(L, 1);
@@ -210,9 +237,17 @@ LUA_FUNCTION(l_storage_read_file) {
 
 // @lua ez.storage.write_file(path, content) -> boolean
 // @brief Write content to file (creates/overwrites)
-// @param path File path
-// @param content Content to write
-// @return true if successful, or false with error
+// @description Creates a new file or overwrites an existing file with the given
+// content. Parent directories must already exist. For binary data, pass a string
+// with binary bytes. Use append_file() to add to existing file instead.
+// @param path File path (prefix /sd/ for SD card)
+// @param content Content to write (string, can be binary)
+// @return true if successful, or false with error message
+// @example
+// local config = {brightness = 200, volume = 80}
+// local json = ez.storage.json_encode(config)
+// ez.storage.write_file("/config.json", json)
+// @end
 LUA_FUNCTION(l_storage_write_file) {
     LUA_CHECK_ARGC(L, 2);
     const char* path = luaL_checkstring(L, 1);
@@ -249,9 +284,17 @@ LUA_FUNCTION(l_storage_write_file) {
 
 // @lua ez.storage.append_file(path, content) -> boolean
 // @brief Append content to file
-// @param path File path
+// @description Adds content to the end of an existing file, or creates the file
+// if it doesn't exist. Useful for logging, collecting data, or building files
+// incrementally.
+// @param path File path (prefix /sd/ for SD card)
 // @param content Content to append
-// @return true if successful
+// @return true if successful, or false with error message
+// @example
+// -- Append to log file
+// local timestamp = os.date("%Y-%m-%d %H:%M:%S")
+// ez.storage.append_file("/sd/log.txt", timestamp .. " System started\n")
+// @end
 LUA_FUNCTION(l_storage_append_file) {
     LUA_CHECK_ARGC(L, 2);
     const char* path = luaL_checkstring(L, 1);
@@ -288,8 +331,17 @@ LUA_FUNCTION(l_storage_append_file) {
 
 // @lua ez.storage.exists(path) -> boolean
 // @brief Check if file or directory exists
-// @param path Path to check
-// @return true if exists
+// @description Checks whether a file or directory exists at the given path.
+// Use before reading to avoid errors, or before writing to check for existing files.
+// @param path Path to check (prefix /sd/ for SD card)
+// @return true if file or directory exists
+// @example
+// if ez.storage.exists("/config.json") then
+//     local content = ez.storage.read_file("/config.json")
+// else
+//     print("Config not found, using defaults")
+// end
+// @end
 LUA_FUNCTION(l_storage_exists) {
     LUA_CHECK_ARGC(L, 1);
     const char* path = luaL_checkstring(L, 1);
@@ -307,8 +359,16 @@ LUA_FUNCTION(l_storage_exists) {
 
 // @lua ez.storage.remove(path) -> boolean
 // @brief Delete a file
-// @param path File path to delete
-// @return true if deleted
+// @description Permanently deletes a file. Cannot be undone. For directories, use
+// rmdir() instead (directory must be empty). Returns false if file doesn't exist
+// or couldn't be deleted.
+// @param path File path to delete (prefix /sd/ for SD card)
+// @return true if file was deleted
+// @example
+// if ez.storage.remove("/sd/old_backup.json") then
+//     print("Backup deleted")
+// end
+// @end
 LUA_FUNCTION(l_storage_remove) {
     LUA_CHECK_ARGC(L, 1);
     const char* path = luaL_checkstring(L, 1);
@@ -326,9 +386,18 @@ LUA_FUNCTION(l_storage_remove) {
 
 // @lua ez.storage.rename(old_path, new_path) -> boolean
 // @brief Rename or move a file
-// @param old_path Current path
-// @param new_path New path
-// @return true if renamed
+// @description Renames a file or moves it to a different location within the same
+// filesystem. Both paths must be on the same filesystem (both SD or both LittleFS).
+// Can also be used to move files between directories.
+// @param old_path Current file path
+// @param new_path New file path
+// @return true if renamed successfully
+// @example
+// -- Rename a file
+// ez.storage.rename("/temp.txt", "/final.txt")
+// -- Move to different directory
+// ez.storage.rename("/downloads/file.txt", "/documents/file.txt")
+// @end
 LUA_FUNCTION(l_storage_rename) {
     LUA_CHECK_ARGC(L, 2);
     const char* oldPath = luaL_checkstring(L, 1);
@@ -350,8 +419,14 @@ LUA_FUNCTION(l_storage_rename) {
 
 // @lua ez.storage.mkdir(path) -> boolean
 // @brief Create directory
-// @param path Directory path
-// @return true if created
+// @description Creates a new directory. Parent directories must already exist.
+// Returns false if directory already exists or creation failed.
+// @param path Directory path to create (prefix /sd/ for SD card)
+// @return true if directory was created
+// @example
+// ez.storage.mkdir("/sd/logs")
+// ez.storage.mkdir("/sd/logs/2024")
+// @end
 LUA_FUNCTION(l_storage_mkdir) {
     LUA_CHECK_ARGC(L, 1);
     const char* path = luaL_checkstring(L, 1);
@@ -369,8 +444,18 @@ LUA_FUNCTION(l_storage_mkdir) {
 
 // @lua ez.storage.rmdir(path) -> boolean
 // @brief Remove empty directory
-// @param path Directory path
-// @return true if removed
+// @description Removes an empty directory. The directory must be empty - remove
+// all files and subdirectories first. Returns false if directory is not empty,
+// doesn't exist, or couldn't be removed.
+// @param path Directory path to remove (prefix /sd/ for SD card)
+// @return true if directory was removed
+// @example
+// -- Remove directory contents first, then the directory
+// for _, file in ipairs(ez.storage.list_dir("/sd/temp")) do
+//     ez.storage.remove("/sd/temp/" .. file.name)
+// end
+// ez.storage.rmdir("/sd/temp")
+// @end
 LUA_FUNCTION(l_storage_rmdir) {
     LUA_CHECK_ARGC(L, 1);
     const char* path = luaL_checkstring(L, 1);
@@ -388,8 +473,21 @@ LUA_FUNCTION(l_storage_rmdir) {
 
 // @lua ez.storage.list_dir(path) -> table
 // @brief List directory contents
-// @param path Directory path (default "/")
-// @return Array of tables with name, is_dir, size
+// @description Returns an array of all files and subdirectories in the given
+// directory. Each entry is a table with name (string), is_dir (boolean), and
+// size (integer, 0 for directories).
+// @param path Directory path (default "/", prefix /sd/ for SD card)
+// @return Array of tables with name, is_dir, size fields
+// @example
+// local files = ez.storage.list_dir("/sd/music")
+// for _, file in ipairs(files) do
+//     if file.is_dir then
+//         print("[DIR]", file.name)
+//     else
+//         print(file.name, file.size, "bytes")
+//     end
+// end
+// @end
 LUA_FUNCTION(l_storage_list_dir) {
     const char* path = lua_gettop(L) >= 1 ? luaL_checkstring(L, 1) : "/";
 
@@ -432,9 +530,16 @@ LUA_FUNCTION(l_storage_list_dir) {
 
 // @lua ez.storage.get_pref(key, default) -> string
 // @brief Get preference value
-// @param key Preference key
-// @param default Default value if not found
-// @return Stored value or default
+// @description Retrieves a stored preference value from non-volatile storage (NVS).
+// Preferences persist across reboots and are faster to access than files. Use for
+// settings, calibration values, and other small key-value data.
+// @param key Preference key (max 15 chars)
+// @param default Default value if key not found (optional)
+// @return Stored value as string, or default/nil if not found
+// @example
+// local brightness = ez.storage.get_pref("brightness", "200")
+// local volume = ez.storage.get_pref("volume", "80")
+// @end
 LUA_FUNCTION(l_storage_get_pref) {
     LUA_CHECK_ARGC_RANGE(L, 1, 2);
     const char* key = luaL_checkstring(L, 1);
@@ -459,9 +564,17 @@ LUA_FUNCTION(l_storage_get_pref) {
 
 // @lua ez.storage.set_pref(key, value) -> boolean
 // @brief Set preference value
-// @param key Preference key
-// @param value Value to store
+// @description Stores a value in non-volatile storage (NVS). Values persist across
+// reboots. Supports strings, integers, floats, and booleans. The key length is
+// limited to 15 characters.
+// @param key Preference key (max 15 chars)
+// @param value Value to store (string, number, or boolean)
 // @return true if saved successfully
+// @example
+// ez.storage.set_pref("brightness", 200)
+// ez.storage.set_pref("username", "Alice")
+// ez.storage.set_pref("gps_enabled", true)
+// @end
 LUA_FUNCTION(l_storage_set_pref) {
     LUA_CHECK_ARGC(L, 2);
     const char* key = luaL_checkstring(L, 1);
@@ -489,8 +602,13 @@ LUA_FUNCTION(l_storage_set_pref) {
 
 // @lua ez.storage.remove_pref(key) -> boolean
 // @brief Remove a preference
+// @description Deletes a single preference from non-volatile storage. Use
+// clear_prefs() to remove all preferences at once.
 // @param key Preference key to remove
-// @return true if removed
+// @return true if preference was removed
+// @example
+// ez.storage.remove_pref("old_setting")
+// @end
 LUA_FUNCTION(l_storage_remove_pref) {
     LUA_CHECK_ARGC(L, 1);
     const char* key = luaL_checkstring(L, 1);
@@ -502,7 +620,15 @@ LUA_FUNCTION(l_storage_remove_pref) {
 
 // @lua ez.storage.clear_prefs() -> boolean
 // @brief Clear all preferences
-// @return true if cleared
+// @description Removes all stored preferences from non-volatile storage. Use with
+// caution - this resets all settings to defaults. Useful for factory reset
+// functionality.
+// @return true if all preferences were cleared
+// @example
+// -- Factory reset
+// ez.storage.clear_prefs()
+// print("All settings reset to defaults")
+// @end
 LUA_FUNCTION(l_storage_clear_prefs) {
     ensurePrefs();
     lua_pushboolean(L, prefs.clear());
@@ -511,7 +637,17 @@ LUA_FUNCTION(l_storage_clear_prefs) {
 
 // @lua ez.storage.is_sd_available() -> boolean
 // @brief Check if SD card is mounted
-// @return true if SD card available
+// @description Checks if an SD card is inserted and accessible. The SD card is
+// initialized on first access. Use this before attempting SD card operations
+// to provide better error messages.
+// @return true if SD card is available and mounted
+// @example
+// if ez.storage.is_sd_available() then
+//     print("SD card ready")
+// else
+//     print("Please insert SD card")
+// end
+// @end
 LUA_FUNCTION(l_storage_is_sd_available) {
     lua_pushboolean(L, initSD());
     return 1;
@@ -519,7 +655,16 @@ LUA_FUNCTION(l_storage_is_sd_available) {
 
 // @lua ez.storage.get_sd_info() -> table
 // @brief Get SD card info
-// @return Table with total_bytes, used_bytes, free_bytes or nil
+// @description Returns information about the SD card including capacity, used
+// space, and card type. Returns nil if SD card is not available.
+// @return Table with total_bytes, used_bytes, free_bytes, card_type, or nil
+// @example
+// local info = ez.storage.get_sd_info()
+// if info then
+//     local free_mb = info.free_bytes / (1024 * 1024)
+//     print(string.format("SD card: %.1f MB free", free_mb))
+// end
+// @end
 LUA_FUNCTION(l_storage_get_sd_info) {
     if (!initSD()) {
         lua_pushnil(L);
@@ -545,7 +690,15 @@ LUA_FUNCTION(l_storage_get_sd_info) {
 
 // @lua ez.storage.get_flash_info() -> table
 // @brief Get flash storage info
+// @description Returns information about the LittleFS flash filesystem. This is
+// the internal storage used for scripts, configuration, and small data files.
+// Typically a few megabytes, shared with the firmware.
 // @return Table with total_bytes, used_bytes, free_bytes
+// @example
+// local info = ez.storage.get_flash_info()
+// local free_kb = info.free_bytes / 1024
+// print(string.format("Flash: %.1f KB free", free_kb))
+// @end
 LUA_FUNCTION(l_storage_get_flash_info) {
     lua_newtable(L);
 
@@ -664,8 +817,20 @@ static void jsonToLua(lua_State* L, JsonVariantConst json) {
 
 // @lua ez.storage.json_encode(value) -> string
 // @brief Encode Lua value to JSON string
+// @description Converts a Lua value to a JSON string. Supports tables (converted
+// to arrays or objects), strings, numbers, booleans, and nil. Nested tables are
+// supported. Useful for saving configuration or sending data over network.
 // @param value Lua table, string, number, boolean, or nil
-// @return JSON string or nil on error
+// @return JSON string
+// @example
+// local data = {
+//     name = "Alice",
+//     scores = {95, 87, 92},
+//     settings = {sound = true, level = 5}
+// }
+// local json = ez.storage.json_encode(data)
+// ez.storage.write_file("/save.json", json)
+// @end
 LUA_FUNCTION(l_storage_json_encode) {
     LUA_CHECK_ARGC(L, 1);
 
@@ -681,8 +846,20 @@ LUA_FUNCTION(l_storage_json_encode) {
 
 // @lua ez.storage.json_decode(json_string) -> value
 // @brief Decode JSON string to Lua value
-// @param json_string JSON string
-// @return Lua value or nil on error
+// @description Parses a JSON string and returns the corresponding Lua value.
+// JSON objects become Lua tables, arrays become indexed tables, and primitives
+// become their Lua equivalents. Returns nil with error message on parse failure.
+// @param json_string JSON string to parse
+// @return Lua value (table, string, number, boolean, or nil), or nil with error
+// @example
+// local json = ez.storage.read_file("/config.json")
+// local config, err = ez.storage.json_decode(json)
+// if config then
+//     print("Username:", config.username)
+// else
+//     print("Parse error:", err)
+// end
+// @end
 LUA_FUNCTION(l_storage_json_decode) {
     LUA_CHECK_ARGC(L, 1);
     const char* json = luaL_checkstring(L, 1);
@@ -702,9 +879,18 @@ LUA_FUNCTION(l_storage_json_decode) {
 
 // @lua ez.storage.copy_file(src, dst) -> boolean
 // @brief Copy a file from source to destination
-// @param src Source file path
-// @param dst Destination file path
-// @return true if successful
+// @description Copies a file from source to destination. Can copy between different
+// filesystems (e.g., from LittleFS to SD card or vice versa). The destination file
+// is overwritten if it exists. Uses 512-byte chunks to minimize memory usage.
+// @param src Source file path (prefix /sd/ for SD card)
+// @param dst Destination file path (prefix /sd/ for SD card)
+// @return true if copy was successful
+// @example
+// -- Backup config to SD card
+// ez.storage.copy_file("/config.json", "/sd/backup/config.json")
+// -- Copy from SD to flash
+// ez.storage.copy_file("/sd/assets/image.bin", "/cache/image.bin")
+// @end
 LUA_FUNCTION(l_storage_copy_file) {
     LUA_CHECK_ARGC(L, 2);
     const char* src = luaL_checkstring(L, 1);
@@ -754,8 +940,17 @@ LUA_FUNCTION(l_storage_copy_file) {
 
 // @lua ez.storage.get_free_space(path) -> integer
 // @brief Get free space on filesystem in bytes
-// @param path Path to check ("/sd/" for SD card, otherwise LittleFS)
+// @description Returns the available free space on the specified filesystem.
+// Use before writing large files to ensure sufficient space. Returns 0 if the
+// filesystem is not available.
+// @param path Path to check ("/sd/" for SD card, otherwise LittleFS), default "/sd/"
 // @return Free space in bytes, or 0 on error
+// @example
+// local sd_free = ez.storage.get_free_space("/sd/")
+// local flash_free = ez.storage.get_free_space("/")
+// print(string.format("SD: %d MB, Flash: %d KB free",
+//     sd_free / (1024*1024), flash_free / 1024))
+// @end
 LUA_FUNCTION(l_storage_get_free_space) {
     const char* path = luaL_optstring(L, 1, "/sd/");
 

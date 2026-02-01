@@ -9,6 +9,14 @@ extern Display* display;
 
 // @lua ez.display.clear()
 // @brief Clear display buffer to black
+// @description Fills the entire display buffer with black (0x0000). This does not
+// immediately update the physical screen - call flush() to push changes to the display.
+// Typically called at the start of each render cycle before drawing new content.
+// @example
+// ez.display.clear()
+// ez.display.draw_text(10, 10, "Hello", colors.WHITE)
+// ez.display.flush()
+// @end
 LUA_FUNCTION(l_display_clear) {
     if (display) {
         display->clear();
@@ -18,6 +26,14 @@ LUA_FUNCTION(l_display_clear) {
 
 // @lua ez.display.flush()
 // @brief Flush buffer to physical display
+// @description Transfers the internal frame buffer to the physical LCD via DMA.
+// Call this after all drawing operations are complete for the current frame.
+// The T-Deck uses a 320x240 RGB565 display with hardware-accelerated transfers.
+// @example
+// ez.display.clear()
+// ez.display.draw_text(10, 10, "Frame complete", colors.GREEN)
+// ez.display.flush()  -- Push to screen
+// @end
 LUA_FUNCTION(l_display_flush) {
     if (display) {
         display->flush();
@@ -27,7 +43,15 @@ LUA_FUNCTION(l_display_flush) {
 
 // @lua ez.display.set_brightness(level)
 // @brief Set backlight brightness
+// @description Controls the LCD backlight PWM level. Lower values save battery but
+// reduce visibility. The setting persists until changed. Use 0 to turn off the
+// backlight completely (screen will appear black but is still rendering).
 // @param level Brightness level (0-255)
+// @example
+// ez.display.set_brightness(200)  -- Bright, good for indoor use
+// ez.display.set_brightness(50)   -- Dim, saves battery
+// ez.display.set_brightness(0)    -- Backlight off
+// @end
 LUA_FUNCTION(l_display_set_brightness) {
     LUA_CHECK_ARGC(L, 1);
     int level = luaL_checkinteger(L, 1);
@@ -40,7 +64,16 @@ LUA_FUNCTION(l_display_set_brightness) {
 
 // @lua ez.display.set_font_size(size)
 // @brief Set font size
+// @description Changes the current font size used by all text drawing functions.
+// The font size affects text_width(), get_font_width(), and get_font_height() return values.
+// Available sizes: tiny (6px), small (8px), medium (12px), large (16px).
 // @param size Font size string: "tiny", "small", "medium", or "large"
+// @example
+// ez.display.set_font_size("large")
+// ez.display.draw_text(10, 10, "Big Title", colors.WHITE)
+// ez.display.set_font_size("small")
+// ez.display.draw_text(10, 30, "Small details", colors.GRAY)
+// @end
 LUA_FUNCTION(l_display_set_font_size) {
     LUA_CHECK_ARGC(L, 1);
     const char* sizeStr = luaL_checkstring(L, 1);
@@ -62,10 +95,17 @@ LUA_FUNCTION(l_display_set_font_size) {
 
 // @lua ez.display.draw_text(x, y, text, color)
 // @brief Draw text at pixel coordinates
+// @description Renders a text string at the specified pixel position using the current
+// font size. The position specifies the top-left corner of the first character.
+// Supports UTF-8 encoded strings including special characters.
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param text Text string to draw
 // @param color Text color (optional, defaults to TEXT)
+// @example
+// ez.display.draw_text(10, 20, "Hello World", colors.WHITE)
+// ez.display.draw_text(10, 40, "Status: OK", colors.GREEN)
+// @end
 LUA_FUNCTION(l_display_draw_text) {
     LUA_CHECK_ARGC_RANGE(L, 3, 4);
     int x = luaL_checkinteger(L, 1);
@@ -81,12 +121,19 @@ LUA_FUNCTION(l_display_draw_text) {
 
 // @lua ez.display.draw_text_bg(x, y, text, fg_color, bg_color, padding)
 // @brief Draw text with a background rectangle
+// @description Draws text with a solid background rectangle for better readability
+// over complex backgrounds like images or maps. The background rectangle is sized
+// automatically based on text dimensions plus the specified padding.
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param text Text string to draw
 // @param fg_color Text color
 // @param bg_color Background color
 // @param padding Padding around text (optional, defaults to 1)
+// @example
+// -- Label with dark background for contrast
+// ez.display.draw_text_bg(50, 100, "GPS: Locked", colors.GREEN, colors.BLACK, 2)
+// @end
 LUA_FUNCTION(l_display_draw_text_bg) {
     LUA_CHECK_ARGC_RANGE(L, 5, 6);
     int x = luaL_checkinteger(L, 1);
@@ -111,12 +158,19 @@ LUA_FUNCTION(l_display_draw_text_bg) {
 
 // @lua ez.display.draw_text_shadow(x, y, text, fg_color, shadow_color, offset)
 // @brief Draw text with a shadow offset
+// @description Draws text with a drop shadow effect by rendering the text twice:
+// first at an offset position in the shadow color, then at the original position
+// in the foreground color. Creates a pseudo-3D effect that improves readability.
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param text Text string to draw
 // @param fg_color Text color
 // @param shadow_color Shadow color (optional, defaults to black)
 // @param offset Shadow offset in pixels (optional, defaults to 1)
+// @example
+// -- Title with drop shadow
+// ez.display.draw_text_shadow(20, 10, "ezOS", colors.WHITE, colors.DARK_GRAY, 2)
+// @end
 LUA_FUNCTION(l_display_draw_text_shadow) {
     LUA_CHECK_ARGC_RANGE(L, 4, 6);
     int x = luaL_checkinteger(L, 1);
@@ -137,9 +191,16 @@ LUA_FUNCTION(l_display_draw_text_shadow) {
 
 // @lua ez.display.draw_text_centered(y, text, color)
 // @brief Draw horizontally centered text
+// @description Draws text centered horizontally on the display. The text width is
+// calculated automatically and the X position is computed to center the string.
+// Useful for titles, headings, and status messages.
 // @param y Y position in pixels
 // @param text Text string to draw
 // @param color Text color (optional, defaults to TEXT)
+// @example
+// ez.display.draw_text_centered(10, "Settings", colors.WHITE)
+// ez.display.draw_text_centered(120, "No messages", colors.GRAY)
+// @end
 LUA_FUNCTION(l_display_draw_text_centered) {
     LUA_CHECK_ARGC_RANGE(L, 2, 3);
     int y = luaL_checkinteger(L, 1);
@@ -154,10 +215,17 @@ LUA_FUNCTION(l_display_draw_text_centered) {
 
 // @lua ez.display.draw_char(x, y, char, color)
 // @brief Draw a single character
+// @description Draws a single character at the specified position. Only the first
+// character of the provided string is rendered. More efficient than draw_text()
+// when you only need one character, such as for custom cursors or icon fonts.
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param char Character to draw (first char of string)
 // @param color Character color (optional)
+// @example
+// ez.display.draw_char(100, 100, ">", colors.GREEN)  -- Cursor
+// ez.display.draw_char(50, 50, "X", colors.RED)      -- Close icon
+// @end
 LUA_FUNCTION(l_display_draw_char) {
     LUA_CHECK_ARGC_RANGE(L, 3, 4);
     int x = luaL_checkinteger(L, 1);
@@ -173,6 +241,9 @@ LUA_FUNCTION(l_display_draw_char) {
 
 // @lua ez.display.draw_box(x, y, w, h, title, border_color, title_color)
 // @brief Draw bordered box with optional title
+// @description Draws a box using box-drawing characters (single-line borders) with
+// an optional title in the top border. Coordinates are in character cells, not pixels.
+// Used for creating dialog boxes, menus, and panels in text-mode UIs.
 // @param x X position in character cells
 // @param y Y position in character cells
 // @param w Width in character cells
@@ -180,6 +251,10 @@ LUA_FUNCTION(l_display_draw_char) {
 // @param title Optional title string
 // @param border_color Border color (optional)
 // @param title_color Title color (optional)
+// @example
+// -- Dialog box with title
+// ez.display.draw_box(5, 3, 30, 10, "Confirm", colors.BORDER, colors.HIGHLIGHT)
+// @end
 LUA_FUNCTION(l_display_draw_box) {
     LUA_CHECK_ARGC_RANGE(L, 4, 7);
     int x = luaL_checkinteger(L, 1);
@@ -198,12 +273,19 @@ LUA_FUNCTION(l_display_draw_box) {
 
 // @lua ez.display.draw_hline(x, y, w, left_connect, right_connect, color)
 // @brief Draw horizontal line with optional connectors
+// @description Draws a horizontal line using box-drawing characters with optional
+// T-junction connectors at the ends for connecting to vertical borders. Coordinates
+// are in character cells. Used for dividers within boxes or between sections.
 // @param x X position in character cells
 // @param y Y position in character cells
 // @param w Width in character cells
 // @param left_connect Connect to left border (optional)
 // @param right_connect Connect to right border (optional)
 // @param color Line color (optional)
+// @example
+// -- Horizontal divider inside a box (connected on both sides)
+// ez.display.draw_hline(5, 6, 30, true, true, colors.BORDER)
+// @end
 LUA_FUNCTION(l_display_draw_hline) {
     LUA_CHECK_ARGC_RANGE(L, 3, 6);
     int x = luaL_checkinteger(L, 1);
@@ -221,11 +303,20 @@ LUA_FUNCTION(l_display_draw_hline) {
 
 // @lua ez.display.fill_rect(x, y, w, h, color)
 // @brief Fill a rectangle with color
+// @description Draws a solid filled rectangle. One of the most commonly used
+// drawing primitives for backgrounds, buttons, selection highlights, and clearing
+// specific screen regions. Coordinates can extend off-screen (clipped automatically).
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param w Width in pixels
 // @param h Height in pixels
 // @param color Fill color (optional)
+// @example
+// -- Selection highlight
+// ez.display.fill_rect(0, 50, 320, 20, colors.SELECTION)
+// -- Button background
+// ez.display.fill_rect(100, 200, 120, 30, colors.BLUE)
+// @end
 LUA_FUNCTION(l_display_fill_rect) {
     LUA_CHECK_ARGC_RANGE(L, 4, 5);
     int x = luaL_checkinteger(L, 1);
@@ -242,11 +333,18 @@ LUA_FUNCTION(l_display_fill_rect) {
 
 // @lua ez.display.draw_rect(x, y, w, h, color)
 // @brief Draw rectangle outline
+// @description Draws a 1-pixel wide rectangle outline (not filled). Useful for
+// borders, focus indicators, and bounding boxes. The outline is drawn inside the
+// specified dimensions.
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param w Width in pixels
 // @param h Height in pixels
 // @param color Outline color (optional)
+// @example
+// -- Focus border around selected item
+// ez.display.draw_rect(10, 50, 300, 25, colors.HIGHLIGHT)
+// @end
 LUA_FUNCTION(l_display_draw_rect) {
     LUA_CHECK_ARGC_RANGE(L, 4, 5);
     int x = luaL_checkinteger(L, 1);
@@ -263,12 +361,21 @@ LUA_FUNCTION(l_display_draw_rect) {
 
 // @lua ez.display.fill_rect_dithered(x, y, w, h, color, density)
 // @brief Fill a rectangle with dithered pattern (simulates transparency)
+// @description Fills a rectangle with a dithered pattern to simulate semi-transparency
+// on hardware that doesn't support alpha blending. At 50% density, creates a checkerboard
+// pattern. Lower density = fewer pixels filled. Useful for overlays and shadows.
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param w Width in pixels
 // @param h Height in pixels
 // @param color Fill color
 // @param density Percentage of pixels filled (0-100, default 50 for checkerboard)
+// @example
+// -- Semi-transparent overlay
+// ez.display.fill_rect_dithered(0, 0, 320, 240, colors.BLACK, 50)
+// -- Light shadow effect
+// ez.display.fill_rect_dithered(5, 5, 100, 50, colors.BLACK, 25)
+// @end
 LUA_FUNCTION(l_display_fill_rect_dithered) {
     LUA_CHECK_ARGC_RANGE(L, 5, 6);
     int x = luaL_checkinteger(L, 1);
@@ -286,12 +393,19 @@ LUA_FUNCTION(l_display_fill_rect_dithered) {
 
 // @lua ez.display.fill_rect_hlines(x, y, w, h, color, spacing)
 // @brief Fill a rectangle with horizontal line pattern
+// @description Fills a rectangle with horizontal scan lines at regular intervals.
+// Creates a striped pattern that can simulate CRT effects, partial fills, or
+// decorative backgrounds. Spacing of 2 fills every other row (50% fill).
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param w Width in pixels
 // @param h Height in pixels
 // @param color Fill color
 // @param spacing Line spacing (2 = 50%, 3 = 33%, etc., default 2)
+// @example
+// -- Retro scanline effect
+// ez.display.fill_rect_hlines(0, 0, 320, 240, colors.BLACK, 2)
+// @end
 LUA_FUNCTION(l_display_fill_rect_hlines) {
     LUA_CHECK_ARGC_RANGE(L, 5, 6);
     int x = luaL_checkinteger(L, 1);
@@ -309,12 +423,18 @@ LUA_FUNCTION(l_display_fill_rect_hlines) {
 
 // @lua ez.display.fill_rect_vlines(x, y, w, h, color, spacing)
 // @brief Fill a rectangle with vertical line pattern
+// @description Fills a rectangle with vertical lines at regular intervals.
+// Creates a vertical striped pattern. Spacing of 2 fills every other column (50% fill).
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param w Width in pixels
 // @param h Height in pixels
 // @param color Fill color
 // @param spacing Line spacing (2 = 50%, 3 = 33%, etc., default 2)
+// @example
+// -- Vertical stripe pattern
+// ez.display.fill_rect_vlines(10, 10, 100, 100, colors.BLUE, 3)
+// @end
 LUA_FUNCTION(l_display_fill_rect_vlines) {
     LUA_CHECK_ARGC_RANGE(L, 5, 6);
     int x = luaL_checkinteger(L, 1);
@@ -332,9 +452,16 @@ LUA_FUNCTION(l_display_fill_rect_vlines) {
 
 // @lua ez.display.draw_pixel(x, y, color)
 // @brief Draw a single pixel
+// @description Sets a single pixel in the frame buffer. While simple, this is the
+// slowest way to draw - prefer fill_rect or other primitives when possible.
+// Useful for plotting graphs, custom patterns, or debugging.
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param color Pixel color (optional)
+// @example
+// -- Plot a point
+// ez.display.draw_pixel(160, 120, colors.RED)
+// @end
 LUA_FUNCTION(l_display_draw_pixel) {
     LUA_CHECK_ARGC_RANGE(L, 2, 3);
     int x = luaL_checkinteger(L, 1);
@@ -349,11 +476,20 @@ LUA_FUNCTION(l_display_draw_pixel) {
 
 // @lua ez.display.draw_line(x1, y1, x2, y2, color)
 // @brief Draw a line between two points
+// @description Draws a 1-pixel wide line using Bresenham's algorithm. Supports any
+// angle including diagonal lines. Coordinates can extend off-screen and will be
+// clipped appropriately.
 // @param x1 Start X position
 // @param y1 Start Y position
 // @param x2 End X position
 // @param y2 End Y position
 // @param color Line color (optional)
+// @example
+// -- Diagonal line
+// ez.display.draw_line(0, 0, 319, 239, colors.WHITE)
+// -- Horizontal separator
+// ez.display.draw_line(10, 100, 310, 100, colors.GRAY)
+// @end
 LUA_FUNCTION(l_display_draw_line) {
     LUA_CHECK_ARGC_RANGE(L, 4, 5);
     int x1 = luaL_checkinteger(L, 1);
@@ -370,10 +506,17 @@ LUA_FUNCTION(l_display_draw_line) {
 
 // @lua ez.display.draw_circle(x, y, r, color)
 // @brief Draw circle outline
+// @description Draws a 1-pixel wide circle outline using the midpoint circle algorithm.
+// The center point and radius define the circle. Partially off-screen circles are
+// clipped correctly.
 // @param x Center X position
 // @param y Center Y position
 // @param r Radius
 // @param color Circle color (optional)
+// @example
+// -- Ring around a point
+// ez.display.draw_circle(160, 120, 50, colors.CYAN)
+// @end
 LUA_FUNCTION(l_display_draw_circle) {
     LUA_CHECK_ARGC_RANGE(L, 3, 4);
     int x = luaL_checkinteger(L, 1);
@@ -389,10 +532,15 @@ LUA_FUNCTION(l_display_draw_circle) {
 
 // @lua ez.display.fill_circle(x, y, r, color)
 // @brief Draw filled circle
+// @description Draws a solid filled circle. Useful for indicators, buttons, or markers.
 // @param x Center X position
 // @param y Center Y position
 // @param r Radius
 // @param color Fill color (optional)
+// @example
+// -- Status indicator dot
+// ez.display.fill_circle(300, 10, 5, colors.GREEN)
+// @end
 LUA_FUNCTION(l_display_fill_circle) {
     LUA_CHECK_ARGC_RANGE(L, 3, 4);
     int x = luaL_checkinteger(L, 1);
@@ -408,6 +556,19 @@ LUA_FUNCTION(l_display_fill_circle) {
 
 // @lua ez.display.draw_triangle(x1, y1, x2, y2, x3, y3, color)
 // @brief Draw triangle outline
+// @description Draws a triangle outline by connecting three vertices with lines.
+// Vertices can be specified in any order. Useful for arrows, pointers, and icons.
+// @param x1 First vertex X
+// @param y1 First vertex Y
+// @param x2 Second vertex X
+// @param y2 Second vertex Y
+// @param x3 Third vertex X
+// @param y3 Third vertex Y
+// @param color Outline color (optional)
+// @example
+// -- Arrow pointing right
+// ez.display.draw_triangle(100, 110, 100, 130, 120, 120, colors.WHITE)
+// @end
 LUA_FUNCTION(l_display_draw_triangle) {
     LUA_CHECK_ARGC_RANGE(L, 6, 7);
     int x1 = luaL_checkinteger(L, 1);
@@ -426,6 +587,19 @@ LUA_FUNCTION(l_display_draw_triangle) {
 
 // @lua ez.display.fill_triangle(x1, y1, x2, y2, x3, y3, color)
 // @brief Draw filled triangle
+// @description Draws a solid filled triangle. The fill uses scan-line rasterization.
+// Useful for filled arrows, play buttons, and decorative elements.
+// @param x1 First vertex X
+// @param y1 First vertex Y
+// @param x2 Second vertex X
+// @param y2 Second vertex Y
+// @param x3 Third vertex X
+// @param y3 Third vertex Y
+// @param color Fill color (optional)
+// @example
+// -- Play button triangle
+// ez.display.fill_triangle(130, 100, 130, 140, 170, 120, colors.GREEN)
+// @end
 LUA_FUNCTION(l_display_fill_triangle) {
     LUA_CHECK_ARGC_RANGE(L, 6, 7);
     int x1 = luaL_checkinteger(L, 1);
@@ -444,6 +618,18 @@ LUA_FUNCTION(l_display_fill_triangle) {
 
 // @lua ez.display.draw_round_rect(x, y, w, h, r, color)
 // @brief Draw rounded rectangle outline
+// @description Draws a rectangle outline with rounded corners. The corner radius
+// should be less than half the smaller dimension. Commonly used for modern UI elements.
+// @param x X position
+// @param y Y position
+// @param w Width
+// @param h Height
+// @param r Corner radius
+// @param color Outline color (optional)
+// @example
+// -- Rounded button outline
+// ez.display.draw_round_rect(100, 180, 120, 40, 8, colors.WHITE)
+// @end
 LUA_FUNCTION(l_display_draw_round_rect) {
     LUA_CHECK_ARGC_RANGE(L, 5, 6);
     int x = luaL_checkinteger(L, 1);
@@ -461,6 +647,19 @@ LUA_FUNCTION(l_display_draw_round_rect) {
 
 // @lua ez.display.fill_round_rect(x, y, w, h, r, color)
 // @brief Draw filled rounded rectangle
+// @description Draws a solid filled rectangle with rounded corners. Commonly used
+// for buttons, cards, and modern UI panels.
+// @param x X position
+// @param y Y position
+// @param w Width
+// @param h Height
+// @param r Corner radius
+// @param color Fill color (optional)
+// @example
+// -- Button background
+// ez.display.fill_round_rect(100, 180, 120, 40, 8, colors.BLUE)
+// ez.display.draw_text(130, 190, "OK", colors.WHITE)
+// @end
 LUA_FUNCTION(l_display_fill_round_rect) {
     LUA_CHECK_ARGC_RANGE(L, 5, 6);
     int x = luaL_checkinteger(L, 1);
@@ -478,6 +677,9 @@ LUA_FUNCTION(l_display_fill_round_rect) {
 
 // @lua ez.display.draw_progress(x, y, w, h, progress, fg_color, bg_color)
 // @brief Draw a progress bar
+// @description Draws a horizontal progress bar with a background track and filled
+// portion. The progress value is clamped to 0.0-1.0 range. Useful for loading
+// indicators, file transfers, or any percentage-based visualization.
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param w Width in pixels
@@ -485,6 +687,10 @@ LUA_FUNCTION(l_display_fill_round_rect) {
 // @param progress Progress value (0.0 to 1.0)
 // @param fg_color Foreground color (optional)
 // @param bg_color Background color (optional)
+// @example
+// -- Download progress at 75%
+// ez.display.draw_progress(20, 150, 280, 12, 0.75, colors.GREEN, colors.DARK_GRAY)
+// @end
 LUA_FUNCTION(l_display_draw_progress) {
     LUA_CHECK_ARGC_RANGE(L, 5, 7);
     int x = luaL_checkinteger(L, 1);
@@ -505,9 +711,16 @@ LUA_FUNCTION(l_display_draw_progress) {
 
 // @lua ez.display.draw_battery(x, y, percent)
 // @brief Draw battery indicator icon
+// @description Draws a battery icon with fill level corresponding to the percentage.
+// The icon is color-coded: green for high charge, yellow for medium, red for low.
+// Typically used in status bars.
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param percent Battery percentage (0-100)
+// @example
+// local battery = ez.system.get_battery()
+// ez.display.draw_battery(290, 2, battery.percent)
+// @end
 LUA_FUNCTION(l_display_draw_battery) {
     LUA_CHECK_ARGC(L, 3);
     int x = luaL_checkinteger(L, 1);
@@ -523,9 +736,17 @@ LUA_FUNCTION(l_display_draw_battery) {
 
 // @lua ez.display.draw_signal(x, y, bars)
 // @brief Draw signal strength indicator
+// @description Draws a signal strength icon with 0-4 ascending bars, similar to
+// mobile phone signal indicators. Used to show radio or mesh network signal quality.
 // @param x X position in pixels
 // @param y Y position in pixels
 // @param bars Signal strength (0-4 bars)
+// @example
+// -- Strong signal
+// ez.display.draw_signal(270, 2, 4)
+// -- Weak signal
+// ez.display.draw_signal(270, 2, 1)
+// @end
 LUA_FUNCTION(l_display_draw_signal) {
     LUA_CHECK_ARGC(L, 3);
     int x = luaL_checkinteger(L, 1);
@@ -541,8 +762,17 @@ LUA_FUNCTION(l_display_draw_signal) {
 
 // @lua ez.display.text_width(text) -> integer
 // @brief Get pixel width of text string
+// @description Calculates the width in pixels that the given text would occupy when
+// rendered with the current font size. Essential for text alignment, centering,
+// truncation, and layout calculations.
 // @param text Text string to measure
 // @return Width in pixels
+// @example
+// local text = "Hello World"
+// local width = ez.display.text_width(text)
+// local x = (320 - width) / 2  -- Center on 320px display
+// ez.display.draw_text(x, 100, text, colors.WHITE)
+// @end
 LUA_FUNCTION(l_display_text_width) {
     LUA_CHECK_ARGC(L, 1);
     const char* text = luaL_checkstring(L, 1);
@@ -557,10 +787,18 @@ LUA_FUNCTION(l_display_text_width) {
 
 // @lua ez.display.rgb(r, g, b) -> integer
 // @brief Convert RGB to RGB565 color value
+// @description Converts 8-bit RGB components to the 16-bit RGB565 format used by
+// the display. RGB565 packs red (5 bits), green (6 bits), and blue (5 bits) into
+// a single 16-bit value. Some color precision is lost in this conversion.
 // @param r Red component (0-255)
 // @param g Green component (0-255)
 // @param b Blue component (0-255)
 // @return RGB565 color value
+// @example
+// local purple = ez.display.rgb(128, 0, 255)
+// local orange = ez.display.rgb(255, 165, 0)
+// ez.display.fill_rect(10, 10, 50, 50, purple)
+// @end
 LUA_FUNCTION(l_display_rgb) {
     LUA_CHECK_ARGC(L, 3);
     int r = luaL_checkinteger(L, 1);
@@ -579,7 +817,12 @@ LUA_FUNCTION(l_display_rgb) {
 
 // @lua ez.display.get_width() -> integer
 // @brief Get display width
+// @description Returns the display width in pixels. The T-Deck has a 320x240 IPS LCD.
+// Use this for portable layouts that adapt to different display sizes.
 // @return Width in pixels
+// @example
+// local w = ez.display.get_width()  -- Returns 320
+// @end
 LUA_FUNCTION(l_display_get_width) {
     lua_pushinteger(L, display ? display->getWidth() : 320);
     return 1;
@@ -587,7 +830,11 @@ LUA_FUNCTION(l_display_get_width) {
 
 // @lua ez.display.get_height() -> integer
 // @brief Get display height
+// @description Returns the display height in pixels. The T-Deck has a 320x240 IPS LCD.
 // @return Height in pixels
+// @example
+// local h = ez.display.get_height()  -- Returns 240
+// @end
 LUA_FUNCTION(l_display_get_height) {
     lua_pushinteger(L, display ? display->getHeight() : 240);
     return 1;
@@ -595,7 +842,12 @@ LUA_FUNCTION(l_display_get_height) {
 
 // @lua ez.display.get_cols() -> integer
 // @brief Get display columns
+// @description Returns the number of character columns based on current font size.
+// Used for text-mode layouts where positioning is in character cells rather than pixels.
 // @return Number of character columns
+// @example
+// local cols = ez.display.get_cols()  -- e.g., 40 with 8px font
+// @end
 LUA_FUNCTION(l_display_get_cols) {
     lua_pushinteger(L, display ? display->getCols() : 40);
     return 1;
@@ -603,7 +855,12 @@ LUA_FUNCTION(l_display_get_cols) {
 
 // @lua ez.display.get_rows() -> integer
 // @brief Get display rows
+// @description Returns the number of character rows based on current font size.
+// Used for text-mode layouts where positioning is in character cells.
 // @return Number of character rows
+// @example
+// local rows = ez.display.get_rows()  -- e.g., 15 with 16px font
+// @end
 LUA_FUNCTION(l_display_get_rows) {
     lua_pushinteger(L, display ? display->getRows() : 15);
     return 1;
@@ -611,7 +868,13 @@ LUA_FUNCTION(l_display_get_rows) {
 
 // @lua ez.display.get_font_width() -> integer
 // @brief Get font character width
+// @description Returns the width in pixels of a single character in the current font.
+// Monospace fonts have uniform character width. Useful for calculating text positioning.
 // @return Character width in pixels
+// @example
+// local fw = ez.display.get_font_width()  -- e.g., 8 for medium font
+// local x = 10 + 5 * fw  -- Position after 5 characters
+// @end
 LUA_FUNCTION(l_display_get_font_width) {
     lua_pushinteger(L, display ? display->getFontWidth() : 8);
     return 1;
@@ -619,7 +882,15 @@ LUA_FUNCTION(l_display_get_font_width) {
 
 // @lua ez.display.get_font_height() -> integer
 // @brief Get font character height
+// @description Returns the height in pixels of a character cell in the current font.
+// This is the line height including spacing. Useful for calculating vertical layout.
 // @return Character height in pixels
+// @example
+// local fh = ez.display.get_font_height()  -- e.g., 16 for medium font
+// for i, line in ipairs(lines) do
+//     ez.display.draw_text(10, 10 + (i-1) * fh, line, colors.WHITE)
+// end
+// @end
 LUA_FUNCTION(l_display_get_font_height) {
     lua_pushinteger(L, display ? display->getFontHeight() : 16);
     return 1;
@@ -627,11 +898,18 @@ LUA_FUNCTION(l_display_get_font_height) {
 
 // @lua ez.display.draw_bitmap(x, y, width, height, data)
 // @brief Draw a bitmap image from raw RGB565 data
+// @description Draws an uncompressed bitmap from raw RGB565 pixel data. Each pixel
+// is 2 bytes in big-endian format. The data length must be exactly width*height*2
+// bytes. This is the fastest bitmap draw method but uses the most memory.
 // @param x X position
 // @param y Y position
 // @param width Bitmap width in pixels
 // @param height Bitmap height in pixels
 // @param data Raw RGB565 pixel data (2 bytes per pixel, big-endian)
+// @example
+// local data = ez.storage.read_bytes("/icons/logo.raw")
+// ez.display.draw_bitmap(100, 50, 64, 64, data)
+// @end
 LUA_FUNCTION(l_display_draw_bitmap) {
     LUA_CHECK_ARGC(L, 5);
     int x = luaL_checkinteger(L, 1);
@@ -656,12 +934,20 @@ LUA_FUNCTION(l_display_draw_bitmap) {
 
 // @lua ez.display.draw_bitmap_transparent(x, y, width, height, data, transparent_color)
 // @brief Draw a bitmap with transparency
+// @description Draws a bitmap where pixels matching the transparent color are skipped,
+// allowing the background to show through. This is a simple color-key transparency
+// (not alpha blending). Commonly used for sprites and icons.
 // @param x X position
 // @param y Y position
 // @param width Bitmap width in pixels
 // @param height Bitmap height in pixels
 // @param data Raw RGB565 pixel data
 // @param transparent_color RGB565 color to treat as transparent
+// @example
+// local data = ez.storage.read_bytes("/sprites/player.raw")
+// -- Treat magenta (0xF81F) as transparent
+// ez.display.draw_bitmap_transparent(100, 100, 32, 32, data, 0xF81F)
+// @end
 LUA_FUNCTION(l_display_draw_bitmap_transparent) {
     LUA_CHECK_ARGC(L, 6);
     int x = luaL_checkinteger(L, 1);
@@ -1046,6 +1332,14 @@ static Sprite* checkSprite(lua_State* L, int idx) {
 
 // @lua sprite:clear(color)
 // @brief Clear sprite to a color
+// @description Fills the entire sprite buffer with the specified color. Call this
+// before drawing new content to reset the sprite. Often used with the transparent
+// color to create a clean slate for layered composition.
+// @param color Fill color (optional, defaults to black)
+// @example
+// sprite:clear(0x0000)  -- Clear to black
+// sprite:clear(0xF81F)  -- Clear to magenta (for transparency)
+// @end
 LUA_FUNCTION(l_sprite_clear) {
     Sprite* sprite = checkSprite(L, 1);
     uint16_t color = luaL_optinteger(L, 2, 0x0000);
@@ -1055,6 +1349,13 @@ LUA_FUNCTION(l_sprite_clear) {
 
 // @lua sprite:set_transparent_color(color)
 // @brief Set the color treated as transparent when pushing
+// @description Sets the color key used for transparency when calling push(). Pixels
+// matching this color will not be drawn, allowing the background to show through.
+// Common choices are magenta (0xF81F) or black (0x0000).
+// @param color RGB565 color to treat as transparent
+// @example
+// sprite:set_transparent_color(0xF81F)  -- Magenta = transparent
+// @end
 LUA_FUNCTION(l_sprite_set_transparent_color) {
     Sprite* sprite = checkSprite(L, 1);
     uint16_t color = luaL_checkinteger(L, 2);
@@ -1063,6 +1364,16 @@ LUA_FUNCTION(l_sprite_set_transparent_color) {
 }
 
 // @lua sprite:fill_rect(x, y, w, h, color)
+// @brief Fill a rectangle in the sprite
+// @description Draws a solid filled rectangle within the sprite buffer.
+// @param x X position relative to sprite
+// @param y Y position relative to sprite
+// @param w Width in pixels
+// @param h Height in pixels
+// @param color Fill color
+// @example
+// sprite:fill_rect(0, 0, 100, 50, colors.BLUE)
+// @end
 LUA_FUNCTION(l_sprite_fill_rect) {
     Sprite* sprite = checkSprite(L, 1);
     int x = luaL_checkinteger(L, 2);
@@ -1075,6 +1386,16 @@ LUA_FUNCTION(l_sprite_fill_rect) {
 }
 
 // @lua sprite:draw_rect(x, y, w, h, color)
+// @brief Draw a rectangle outline in the sprite
+// @description Draws a 1-pixel wide rectangle outline within the sprite buffer.
+// @param x X position relative to sprite
+// @param y Y position relative to sprite
+// @param w Width in pixels
+// @param h Height in pixels
+// @param color Outline color
+// @example
+// sprite:draw_rect(5, 5, 90, 40, colors.WHITE)
+// @end
 LUA_FUNCTION(l_sprite_draw_rect) {
     Sprite* sprite = checkSprite(L, 1);
     int x = luaL_checkinteger(L, 2);
@@ -1087,6 +1408,17 @@ LUA_FUNCTION(l_sprite_draw_rect) {
 }
 
 // @lua sprite:fill_round_rect(x, y, w, h, r, color)
+// @brief Draw a filled rounded rectangle in the sprite
+// @description Draws a solid rectangle with rounded corners within the sprite buffer.
+// @param x X position
+// @param y Y position
+// @param w Width
+// @param h Height
+// @param r Corner radius
+// @param color Fill color
+// @example
+// sprite:fill_round_rect(10, 10, 80, 30, 5, colors.GREEN)
+// @end
 LUA_FUNCTION(l_sprite_fill_round_rect) {
     Sprite* sprite = checkSprite(L, 1);
     int x = luaL_checkinteger(L, 2);
@@ -1100,6 +1432,17 @@ LUA_FUNCTION(l_sprite_fill_round_rect) {
 }
 
 // @lua sprite:draw_round_rect(x, y, w, h, r, color)
+// @brief Draw a rounded rectangle outline in the sprite
+// @description Draws a rectangle outline with rounded corners within the sprite buffer.
+// @param x X position
+// @param y Y position
+// @param w Width
+// @param h Height
+// @param r Corner radius
+// @param color Outline color
+// @example
+// sprite:draw_round_rect(10, 10, 80, 30, 5, colors.WHITE)
+// @end
 LUA_FUNCTION(l_sprite_draw_round_rect) {
     Sprite* sprite = checkSprite(L, 1);
     int x = luaL_checkinteger(L, 2);
@@ -1113,6 +1456,16 @@ LUA_FUNCTION(l_sprite_draw_round_rect) {
 }
 
 // @lua sprite:draw_text(x, y, text, color)
+// @brief Draw text in the sprite
+// @description Renders text at the specified position within the sprite buffer.
+// Uses the current global font size setting.
+// @param x X position
+// @param y Y position
+// @param text Text string to draw
+// @param color Text color
+// @example
+// sprite:draw_text(10, 10, "Overlay", colors.WHITE)
+// @end
 LUA_FUNCTION(l_sprite_draw_text) {
     Sprite* sprite = checkSprite(L, 1);
     int x = luaL_checkinteger(L, 2);
@@ -1124,6 +1477,16 @@ LUA_FUNCTION(l_sprite_draw_text) {
 }
 
 // @lua sprite:draw_line(x1, y1, x2, y2, color)
+// @brief Draw a line in the sprite
+// @description Draws a line between two points within the sprite buffer.
+// @param x1 Start X
+// @param y1 Start Y
+// @param x2 End X
+// @param y2 End Y
+// @param color Line color
+// @example
+// sprite:draw_line(0, 0, 50, 50, colors.YELLOW)
+// @end
 LUA_FUNCTION(l_sprite_draw_line) {
     Sprite* sprite = checkSprite(L, 1);
     int x1 = luaL_checkinteger(L, 2);
@@ -1136,6 +1499,15 @@ LUA_FUNCTION(l_sprite_draw_line) {
 }
 
 // @lua sprite:draw_circle(x, y, r, color)
+// @brief Draw a circle outline in the sprite
+// @description Draws a circle outline within the sprite buffer.
+// @param x Center X
+// @param y Center Y
+// @param r Radius
+// @param color Circle color
+// @example
+// sprite:draw_circle(50, 50, 20, colors.CYAN)
+// @end
 LUA_FUNCTION(l_sprite_draw_circle) {
     Sprite* sprite = checkSprite(L, 1);
     int x = luaL_checkinteger(L, 2);
@@ -1147,6 +1519,15 @@ LUA_FUNCTION(l_sprite_draw_circle) {
 }
 
 // @lua sprite:fill_circle(x, y, r, color)
+// @brief Draw a filled circle in the sprite
+// @description Draws a solid filled circle within the sprite buffer.
+// @param x Center X
+// @param y Center Y
+// @param r Radius
+// @param color Fill color
+// @example
+// sprite:fill_circle(50, 50, 15, colors.RED)
+// @end
 LUA_FUNCTION(l_sprite_fill_circle) {
     Sprite* sprite = checkSprite(L, 1);
     int x = luaL_checkinteger(L, 2);
@@ -1159,9 +1540,16 @@ LUA_FUNCTION(l_sprite_fill_circle) {
 
 // @lua sprite:push(x, y, alpha)
 // @brief Composite sprite onto display buffer
+// @description Copies the sprite content to the main display buffer with optional
+// alpha blending. Pixels matching the transparent color (set via set_transparent_color)
+// are skipped. The alpha parameter controls overall opacity for fade effects.
 // @param x X position on screen
 // @param y Y position on screen
 // @param alpha Opacity 0-255 (optional, default 255 = opaque)
+// @example
+// sprite:push(100, 50)          -- Fully opaque
+// sprite:push(100, 50, 128)     -- 50% transparent
+// @end
 LUA_FUNCTION(l_sprite_push) {
     Sprite* sprite = checkSprite(L, 1);
     int x = luaL_checkinteger(L, 2);
@@ -1173,6 +1561,14 @@ LUA_FUNCTION(l_sprite_push) {
 
 // @lua sprite:destroy()
 // @brief Free sprite memory
+// @description Explicitly releases the sprite's pixel buffer from PSRAM. While sprites
+// are automatically garbage collected, calling destroy() immediately frees memory
+// when you know the sprite is no longer needed. After calling, the sprite is invalid.
+// @example
+// local sprite = ez.display.create_sprite(100, 100)
+// -- ... use sprite ...
+// sprite:destroy()  -- Free memory immediately
+// @end
 LUA_FUNCTION(l_sprite_destroy) {
     Sprite** pp = (Sprite**)luaL_checkudata(L, 1, SPRITE_METATABLE);
     if (pp && *pp) {
@@ -1183,6 +1579,12 @@ LUA_FUNCTION(l_sprite_destroy) {
 }
 
 // @lua sprite:width() -> integer
+// @brief Get sprite width
+// @description Returns the width of the sprite in pixels as specified when created.
+// @return Width in pixels
+// @example
+// local w = sprite:width()  -- Get sprite dimensions
+// @end
 LUA_FUNCTION(l_sprite_width) {
     Sprite* sprite = checkSprite(L, 1);
     lua_pushinteger(L, sprite ? sprite->width() : 0);
@@ -1190,6 +1592,12 @@ LUA_FUNCTION(l_sprite_width) {
 }
 
 // @lua sprite:height() -> integer
+// @brief Get sprite height
+// @description Returns the height of the sprite in pixels as specified when created.
+// @return Height in pixels
+// @example
+// local h = sprite:height()  -- Get sprite dimensions
+// @end
 LUA_FUNCTION(l_sprite_height) {
     Sprite* sprite = checkSprite(L, 1);
     lua_pushinteger(L, sprite ? sprite->height() : 0);
@@ -1225,8 +1633,23 @@ static const luaL_Reg sprite_methods[] = {
     {nullptr, nullptr}
 };
 
-// @lua display.create_sprite(width, height) -> Sprite
+// @lua ez.display.create_sprite(width, height) -> Sprite
 // @brief Create an off-screen sprite for alpha compositing
+// @description Allocates an off-screen RGB565 pixel buffer in PSRAM for compositing
+// operations. Sprites support transparency and alpha blending when pushed to the
+// display. Useful for overlays, menus, and animated elements. Remember to call
+// destroy() or let garbage collection free the memory when done.
+// @param width Sprite width in pixels
+// @param height Sprite height in pixels
+// @return Sprite object, or nil if allocation failed
+// @example
+// local overlay = ez.display.create_sprite(200, 100)
+// overlay:set_transparent_color(0xF81F)
+// overlay:clear(0xF81F)
+// overlay:fill_round_rect(0, 0, 200, 100, 10, colors.DARK_GRAY)
+// overlay:draw_text(20, 40, "Popup Menu", colors.WHITE)
+// overlay:push(60, 70, 200)  -- Draw at 78% opacity
+// @end
 LUA_FUNCTION(l_display_create_sprite) {
     LUA_CHECK_ARGC(L, 2);
     int width = luaL_checkinteger(L, 1);

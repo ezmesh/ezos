@@ -128,9 +128,18 @@ static void stopAudio() {
 
 // @lua ez.audio.play_tone(frequency, duration_ms) -> boolean
 // @brief Play a tone for specified duration
+// @description Plays a sine wave tone at the given frequency. The tone plays in
+// the background and stops automatically after the duration. Non-blocking, so
+// your code continues while the tone plays. Use is_playing() to check status.
 // @param frequency Frequency in Hz (20-20000)
 // @param duration_ms Duration in milliseconds
 // @return true if started successfully
+// @example
+// -- Play a 440Hz (A4) beep for half a second
+// ez.audio.play_tone(440, 500)
+// -- Play a higher alert tone
+// ez.audio.play_tone(880, 200)
+// @end
 LUA_FUNCTION(l_audio_play_tone) {
     LUA_CHECK_ARGC(L, 2);
     int frequency = luaL_checkinteger(L, 1);
@@ -154,6 +163,13 @@ LUA_FUNCTION(l_audio_play_tone) {
 
 // @lua ez.audio.stop()
 // @brief Stop audio playback
+// @description Immediately stops any playing tone or sample. Also clears any
+// pending timed duration, so the audio won't resume.
+// @example
+// ez.audio.start()  -- Start continuous tone
+// ez.system.delay(1000)
+// ez.audio.stop()   -- Stop after 1 second
+// @end
 LUA_FUNCTION(l_audio_stop) {
     stopAudio();
     return 0;
@@ -161,7 +177,16 @@ LUA_FUNCTION(l_audio_stop) {
 
 // @lua ez.audio.is_playing() -> boolean
 // @brief Check if audio is playing
+// @description Returns true if a tone or sample is currently playing. Useful for
+// waiting until audio completes before starting another sound.
 // @return true if playing
+// @example
+// ez.audio.play_tone(440, 500)
+// while ez.audio.is_playing() do
+//     ez.system.delay(10)
+// end
+// print("Tone finished!")
+// @end
 LUA_FUNCTION(l_audio_is_playing) {
     lua_pushboolean(L, audioRunning);
     return 1;
@@ -169,10 +194,19 @@ LUA_FUNCTION(l_audio_is_playing) {
 
 // @lua ez.audio.beep(count, frequency, on_ms, off_ms)
 // @brief Play a series of beeps (blocking)
+// @description Plays one or more beeps with configurable timing. This function
+// blocks until all beeps complete. Good for alerts and notifications. Parameters
+// are constrained to safe ranges (count: 1-10, frequency: 100-5000Hz, timing: 10-500ms).
 // @param count Number of beeps (default 1)
 // @param frequency Tone frequency in Hz (default 1000)
 // @param on_ms Beep duration in ms (default 100)
 // @param off_ms Pause between beeps in ms (default 50)
+// @example
+// ez.audio.beep()           -- Single default beep
+// ez.audio.beep(2)          -- Two beeps
+// ez.audio.beep(3, 2000)    -- Three high-pitched beeps
+// ez.audio.beep(1, 500, 200, 0)  -- One low 200ms beep
+// @end
 LUA_FUNCTION(l_audio_beep) {
     int count = luaL_optintegerdefault(L, 1, 1);
     int frequency = luaL_optintegerdefault(L, 2, 1000);
@@ -204,8 +238,19 @@ LUA_FUNCTION(l_audio_beep) {
 
 // @lua ez.audio.set_frequency(frequency) -> boolean
 // @brief Set playback frequency for continuous tones
+// @description Changes the frequency of the tone generator. If a tone is already
+// playing, the frequency changes immediately (smooth transition). Combine with
+// start() and stop() for custom tone patterns.
 // @param frequency Frequency in Hz (20-20000)
 // @return true if valid frequency
+// @example
+// ez.audio.start()
+// for freq = 200, 800, 50 do
+//     ez.audio.set_frequency(freq)
+//     ez.system.delay(50)
+// end
+// ez.audio.stop()
+// @end
 LUA_FUNCTION(l_audio_set_frequency) {
     LUA_CHECK_ARGC(L, 1);
     int frequency = luaL_checkinteger(L, 1);
@@ -222,6 +267,16 @@ LUA_FUNCTION(l_audio_set_frequency) {
 
 // @lua ez.audio.start()
 // @brief Start continuous tone at current frequency
+// @description Starts playing a continuous tone at the current frequency (set via
+// set_frequency, default 440Hz). The tone plays until stop() is called. Use this
+// with set_frequency() for custom sound effects like sirens or sweeps.
+// @example
+// ez.audio.set_frequency(1000)
+// ez.audio.start()
+// -- Tone plays continuously until stopped
+// ez.system.delay(2000)
+// ez.audio.stop()
+// @end
 LUA_FUNCTION(l_audio_start) {
     ensureAudioTask();
     toneHasDuration = false;
@@ -231,7 +286,14 @@ LUA_FUNCTION(l_audio_start) {
 
 // @lua ez.audio.set_volume(level)
 // @brief Set audio volume level
+// @description Sets the master volume for all audio output. Affects both tones
+// and samples. The setting persists until changed. Volume 0 is silent, 100 is max.
 // @param level Volume level 0-100
+// @example
+// ez.audio.set_volume(50)  -- Half volume
+// ez.audio.beep()
+// ez.audio.set_volume(100) -- Full volume
+// @end
 LUA_FUNCTION(l_audio_set_volume) {
     LUA_CHECK_ARGC(L, 1);
     int level = luaL_checkinteger(L, 1);
@@ -241,7 +303,13 @@ LUA_FUNCTION(l_audio_set_volume) {
 
 // @lua ez.audio.get_volume() -> integer
 // @brief Get current volume level
+// @description Returns the current master volume setting. Use this to save/restore
+// volume levels or display the current volume in a settings screen.
 // @return Volume level 0-100
+// @example
+// local vol = ez.audio.get_volume()
+// print("Current volume:", vol .. "%")
+// @end
 LUA_FUNCTION(l_audio_get_volume) {
     lua_pushinteger(L, audioVolume);
     return 1;
@@ -249,8 +317,18 @@ LUA_FUNCTION(l_audio_get_volume) {
 
 // @lua ez.audio.play_sample(filename) -> boolean
 // @brief Play a PCM sample file from LittleFS
-// @param filename Path to .pcm file (16-bit signed, 22050Hz mono)
-// @return true if played successfully
+// @description Plays a raw PCM audio file from the /sounds/ directory. Files must be
+// 16-bit signed, 22050Hz mono format (.pcm extension). The function blocks until
+// playback completes. Use for sound effects, alerts, or short audio clips. Convert
+// audio files using: ffmpeg -i input.wav -f s16le -ar 22050 -ac 1 output.pcm
+// @param filename Path to .pcm file (relative to /sounds/, extension optional)
+// @return true if played successfully, false if file not found
+// @example
+// -- Play a notification sound
+// ez.audio.play_sample("notify")
+// -- Play with full path
+// ez.audio.play_sample("alerts/warning.pcm")
+// @end
 LUA_FUNCTION(l_audio_play_sample) {
     LUA_CHECK_ARGC(L, 1);
     const char* filename = luaL_checkstring(L, 1);
