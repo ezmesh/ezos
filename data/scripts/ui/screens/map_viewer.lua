@@ -20,7 +20,7 @@ local MapViewer = {
     archive_path = "/sd/maps/world.tdmap",
 
     -- Archive metadata (populated on load)
-    archive = nil,  -- { path, tile_count, index_offset, data_offset, min_zoom, max_zoom, palette }
+    archive = nil,     -- { path, tile_count, index_offset, data_offset, min_zoom, max_zoom, palette }
     tile_index = nil,  -- Array of { zoom, x, y, offset, size }
 
     -- View state
@@ -98,34 +98,42 @@ local MapViewer = {
     show_labels = true,
 }
 
--- Semantic color palettes (RGB565 values)
+-- Semantic color palettes (BGR565 for T-Deck, RGB565 for simulator)
+-- T-Deck ST7789 uses BGR order, draw_indexed_bitmap writes directly to buffer
 -- Tiles store feature indices, we map to colors here
-local function rgb565(r, g, b)
-    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
-end
+local PALETTES = nil
 
-local PALETTES = {
-    light = {
-        [0] = rgb565(255, 255, 255),  -- Land - white
-        [1] = rgb565(160, 208, 240),  -- Water - light blue
-        [2] = rgb565(200, 230, 200),  -- Park - light green
-        [3] = rgb565(208, 208, 208),  -- Building - light gray
-        [4] = rgb565(136, 136, 136),  -- Road minor - medium gray
-        [5] = rgb565(96, 96, 96),     -- Road major - dark gray
-        [6] = rgb565(64, 64, 64),     -- Highway - darker gray
-        [7] = rgb565(48, 48, 48),     -- Railway - near black
-    },
-    dark = {
-        [0] = rgb565(26, 26, 46),     -- Land - dark blue-gray
-        [1] = rgb565(10, 32, 64),     -- Water - dark blue
-        [2] = rgb565(26, 42, 26),     -- Park - dark green
-        [3] = rgb565(42, 42, 62),     -- Building - medium dark
-        [4] = rgb565(80, 80, 96),     -- Road minor - medium gray
-        [5] = rgb565(112, 112, 128),  -- Road major - lighter gray
-        [6] = rgb565(144, 144, 160),  -- Highway - light gray
-        [7] = rgb565(96, 96, 112),    -- Railway - medium
-    },
-}
+local function init_palettes()
+    if PALETTES then return end
+
+    -- Convert RGB to BGR565 (display uses BGR565 format)
+    local function rgb565(r, g, b)
+        return ((b >> 3) << 11) | ((g >> 2) << 5) | (r >> 3)
+    end
+
+    PALETTES = {
+        light = {
+            [0] = rgb565(255, 255, 255),  -- Land - white
+            [1] = rgb565(160, 208, 240),  -- Water - light blue
+            [2] = rgb565(200, 230, 200),  -- Park - light green
+            [3] = rgb565(208, 208, 208),  -- Building - light gray
+            [4] = rgb565(136, 136, 136),  -- Road minor - medium gray
+            [5] = rgb565(96, 96, 96),     -- Road major - dark gray
+            [6] = rgb565(64, 64, 64),     -- Highway - darker gray
+            [7] = rgb565(48, 48, 48),     -- Railway - near black
+        },
+        dark = {
+            [0] = rgb565(26, 26, 46),     -- Land - dark blue-gray
+            [1] = rgb565(10, 32, 64),     -- Water - dark blue
+            [2] = rgb565(26, 42, 26),     -- Park - dark green
+            [3] = rgb565(42, 42, 62),     -- Building - medium dark
+            [4] = rgb565(80, 80, 96),     -- Road minor - medium gray
+            [5] = rgb565(112, 112, 128),  -- Road major - lighter gray
+            [6] = rgb565(144, 144, 160),  -- Highway - light gray
+            [7] = rgb565(96, 96, 112),    -- Railway - medium
+        },
+    }
+end
 
 function MapViewer:new(archive_path)
     local o = {
@@ -331,6 +339,7 @@ function MapViewer:load_archive_async()
         end
 
         -- Use semantic palette based on theme (ignore palette in file)
+        init_palettes()
         local palette = PALETTES[self_ref.theme] or PALETTES.light
         -- Convert to 1-indexed array for draw_indexed_bitmap
         local palette_array = {}
@@ -383,14 +392,15 @@ function MapViewer:load_archive_async()
 
         -- Load labels (v4: flat list with lat/lon coords)
         -- Limit label loading to avoid memory issues on constrained devices
-        local max_label_entries = 30000  -- ~3MB in memory
+        -- Each label table uses ~100 bytes in Lua, so 5000 labels = ~500KB
+        local max_label_entries = 5000
         ez.system.log(string.format("[Map] Label info: version=%d count=%d offset=%d", version, label_count, label_data_offset))
         if label_count > 0 and label_data_offset > 0 then
             local load_count = math.min(label_count, max_label_entries)
             if label_count > max_label_entries then
                 ez.system.log(string.format("[Map] Limiting labels: loading %d of %d (memory constraint)", load_count, label_count))
             end
-            self_ref:load_labels_v4_async(label_data_offset, load_count)
+            self_ref:load_labels_v4(label_data_offset, load_count)
         end
 
         -- Set initial view
@@ -410,42 +420,50 @@ function MapViewer:load_archive_async()
     spawn(do_load)
 end
 
--- Load all labels from archive asynchronously (v4 format: lat/lon coords)
-function MapViewer:load_labels_v4_async(data_offset, count)
-    local self_ref = self
+-- Load all labels from archive (v4 format: lat/lon coords)
+-- Uses chunked loading to avoid large memory allocations
+-- Called inline from archive loading coroutine (not spawned separately)
+function MapViewer:load_labels_v4(data_offset, count)
+    -- Read labels in chunks to avoid large memory allocations
+    -- Each chunk is 8KB which can hold ~350 average labels
+    local CHUNK_SIZE = 8 * 1024
+    local file_offset = data_offset
+    local labels_loaded = 0
+    local buffer = ""  -- Leftover data from previous chunk
 
-    local function do_load_labels()
-        -- Estimate max label data size (~23 bytes avg per label)
-        local estimated_size = count * 23
-        local labels_data = bytes_to_string(async_read_bytes(self_ref.archive_path, data_offset, estimated_size))
-        if not labels_data then
-            ez.system.log("[Map] Failed to read label data")
-            return
+    self.labels = {}
+
+    while labels_loaded < count do
+        -- Read next chunk
+        local chunk = bytes_to_string(async_read_bytes(self.archive_path, file_offset, CHUNK_SIZE))
+        if not chunk then
+            ez.system.log("[Map] Failed to read label chunk at offset " .. file_offset)
+            break
         end
 
-        self_ref.labels = {}
+        -- Combine leftover buffer with new chunk
+        local data = buffer .. chunk
         local offset = 0
 
-        for i = 1, count do
+        -- Process labels from this chunk
+        while labels_loaded < count and offset + 12 <= #data do
             -- v4 format: lat_e6:4 + lon_e6:4 + zoom_min:1 + zoom_max:1 + label_type:1 + text_len:1 + text
-            if offset + 12 > #labels_data then
+            local lat_e6 = read_i32(data, offset)
+            local lon_e6 = read_i32(data, offset + 4)
+            local zoom_min = read_u8(data, offset + 8)
+            local zoom_max = read_u8(data, offset + 9)
+            local label_type = read_u8(data, offset + 10)
+            local text_len = read_u8(data, offset + 11)
+
+            -- Check if we have the complete label (including text)
+            if offset + 12 + text_len > #data then
+                -- Incomplete label, save rest for next chunk
                 break
             end
 
-            local lat_e6 = read_i32(labels_data, offset)
-            local lon_e6 = read_i32(labels_data, offset + 4)
-            local zoom_min = read_u8(labels_data, offset + 8)
-            local zoom_max = read_u8(labels_data, offset + 9)
-            local label_type = read_u8(labels_data, offset + 10)
-            local text_len = read_u8(labels_data, offset + 11)
+            local text = string.sub(data, offset + 13, offset + 12 + text_len)
 
-            if offset + 12 + text_len > #labels_data then
-                break
-            end
-
-            local text = string.sub(labels_data, offset + 13, offset + 12 + text_len)
-
-            table.insert(self_ref.labels, {
+            table.insert(self.labels, {
                 lat = lat_e6 / 1000000,
                 lon = lon_e6 / 1000000,
                 zoom_min = zoom_min,
@@ -455,13 +473,20 @@ function MapViewer:load_labels_v4_async(data_offset, count)
             })
 
             offset = offset + 12 + text_len
+            labels_loaded = labels_loaded + 1
         end
 
-        ez.system.log(string.format("[Map] Loaded %d labels", #self_ref.labels))
-        ScreenManager.invalidate()
+        -- Save leftover data for next iteration
+        buffer = string.sub(data, offset + 1)
+        file_offset = file_offset + CHUNK_SIZE
+
+        -- Break if chunk was smaller than expected (end of file)
+        if #chunk < CHUNK_SIZE then
+            break
+        end
     end
 
-    spawn(do_load_labels)
+    ez.system.log(string.format("[Map] Loaded %d labels", #self.labels))
 end
 
 -- Get labels visible at current zoom and position
@@ -730,6 +755,7 @@ function MapViewer:on_enter()
     -- Reload archive if theme changed (to update palette)
     if self.archive and old_theme ~= self.theme then
         -- Update palette without reloading entire archive
+        init_palettes()
         local palette = PALETTES[self.theme] or PALETTES.light
         local palette_array = {}
         for i = 0, 7 do
@@ -1029,14 +1055,11 @@ function MapViewer:draw_labels(display, colors, start_tile_x, start_tile_y, tile
         return false
     end
 
-    -- Label background color (dark with some transparency feel)
-    local label_bg = display.rgb(20, 20, 30)
-
     local drawn = 0
     for _, c in ipairs(candidates) do
         if not overlaps(c.x, c.y, c.w, c.h) then
-            -- Draw text with dark background for readability
-            display.draw_text_bg(c.x, c.y, c.text, colors.WHITE, label_bg, 1)
+            -- Draw text with 1px black shadow for readability
+            display.draw_text_shadow(c.x, c.y, c.text, colors.WHITE, 0x0000, 1)
             table.insert(drawn_boxes, {x = c.x, y = c.y, w = c.w, h = c.h})
             drawn = drawn + 1
         end

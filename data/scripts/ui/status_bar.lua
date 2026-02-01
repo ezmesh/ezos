@@ -19,6 +19,12 @@ local StatusBar = {
     psram_idx = 1,
     mem_last = 0,
 
+    -- FPS counter
+    show_fps = false,
+    fps = 0,
+    fps_frame_times = {},
+    fps_last_time = 0,
+
     -- Time format: 1 = 24h, 2 = 12h AM/PM
     time_format = 1,
 
@@ -74,6 +80,38 @@ end
 
 function StatusBar.is_loading()
     return StatusBar.loading_count > 0
+end
+
+function StatusBar.update_fps_on_render()
+    -- Called from render(), measures actual frame rate
+    local now = ez.system.millis()
+    if StatusBar.fps_last_time > 0 then
+        local frame_time = now - StatusBar.fps_last_time
+        -- Only count reasonable frame times (ignore long pauses when idle)
+        if frame_time > 0 and frame_time < 1000 then
+            table.insert(StatusBar.fps_frame_times, frame_time)
+            -- Keep last 20 frames for smoother averaging
+            if #StatusBar.fps_frame_times > 20 then
+                table.remove(StatusBar.fps_frame_times, 1)
+            end
+            -- Calculate average FPS
+            local total = 0
+            for _, t in ipairs(StatusBar.fps_frame_times) do
+                total = total + t
+            end
+            local avg_time = total / #StatusBar.fps_frame_times
+            if avg_time > 0 then
+                StatusBar.fps = math.floor(1000 / avg_time + 0.5)
+            end
+        end
+    end
+    StatusBar.fps_last_time = now
+end
+
+function StatusBar.load_fps_setting()
+    if ez.storage and ez.storage.get_pref then
+        StatusBar.show_fps = ez.storage.get_pref("showFps", false)
+    end
 end
 
 function StatusBar.update_memory()
@@ -137,6 +175,10 @@ function StatusBar.get_status()
 end
 
 function StatusBar.render(display)
+    -- Update FPS on actual render calls
+    if StatusBar.show_fps then
+        StatusBar.update_fps_on_render()
+    end
     display.set_font_size("small")
     StatusBar._render_impl(display)
     display.set_font_size("medium")
@@ -289,6 +331,14 @@ function StatusBar._render_impl(display)
         end
     else
         display.draw_text(signal_x, y, "!RF", colors.ERROR)
+    end
+
+    -- FPS counter (left of signal bars, only if enabled)
+    if StatusBar.show_fps then
+        local fps_text = tostring(StatusBar.fps)
+        local fps_width = display.text_width(fps_text)
+        local fps_x = signal_x - fps_width - 6
+        display.draw_text(fps_x, y - 3, fps_text, colors.TEXT_MUTED)
     end
 
     -- Time display (center of screen)
@@ -482,6 +532,7 @@ function StatusBar.register()
     if _G.MainLoop then
         _G.MainLoop.on_update("status_bar", StatusBar.update)
     end
+    StatusBar.load_fps_setting()
     StatusBar.update_memory()
 end
 

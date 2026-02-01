@@ -1,5 +1,5 @@
 -- font_test.lua - Test screen for font display
--- Shows available fonts and sizes
+-- Shows available fonts and sizes, including TTF fonts
 
 local ListMixin = load_module("/scripts/ui/list_mixin.lua")
 
@@ -128,7 +128,7 @@ function FontTest:handle_key(key)
         self.scroll_y = math.max(0, self.scroll_y - 20)
         ScreenManager.invalidate()
     elseif key.special == "DOWN" then
-        self.scroll_y = math.min(100, self.scroll_y + 20)
+        self.scroll_y = math.min(150, self.scroll_y + 20)
         ScreenManager.invalidate()
     end
 

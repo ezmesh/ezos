@@ -61,6 +61,7 @@ bool Display::init() {
 
     _initialized = true;
     Serial.println("Display: Initialization complete");
+
     return true;
 }
 

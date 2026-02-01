@@ -8,17 +8,19 @@ import { FONTS, getFont, renderText, measureText, loadFonts } from '../fonts.js'
 // Export loadFonts for initialization
 export { loadFonts };
 
-// Convert RGB565 to CSS color
+// Convert BGR565 to CSS color (T-Deck uses BGR565 format)
 function rgb565ToCSS(color) {
-    const r = ((color >> 11) & 0x1F) << 3;
+    // BGR565: BBBBBGGGGGGRRRRR
+    const b = ((color >> 11) & 0x1F) << 3;
     const g = ((color >> 5) & 0x3F) << 2;
-    const b = (color & 0x1F) << 3;
+    const r = (color & 0x1F) << 3;
     return `rgb(${r},${g},${b})`;
 }
 
-// Convert RGB to RGB565
+// Convert RGB to BGR565 (to match T-Deck hardware)
 function rgbToRgb565(r, g, b) {
-    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+    // Output BGR565: BBBBBGGGGGGRRRRR
+    return ((b >> 3) << 11) | ((g >> 2) << 5) | (r >> 3);
 }
 
 export function createDisplayModule(ctx, canvas) {
@@ -36,17 +38,17 @@ export function createDisplayModule(ctx, canvas) {
     ctx.mozImageSmoothingEnabled = false;
     ctx.msImageSmoothingEnabled = false;
 
-    // Pre-defined colors (RGB565 values)
+    // Pre-defined colors (BGR565 values to match T-Deck hardware)
     const colors = {
         BLACK: 0x0000,
         WHITE: 0xFFFF,
-        RED: 0xF800,
-        GREEN: 0x07E0,
-        BLUE: 0x001F,
-        YELLOW: 0xFFE0,
-        CYAN: 0x07FF,
-        MAGENTA: 0xF81F,
-        ORANGE: 0xFD20,
+        RED: 0x001F,      // BGR565: red in low bits
+        GREEN: 0x07E0,    // Green stays the same
+        BLUE: 0xF800,     // BGR565: blue in high bits
+        YELLOW: 0x07FF,   // BGR565: red + green
+        CYAN: 0xFFE0,     // BGR565: green + blue
+        MAGENTA: 0xF81F,  // BGR565: red + blue
+        ORANGE: 0x051F,   // BGR565: orange
         GRAY: 0x8410,
         DARK_GRAY: 0x4208,
         LIGHT_GRAY: 0xC618,
@@ -127,6 +129,17 @@ export function createDisplayModule(ctx, canvas) {
                 Math.ceil(fontHeight + padding * 2)
             );
             // Draw text
+            const fgCSS = rgb565ToCSS(fgColor);
+            renderText(ctx, currentFont, textStr, Math.floor(x), Math.floor(y), fgCSS);
+        },
+
+        // Draw text with shadow offset
+        draw_text_shadow(x, y, text, fgColor = 0xFFFF, shadowColor = 0x0000, offset = 1) {
+            const textStr = String(text);
+            // Draw shadow (offset down and right)
+            const shadowCSS = rgb565ToCSS(shadowColor);
+            renderText(ctx, currentFont, textStr, Math.floor(x + offset), Math.floor(y + offset), shadowCSS);
+            // Draw text on top
             const fgCSS = rgb565ToCSS(fgColor);
             renderText(ctx, currentFont, textStr, Math.floor(x), Math.floor(y), fgCSS);
         },
@@ -489,14 +502,15 @@ export function createDisplayModule(ctx, canvas) {
             const pixels = imageData.data;
 
             for (let i = 0; i < w * h && i * 2 + 1 < data.length; i++) {
-                // RGB565 is little-endian
+                // BGR565 is little-endian
                 const lo = data.charCodeAt(i * 2);
                 const hi = data.charCodeAt(i * 2 + 1);
                 const color = (hi << 8) | lo;
 
-                const r = ((color >> 11) & 0x1F) << 3;
+                // BGR565: BBBBBGGGGGGRRRRR
+                const b = ((color >> 11) & 0x1F) << 3;
                 const g = ((color >> 5) & 0x3F) << 2;
-                const b = (color & 0x1F) << 3;
+                const r = (color & 0x1F) << 3;
 
                 pixels[i * 4] = r;
                 pixels[i * 4 + 1] = g;
@@ -590,9 +604,10 @@ export function createDisplayModule(ctx, canvas) {
                 for (let j = 0; j < 8 && pixelIdx < totalPixels; j++, pixelIdx++) {
                     const colorIdx = p[j];
                     const color = getColor(colorIdx);
-                    const r = ((color >> 11) & 0x1F) << 3;
+                    // BGR565: BBBBBGGGGGGRRRRR
+                    const b = ((color >> 11) & 0x1F) << 3;
                     const g = ((color >> 5) & 0x3F) << 2;
-                    const b = (color & 0x1F) << 3;
+                    const r = (color & 0x1F) << 3;
 
                     pixels[pixelIdx * 4] = r;
                     pixels[pixelIdx * 4 + 1] = g;
@@ -683,9 +698,10 @@ export function createDisplayModule(ctx, canvas) {
                     const srcX = Math.floor(src_x + dx * scaleX);
                     const color = getPixel(srcX, srcY);
 
-                    const r = ((color >> 11) & 0x1F) << 3;
+                    // BGR565: BBBBBGGGGGGRRRRR
+                    const b = ((color >> 11) & 0x1F) << 3;
                     const g = ((color >> 5) & 0x3F) << 2;
-                    const b = (color & 0x1F) << 3;
+                    const r = (color & 0x1F) << 3;
 
                     const idx = (dy * dest_w + dx) * 4;
                     pixels[idx] = r;
@@ -747,7 +763,7 @@ export function createDisplayModule(ctx, canvas) {
             const pixels = imageData.data;
 
             for (let i = 0; i < w * h && i * 2 + 1 < data.length; i++) {
-                // RGB565 is little-endian
+                // BGR565 is little-endian
                 const lo = data.charCodeAt(i * 2);
                 const hi = data.charCodeAt(i * 2 + 1);
                 const color = (hi << 8) | lo;
@@ -758,9 +774,10 @@ export function createDisplayModule(ctx, canvas) {
                     continue;
                 }
 
-                const r = ((color >> 11) & 0x1F) << 3;
+                // BGR565: BBBBBGGGGGGRRRRR
+                const b = ((color >> 11) & 0x1F) << 3;
                 const g = ((color >> 5) & 0x3F) << 2;
-                const b = (color & 0x1F) << 3;
+                const r = (color & 0x1F) << 3;
 
                 pixels[i * 4] = r;
                 pixels[i * 4 + 1] = g;

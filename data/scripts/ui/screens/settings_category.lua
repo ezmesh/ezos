@@ -132,6 +132,7 @@ SettingsCategory.ALL_SETTINGS = {
         {name = "wallpaper_tint", label = "Wallpaper Tint", value = "", type = "button", icon = "settings"},
         {name = "screen_dim_timeout", label = "Dim After", value = 5, type = "option", options = {"Off", "1 min", "2 min", "5 min", "10 min", "15 min"}, icon = "info"},
         {name = "screen_off_timeout", label = "Off After", value = 4, type = "option", options = {"Off", "5 min", "10 min", "15 min", "30 min"}, icon = "info"},
+        {name = "show_fps", label = "FPS Counter", value = false, type = "toggle", icon = "info"},
     },
     time = {
         {name = "time_format", label = "Time", value = 1, type = "option", options = {"24h", "12h AM/PM"}, icon = "info"},
@@ -159,7 +160,7 @@ SettingsCategory.ALL_SETTINGS = {
         {name = "ui_sounds_vol", label = "Sound Vol", value = 50, type = "number", min = 0, max = 100, step = 10, suffix = "%", icon = "settings"},
     },
     map = {
-        {name = "map_invert_colors", label = "Invert Colors", value = true, type = "toggle", icon = "map"},
+        {name = "map_theme", label = "Theme", value = 1, type = "option", options = {"Light", "Dark"}, icon = "map"},
         {name = "map_pan_speed", label = "Pan Speed", value = 2, type = "number", min = 1, max = 5, suffix = "", icon = "map"},
     },
     hotkeys = {
@@ -269,8 +270,10 @@ function SettingsCategory:load_settings()
             setting.value = get_pref("uiSoundsEnabled", false)
         elseif setting.name == "ui_sounds_vol" then
             setting.value = tonumber(get_pref("uiSoundsVolume", 50)) or 50
-        elseif setting.name == "map_invert_colors" then
-            setting.value = get_pref("mapInvertColors", true)
+        elseif setting.name == "map_theme" then
+            -- Convert theme string to option index: light=1, dark=2
+            local theme = get_pref("mapTheme", "light")
+            setting.value = (theme == "dark") and 2 or 1
         elseif setting.name == "map_pan_speed" then
             setting.value = tonumber(get_pref("mapPanSpeed", 2)) or 2
         elseif setting.name == "screen_dim_timeout" then
@@ -290,6 +293,8 @@ function SettingsCategory:load_settings()
             elseif mins == 10 then setting.value = 3
             elseif mins == 15 then setting.value = 4
             else setting.value = 5 end
+        elseif setting.name == "show_fps" then
+            setting.value = get_pref("showFps", false)
         end
     end
 end
@@ -346,8 +351,10 @@ function SettingsCategory:save_setting(setting)
         set_pref("uiSoundsEnabled", setting.value)
     elseif setting.name == "ui_sounds_vol" then
         set_pref("uiSoundsVolume", setting.value)
-    elseif setting.name == "map_invert_colors" then
-        set_pref("mapInvertColors", setting.value)
+    elseif setting.name == "map_theme" then
+        -- Convert option index to theme string: 1=light, 2=dark
+        local theme = (setting.value == 2) and "dark" or "light"
+        set_pref("mapTheme", theme)
     elseif setting.name == "map_pan_speed" then
         set_pref("mapPanSpeed", setting.value)
     elseif setting.name == "screen_dim_timeout" then
@@ -358,6 +365,8 @@ function SettingsCategory:save_setting(setting)
         -- Convert option index to minutes: Off=0, 5=5, 10=10, 15=15, 30=30
         local mins_map = {0, 5, 10, 15, 30}
         set_pref("screenOffTimeout", mins_map[setting.value] or 10)
+    elseif setting.name == "show_fps" then
+        set_pref("showFps", setting.value)
     end
 end
 
@@ -703,6 +712,11 @@ function SettingsCategory:adjust_value(delta)
         -- Reload timeout settings in the running ScreenTimeout service
         if _G.ScreenTimeout and _G.ScreenTimeout.load_settings then
             _G.ScreenTimeout.load_settings()
+        end
+    elseif setting.name == "show_fps" then
+        -- Update the StatusBar FPS display setting
+        if _G.StatusBar then
+            _G.StatusBar.show_fps = setting.value
         end
     end
 

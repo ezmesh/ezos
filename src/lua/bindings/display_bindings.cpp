@@ -109,6 +109,32 @@ LUA_FUNCTION(l_display_draw_text_bg) {
     return 0;
 }
 
+// @lua ez.display.draw_text_shadow(x, y, text, fg_color, shadow_color, offset)
+// @brief Draw text with a shadow offset
+// @param x X position in pixels
+// @param y Y position in pixels
+// @param text Text string to draw
+// @param fg_color Text color
+// @param shadow_color Shadow color (optional, defaults to black)
+// @param offset Shadow offset in pixels (optional, defaults to 1)
+LUA_FUNCTION(l_display_draw_text_shadow) {
+    LUA_CHECK_ARGC_RANGE(L, 4, 6);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    const char* text = luaL_checkstring(L, 3);
+    uint16_t fg_color = luaL_checkinteger(L, 4);
+    uint16_t shadow_color = luaL_optinteger(L, 5, 0x0000);  // Default black
+    int offset = luaL_optinteger(L, 6, 1);
+
+    if (display) {
+        // Draw shadow (offset down and right)
+        display->drawText(x + offset, y + offset, text, shadow_color);
+        // Draw text on top
+        display->drawText(x, y, text, fg_color);
+    }
+    return 0;
+}
+
 // @lua ez.display.draw_text_centered(y, text, color)
 // @brief Draw horizontally centered text
 // @param y Y position in pixels
@@ -1010,6 +1036,7 @@ static const luaL_Reg display_funcs[] = {
     {"set_font_size",     l_display_set_font_size},
     {"draw_text",         l_display_draw_text},
     {"draw_text_bg",      l_display_draw_text_bg},
+    {"draw_text_shadow",  l_display_draw_text_shadow},
     {"draw_text_centered", l_display_draw_text_centered},
     {"draw_char",         l_display_draw_char},
     {"draw_box",          l_display_draw_box},
