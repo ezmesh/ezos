@@ -19,11 +19,36 @@ function RadioGroup:new(opts)
     return o
 end
 
+-- Get size for layout measurement
+function RadioGroup:get_size(display)
+    local fh = display.get_font_height()
+    local fw = display.get_font_width()
+    local radius = math.floor((fh - 2) / 2)
+    local diameter = radius * 2
+
+    local total_w, total_h = 0, 0
+
+    for i, option in ipairs(self.options) do
+        local item_w = diameter + 4 + #option * fw + 8
+
+        if self.horizontal then
+            total_w = total_w + item_w
+            total_h = fh
+        else
+            total_w = math.max(total_w, item_w)
+            total_h = total_h + fh + 2
+        end
+    end
+
+    return total_w, total_h
+end
+
 function RadioGroup:render(display, x, y, focused, focus_index)
     local colors = get_colors(display)
     local fh = display.get_font_height()
     local fw = display.get_font_width()
-    local circle_size = fh - 2
+    local radius = math.floor((fh - 2) / 2)
+    local diameter = radius * 2
 
     local cx, cy = x, y
     local total_w, total_h = 0, 0
@@ -31,21 +56,23 @@ function RadioGroup:render(display, x, y, focused, focus_index)
     for i, option in ipairs(self.options) do
         local is_focused = focused and (focus_index == i or (focus_index == nil and i == self.selected))
 
-        -- Radio circle
+        -- Radio circle (outline)
         local circle_color = is_focused and colors.ACCENT or colors.TEXT_SECONDARY
-        display.draw_rect(cx, cy + 1, circle_size, circle_size, circle_color)
+        local center_x = cx + radius
+        local center_y = cy + radius + 1
+        display.draw_circle(center_x, center_y, radius, circle_color)
 
-        -- Fill if selected
+        -- Fill center if selected
         if i == self.selected then
-            local inner = circle_size - 4
-            display.fill_rect(cx + 2, cy + 3, inner, inner, colors.ACCENT)
+            local inner_radius = math.max(2, radius - 3)
+            display.fill_circle(center_x, center_y, inner_radius, colors.ACCENT)
         end
 
         -- Label
         local label_color = is_focused and colors.ACCENT or colors.TEXT
-        display.draw_text(cx + circle_size + 4, cy, option, label_color)
+        display.draw_text(cx + diameter + 4, cy, option, label_color)
 
-        local item_w = circle_size + 4 + #option * fw + 8
+        local item_w = diameter + 4 + #option * fw + 8
 
         if self.horizontal then
             cx = cx + item_w

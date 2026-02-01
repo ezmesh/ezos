@@ -22,6 +22,12 @@ function Dropdown:new(opts)
     return o
 end
 
+function Dropdown:get_size(display)
+    local fh = display.get_font_height()
+    -- Return collapsed size (expanded size handled separately)
+    return self.width, fh + 4
+end
+
 function Dropdown:render(display, x, y, focused)
     local colors = get_colors(display)
     local fh = display.get_font_height()

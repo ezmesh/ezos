@@ -18,6 +18,13 @@ function Checkbox:new(opts)
     return o
 end
 
+function Checkbox:get_size(display)
+    local fh = display.get_font_height()
+    local fw = display.get_font_width()
+    local box_size = fh - 2
+    return box_size + (#self.label > 0 and (4 + #self.label * fw) or 0), fh
+end
+
 function Checkbox:render(display, x, y, focused)
     local colors = get_colors(display)
     local fh = display.get_font_height()

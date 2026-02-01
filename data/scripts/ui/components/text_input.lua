@@ -25,6 +25,11 @@ function TextInput:new(opts)
     return o
 end
 
+function TextInput:get_size(display)
+    local fh = display.get_font_height()
+    return self.width, fh + 4
+end
+
 function TextInput:render(display, x, y, focused)
     local colors = get_colors(display)
     local fh = display.get_font_height()

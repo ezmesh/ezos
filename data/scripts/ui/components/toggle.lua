@@ -18,6 +18,13 @@ function Toggle:new(opts)
     return o
 end
 
+function Toggle:get_size(display)
+    local fh = display.get_font_height()
+    local fw = display.get_font_width()
+    local switch_w = 32
+    return switch_w + (#self.label > 0 and (8 + #self.label * fw) or 0), fh
+end
+
 function Toggle:render(display, x, y, focused)
     local colors = get_colors(display)
     local fh = display.get_font_height()

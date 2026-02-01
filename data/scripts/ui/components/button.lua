@@ -19,6 +19,13 @@ function Button:new(opts)
     return o
 end
 
+function Button:get_size(display)
+    local fh = display.get_font_height()
+    local fw = display.get_font_width()
+    local width = self.width or (#self.label * fw + 12)
+    return width, fh + 6
+end
+
 function Button:render(display, x, y, focused)
     local colors = get_colors(display)
     local fh = display.get_font_height()

@@ -1,5 +1,5 @@
 -- Component Test Screen for T-Deck OS
--- Interactive showcase of all UI components
+-- Interactive showcase of all UI components with dynamic layout
 
 local ListMixin = load_module("/scripts/ui/list_mixin.lua")
 local Components = load_module("/scripts/ui/components.lua")
@@ -12,11 +12,15 @@ function ComponentTest:new()
     local o = {
         title = self.title,
         focused_index = 1,
-        scroll_y = 0,
+        scroll_y = 0,  -- Pixel scroll offset
 
         -- Create test components
         components = {},
         labels = {},
+        row_heights = {},  -- Computed heights per row
+        row_positions = {}, -- Computed y positions
+        total_height = 0,
+        layout_done = false,
     }
     setmetatable(o, {__index = ComponentTest})
     o:init_components()
@@ -83,12 +87,12 @@ function ComponentTest:init_components()
         width = 120,
     }))
 
-    -- RadioGroup (horizontal to fit in row)
+    -- RadioGroup (vertical to demonstrate dynamic height)
     table.insert(self.labels, "Radio")
     table.insert(self.components, Components.RadioGroup:new({
-        options = {"S", "M", "L"},
+        options = {"Small", "Medium", "Large"},
         selected = 2,
-        horizontal = true,
+        horizontal = false,
     }))
 
     -- Flex row demo
@@ -116,8 +120,40 @@ function ComponentTest:init_components()
     table.insert(self.components, flex_wrap)
 end
 
+-- Compute layout based on component sizes
+function ComponentTest:compute_layout(display, container_width)
+    if self.layout_done then return end
+
+    local row_gap = 6
+    local y = 0
+
+    for i, comp in ipairs(self.components) do
+        local h = 20  -- Default height
+
+        if comp.get_size then
+            local _, ch = comp:get_size(display, container_width)
+            h = ch
+        elseif comp.direction then
+            -- Flex container
+            local _, ch = comp:get_size(display, container_width)
+            h = ch
+        end
+
+        -- Minimum row height
+        h = math.max(h, 18)
+
+        self.row_heights[i] = h
+        self.row_positions[i] = y
+        y = y + h + row_gap
+    end
+
+    self.total_height = y - row_gap
+    self.layout_done = true
+end
+
 function ComponentTest:on_enter()
-    -- Nothing special needed
+    -- Reset layout on enter
+    self.layout_done = false
 end
 
 function ComponentTest:render(display)
@@ -125,7 +161,6 @@ function ComponentTest:render(display)
     local w = display.width
     local h = display.height
     local fh = display.get_font_height()
-    local fw = display.get_font_width()
 
     -- Background
     ListMixin.draw_background(display)
@@ -136,30 +171,47 @@ function ComponentTest:render(display)
     -- Content area
     local content_y = _G.ThemeManager and _G.ThemeManager.LIST_START_Y or 31
     local content_height = h - content_y - 20
-    local label_width = 80
-    local component_x = label_width + 8
-    local row_height = 28
+    local label_width = 70
+    local component_x = label_width + 4
+    local component_width = w - component_x - 10
 
-    -- Calculate visible range
-    local visible_rows = math.floor(content_height / row_height)
-    local max_scroll = math.max(0, #self.components - visible_rows)
+    -- Compute layout if needed
+    self:compute_layout(display, component_width)
+
+    -- Clamp scroll
+    local max_scroll = math.max(0, self.total_height - content_height)
     self.scroll_y = Utils.clamp(self.scroll_y, 0, max_scroll)
 
-    -- Draw components (two passes: regular components first, then expanded dropdowns on top)
+    -- Ensure focused item is visible
+    local focused_top = self.row_positions[self.focused_index] or 0
+    local focused_bottom = focused_top + (self.row_heights[self.focused_index] or 20)
+
+    if focused_top < self.scroll_y then
+        self.scroll_y = focused_top
+    elseif focused_bottom > self.scroll_y + content_height then
+        self.scroll_y = focused_bottom - content_height
+    end
+
+    -- Set clip region (conceptual - we'll just skip out-of-bounds)
     display.set_font_size("small")
 
     local expanded_dropdown = nil
     local expanded_info = nil
 
+    -- Draw components
     for i = 1, #self.components do
-        local visible_idx = i - self.scroll_y
-        if visible_idx >= 1 and visible_idx <= visible_rows then
-            local y = content_y + (visible_idx - 1) * row_height
+        local row_y = self.row_positions[i]
+        local row_h = self.row_heights[i]
+        local screen_y = content_y + row_y - self.scroll_y
+
+        -- Check if visible
+        if screen_y + row_h > content_y and screen_y < content_y + content_height then
             local is_focused = (i == self.focused_index)
 
-            -- Label
+            -- Label (vertically centered in row)
             local label_color = is_focused and colors.ACCENT or colors.TEXT_SECONDARY
-            display.draw_text(4, y + 4, self.labels[i], label_color)
+            local label_y = screen_y + math.floor((row_h - fh) / 2)
+            display.draw_text(4, label_y, self.labels[i], label_color)
 
             -- Component
             local comp = self.components[i]
@@ -167,12 +219,12 @@ function ComponentTest:render(display)
                 -- Check if this is an expanded dropdown - defer rendering
                 if comp.is_expanded and comp:is_expanded() then
                     expanded_dropdown = comp
-                    expanded_info = {x = component_x, y = y, focused = is_focused}
+                    expanded_info = {x = component_x, y = screen_y, focused = is_focused}
                 elseif comp.direction then
                     -- Flex container
-                    comp:render(display, component_x, y, w - component_x - 8, nil, nil)
+                    comp:render(display, component_x, screen_y, component_width, nil, nil)
                 else
-                    comp:render(display, component_x, y, is_focused)
+                    comp:render(display, component_x, screen_y, is_focused)
                 end
             end
         end
@@ -186,10 +238,10 @@ function ComponentTest:render(display)
     display.set_font_size("medium")
 
     -- Scrollbar
-    if #self.components > visible_rows then
+    if self.total_height > content_height then
         local sb_x = w - 6
         local sb_height = content_height
-        local thumb_height = math.max(12, math.floor(sb_height * visible_rows / #self.components))
+        local thumb_height = math.max(12, math.floor(sb_height * content_height / self.total_height))
         local thumb_y = content_y + math.floor(self.scroll_y * (sb_height - thumb_height) / max_scroll)
 
         display.fill_rect(sb_x, content_y, 4, sb_height, colors.SURFACE)
@@ -219,22 +271,12 @@ function ComponentTest:handle_key(key)
     if key.special == "UP" then
         if self.focused_index > 1 then
             self.focused_index = self.focused_index - 1
-            -- Scroll to keep focused item visible
-            local visible_rows = 6
-            if self.focused_index <= self.scroll_y then
-                self.scroll_y = self.focused_index - 1
-            end
             ScreenManager.invalidate()
         end
         return "continue"
     elseif key.special == "DOWN" then
         if self.focused_index < #self.components then
             self.focused_index = self.focused_index + 1
-            -- Scroll to keep focused item visible
-            local visible_rows = 6
-            if self.focused_index > self.scroll_y + visible_rows then
-                self.scroll_y = self.focused_index - visible_rows
-            end
             ScreenManager.invalidate()
         end
         return "continue"

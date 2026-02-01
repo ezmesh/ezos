@@ -22,6 +22,11 @@ function NumberInput:new(opts)
     return o
 end
 
+function NumberInput:get_size(display)
+    local fh = display.get_font_height()
+    return self.width, fh + 4
+end
+
 function NumberInput:render(display, x, y, focused)
     local colors = get_colors(display)
     local fh = display.get_font_height()
