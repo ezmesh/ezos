@@ -20,12 +20,17 @@ constexpr size_t MAX_FILE_SIZE = 512 * 1024;
 constexpr size_t AES_BLOCK_SIZE = 16;
 
 // Helper to determine which filesystem to use based on path
-// Paths starting with "/sd/" use SD card, otherwise LittleFS
+// Mount points: /sd/ = SD card, /fs/ = LittleFS, /img/ = embedded (not handled here)
 static fs::FS* getFS(const char* path, const char** adjustedPath) {
     if (strncmp(path, "/sd/", 4) == 0) {
         *adjustedPath = path + 3;  // Skip "/sd" prefix, keep leading "/"
         return &SD;
     }
+    if (strncmp(path, "/fs/", 4) == 0) {
+        *adjustedPath = path + 3;  // Skip "/fs" prefix, keep leading "/"
+        return &LittleFS;
+    }
+    // Legacy paths without mount prefix go to LittleFS
     *adjustedPath = path;
     return &LittleFS;
 }
@@ -690,15 +695,45 @@ void AsyncIO::processResults() {
 // =============================================================================
 
 // async_read(path) - yields coroutine, resumes with data or nil
-// Load order for /scripts/ paths: SD > LittleFS > embedded
+// Mount points: /sd/, /fs/, /img/ (embedded)
+// Legacy /scripts/ paths use load order: SD > FS > embedded
 int AsyncIO::l_async_read(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
 
-    // For /scripts/ paths, follow SD > LittleFS > embedded order
+    // Handle /img/ (embedded) - returns synchronously
+    if (strncmp(path, "/img/", 5) == 0) {
+        const char* embeddedPath = path + 4;  // Strip "/img"
+        size_t embeddedSize = 0;
+        const char* embedded = embedded_lua::get_script(embeddedPath, &embeddedSize);
+        if (embedded != nullptr) {
+            lua_pushlstring(L, embedded, embeddedSize);
+            return 1;
+        }
+        lua_pushnil(L);
+        return 1;
+    }
+
+    // Handle /sd/ or /fs/ - async read
+    if (strncmp(path, "/sd/", 4) == 0 || strncmp(path, "/fs/", 4) == 0) {
+        lua_pushthread(L);
+        int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
+
+        Request req = {};
+        req.type = OpType::READ;
+        req.coroRef = coroRef;
+        strncpy(req.path, path, MAX_PATH - 1);
+
+        if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
+            luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
+            return luaL_error(L, "async queue full");
+        }
+        return lua_yield(L, 0);
+    }
+
+    // Legacy /scripts/ paths: try SD > FS > embedded
     if (strncmp(path, "/scripts/", 9) == 0) {
         // 1. Check SD card first
         if (SD.begin(SD_CS) && SD.exists(path)) {
-            // File exists on SD - use async read with /sd/ prefix
             char sdPath[MAX_PATH];
             snprintf(sdPath, sizeof(sdPath), "/sd%s", path);
 
@@ -719,14 +754,16 @@ int AsyncIO::l_async_read(lua_State* L) {
 
         // 2. Check LittleFS
         if (LittleFS.exists(path)) {
-            // File exists on LittleFS - use async read
+            char fsPath[MAX_PATH];
+            snprintf(fsPath, sizeof(fsPath), "/fs%s", path);
+
             lua_pushthread(L);
             int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
 
             Request req = {};
             req.type = OpType::READ;
             req.coroRef = coroRef;
-            strncpy(req.path, path, MAX_PATH - 1);
+            strncpy(req.path, fsPath, MAX_PATH - 1);
 
             if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
                 luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
@@ -743,20 +780,11 @@ int AsyncIO::l_async_read(lua_State* L) {
             return 1;
         }
 
-        // Not found anywhere
         lua_pushnil(L);
         return 1;
     }
 
-    // For non-/scripts/ paths, check embedded first then async I/O
-    size_t embeddedSize = 0;
-    const char* embedded = embedded_lua::get_script(path, &embeddedSize);
-    if (embedded != nullptr) {
-        lua_pushlstring(L, embedded, embeddedSize);
-        return 1;
-    }
-
-    // Not embedded - use async I/O
+    // Unknown path format - try async I/O directly
     lua_pushthread(L);
     int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
 

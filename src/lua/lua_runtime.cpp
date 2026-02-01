@@ -231,16 +231,18 @@ bool LuaRuntime::executeFile(const char* path) {
         return false;
     }
 
-    // Load order: SD > LittleFS > embedded
-    // This allows users to override embedded scripts by placing files on SD or LittleFS
+    // Mount points:
+    //   /sd/  - SD card
+    //   /fs/  - LittleFS
+    //   /img/ - Embedded scripts (read-only)
+    //
+    // For /scripts/ paths (legacy), use load order: SD > FS > embedded
 
-    // 1. Try SD card first for /scripts/ paths
-    if (strncmp(path, "/scripts/", 9) == 0) {
-        char sdPath[128];
-        snprintf(sdPath, sizeof(sdPath), "/sd%s", path);
-
+    // Handle explicit /sd/ path
+    if (strncmp(path, "/sd/", 4) == 0) {
+        const char* fsPath = path + 3;  // Strip "/sd"
         if (SD.begin(SD_CS)) {
-            File file = SD.open(sdPath + 3, "r");  // Skip "/sd" prefix for SD.open
+            File file = SD.open(fsPath, "r");
             if (file) {
                 size_t fileSize = file.size();
                 char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -248,7 +250,68 @@ bool LuaRuntime::executeFile(const char* path) {
                     size_t bytesRead = file.read((uint8_t*)buffer, fileSize);
                     file.close();
                     buffer[bytesRead] = '\0';
+                    bool result = executeBuffer(buffer, bytesRead, path);
+                    heap_caps_free(buffer);
+                    return result;
+                }
+                file.close();
+            }
+        }
+        char err[128];
+        snprintf(err, sizeof(err), "Script not found on SD: %s", path);
+        reportError(err);
+        return false;
+    }
 
+    // Handle explicit /fs/ path
+    if (strncmp(path, "/fs/", 4) == 0) {
+        const char* fsPath = path + 3;  // Strip "/fs"
+        File file = LittleFS.open(fsPath, "r");
+        if (file) {
+            size_t fileSize = file.size();
+            char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (buffer) {
+                size_t bytesRead = file.read((uint8_t*)buffer, fileSize);
+                file.close();
+                buffer[bytesRead] = '\0';
+                bool result = executeBuffer(buffer, bytesRead, path);
+                heap_caps_free(buffer);
+                return result;
+            }
+            file.close();
+        }
+        char err[128];
+        snprintf(err, sizeof(err), "Script not found on FS: %s", path);
+        reportError(err);
+        return false;
+    }
+
+    // Handle explicit /img/ path
+    if (strncmp(path, "/img/", 5) == 0) {
+        const char* embeddedPath = path + 4;  // Strip "/img"
+        size_t size = 0;
+        const char* embedded = embedded_lua::get_script(embeddedPath, &size);
+        if (embedded != nullptr) {
+            return executeBuffer(embedded, size, path);
+        }
+        char err[128];
+        snprintf(err, sizeof(err), "Embedded script not found: %s", path);
+        reportError(err);
+        return false;
+    }
+
+    // Legacy /scripts/ paths: try SD > FS > embedded
+    if (strncmp(path, "/scripts/", 9) == 0) {
+        // 1. Try SD card
+        if (SD.begin(SD_CS)) {
+            File file = SD.open(path, "r");
+            if (file) {
+                size_t fileSize = file.size();
+                char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                if (buffer) {
+                    size_t bytesRead = file.read((uint8_t*)buffer, fileSize);
+                    file.close();
+                    buffer[bytesRead] = '\0';
                     bool result = executeBuffer(buffer, bytesRead, path);
                     heap_caps_free(buffer);
                     return result;
@@ -266,20 +329,19 @@ bool LuaRuntime::executeFile(const char* path) {
                 size_t bytesRead = fsFile.read((uint8_t*)buffer, fileSize);
                 fsFile.close();
                 buffer[bytesRead] = '\0';
-
                 bool result = executeBuffer(buffer, bytesRead, path);
                 heap_caps_free(buffer);
                 return result;
             }
             fsFile.close();
         }
-    }
 
-    // 3. Fall back to embedded scripts
-    size_t size = 0;
-    const char* embedded = embedded_lua::get_script(path, &size);
-    if (embedded != nullptr) {
-        return executeBuffer(embedded, size, path);
+        // 3. Fall back to embedded
+        size_t size = 0;
+        const char* embedded = embedded_lua::get_script(path, &size);
+        if (embedded != nullptr) {
+            return executeBuffer(embedded, size, path);
+        }
     }
 
     // Script not found

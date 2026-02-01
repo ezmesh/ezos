@@ -1,3 +1,14 @@
+/**
+ * @file http_bindings.cpp
+ * @brief HTTP client module for Lua
+ *
+ * Provides async HTTP/HTTPS requests from Lua scripts. Requests run on a
+ * separate FreeRTOS task (Core 0) to avoid blocking the Lua main loop.
+ * All functions yield and resume the calling coroutine when complete.
+ *
+ * @lua ez.http
+ */
+
 #include "http_bindings.h"
 #include "../../util/log.h"
 #include <Arduino.h>
@@ -208,8 +219,9 @@ static bool initModule() {
     }
 
     // Create worker task on Core 0 (Lua runs on Core 1)
+    // Stack size 16KB needed for HTTPS with WiFiClientSecure
     BaseType_t res = xTaskCreatePinnedToCore(
-        httpWorkerTask, "http_worker", 8192, nullptr, 1, &workerTask, 0
+        httpWorkerTask, "http_worker", 16384, nullptr, 1, &workerTask, 0
     );
 
     if (res != pdPASS) {
@@ -221,9 +233,43 @@ static bool initModule() {
     return true;
 }
 
-// Lua binding: ez.http.fetch(url, options?)
-// Options: { method="GET", headers={}, body="", timeout=10000, follow_redirects=true }
-// Returns: { status=200, ok=true, body="...", headers={} } or { ok=false, error="..." }
+/**
+ * @lua ez.http.fetch(url, options?) -> table
+ * @brief Make an HTTP/HTTPS request
+ *
+ * Performs an async HTTP request. Must be called from a coroutine (use spawn()).
+ * Yields until the request completes. Supports GET, POST, PUT, DELETE, PATCH, HEAD.
+ *
+ * @param url string URL to request (http:// or https://)
+ * @param options table|nil Optional settings:
+ *   - method: string HTTP method (default "GET")
+ *   - headers: table Custom headers {["Header-Name"] = "value"}
+ *   - body: string Request body for POST/PUT/PATCH
+ *   - timeout: integer Request timeout in ms (default 10000)
+ *   - follow_redirects: boolean Follow redirects (default true)
+ *
+ * @return table Response with fields:
+ *   - ok: boolean True if request succeeded
+ *   - status: integer HTTP status code (if ok)
+ *   - body: string Response body (if ok)
+ *   - headers: table Response headers (if ok)
+ *   - error: string Error message (if not ok)
+ *
+ * @example
+ * spawn(function()
+ *     local resp = ez.http.fetch("https://api.example.com/data", {
+ *         method = "POST",
+ *         headers = {["Content-Type"] = "application/json"},
+ *         body = '{"key": "value"}'
+ *     })
+ *     if resp.ok then
+ *         print("Status:", resp.status)
+ *         print("Body:", resp.body)
+ *     else
+ *         print("Error:", resp.error)
+ *     end
+ * end)
+ */
 static int l_fetch(lua_State* L) {
     if (!initModule()) {
         lua_pushnil(L);
@@ -325,14 +371,47 @@ static int l_fetch(lua_State* L) {
     return lua_yield(L, 0);
 }
 
-// Lua binding: ez.http.get(url) - convenience wrapper
+/**
+ * @lua ez.http.get(url) -> table
+ * @brief Convenience wrapper for GET requests
+ *
+ * Shorthand for ez.http.fetch(url) with GET method.
+ * Must be called from a coroutine.
+ *
+ * @param url string URL to request
+ * @return table Response (see fetch() for fields)
+ *
+ * @example
+ * spawn(function()
+ *     local resp = ez.http.get("https://api.example.com/status")
+ *     if resp.ok then print(resp.body) end
+ * end)
+ */
 static int l_get(lua_State* L) {
     // Just call fetch with GET method
     lua_settop(L, 1);  // Keep only URL
     return l_fetch(L);
 }
 
-// Lua binding: ez.http.post(url, body, content_type?)
+/**
+ * @lua ez.http.post(url, body, content_type?) -> table
+ * @brief Make a POST request with body
+ *
+ * Convenience wrapper for POST requests. Sets Content-Type header automatically.
+ * Must be called from a coroutine.
+ *
+ * @param url string URL to request
+ * @param body string Request body
+ * @param content_type string|nil Content-Type header (default "application/x-www-form-urlencoded")
+ * @return table Response (see fetch() for fields)
+ *
+ * @example
+ * spawn(function()
+ *     local resp = ez.http.post("https://api.example.com/submit",
+ *         "name=value&other=data")
+ *     if resp.ok then print("Submitted!") end
+ * end)
+ */
 static int l_post(lua_State* L) {
     const char* url = luaL_checkstring(L, 1);
     size_t bodyLen;
@@ -363,7 +442,29 @@ static int l_post(lua_State* L) {
     return lua_gettop(L);
 }
 
-// Lua binding: ez.http.post_json(url, table)
+/**
+ * @lua ez.http.post_json(url, data) -> table
+ * @brief POST a Lua table as JSON
+ *
+ * Encodes a Lua table to JSON and POSTs it with Content-Type: application/json.
+ * Requires json_encode global function to be available.
+ * Must be called from a coroutine.
+ *
+ * @param url string URL to request
+ * @param data table Lua table to encode as JSON body
+ * @return table Response (see fetch() for fields)
+ *
+ * @example
+ * spawn(function()
+ *     local resp = ez.http.post_json("https://api.example.com/users", {
+ *         name = "Alice",
+ *         email = "alice@example.com"
+ *     })
+ *     if resp.ok and resp.status == 201 then
+ *         print("User created!")
+ *     end
+ * end)
+ */
 static int l_post_json(lua_State* L) {
     const char* url = luaL_checkstring(L, 1);
     luaL_checktype(L, 2, LUA_TTABLE);

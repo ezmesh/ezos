@@ -29,7 +29,7 @@ function Terminal:new()
         history = {},         -- Command history
         history_idx = 0,      -- Current position in history (0 = new input)
         scroll_offset = 0,    -- Scroll position
-        cwd = "/sd",          -- Current working directory
+        cwd = "/",            -- Current working directory
         cursor_pos = 0,       -- Cursor position in input
         cursor_visible = true,
         cursor_timer = 0,

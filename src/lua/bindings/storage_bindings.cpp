@@ -14,16 +14,24 @@
 // @module ez.storage
 // @brief File I/O for internal flash (LittleFS) and SD card
 // @description
-// Read and write files on the internal LittleFS partition (for Lua scripts and
-// small data) or the removable SD card (for maps, logs, and large files).
-// Also provides persistent key-value preferences stored in NVS flash that
-// survive reboots. Paths starting with "/" access LittleFS; use "/sd/" for SD.
+// Mount points:
+//   /sd/  - SD card (removable, for maps, logs, large files)
+//   /fs/  - LittleFS internal flash (for user data)
+//   /img/ - Embedded scripts (read-only, compiled into firmware)
+// Script loading uses /scripts/ paths with overlay: SD > FS > embedded.
+// The /img/ mount point is for file browsing; internally maps to /scripts/.
+// Also provides persistent key-value preferences stored in NVS flash.
 // @end
 
 // Storage state
 static bool sdInitialized = false;
 static Preferences prefs;
 static bool prefsOpened = false;
+
+// Mount point prefixes
+static const char* MOUNT_SD = "/sd";
+static const char* MOUNT_FS = "/fs";
+static const char* MOUNT_IMG = "/img";
 
 // Initialize SD card
 static bool initSD() {
@@ -48,28 +56,70 @@ static void ensurePrefs() {
     }
 }
 
+// Filesystem type enum
+enum class FSType { SD_CARD, LITTLEFS, EMBEDDED, VIRTUAL_ROOT, INVALID };
+
 // Helper to determine which filesystem to use based on path
-// Paths starting with "/sd/" or exactly "/sd" use SD card, otherwise LittleFS
-static fs::FS* getFS(const char* path, const char** adjustedPath) {
+// Returns filesystem type and adjusts path for the underlying FS
+static FSType getFSType(const char* path, const char** adjustedPath) {
+    // Virtual root - list mount points
+    if (strcmp(path, "/") == 0) {
+        *adjustedPath = "/";
+        return FSType::VIRTUAL_ROOT;
+    }
+
+    // SD card: /sd or /sd/...
     if (strncmp(path, "/sd/", 4) == 0) {
-        if (!initSD()) {
-            return nullptr;
-        }
-        *adjustedPath = path + 3;  // Skip "/sd" prefix, keep leading "/"
-        return &SD;
+        *adjustedPath = path + 3;  // Skip "/sd", keep leading "/"
+        return FSType::SD_CARD;
     }
-
-    // Handle "/sd" exactly (root of SD card)
     if (strcmp(path, "/sd") == 0) {
+        *adjustedPath = "/";
+        return FSType::SD_CARD;
+    }
+
+    // LittleFS: /fs or /fs/...
+    if (strncmp(path, "/fs/", 4) == 0) {
+        *adjustedPath = path + 3;  // Skip "/fs", keep leading "/"
+        return FSType::LITTLEFS;
+    }
+    if (strcmp(path, "/fs") == 0) {
+        *adjustedPath = "/";
+        return FSType::LITTLEFS;
+    }
+
+    // Embedded: /img or /img/...
+    if (strncmp(path, "/img/", 5) == 0) {
+        *adjustedPath = path + 4;  // Skip "/img", keep leading "/"
+        return FSType::EMBEDDED;
+    }
+    if (strcmp(path, "/img") == 0) {
+        *adjustedPath = "/";
+        return FSType::EMBEDDED;
+    }
+
+    // Invalid path - doesn't start with a known mount point
+    *adjustedPath = path;
+    return FSType::INVALID;
+}
+
+// Legacy helper for backwards compatibility - returns fs::FS* for SD/LittleFS
+static fs::FS* getFS(const char* path, const char** adjustedPath) {
+    FSType type = getFSType(path, adjustedPath);
+
+    if (type == FSType::SD_CARD) {
         if (!initSD()) {
             return nullptr;
         }
-        *adjustedPath = "/";  // SD card root
         return &SD;
     }
 
-    *adjustedPath = path;
-    return &LittleFS;
+    if (type == FSType::LITTLEFS) {
+        return &LittleFS;
+    }
+
+    // For embedded or invalid, return nullptr
+    return nullptr;
 }
 
 // @lua ez.storage.read_bytes(path, offset, length) -> string
@@ -209,10 +259,36 @@ LUA_FUNCTION(l_storage_read_file) {
     const char* path = luaL_checkstring(L, 1);
 
     const char* adjustedPath;
+    FSType fsType = getFSType(path, &adjustedPath);
+
+    // Handle embedded files (/img/... maps to /scripts/... in embedded)
+    if (fsType == FSType::EMBEDDED) {
+        // Map /img/... to /scripts/... for embedded lookup
+        char embeddedPath[256];
+        snprintf(embeddedPath, sizeof(embeddedPath), "/scripts%s", adjustedPath);
+
+        size_t size = 0;
+        const char* content = embedded_lua::get_script(embeddedPath, &size);
+        if (content) {
+            lua_pushlstring(L, content, size);
+            return 1;
+        }
+        lua_pushnil(L);
+        lua_pushstring(L, "Embedded file not found");
+        return 2;
+    }
+
+    // Handle invalid paths
+    if (fsType == FSType::INVALID || fsType == FSType::VIRTUAL_ROOT) {
+        lua_pushnil(L);
+        lua_pushstring(L, "Invalid path - use /sd/, /fs/, or /img/");
+        return 2;
+    }
+
     fs::FS* fs = getFS(path, &adjustedPath);
     if (!fs) {
         lua_pushnil(L);
-        lua_pushstring(L, "SD card not available");
+        lua_pushstring(L, "Filesystem not available");
         return 2;
     }
 
@@ -360,6 +436,49 @@ LUA_FUNCTION(l_storage_exists) {
     const char* path = luaL_checkstring(L, 1);
 
     const char* adjustedPath;
+    FSType fsType = getFSType(path, &adjustedPath);
+
+    // Virtual root always exists
+    if (fsType == FSType::VIRTUAL_ROOT) {
+        lua_pushboolean(L, true);
+        return 1;
+    }
+
+    // Check embedded files (/img/... maps to /scripts/... in embedded)
+    if (fsType == FSType::EMBEDDED) {
+        // Map /img/... to /scripts/... for embedded lookup
+        char embeddedPath[256];
+        snprintf(embeddedPath, sizeof(embeddedPath), "/scripts%s", adjustedPath);
+        size_t embeddedPathLen = strlen(embeddedPath);
+
+        // Check if it's an embedded script
+        const char* content = embedded_lua::get_script(embeddedPath, nullptr);
+        if (content) {
+            lua_pushboolean(L, true);
+            return 1;
+        }
+        // Check if it's an embedded directory (has children)
+        size_t count = embedded_lua::get_script_count();
+        for (size_t i = 0; i < count; i++) {
+            const char* scriptPath = embedded_lua::get_script_path(i);
+            if (scriptPath && strncmp(scriptPath, embeddedPath, embeddedPathLen) == 0) {
+                char nextChar = scriptPath[embeddedPathLen];
+                if (nextChar == '/' || nextChar == '\0') {
+                    lua_pushboolean(L, true);
+                    return 1;
+                }
+            }
+        }
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    // Invalid path
+    if (fsType == FSType::INVALID) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
     fs::FS* fs = getFS(path, &adjustedPath);
     if (!fs) {
         lua_pushboolean(L, false);
@@ -501,43 +620,151 @@ LUA_FUNCTION(l_storage_rmdir) {
 //     end
 // end
 // @end
+// Helper to add a directory entry to the Lua table on the stack
+static void addDirEntry(lua_State* L, int& idx, const char* name, bool isDir, size_t size, bool isEmbedded = false) {
+    lua_newtable(L);
+
+    lua_pushstring(L, name);
+    lua_setfield(L, -2, "name");
+
+    lua_pushboolean(L, isDir);
+    lua_setfield(L, -2, "is_dir");
+
+    lua_pushinteger(L, size);
+    lua_setfield(L, -2, "size");
+
+    if (isEmbedded) {
+        lua_pushboolean(L, true);
+        lua_setfield(L, -2, "is_embedded");
+    }
+
+    lua_rawseti(L, -2, idx++);
+}
+
+// Helper to list embedded files/directories at a given path
+static void listEmbeddedDir(lua_State* L, const char* dirPath, int& idx) {
+    size_t dirLen = strlen(dirPath);
+    size_t count = embedded_lua::get_script_count();
+
+    // Track which subdirectories we've already added
+    char seenDirs[32][64];
+    int seenCount = 0;
+
+    for (size_t i = 0; i < count; i++) {
+        const char* fullPath = embedded_lua::get_script_path(i);
+        if (!fullPath) continue;
+
+        // Check if path starts with dirPath
+        if (strncmp(fullPath, dirPath, dirLen) != 0) continue;
+
+        // Get the part after dirPath
+        const char* remainder = fullPath + dirLen;
+        if (remainder[0] == '/') remainder++;  // Skip leading slash
+        if (remainder[0] == '\0') continue;    // Exact match, not a child
+
+        // Check if it's a direct child or in a subdirectory
+        const char* slash = strchr(remainder, '/');
+        if (slash) {
+            // It's in a subdirectory - extract dir name
+            size_t nameLen = slash - remainder;
+            if (nameLen >= 64) continue;
+
+            char dirName[64];
+            strncpy(dirName, remainder, nameLen);
+            dirName[nameLen] = '\0';
+
+            // Check if we've already added this directory
+            bool seen = false;
+            for (int j = 0; j < seenCount; j++) {
+                if (strcmp(seenDirs[j], dirName) == 0) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen && seenCount < 32) {
+                strcpy(seenDirs[seenCount++], dirName);
+                addDirEntry(L, idx, dirName, true, 0, true);
+            }
+        } else {
+            // It's a direct file
+            addDirEntry(L, idx, remainder, false, embedded_lua::get_script_size(i), true);
+        }
+    }
+}
+
 LUA_FUNCTION(l_storage_list_dir) {
     const char* path = lua_gettop(L) >= 1 ? luaL_checkstring(L, 1) : "/";
 
     const char* adjustedPath;
-    fs::FS* fs = getFS(path, &adjustedPath);
-    if (!fs) {
-        lua_newtable(L);
-        return 1;
-    }
-
-    File dir = fs->open(adjustedPath);
-    if (!dir || !dir.isDirectory()) {
-        lua_newtable(L);
-        return 1;
-    }
+    FSType fsType = getFSType(path, &adjustedPath);
 
     lua_newtable(L);
     int idx = 1;
 
-    File entry = dir.openNextFile();
-    while (entry) {
-        lua_newtable(L);
-
-        lua_pushstring(L, entry.name());
-        lua_setfield(L, -2, "name");
-
-        lua_pushboolean(L, entry.isDirectory());
-        lua_setfield(L, -2, "is_dir");
-
-        lua_pushinteger(L, entry.size());
-        lua_setfield(L, -2, "size");
-
-        lua_rawseti(L, -2, idx++);
-        entry = dir.openNextFile();
+    // Handle virtual root - show mount points
+    if (fsType == FSType::VIRTUAL_ROOT) {
+        // Always show /sd and /fs mount points
+        addDirEntry(L, idx, "sd", true, 0);
+        addDirEntry(L, idx, "fs", true, 0);
+        addDirEntry(L, idx, "img", true, 0);
+        return 1;
     }
 
-    dir.close();
+    // Handle embedded filesystem (/img/ maps to /scripts/ in embedded)
+    if (fsType == FSType::EMBEDDED) {
+        // Map /img/... to /scripts/... for embedded lookup
+        char embeddedPath[256];
+        if (strcmp(adjustedPath, "/") == 0) {
+            // Root of /img/ shows contents of /scripts/
+            strcpy(embeddedPath, "/scripts");
+        } else {
+            // /img/ui/screens -> /scripts/ui/screens
+            snprintf(embeddedPath, sizeof(embeddedPath), "/scripts%s", adjustedPath);
+        }
+        listEmbeddedDir(L, embeddedPath, idx);
+        return 1;
+    }
+
+    // Handle invalid paths
+    if (fsType == FSType::INVALID) {
+        return 1;  // Return empty table
+    }
+
+    // Handle SD card
+    if (fsType == FSType::SD_CARD) {
+        if (!initSD()) {
+            return 1;
+        }
+        File dir = SD.open(adjustedPath);
+        if (!dir || !dir.isDirectory()) {
+            return 1;
+        }
+
+        File entry = dir.openNextFile();
+        while (entry) {
+            addDirEntry(L, idx, entry.name(), entry.isDirectory(), entry.size());
+            entry = dir.openNextFile();
+        }
+        dir.close();
+        return 1;
+    }
+
+    // Handle LittleFS
+    if (fsType == FSType::LITTLEFS) {
+        File dir = LittleFS.open(adjustedPath);
+        if (!dir || !dir.isDirectory()) {
+            return 1;
+        }
+
+        File entry = dir.openNextFile();
+        while (entry) {
+            addDirEntry(L, idx, entry.name(), entry.isDirectory(), entry.size());
+            entry = dir.openNextFile();
+        }
+        dir.close();
+        return 1;
+    }
+
     return 1;
 }
 

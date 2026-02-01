@@ -147,10 +147,19 @@ function Files:load_directory(path)
 
     -- At root, show virtual mountpoints
     if path == "/" then
-        -- Show /scripts/ (embedded scripts, read-only)
+        -- Show /fs/ (LittleFS internal flash)
         table.insert(entries, {
-            name = "scripts",
-            label = "scripts",
+            name = "fs",
+            label = "fs",
+            is_dir = true,
+            is_mountpoint = true,
+            size = 0
+        })
+
+        -- Show /img/ (embedded scripts, read-only)
+        table.insert(entries, {
+            name = "img",
+            label = "img",
             is_dir = true,
             is_mountpoint = true,
             is_embedded = true,
@@ -169,8 +178,8 @@ function Files:load_directory(path)
         end
     end
 
-    -- Check if browsing embedded scripts
-    if path == "/scripts" or path:sub(1, 9) == "/scripts/" then
+    -- Check if browsing embedded scripts (/img/)
+    if path == "/img" or path:sub(1, 5) == "/img/" then
         self:load_embedded_directory(path, entries)
     else
         -- List directory contents from filesystem
@@ -212,7 +221,9 @@ function Files:load_embedded_directory(path, entries)
     -- Build a set of subdirectories and files at this level
     local subdirs = {}
     local files = {}
-    local prefix = path == "/scripts" and "/scripts/" or (path .. "/")
+    -- Map /img path to /scripts prefix for embedded lookup
+    local embedded_path = path == "/img" and "/scripts" or ("/scripts" .. path:sub(5))
+    local prefix = embedded_path .. "/"
     local prefix_len = #prefix
 
     for _, script in ipairs(all_scripts) do
@@ -276,7 +287,8 @@ function Files:get_parent_path()
     if self.current_path == "/" then return "/" end
     -- Special cases for mountpoints going back to root
     if self.current_path == "/sd" then return "/" end
-    if self.current_path == "/scripts" then return "/" end
+    if self.current_path == "/fs" then return "/" end
+    if self.current_path == "/img" then return "/" end
     local parent = self.current_path:match("(.+)/[^/]+$")
     -- If we're at a mountpoint root, parent is "/"
     if parent == "" then return "/" end
@@ -414,14 +426,16 @@ function Files:copy_embedded_to_sd(entry)
     end
 
     local src_path = self:get_full_path(entry)
-    local content = ez.storage.read_embedded(src_path)
+    -- Map /img/... to /scripts/... for embedded lookup
+    local embedded_path = "/scripts" .. src_path:sub(5)
+    local content = ez.storage.read_embedded(embedded_path)
     if not content then
         self:show_message("Read failed!")
         return
     end
 
-    -- Determine destination path: /sd/scripts/... mirroring the embedded path
-    local dest_path = "/sd" .. src_path
+    -- Destination path: /sd/scripts/... (so overlay loader picks it up)
+    local dest_path = "/sd" .. embedded_path
     local dest_dir = dest_path:match("(.+)/[^/]+$")
 
     -- Create destination directory if needed
@@ -457,14 +471,16 @@ function Files:copy_embedded_to_fs(entry)
     end
 
     local src_path = self:get_full_path(entry)
-    local content = ez.storage.read_embedded(src_path)
+    -- Map /img/... to /scripts/... for embedded lookup
+    local embedded_path = "/scripts" .. src_path:sub(5)
+    local content = ez.storage.read_embedded(embedded_path)
     if not content then
         self:show_message("Read failed!")
         return
     end
 
-    -- Destination is the same path on LittleFS (e.g., /scripts/ui/screens/foo.lua)
-    local dest_path = src_path
+    -- Destination: /fs/scripts/... (so overlay loader picks it up)
+    local dest_path = "/fs" .. embedded_path
     local dest_dir = dest_path:match("(.+)/[^/]+$")
 
     -- Create destination directory if needed
