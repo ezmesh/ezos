@@ -716,9 +716,9 @@ def generate_html(modules: Dict[str, LuaModule]) -> str:
                 html_parts.append(f'        <div class="desc">{html.escape(func.brief)}</div>\n')
 
             if func.description:
-                # Convert newlines to <br> for HTML display
-                desc_html = html.escape(func.description).replace('\n', '<br>\n')
-                html_parts.append(f'        <div class="desc-detail">{desc_html}</div>\n')
+                # Join lines with spaces for natural text flow
+                desc_text = ' '.join(func.description.split('\n'))
+                html_parts.append(f'        <div class="desc-detail">{html.escape(desc_text)}</div>\n')
 
             if func.params:
                 html_parts.append('        <div class="params">\n')

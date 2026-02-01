@@ -2508,11 +2508,7 @@ display.draw_indexed_bitmap(0, 0, 256, 256, tile_data, palette)</code></pre>
     <div class="func" id="system-deep_sleep">
         <div class="sig">ez.system.deep_sleep(seconds)</div>
         <div class="desc">Enter deep sleep mode, device will reboot on wake</div>
-        <div class="desc-detail">Deep sleep is the lowest power mode (~10µA). The CPU and most RAM<br>
-are powered off, so all program state is lost. When the device wakes (via timer<br>
-or GPIO), it performs a full reboot and starts from setup().<br>
-Use this for long idle periods (hours/days) where you want maximum battery life.<br>
-For shorter pauses where you need to preserve state, use light_sleep() instead.</div>
+        <div class="desc-detail">Deep sleep is the lowest power mode (~10µA). The CPU and most RAM are powered off, so all program state is lost. When the device wakes (via timer or GPIO), it performs a full reboot and starts from setup(). Use this for long idle periods (hours/days) where you want maximum battery life. For shorter pauses where you need to preserve state, use light_sleep() instead.</div>
         <div class="params">
             <div class="params-title">Parameters</div>
             <table class="params-table">
