@@ -166,6 +166,46 @@ function FileEdit:copy_to_sd()
     end
 end
 
+function FileEdit:copy_to_fs()
+    if not self.file_path then
+        self:show_message("No filename!")
+        return false
+    end
+
+    -- Destination is the same path on LittleFS
+    local dest_path = self.file_path
+    local dest_dir = dest_path:match("(.+)/[^/]+$")
+
+    -- Create destination directory if needed
+    if dest_dir and not ez.storage.exists(dest_dir) then
+        local parts = {}
+        for part in dest_dir:gmatch("[^/]+") do
+            table.insert(parts, part)
+        end
+        local current = ""
+        for _, part in ipairs(parts) do
+            current = current .. "/" .. part
+            if not ez.storage.exists(current) then
+                ez.storage.mkdir(current)
+            end
+        end
+    end
+
+    -- Write current content (including any edits)
+    local content = table.concat(self.lines, "\n")
+    if ez.storage.write_file(dest_path, content) then
+        self:show_message("Copied to FS: " .. self:basename(dest_path))
+
+        -- Switch to the new file (now editable on LittleFS)
+        self.readonly = false
+        self.modified = false
+        return true
+    else
+        self:show_message("Copy failed!")
+        return false
+    end
+end
+
 function FileEdit:basename(path)
     return path:match("([^/]+)$") or path
 end
@@ -299,7 +339,7 @@ function FileEdit:get_menu_items()
     local items = {}
 
     if self.readonly then
-        -- Read-only file: offer Copy to SD instead of Save
+        -- Read-only file: offer Copy to SD/FS instead of Save
         if ez.storage.is_sd_available() then
             table.insert(items, {
                 label = "Copy to SD",
@@ -309,6 +349,13 @@ function FileEdit:get_menu_items()
                 end
             })
         end
+        table.insert(items, {
+            label = "Copy to FS",
+            action = function()
+                self_ref:copy_to_fs()
+                ScreenManager.invalidate()
+            end
+        })
     else
         table.insert(items, {
             label = "Save",

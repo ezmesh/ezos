@@ -450,6 +450,48 @@ function Files:copy_embedded_to_sd(entry)
     end
 end
 
+function Files:copy_embedded_to_fs(entry)
+    if not entry or not entry.is_embedded then
+        self:show_message("Not an embedded file")
+        return
+    end
+
+    local src_path = self:get_full_path(entry)
+    local content = ez.storage.read_embedded(src_path)
+    if not content then
+        self:show_message("Read failed!")
+        return
+    end
+
+    -- Destination is the same path on LittleFS (e.g., /scripts/ui/screens/foo.lua)
+    local dest_path = src_path
+    local dest_dir = dest_path:match("(.+)/[^/]+$")
+
+    -- Create destination directory if needed
+    if dest_dir and not ez.storage.exists(dest_dir) then
+        local parts = {}
+        for part in dest_dir:gmatch("[^/]+") do
+            table.insert(parts, part)
+        end
+        local current = ""
+        for _, part in ipairs(parts) do
+            current = current .. "/" .. part
+            if not ez.storage.exists(current) then
+                ez.storage.mkdir(current)
+            end
+        end
+    end
+
+    -- Write the file
+    if ez.storage.write_file(dest_path, content) then
+        self:show_message("Copied to FS: " .. entry.name)
+        -- Navigate to the destination directory
+        self:load_directory(dest_dir or "/scripts")
+    else
+        self:show_message("Write failed!")
+    end
+end
+
 function Files:delete_entry()
     local entry = self:get_selected_entry()
     if not entry or entry.name == ".." then
@@ -571,7 +613,7 @@ function Files:get_menu_items()
                 })
             end
 
-            -- Embedded files: offer Copy to SD instead of regular copy/cut
+            -- Embedded files: offer Copy to SD/FS instead of regular copy/cut
             if entry.is_embedded then
                 if ez.storage.is_sd_available() then
                     table.insert(items, {
@@ -581,6 +623,12 @@ function Files:get_menu_items()
                         end
                     })
                 end
+                table.insert(items, {
+                    label = "Copy to FS",
+                    action = function()
+                        self_ref:copy_embedded_to_fs(entry)
+                    end
+                })
             else
                 -- Regular filesystem files: copy/cut/rename/delete
                 table.insert(items, {label = "Copy", action = function() self_ref:copy_entry() end})

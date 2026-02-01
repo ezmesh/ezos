@@ -1,5 +1,6 @@
 #include "async.h"
 #include "embedded_scripts.h"
+#include "../config.h"
 #include "../util/log.h"
 #include <Arduino.h>
 #include <SD.h>
@@ -689,20 +690,73 @@ void AsyncIO::processResults() {
 // =============================================================================
 
 // async_read(path) - yields coroutine, resumes with data or nil
-// For embedded scripts, returns data directly without async I/O
+// Load order for /scripts/ paths: SD > LittleFS > embedded
 int AsyncIO::l_async_read(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
 
-    // Check for embedded scripts first (returns instantly for /scripts/ paths)
+    // For /scripts/ paths, follow SD > LittleFS > embedded order
+    if (strncmp(path, "/scripts/", 9) == 0) {
+        // 1. Check SD card first
+        if (SD.begin(SD_CS) && SD.exists(path)) {
+            // File exists on SD - use async read with /sd/ prefix
+            char sdPath[MAX_PATH];
+            snprintf(sdPath, sizeof(sdPath), "/sd%s", path);
+
+            lua_pushthread(L);
+            int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
+
+            Request req = {};
+            req.type = OpType::READ;
+            req.coroRef = coroRef;
+            strncpy(req.path, sdPath, MAX_PATH - 1);
+
+            if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
+                luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
+                return luaL_error(L, "async queue full");
+            }
+            return lua_yield(L, 0);
+        }
+
+        // 2. Check LittleFS
+        if (LittleFS.exists(path)) {
+            // File exists on LittleFS - use async read
+            lua_pushthread(L);
+            int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
+
+            Request req = {};
+            req.type = OpType::READ;
+            req.coroRef = coroRef;
+            strncpy(req.path, path, MAX_PATH - 1);
+
+            if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
+                luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
+                return luaL_error(L, "async queue full");
+            }
+            return lua_yield(L, 0);
+        }
+
+        // 3. Fall back to embedded scripts
+        size_t embeddedSize = 0;
+        const char* embedded = embedded_lua::get_script(path, &embeddedSize);
+        if (embedded != nullptr) {
+            lua_pushlstring(L, embedded, embeddedSize);
+            return 1;
+        }
+
+        // Not found anywhere
+        lua_pushnil(L);
+        return 1;
+    }
+
+    // For non-/scripts/ paths, check embedded first then async I/O
     size_t embeddedSize = 0;
     const char* embedded = embedded_lua::get_script(path, &embeddedSize);
     if (embedded != nullptr) {
-        // Return embedded content directly - no async needed
         lua_pushlstring(L, embedded, embeddedSize);
         return 1;
     }
 
-    // Not an embedded script - use async I/O for SD card files
+    // Not embedded - use async I/O
     lua_pushthread(L);
     int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
 

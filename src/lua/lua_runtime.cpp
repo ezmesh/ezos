@@ -225,49 +225,55 @@ bool LuaRuntime::executeFile(const char* path) {
         return false;
     }
 
-    // Try embedded scripts first
-    size_t size = 0;
-    const char* embedded = embedded_lua::get_script(path, &size);
-    if (embedded != nullptr) {
-        // Execute directly from embedded data (no allocation needed)
-        return executeBuffer(embedded, size, path);
-    }
+    // Load order: SD > LittleFS > embedded
+    // This allows users to override embedded scripts by placing files on SD or LittleFS
 
-    // Fallback to SD card for /scripts/ paths
+    // 1. Try SD card first for /scripts/ paths
     if (strncmp(path, "/scripts/", 9) == 0) {
-        // Map /scripts/foo.lua to /sd/scripts/foo.lua
         char sdPath[128];
         snprintf(sdPath, sizeof(sdPath), "/sd%s", path);
 
-        // Ensure SD is initialized
-        if (!SD.begin(SD_CS)) {
-            reportError("SD card not available");
-            return false;
+        if (SD.begin(SD_CS)) {
+            File file = SD.open(sdPath + 3, "r");  // Skip "/sd" prefix for SD.open
+            if (file) {
+                size_t fileSize = file.size();
+                char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                if (buffer) {
+                    size_t bytesRead = file.read((uint8_t*)buffer, fileSize);
+                    file.close();
+                    buffer[bytesRead] = '\0';
+
+                    bool result = executeBuffer(buffer, bytesRead, path);
+                    heap_caps_free(buffer);
+                    return result;
+                }
+                file.close();
+            }
         }
 
-        File file = SD.open(sdPath + 3, "r");  // Skip "/sd" prefix for SD.open
-        if (!file) {
-            char err[128];
-            snprintf(err, sizeof(err), "Script not found: %s", path);
-            reportError(err);
-            return false;
+        // 2. Try LittleFS
+        File fsFile = LittleFS.open(path, "r");
+        if (fsFile) {
+            size_t fileSize = fsFile.size();
+            char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (buffer) {
+                size_t bytesRead = fsFile.read((uint8_t*)buffer, fileSize);
+                fsFile.close();
+                buffer[bytesRead] = '\0';
+
+                bool result = executeBuffer(buffer, bytesRead, path);
+                heap_caps_free(buffer);
+                return result;
+            }
+            fsFile.close();
         }
+    }
 
-        size_t fileSize = file.size();
-        char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!buffer) {
-            file.close();
-            reportError("Out of memory loading script");
-            return false;
-        }
-
-        size_t bytesRead = file.read((uint8_t*)buffer, fileSize);
-        file.close();
-        buffer[bytesRead] = '\0';
-
-        bool result = executeBuffer(buffer, bytesRead, path);
-        heap_caps_free(buffer);
-        return result;
+    // 3. Fall back to embedded scripts
+    size_t size = 0;
+    const char* embedded = embedded_lua::get_script(path, &size);
+    if (embedded != nullptr) {
+        return executeBuffer(embedded, size, path);
     }
 
     // Script not found
