@@ -26,6 +26,7 @@ local MainMenu = {
         {label = "Settings",  description = "Configuration",      icon_path = "settings",  unread = 0, enabled = true, shortcut = ","},
         {label = "Storage",   description = "Disk space info",    icon_path = "files",     unread = 0, enabled = true, shortcut = "O"},
         {label = "Files",     description = "File browser",       icon_path = "files",     unread = 0, enabled = true, shortcut = "F"},
+        {label = "Terminal",  description = "Lua shell",          icon_path = "terminal",  unread = 0, enabled = true, shortcut = "L"},
         {label = "Diagnostics", description = "Testing tools",     icon_path = "testing",   unread = 0, enabled = true, shortcut = "D"},
         {label = "Games",     description = "Play games",         icon_path = "games",     unread = 0, enabled = true, shortcut = "G"}
     }
@@ -332,6 +333,7 @@ function MainMenu:activate_selected()
         ["Settings"]    = "/scripts/ui/screens/settings.lua",
         ["Storage"]     = "/scripts/ui/screens/storage.lua",
         ["Files"]       = "/scripts/ui/screens/files.lua",
+        ["Terminal"]    = "/scripts/ui/screens/terminal.lua",
         ["Diagnostics"] = "/scripts/ui/screens/testing_menu.lua",
         ["Games"]       = "/scripts/ui/screens/games_menu.lua",
     }
