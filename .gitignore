@@ -26,4 +26,5 @@ tools/maps/*.checkpoint
 
 # Screenshots
 *.png
+!/docs/screenshots/*.png
 node_modules/
