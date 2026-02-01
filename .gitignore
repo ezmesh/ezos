@@ -30,4 +30,5 @@ tools/maps/*.checkpoint
 node_modules/
 
 # Generated docs
+/docs/api/
 /docs/manuals/

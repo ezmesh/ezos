@@ -1517,7 +1517,7 @@ def generate_html(modules: Dict[str, LuaModule], bus_messages: List[BusMessage])
 </head>
 <body>
 <nav class="nav" style="padding: 12px 24px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
-    <a href="../../shell/" style="color: var(--accent); text-decoration: none;">← Back to Shell Guide</a>
+    <a href="https://github.com/ezmesh/ezos" style="color: var(--accent); text-decoration: none;">← ezOS on GitHub</a>
 </nav>
 <header class="header">
     <div class="header-content">
@@ -1967,7 +1967,7 @@ def generate_index_markdown(modules: Dict[str, LuaModule], bus_messages: List[Bu
     total_funcs = sum(len(m.functions) for m in modules.values())
 
     lines = [
-        "[← Back to Shell Guide](../../shell/)",
+        "[← ezOS on GitHub](https://github.com/ezmesh/ezos)",
         "",
         "# ezOS Lua API Reference",
         "",
@@ -2552,7 +2552,7 @@ def main():
     project_root = script_dir.parent
     src_dir = project_root / 'src'
     data_dir = project_root / 'data'
-    docs_dir = project_root / 'docs' / 'manuals' / 'development' / 'shell'
+    docs_dir = project_root / 'docs' / 'api'
     user_docs_dir = project_root / 'docs' / 'manuals' / 'shell'
 
     print(f"Scanning {src_dir} for Lua bindings...")
