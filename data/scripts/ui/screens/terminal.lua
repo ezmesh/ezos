@@ -7,9 +7,11 @@ local Terminal = {
     -- Display settings
     FONT_SIZE = "small",
     LINE_HEIGHT = 12,
-    MAX_LINES = 100,
+    MAX_LINES = 200,
     VISIBLE_LINES = 14,
     PROMPT = "> ",
+    CHAR_WIDTH = 6,           -- Approximate char width for small font
+    MAX_LINE_CHARS = 50,      -- Max chars per line (will be calculated)
 
     -- Colors
     COLOR_PROMPT = 0x07E0,    -- Green
@@ -51,7 +53,19 @@ function Terminal:on_exit()
 end
 
 function Terminal:print_line(text, color)
-    table.insert(self.lines, {text = text, color = color or self.COLOR_OUTPUT})
+    color = color or self.COLOR_OUTPUT
+
+    -- Wrap long lines
+    if #text > self.MAX_LINE_CHARS then
+        local pos = 1
+        while pos <= #text do
+            local chunk = text:sub(pos, pos + self.MAX_LINE_CHARS - 1)
+            table.insert(self.lines, {text = chunk, color = color})
+            pos = pos + self.MAX_LINE_CHARS
+        end
+    else
+        table.insert(self.lines, {text = text, color = color})
+    end
 
     -- Trim old lines if too many
     while #self.lines > self.MAX_LINES do
@@ -382,9 +396,16 @@ function Terminal:render(display)
 
     local y_start = 26
     local x_margin = 4
-    local max_width = w - x_margin * 2
+    local scrollbar_width = 10
+    local max_width = w - x_margin * 2 - scrollbar_width
 
     display.set_font_size(self.FONT_SIZE)
+
+    -- Calculate max chars per line based on actual font width
+    local test_width = display.text_width("M")
+    if test_width and test_width > 0 then
+        self.MAX_LINE_CHARS = math.floor(max_width / test_width)
+    end
 
     -- Draw output lines
     local y = y_start
@@ -395,7 +416,12 @@ function Terminal:render(display)
         if line_count >= self.VISIBLE_LINES - 1 then break end  -- Leave room for input
 
         local line = self.lines[i]
-        display.draw_text(x_margin, y, line.text, line.color)
+        -- Truncate to max chars if needed
+        local text = line.text
+        if #text > self.MAX_LINE_CHARS then
+            text = text:sub(1, self.MAX_LINE_CHARS)
+        end
+        display.draw_text(x_margin, y, text, line.color)
         y = y + self.LINE_HEIGHT
         line_count = line_count + 1
     end
@@ -403,13 +429,34 @@ function Terminal:render(display)
     -- Draw input line at bottom
     local input_y = y_start + (self.VISIBLE_LINES - 1) * self.LINE_HEIGHT
     local input_text = self.PROMPT .. self.input
-    display.draw_text(x_margin, input_y, input_text, self.COLOR_PROMPT)
 
-    -- Draw cursor
-    self.cursor_timer = (self.cursor_timer + 1) % 30
-    if self.cursor_timer < 15 then
-        local cursor_x = x_margin + display.text_width(self.PROMPT .. self.input:sub(1, self.cursor_pos))
-        display.fill_rect(cursor_x, input_y, 2, self.LINE_HEIGHT - 2, self.COLOR_PROMPT)
+    -- If input is too long, show only the end with cursor visible
+    local max_input_chars = self.MAX_LINE_CHARS
+    if #input_text > max_input_chars then
+        -- Calculate visible portion that includes cursor
+        local prompt_len = #self.PROMPT
+        local cursor_in_text = prompt_len + self.cursor_pos
+        local start_pos = math.max(1, cursor_in_text - max_input_chars + 5)
+        input_text = input_text:sub(start_pos, start_pos + max_input_chars - 1)
+        -- Adjust cursor position for display
+        local display_cursor_pos = cursor_in_text - start_pos + 1
+        display.draw_text(x_margin, input_y, input_text, self.COLOR_PROMPT)
+
+        -- Draw cursor at adjusted position
+        self.cursor_timer = (self.cursor_timer + 1) % 30
+        if self.cursor_timer < 15 then
+            local cursor_x = x_margin + display.text_width(input_text:sub(1, display_cursor_pos))
+            display.fill_rect(cursor_x, input_y, 2, self.LINE_HEIGHT - 2, self.COLOR_PROMPT)
+        end
+    else
+        display.draw_text(x_margin, input_y, input_text, self.COLOR_PROMPT)
+
+        -- Draw cursor
+        self.cursor_timer = (self.cursor_timer + 1) % 30
+        if self.cursor_timer < 15 then
+            local cursor_x = x_margin + display.text_width(self.PROMPT .. self.input:sub(1, self.cursor_pos))
+            display.fill_rect(cursor_x, input_y, 2, self.LINE_HEIGHT - 2, self.COLOR_PROMPT)
+        end
     end
 
     -- Scrollbar if needed
@@ -475,15 +522,22 @@ function Terminal:handle_key(key)
     end
 
     if key.special == "UP" then
-        -- Command history navigation
-        if #self.history > 0 then
-            if self.history_idx == 0 then
-                self.saved_input = self.input
+        if key.alt then
+            -- Alt+Up: Scroll up
+            if self.scroll_offset > 0 then
+                self.scroll_offset = self.scroll_offset - 1
             end
-            if self.history_idx < #self.history then
-                self.history_idx = self.history_idx + 1
-                self.input = self.history[#self.history - self.history_idx + 1]
-                self.cursor_pos = #self.input
+        else
+            -- Command history navigation
+            if #self.history > 0 then
+                if self.history_idx == 0 then
+                    self.saved_input = self.input
+                end
+                if self.history_idx < #self.history then
+                    self.history_idx = self.history_idx + 1
+                    self.input = self.history[#self.history - self.history_idx + 1]
+                    self.cursor_pos = #self.input
+                end
             end
         end
         ScreenManager.invalidate()
@@ -491,14 +545,23 @@ function Terminal:handle_key(key)
     end
 
     if key.special == "DOWN" then
-        if self.history_idx > 0 then
-            self.history_idx = self.history_idx - 1
-            if self.history_idx == 0 then
-                self.input = self.saved_input or ""
-            else
-                self.input = self.history[#self.history - self.history_idx + 1]
+        if key.alt then
+            -- Alt+Down: Scroll down
+            local max_scroll = math.max(0, #self.lines + 1 - self.VISIBLE_LINES)
+            if self.scroll_offset < max_scroll then
+                self.scroll_offset = self.scroll_offset + 1
             end
-            self.cursor_pos = #self.input
+        else
+            -- Command history navigation
+            if self.history_idx > 0 then
+                self.history_idx = self.history_idx - 1
+                if self.history_idx == 0 then
+                    self.input = self.saved_input or ""
+                else
+                    self.input = self.history[#self.history - self.history_idx + 1]
+                end
+                self.cursor_pos = #self.input
+            end
         end
         ScreenManager.invalidate()
         return "continue"
