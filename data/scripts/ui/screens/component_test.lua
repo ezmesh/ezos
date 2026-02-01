@@ -171,8 +171,8 @@ function ComponentTest:render(display)
     -- Content area
     local content_y = _G.ThemeManager and _G.ThemeManager.LIST_START_Y or 31
     local content_height = h - content_y - 20
-    local label_width = 70
-    local component_x = label_width + 4
+    local label_width = 80
+    local component_x = label_width + 8
     local component_width = w - component_x - 10
 
     -- Compute layout if needed
