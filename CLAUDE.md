@@ -295,11 +295,18 @@ Commands:
 
 ### Debugging UI Issues
 
-1. Navigate to the problematic screen (send keys via remote)
-2. Capture text to verify content: `--text`
-3. Capture primitives to debug rendering: `--primitives`
-4. Take screenshot for visual verification: `-s screenshot.png`
+**IMPORTANT:** Prefer using `--text` over screenshots when verifying UI content. Text capture is faster, uses less bandwidth, and can be easily compared or searched programmatically.
+
+1. Navigate to the problematic screen (use `spawn_screen()` via `-e` flag)
+2. **Prefer:** Capture text to verify content: `--text`
+3. **If needed:** Capture primitives to debug rendering: `--primitives`
+4. **Last resort:** Take screenshot for visual verification: `-s screenshot.png`
 5. Check logs for errors: `--logs`
+
+Screenshots are best for:
+- Verifying visual layout, colors, and graphics
+- Debugging rendering issues not captured by text/primitives
+- Creating documentation or bug reports
 
 ### Debugging with Lua Execution
 
@@ -319,6 +326,40 @@ python ez_remote.py /dev/ttyACM0 -e "ScreenManager.get_stack_depth()"
 
 # Inspect globals
 python ez_remote.py /dev/ttyACM0 -e "_G.StatusBar.battery"
+```
+
+### Spawning Screens Directly
+
+Use `spawn_screen()` to navigate to any screen without manual key input:
+
+```bash
+# Open file browser
+python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/files.lua')"
+
+# Open file editor with specific file
+python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/file_edit.lua', '/scripts/boot.lua')"
+
+# Open settings
+python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/settings.lua')"
+
+# Open map viewer
+python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/map_viewer.lua')"
+
+# Open nodes list
+python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/nodes.lua')"
+```
+
+Other useful screen navigation:
+
+```bash
+# Pop current screen (go back)
+python ez_remote.py /dev/ttyACM0 -e "ScreenManager.pop()"
+
+# Get current screen info
+python ez_remote.py /dev/ttyACM0 -e "local s = ScreenManager.peek(); return s and s.title"
+
+# Check screen stack depth
+python ez_remote.py /dev/ttyACM0 -e "ScreenManager.get_stack_depth()"
 ```
 
 ### Testing Changes
