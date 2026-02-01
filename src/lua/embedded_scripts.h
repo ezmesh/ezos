@@ -19,6 +19,8 @@ inline const char* get_script(const char* path, size_t* out_size = nullptr) {
 
 inline size_t get_script_count() { return 0; }
 inline size_t get_total_size() { return 0; }
+inline const char* get_script_path(size_t index) { (void)index; return nullptr; }
+inline size_t get_script_size(size_t index) { (void)index; return 0; }
 
 #else
 
@@ -26,6 +28,8 @@ inline size_t get_total_size() { return 0; }
 const char* get_script(const char* path, size_t* out_size = nullptr);
 size_t get_script_count();
 size_t get_total_size();
+const char* get_script_path(size_t index);
+size_t get_script_size(size_t index);
 
 #endif
 

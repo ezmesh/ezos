@@ -2,6 +2,7 @@
 // Provides file I/O for LittleFS and SD card
 
 #include "../lua_bindings.h"
+#include "../embedded_scripts.h"
 #include "../../config.h"
 #include <Arduino.h>
 #include <LittleFS.h>
@@ -1006,6 +1007,102 @@ LUA_FUNCTION(l_storage_get_free_space) {
     return 1;
 }
 
+// @lua ez.storage.list_embedded(prefix) -> table
+// @brief List embedded script paths
+// @description Returns a list of all embedded Lua scripts. These are scripts
+// compiled into the firmware and cannot be modified. Optionally filter by prefix
+// to list only scripts in a subdirectory (e.g., "/scripts/ui/screens").
+// @param prefix Optional path prefix filter (default: list all)
+// @return Array of tables with path, size, and is_embedded fields
+// @example
+// local scripts = ez.storage.list_embedded("/scripts/ui/screens")
+// for _, script in ipairs(scripts) do
+//     print(script.path, script.size, "bytes")
+// end
+// @end
+LUA_FUNCTION(l_storage_list_embedded) {
+    const char* prefix = luaL_optstring(L, 1, "");
+    size_t prefixLen = strlen(prefix);
+
+    lua_newtable(L);
+    int idx = 1;
+
+    size_t count = embedded_lua::get_script_count();
+    for (size_t i = 0; i < count; i++) {
+        const char* path = embedded_lua::get_script_path(i);
+        if (!path) continue;
+
+        // Filter by prefix if provided
+        if (prefixLen > 0 && strncmp(path, prefix, prefixLen) != 0) {
+            continue;
+        }
+
+        lua_newtable(L);
+
+        lua_pushstring(L, path);
+        lua_setfield(L, -2, "path");
+
+        lua_pushinteger(L, embedded_lua::get_script_size(i));
+        lua_setfield(L, -2, "size");
+
+        lua_pushboolean(L, true);
+        lua_setfield(L, -2, "is_embedded");
+
+        lua_rawseti(L, -2, idx++);
+    }
+
+    return 1;
+}
+
+// @lua ez.storage.read_embedded(path) -> string
+// @brief Read embedded script content
+// @description Reads the content of an embedded Lua script. These scripts are
+// compiled into firmware and are read-only. Use list_embedded() to discover
+// available embedded scripts.
+// @param path Full path of the embedded script (e.g., "/scripts/boot.lua")
+// @return Script content as string, or nil if not found
+// @example
+// local content = ez.storage.read_embedded("/scripts/boot.lua")
+// if content then
+//     print("Boot script is", #content, "bytes")
+// end
+// @end
+LUA_FUNCTION(l_storage_read_embedded) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* path = luaL_checkstring(L, 1);
+
+    size_t size = 0;
+    const char* content = embedded_lua::get_script(path, &size);
+
+    if (!content) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    lua_pushlstring(L, content, size);
+    return 1;
+}
+
+// @lua ez.storage.is_embedded(path) -> boolean
+// @brief Check if a path is an embedded script
+// @description Returns true if the given path corresponds to an embedded Lua script.
+// Useful for determining if a file is read-only (embedded) or editable (on SD/flash).
+// @param path Path to check
+// @return true if path is an embedded script
+// @example
+// if ez.storage.is_embedded("/scripts/boot.lua") then
+//     print("This is a read-only embedded script")
+// end
+// @end
+LUA_FUNCTION(l_storage_is_embedded) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* path = luaL_checkstring(L, 1);
+
+    const char* content = embedded_lua::get_script(path, nullptr);
+    lua_pushboolean(L, content != nullptr);
+    return 1;
+}
+
 // Function table for ez.storage
 static const luaL_Reg storage_funcs[] = {
     {"read_file",       l_storage_read_file},
@@ -1030,6 +1127,10 @@ static const luaL_Reg storage_funcs[] = {
     {"json_decode",     l_storage_json_decode},
     {"copy_file",       l_storage_copy_file},
     {"get_free_space",  l_storage_get_free_space},
+    // Embedded script functions
+    {"list_embedded",   l_storage_list_embedded},
+    {"read_embedded",   l_storage_read_embedded},
+    {"is_embedded",     l_storage_is_embedded},
     // Aliases for shorter names
     {"read",            l_storage_read_file},
     {"write",           l_storage_write_file},

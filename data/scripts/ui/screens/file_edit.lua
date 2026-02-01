@@ -16,9 +16,10 @@ local FileEdit = {
     message_time = 0,
     wrap_width = 20,        -- Characters per visual line (set in render based on display)
     wrap_enabled = true,    -- Toggle soft wrapping
+    readonly = false,       -- Read-only mode for embedded scripts
 }
 
-function FileEdit:new(path)
+function FileEdit:new(path, readonly)
     local o = {
         title = "Edit",
         file_path = path or nil,
@@ -32,6 +33,7 @@ function FileEdit:new(path)
         message_time = 0,
         wrap_width = 20,
         wrap_enabled = true,
+        readonly = readonly or false,
     }
     setmetatable(o, {__index = FileEdit})
 
@@ -60,7 +62,20 @@ function FileEdit:load_file(path)
     self.file_path = path
     self.lines = {}
 
-    local content = ez.storage.read_file(path)
+    -- Try embedded scripts first if readonly or in /scripts/ path
+    local content = nil
+    if self.readonly or ez.storage.is_embedded(path) then
+        content = ez.storage.read_embedded(path)
+        if content then
+            self.readonly = true  -- Mark as readonly if loaded from embedded
+        end
+    end
+
+    -- Fall back to filesystem if not embedded
+    if not content then
+        content = ez.storage.read_file(path)
+    end
+
     if content then
         for line in (content .. "\n"):gmatch("([^\n]*)\n") do
             table.insert(self.lines, line)
@@ -68,7 +83,11 @@ function FileEdit:load_file(path)
         if #self.lines > 1 and self.lines[#self.lines] == "" then
             table.remove(self.lines)
         end
-        self:show_message("Loaded: " .. self:basename(path))
+        local msg = "Loaded: " .. self:basename(path)
+        if self.readonly then
+            msg = msg .. " (read-only)"
+        end
+        self:show_message(msg)
     else
         self.lines = {""}
         self:show_message("New file: " .. self:basename(path))
@@ -85,6 +104,11 @@ function FileEdit:load_file(path)
 end
 
 function FileEdit:save_file()
+    if self.readonly then
+        self:show_message("Read-only file!")
+        return false
+    end
+
     if not self.file_path then
         self:show_message("No filename!")
         return false
@@ -97,6 +121,47 @@ function FileEdit:save_file()
         return true
     else
         self:show_message("Save failed!")
+        return false
+    end
+end
+
+function FileEdit:copy_to_sd()
+    if not self.file_path then
+        self:show_message("No filename!")
+        return false
+    end
+
+    -- Determine destination path: /sd/scripts/... mirroring the embedded path
+    local dest_path = "/sd" .. self.file_path
+    local dest_dir = dest_path:match("(.+)/[^/]+$")
+
+    -- Create destination directory if needed
+    if dest_dir and not ez.storage.exists(dest_dir) then
+        local parts = {}
+        for part in dest_dir:gmatch("[^/]+") do
+            table.insert(parts, part)
+        end
+        local current = ""
+        for _, part in ipairs(parts) do
+            current = current .. "/" .. part
+            if not ez.storage.exists(current) then
+                ez.storage.mkdir(current)
+            end
+        end
+    end
+
+    -- Write current content (including any edits)
+    local content = table.concat(self.lines, "\n")
+    if ez.storage.write_file(dest_path, content) then
+        self:show_message("Copied to " .. self:basename(dest_path))
+
+        -- Switch to the new file (now editable)
+        self.file_path = dest_path
+        self.readonly = false
+        self.modified = false
+        return true
+    else
+        self:show_message("Copy failed!")
         return false
     end
 end
@@ -233,19 +298,32 @@ function FileEdit:get_menu_items()
     local self_ref = self
     local items = {}
 
-    table.insert(items, {
-        label = "Save",
-        action = function()
-            self_ref:save_file()
-            ScreenManager.invalidate()
+    if self.readonly then
+        -- Read-only file: offer Copy to SD instead of Save
+        if ez.storage.is_sd_available() then
+            table.insert(items, {
+                label = "Copy to SD",
+                action = function()
+                    self_ref:copy_to_sd()
+                    ScreenManager.invalidate()
+                end
+            })
         end
-    })
+    else
+        table.insert(items, {
+            label = "Save",
+            action = function()
+                self_ref:save_file()
+                ScreenManager.invalidate()
+            end
+        })
+    end
 
     if self:is_lua_file() then
         table.insert(items, {
             label = "Run",
             action = function()
-                if self_ref.modified then
+                if self_ref.modified and not self_ref.readonly then
                     self_ref:save_file()
                 end
                 local path = self_ref.file_path
@@ -402,7 +480,9 @@ function FileEdit:render(display)
 
     -- Header frame with filename
     local title = self:basename(self.file_path or "untitled")
-    if self.modified then
+    if self.readonly then
+        title = title .. " [RO]"
+    elseif self.modified then
         title = title .. " *"
     end
     display.draw_box(0, 0, cols, rows - 1, "", colors.ACCENT, colors.WHITE)
@@ -538,11 +618,17 @@ function FileEdit:handle_key(key)
     elseif key.special == "RIGHT" then
         self:move_cursor(0, 1)
     elseif key.special == "ENTER" then
-        self:insert_newline()
+        if not self.readonly then
+            self:insert_newline()
+        end
     elseif key.special == "BACKSPACE" then
-        self:backspace()
+        if not self.readonly then
+            self:backspace()
+        end
     elseif key.special == "DELETE" then
-        self:delete_char()
+        if not self.readonly then
+            self:delete_char()
+        end
     elseif key.special == "HOME" then
         self.cursor_col = 1
     elseif key.special == "END" then
@@ -552,17 +638,19 @@ function FileEdit:handle_key(key)
     elseif key.special == "PAGE_DOWN" then
         self:move_cursor(10, 0)
     elseif key.special == "ESCAPE" then
-        if not self.modified then
+        if self.readonly or not self.modified then
             return "pop"
         else
             self:show_message("Unsaved! Use menu to quit")
         end
     elseif key.character and #key.character == 1 then
-        local byte = key.character:byte()
-        if byte >= 32 and byte < 127 then
-            self:insert_char(key.character)
-        elseif key.character == "\t" then
-            self:insert_char("    ")
+        if not self.readonly then
+            local byte = key.character:byte()
+            if byte >= 32 and byte < 127 then
+                self:insert_char(key.character)
+            elseif key.character == "\t" then
+                self:insert_char("    ")
+            end
         end
     end
 

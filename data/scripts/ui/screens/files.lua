@@ -51,25 +51,30 @@ function Files:on_enter()
             -- Draw back arrow as text
             display.draw_text(icon_x, y + 2, "<", icon_color)
         elseif item.is_mountpoint then
-            -- Mountpoint (SD card) - use distinct icon
+            -- Mountpoint - use distinct icon/color
+            local mount_color = item.is_embedded and colors.TEXT_SECONDARY or colors.SUCCESS
             if _G.Icons then
-                _G.Icons.draw("files", display, icon_x, icon_y, 16, colors.SUCCESS)
+                _G.Icons.draw("files", display, icon_x, icon_y, 16, mount_color)
             else
-                display.draw_text(icon_x, y + 2, "@", colors.SUCCESS)
+                local symbol = item.is_embedded and "#" or "@"
+                display.draw_text(icon_x, y + 2, symbol, mount_color)
             end
         elseif item.is_dir then
             -- Use files icon for folders
+            local dir_color = item.is_embedded and colors.TEXT_SECONDARY or icon_color
             if _G.Icons then
-                _G.Icons.draw("files", display, icon_x, icon_y, 16, icon_color)
+                _G.Icons.draw("files", display, icon_x, icon_y, 16, dir_color)
             else
-                display.draw_text(icon_x, y + 2, "/", icon_color)
+                display.draw_text(icon_x, y + 2, "/", dir_color)
             end
         elseif self_ref:is_lua_file(item.name) then
-            -- Lua files get asterisk
-            display.draw_text(icon_x + 2, y + 2, "*", colors.SUCCESS)
+            -- Lua files: embedded = muted, editable = green
+            local lua_color = item.is_embedded and colors.TEXT_SECONDARY or colors.SUCCESS
+            display.draw_text(icon_x + 2, y + 2, "*", lua_color)
         else
             -- Regular files get dot
-            display.draw_text(icon_x + 4, y + 2, ".", icon_color)
+            local file_color = item.is_embedded and colors.TEXT_SECONDARY or icon_color
+            display.draw_text(icon_x + 4, y + 2, ".", file_color)
         end
 
         -- Name (truncated if needed)
@@ -103,8 +108,10 @@ function Files:on_enter()
         row_height = 28,
         render_item = render_file_item,
         on_select = function(idx, item)
-            -- Open app menu on enter/click instead of directly opening
-            if _G.AppMenu and _G.AppMenu.show then
+            -- Directories: enter directly. Files: open app menu
+            if item and (item.is_dir or item.is_mountpoint or item.name == "..") then
+                self_ref:open_entry(item)
+            elseif _G.AppMenu and _G.AppMenu.show then
                 _G.AppMenu.show()
             end
         end
@@ -138,44 +145,121 @@ function Files:load_directory(path)
         })
     end
 
-    -- At root, show /sd/ mountpoint if SD card is available
-    if path == "/" and ez.storage.is_sd_available() then
+    -- At root, show virtual mountpoints
+    if path == "/" then
+        -- Show /scripts/ (embedded scripts, read-only)
         table.insert(entries, {
-            name = "sd",
-            label = "sd",
+            name = "scripts",
+            label = "scripts",
             is_dir = true,
-            is_mountpoint = true,  -- Flag for special rendering
+            is_mountpoint = true,
+            is_embedded = true,
             size = 0
         })
+
+        -- Show /sd/ mountpoint if SD card is available
+        if ez.storage.is_sd_available() then
+            table.insert(entries, {
+                name = "sd",
+                label = "sd",
+                is_dir = true,
+                is_mountpoint = true,
+                size = 0
+            })
+        end
     end
 
-    -- List directory contents
-    local items = ez.storage.list_dir(path)
-    if items then
-        -- Sort: directories first, then files
-        local dirs = {}
-        local files = {}
+    -- Check if browsing embedded scripts
+    if path == "/scripts" or path:sub(1, 9) == "/scripts/" then
+        self:load_embedded_directory(path, entries)
+    else
+        -- List directory contents from filesystem
+        local items = ez.storage.list_dir(path)
+        if items then
+            -- Sort: directories first, then files
+            local dirs = {}
+            local files = {}
 
-        for _, item in ipairs(items) do
-            item.label = item.name  -- For VerticalList letter navigation
-            if item.is_dir then
-                table.insert(dirs, item)
-            else
-                table.insert(files, item)
+            for _, item in ipairs(items) do
+                item.label = item.name  -- For VerticalList letter navigation
+                if item.is_dir then
+                    table.insert(dirs, item)
+                else
+                    table.insert(files, item)
+                end
             end
+
+            table.sort(dirs, function(a, b) return a.name < b.name end)
+            table.sort(files, function(a, b) return a.name < b.name end)
+
+            for _, item in ipairs(dirs) do table.insert(entries, item) end
+            for _, item in ipairs(files) do table.insert(entries, item) end
         end
-
-        table.sort(dirs, function(a, b) return a.name < b.name end)
-        table.sort(files, function(a, b) return a.name < b.name end)
-
-        for _, item in ipairs(dirs) do table.insert(entries, item) end
-        for _, item in ipairs(files) do table.insert(entries, item) end
     end
 
     self.list:set_items(entries)
 
     if #entries == 0 then
         self:show_message("Empty directory")
+    end
+end
+
+-- Load embedded scripts directory (virtual filesystem)
+function Files:load_embedded_directory(path, entries)
+    -- Get all embedded scripts
+    local all_scripts = ez.storage.list_embedded()
+
+    -- Build a set of subdirectories and files at this level
+    local subdirs = {}
+    local files = {}
+    local prefix = path == "/scripts" and "/scripts/" or (path .. "/")
+    local prefix_len = #prefix
+
+    for _, script in ipairs(all_scripts) do
+        local script_path = script.path
+        -- Check if this script is under our current path
+        if script_path:sub(1, prefix_len) == prefix then
+            local remainder = script_path:sub(prefix_len + 1)
+            local slash_pos = remainder:find("/")
+
+            if slash_pos then
+                -- This is a subdirectory
+                local subdir = remainder:sub(1, slash_pos - 1)
+                subdirs[subdir] = true
+            else
+                -- This is a file at this level
+                table.insert(files, {
+                    name = remainder,
+                    label = remainder,
+                    is_dir = false,
+                    is_embedded = true,
+                    size = script.size
+                })
+            end
+        end
+    end
+
+    -- Add subdirectories first (sorted)
+    local sorted_subdirs = {}
+    for name, _ in pairs(subdirs) do
+        table.insert(sorted_subdirs, name)
+    end
+    table.sort(sorted_subdirs)
+
+    for _, name in ipairs(sorted_subdirs) do
+        table.insert(entries, {
+            name = name,
+            label = name,
+            is_dir = true,
+            is_embedded = true,
+            size = 0
+        })
+    end
+
+    -- Add files (sorted)
+    table.sort(files, function(a, b) return a.name < b.name end)
+    for _, file in ipairs(files) do
+        table.insert(entries, file)
     end
 end
 
@@ -190,10 +274,11 @@ end
 
 function Files:get_parent_path()
     if self.current_path == "/" then return "/" end
-    -- Special case: /sd goes back to root
+    -- Special cases for mountpoints going back to root
     if self.current_path == "/sd" then return "/" end
+    if self.current_path == "/scripts" then return "/" end
     local parent = self.current_path:match("(.+)/[^/]+$")
-    -- If we're in /sd/something, parent might be /sd
+    -- If we're at a mountpoint root, parent is "/"
     if parent == "" then return "/" end
     return parent or "/"
 end
@@ -239,14 +324,15 @@ function Files:open_entry(entry)
     if entry.name == ".." then
         self:load_directory(self:get_parent_path())
     elseif entry.is_mountpoint then
-        -- Special handling for mountpoints like /sd/
+        -- Special handling for mountpoints like /sd/ and /scripts/
         self:load_directory("/" .. entry.name)
     elseif entry.is_dir then
         self:load_directory(self:get_full_path(entry))
     else
         local path = self:get_full_path(entry)
         if self:is_text_file(entry.name) then
-            spawn_screen("/scripts/ui/screens/file_edit.lua", path)
+            -- Pass readonly flag for embedded files
+            spawn_screen("/scripts/ui/screens/file_edit.lua", path, entry.is_embedded)
         else
             self:show_message("Cannot open: " .. entry.name)
         end
@@ -319,6 +405,49 @@ function Files:paste_entry()
 
     self:show_message("Pasted: " .. src_name)
     self:load_directory(self.current_path)
+end
+
+function Files:copy_embedded_to_sd(entry)
+    if not entry or not entry.is_embedded then
+        self:show_message("Not an embedded file")
+        return
+    end
+
+    local src_path = self:get_full_path(entry)
+    local content = ez.storage.read_embedded(src_path)
+    if not content then
+        self:show_message("Read failed!")
+        return
+    end
+
+    -- Determine destination path: /sd/scripts/... mirroring the embedded path
+    local dest_path = "/sd" .. src_path
+    local dest_dir = dest_path:match("(.+)/[^/]+$")
+
+    -- Create destination directory if needed
+    if dest_dir and not ez.storage.exists(dest_dir) then
+        -- Create parent directories recursively
+        local parts = {}
+        for part in dest_dir:gmatch("[^/]+") do
+            table.insert(parts, part)
+        end
+        local current = ""
+        for _, part in ipairs(parts) do
+            current = current .. "/" .. part
+            if not ez.storage.exists(current) then
+                ez.storage.mkdir(current)
+            end
+        end
+    end
+
+    -- Write the file
+    if ez.storage.write_file(dest_path, content) then
+        self:show_message("Copied to " .. dest_path)
+        -- Navigate to the destination directory
+        self:load_directory(dest_dir or "/sd/scripts")
+    else
+        self:show_message("Write failed!")
+    end
 end
 
 function Files:delete_entry()
@@ -441,11 +570,29 @@ function Files:get_menu_items()
                     end
                 })
             end
-            table.insert(items, {label = "Copy", action = function() self_ref:copy_entry() end})
-            table.insert(items, {label = "Cut", action = function() self_ref:cut_entry() end})
+
+            -- Embedded files: offer Copy to SD instead of regular copy/cut
+            if entry.is_embedded then
+                if ez.storage.is_sd_available() then
+                    table.insert(items, {
+                        label = "Copy to SD",
+                        action = function()
+                            self_ref:copy_embedded_to_sd(entry)
+                        end
+                    })
+                end
+            else
+                -- Regular filesystem files: copy/cut/rename/delete
+                table.insert(items, {label = "Copy", action = function() self_ref:copy_entry() end})
+                table.insert(items, {label = "Cut", action = function() self_ref:cut_entry() end})
+            end
         end
-        table.insert(items, {label = "Rename", action = function() self_ref:start_rename() end})
-        table.insert(items, {label = "Del", action = function() self_ref:delete_entry() end})
+
+        -- Only allow rename/delete for non-embedded entries
+        if not entry.is_embedded then
+            table.insert(items, {label = "Rename", action = function() self_ref:start_rename() end})
+            table.insert(items, {label = "Del", action = function() self_ref:delete_entry() end})
+        end
     end
 
     if self.clipboard_path then
