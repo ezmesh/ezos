@@ -3,8 +3,8 @@
 Lua API Documentation Generator for ezOS
 
 Generates two documentation sets:
-1. Development docs (docs/manuals/development/shell/) - API reference for developers
-2. User docs (docs/manuals/shell/) - Shell guide with settings reference
+1. Development docs (docs/api/) - API reference for developers
+2. User docs (docs/manual/) - Shell guide with settings reference
 
 ## C++ Binding Documentation
 
@@ -2136,7 +2136,7 @@ def generate_shell_guide_index(categories: List[SettingsCategory], modules: Dict
             ["[Menu Items](./menu/)", "Main menu screens and keyboard shortcuts"],
             ["[Settings Reference](./settings/)", f"All {total_settings} device settings organized by category"],
             ["[Offline Maps](./maps/)", "How to generate and use offline map tiles"],
-            ["[API Reference](../development/shell/)", f"Developer documentation ({total_funcs} functions)"],
+            ["[API Reference](../api/)", f"Developer documentation ({total_funcs} functions)"],
         ]
     )
     lines.extend([
@@ -2195,7 +2195,7 @@ def generate_shell_guide_index(categories: List[SettingsCategory], modules: Dict
         "## For Developers",
         "",
         "ezOS exposes a comprehensive Lua API for building applications. See the",
-        "[Development API Reference](../development/shell/) for complete documentation of all",
+        "[Development API Reference](../api/) for complete documentation of all",
         f"{len(modules)} modules and {total_funcs} functions.",
         "",
         "Key modules:",
@@ -2205,11 +2205,11 @@ def generate_shell_guide_index(categories: List[SettingsCategory], modules: Dict
     # List top modules
     for name in sorted(modules.keys())[:6]:
         module = modules[name]
-        lines.append(f"- [`ez.{name}`](../development/shell/{name}/): {module.brief}")
+        lines.append(f"- [`ez.{name}`](../api/{name}/): {module.brief}")
 
     lines.extend([
         "",
-        f"[View all {len(modules)} modules →](../development/shell/)",
+        f"[View all {len(modules)} modules →](../api/)",
         "",
     ])
 
