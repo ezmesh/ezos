@@ -1,6 +1,7 @@
 #include "gps.h"
 #include <sys/time.h>
 #include <stdlib.h>
+#include <string.h>
 
 GPS& GPS::instance() {
     static GPS inst;
@@ -107,24 +108,28 @@ bool GPS::syncSystemTime() {
 
     // Save current timezone, temporarily set to UTC for conversion
     const char* oldTz = getenv("TZ");
+    char* savedTz = oldTz ? strdup(oldTz) : nullptr;
+
     setenv("TZ", "UTC0", 1);
     tzset();
 
     time_t timestamp = mktime(&timeinfo);
 
-    // Restore original timezone
-    if (oldTz) {
-        setenv("TZ", oldTz, 1);
-    } else {
-        unsetenv("TZ");
-    }
-    tzset();
-
-    // Set system time
+    // Set system time BEFORE restoring timezone
+    // This ensures tzset() calculates DST based on the new (correct) time
     struct timeval tv;
     tv.tv_sec = timestamp;
     tv.tv_usec = 0;
     settimeofday(&tv, nullptr);
+
+    // Restore original timezone and recalculate DST for the new time
+    if (savedTz) {
+        setenv("TZ", savedTz, 1);
+        free(savedTz);
+    } else {
+        unsetenv("TZ");
+    }
+    tzset();  // Now DST is calculated based on the correct system time
 
     _timeSynced = true;
     Serial.printf("[GPS] System time synced: %04d-%02d-%02d %02d:%02d:%02d UTC\n",
