@@ -219,9 +219,9 @@ static bool initModule() {
     }
 
     // Create worker task on Core 0 (Lua runs on Core 1)
-    // Stack size 16KB needed for HTTPS with WiFiClientSecure
+    // Stack size 32KB needed for HTTPS with WiFiClientSecure + TLS
     BaseType_t res = xTaskCreatePinnedToCore(
-        httpWorkerTask, "http_worker", 16384, nullptr, 1, &workerTask, 0
+        httpWorkerTask, "http_worker", 32768, nullptr, 1, &workerTask, 0
     );
 
     if (res != pdPASS) {
