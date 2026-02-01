@@ -143,6 +143,7 @@ function getScriptSync(path) {
 // Preload all required scripts before boot
 async function preloadScripts() {
     const scripts = [
+        'core/modules.lua',
         'boot.lua',
         'services/scheduler.lua',
         'services/screen_manager.lua',

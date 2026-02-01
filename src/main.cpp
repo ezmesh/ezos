@@ -46,6 +46,11 @@ void setup() {
     pinMode(TFT_BL, OUTPUT);
     digitalWrite(TFT_BL, HIGH);
 
+    // Initialize PSRAM (8MB OPI on T-Deck Plus)
+    if (psramInit()) {
+        // PSRAM initialized successfully
+    }
+
     // Brief delay for power stabilization
     delay(100);
 
@@ -63,6 +68,8 @@ void setup() {
     Serial.println("  T-Deck Plus MeshCore");
     Serial.println("  Version 0.2.0 (Lua Shell)");
     Serial.println("=====================================");
+    Serial.printf("PSRAM: %d KB free / %d KB total\n", ESP.getFreePsram() / 1024, ESP.getPsramSize() / 1024);
+    Serial.printf("Heap:  %d KB free / %d KB total\n", ESP.getFreeHeap() / 1024, ESP.getHeapSize() / 1024);
     Serial.println();
 
     // Initialize display
