@@ -28,3 +28,6 @@ tools/maps/*.checkpoint
 *.png
 !/docs/screenshots/*.png
 node_modules/
+
+# Generated docs
+/docs/manuals/
