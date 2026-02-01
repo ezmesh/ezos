@@ -144,8 +144,11 @@ function ComponentTest:render(display)
     local max_scroll = math.max(0, #self.components - visible_rows)
     self.scroll_y = Utils.clamp(self.scroll_y, 0, max_scroll)
 
-    -- Draw components
+    -- Draw components (two passes: regular components first, then expanded dropdowns on top)
     display.set_font_size("small")
+
+    local expanded_dropdown = nil
+    local expanded_info = nil
 
     for i = 1, #self.components do
         local visible_idx = i - self.scroll_y
@@ -160,14 +163,23 @@ function ComponentTest:render(display)
             -- Component
             local comp = self.components[i]
             if comp.render then
-                -- Special handling for Flex containers
-                if comp.direction then
+                -- Check if this is an expanded dropdown - defer rendering
+                if comp.is_expanded and comp:is_expanded() then
+                    expanded_dropdown = comp
+                    expanded_info = {x = component_x, y = y, focused = is_focused}
+                elseif comp.direction then
+                    -- Flex container
                     comp:render(display, component_x, y, w - component_x - 8, nil, nil)
                 else
                     comp:render(display, component_x, y, is_focused)
                 end
             end
         end
+    end
+
+    -- Render expanded dropdown last (on top of other components)
+    if expanded_dropdown and expanded_info then
+        expanded_dropdown:render(display, expanded_info.x, expanded_info.y, expanded_info.focused)
     end
 
     display.set_font_size("medium")
