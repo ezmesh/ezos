@@ -19,9 +19,21 @@ local function bootstrap(path)
     return result
 end
 
--- Load module infrastructure (defines load_module, spawn, etc.)
+-- Load core infrastructure (order matters!)
 local Modules = bootstrap("/scripts/core/modules.lua")
 local mem = Modules.mem
+
+-- Load Class helper (makes it globally available)
+bootstrap("/scripts/core/class.lua")
+
+-- Load a module with logging
+local function load(path)
+    local mem_before = mem()
+    local result = load_module(path)
+    local mem_after = mem()
+    ez.log("[Boot] Loaded " .. path .. ", free=" .. mem() .. "KB, +" .. (mem_before - mem_after) .. "KB")
+    return result
+end
 
 -- The actual boot sequence runs inside a coroutine so load_module can yield
 local function boot_sequence()
@@ -33,62 +45,27 @@ local function boot_sequence()
     -- Disable key repeat at boot (can be enabled in testing menu)
     ez.keyboard.set_repeat_enabled(false)
 
-    -- Load a module with logging
-    local function load(path)
-        local mem_before = mem()
-        local result = load_module(path)
-        local mem_after = mem()
-        ez.log("[Boot] Loaded " .. path .. ", free=" .. mem() .. "KB, +" .. (mem_before - mem_after) .. "KB")
-        return result
-    end
-
-    local Scheduler = load("/scripts/services/scheduler.lua")
-    local Overlays = load("/scripts/ui/overlays.lua")
-    local StatusBar = load("/scripts/ui/status_bar.lua")
-    local ThemeManager = load("/scripts/services/theme.lua")
-    local TitleBar = load("/scripts/ui/title_bar.lua")
-    local ScreenManager = load("/scripts/services/screen_manager.lua")
-    local MainLoop = load("/scripts/services/main_loop.lua")
-    local Logger = load("/scripts/services/logger.lua")
-    Logger.init()
+    -- Load core utilities
+    local Timers = load("/scripts/core/timers.lua")
+    _G.Utils = load("/scripts/core/utils.lua")
 
     -- Make commonly used modules globally available
-    _G.Scheduler = Scheduler
-    _G.Overlays = Overlays
-    _G.StatusBar = StatusBar
-    _G.ScreenManager = ScreenManager
-    _G.MainLoop = MainLoop
-    _G.ThemeManager = ThemeManager
-    _G.TitleBar = TitleBar
-    _G.Logger = Logger
+    _G.Scheduler = load("/scripts/services/scheduler.lua")
+
+    -- Initialize timer globals (set_timeout, set_interval, etc.)
+    Timers.init(Scheduler)
+
+    _G.Overlays = load("/scripts/ui/overlays.lua")
+    _G.StatusBar = load("/scripts/ui/status_bar.lua")
+    _G.ThemeManager = load("/scripts/services/theme.lua")
+    _G.TitleBar = load("/scripts/ui/title_bar.lua")
+    _G.ScreenManager = load("/scripts/services/screen_manager.lua")
+    _G.MainLoop = load("/scripts/services/main_loop.lua")
+    _G.Logger = load("/scripts/services/logger.lua")
+    Logger.init()
 
     -- Icons module is loaded during splash screen
     _G.Icons = nil
-
-    -- Global timer helpers (wraps Scheduler methods for convenience)
-    function _G.set_timeout(callback, delay_ms)
-        return Scheduler.set_timer(delay_ms, callback)
-    end
-
-    function _G.clear_timeout(timer_id)
-        return Scheduler.cancel_timer(timer_id)
-    end
-
-    function _G.set_interval(callback, interval_ms)
-        return Scheduler.set_interval(interval_ms, callback)
-    end
-
-    function _G.clear_interval(timer_id)
-        return Scheduler.cancel_timer(timer_id)
-    end
-
-    -- Spawn a function after a delay (combines set_timeout with spawn)
-    -- Useful for async operations that need to run after a delay
-    function _G.spawn_delay(delay_ms, callback)
-        return set_timeout(function()
-            spawn(callback)
-        end, delay_ms)
-    end
 
     -- Global error display function (can be called from C++ or Lua)
     -- Shows the error screen with the given message
@@ -113,16 +90,13 @@ local function boot_sequence()
     StatusBar.register()
 
     -- Load overlays
-    local AppMenu = load("/scripts/ui/screens/app_menu.lua")
-    _G.AppMenu = AppMenu
+    _G.AppMenu = load("/scripts/ui/screens/app_menu.lua")
     AppMenu.init()
 
-    local MessageBox = load("/scripts/ui/messagebox.lua")
-    _G.MessageBox = MessageBox
+    _G.MessageBox = load("/scripts/ui/messagebox.lua")
     MessageBox.init()
 
-    local Toast = load("/scripts/ui/toast.lua")
-    _G.Toast = Toast
+    _G.Toast = load("/scripts/ui/toast.lua")
     Toast.init()
 
     -- Set initial status values
@@ -137,12 +111,7 @@ local function boot_sequence()
 
     -- Apply all saved settings from storage before splash
     local function apply_saved_settings()
-        local function get_pref(key, default)
-            if ez.storage and ez.storage.get_pref then
-                return ez.storage.get_pref(key, default)
-            end
-            return default
-        end
+        local get_pref = Utils.get_pref
 
         -- Display brightness
         local brightness = get_pref("brightness", 200)

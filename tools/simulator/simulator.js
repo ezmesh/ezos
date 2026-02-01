@@ -143,8 +143,14 @@ function getScriptSync(path) {
 // Preload all required scripts before boot
 async function preloadScripts() {
     const scripts = [
+        // Core modules (loaded first)
         'core/modules.lua',
+        'core/class.lua',
+        'core/utils.lua',
+        'core/timers.lua',
+        'core/time.lua',
         'boot.lua',
+        // Services
         'services/scheduler.lua',
         'services/screen_manager.lua',
         'services/main_loop.lua',
@@ -157,6 +163,7 @@ async function preloadScripts() {
         'services/channels.lua',
         'services/debug.lua',
         'services/timezone_sync.lua',
+        // UI utilities
         'ui/overlays.lua',
         'ui/status_bar.lua',
         'ui/title_bar.lua',
@@ -165,13 +172,24 @@ async function preloadScripts() {
         'ui/messagebox.lua',
         'ui/toast.lua',
         'ui/cards.lua',
-        'ui/components.lua',
         'ui/text_utils.lua',
         'ui/splash.lua',
         'ui/sound_utils.lua',
         'ui/list_mixin.lua',
         'ui/node_utils.lua',
         'ui/time_utils.lua',
+        // UI components (individual files)
+        'ui/components/text_input.lua',
+        'ui/components/button.lua',
+        'ui/components/checkbox.lua',
+        'ui/components/radio_group.lua',
+        'ui/components/dropdown.lua',
+        'ui/components/text_area.lua',
+        'ui/components/vertical_list.lua',
+        'ui/components/number_input.lua',
+        'ui/components/toggle.lua',
+        'ui/components/init.lua',
+        'ui/components.lua',
         'ui/screens/main_menu.lua',
         'ui/screens/app_menu.lua',
         'ui/screens/settings.lua',
