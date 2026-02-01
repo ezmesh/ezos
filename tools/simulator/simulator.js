@@ -188,6 +188,7 @@ async function preloadScripts() {
         'ui/components/vertical_list.lua',
         'ui/components/number_input.lua',
         'ui/components/toggle.lua',
+        'ui/components/flex.lua',
         'ui/components/init.lua',
         'ui/components.lua',
         'ui/screens/main_menu.lua',
@@ -234,6 +235,7 @@ async function preloadScripts() {
         'ui/screens/test_icon.lua',
         'ui/screens/testing_menu.lua',
         'ui/screens/bus_test.lua',
+        'ui/screens/component_test.lua',
     ];
 
     log(`Preloading ${scripts.length} scripts...`, 'info');

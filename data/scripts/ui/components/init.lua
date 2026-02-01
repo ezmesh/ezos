@@ -13,5 +13,6 @@ Components.TextArea = load_module("/scripts/ui/components/text_area.lua")
 Components.VerticalList = load_module("/scripts/ui/components/vertical_list.lua")
 Components.NumberInput = load_module("/scripts/ui/components/number_input.lua")
 Components.Toggle = load_module("/scripts/ui/components/toggle.lua")
+Components.Flex = load_module("/scripts/ui/components/flex.lua")
 
 return Components

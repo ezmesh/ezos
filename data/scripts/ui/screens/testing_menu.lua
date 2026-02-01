@@ -14,6 +14,7 @@ local TestingMenu = {
     ICON_SIZE = 24,
 
     items = {
+        {label = "Components",  description = "UI component test", icon_path = "settings"},
         {label = "GPS Test",    description = "Location & time",   icon_path = "settings"},
         {label = "Radio Test",  description = "LoRa module",       icon_path = "settings"},
         {label = "Color Range", description = "Display colors",    icon_path = "settings"},
@@ -187,6 +188,7 @@ function TestingMenu:activate_selected()
     local item = self.items[self.selected]
 
     local screens = {
+        ["Components"]  = "/scripts/ui/screens/component_test.lua",
         ["GPS Test"]    = "/scripts/ui/screens/gps_test.lua",
         ["Radio Test"]  = "/scripts/ui/screens/radio_test.lua",
         ["Color Range"] = "/scripts/ui/screens/color_test.lua",
