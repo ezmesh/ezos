@@ -83,11 +83,12 @@ function ComponentTest:init_components()
         width = 120,
     }))
 
-    -- RadioGroup
+    -- RadioGroup (horizontal to fit in row)
     table.insert(self.labels, "Radio")
     table.insert(self.components, Components.RadioGroup:new({
-        options = {"Small", "Medium", "Large"},
+        options = {"S", "M", "L"},
         selected = 2,
+        horizontal = true,
     }))
 
     -- Flex row demo
