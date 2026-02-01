@@ -84,10 +84,10 @@ function ComponentTest:init_grid()
         }),
     }, {aligns = {"left", "right"}})
 
-    -- Row 8: RadioGroup
+    -- Row 8: RadioGroup (horizontal so LEFT/RIGHT changes selection, UP/DOWN navigates)
     self.grid:add_row({
         Components.Label:new({text = "Radio"}),
-        Components.RadioGroup:new({options = {"Small", "Medium", "Large"}, selected = 2}),
+        Components.RadioGroup:new({options = {"Small", "Medium", "Large"}, selected = 2, horizontal = true}),
     }, {aligns = {"left", "right"}})
 
     -- Row 9: Flex row
