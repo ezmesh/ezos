@@ -2,6 +2,13 @@
 #include <Arduino.h>
 #include <cstring>
 
+// Debug logging - define MESH_DEBUG in platformio.ini to enable verbose mesh output
+#ifdef MESH_DEBUG
+#define MESH_LOG(...) Serial.printf(__VA_ARGS__)
+#else
+#define MESH_LOG(...) do {} while(0)
+#endif
+
 // Rebroadcast delay range (ms)
 constexpr uint32_t REBROADCAST_DELAY_MIN = 50;
 constexpr uint32_t REBROADCAST_DELAY_MAX = 200;
@@ -145,14 +152,16 @@ void MeshCore::handlePacket(const uint8_t* data, size_t len, const RxMetadata& m
             break;
         case PayloadType::RESPONSE:
             // Response packets - dump for debugging
-            Serial.printf("RESPONSE payload (%d bytes): ", packet.payloadLen);
+            MESH_LOG("RESPONSE payload (%d bytes): ", packet.payloadLen);
+            #ifdef MESH_DEBUG
             for (size_t i = 0; i < packet.payloadLen && i < 32; i++) {
-                Serial.printf("%02X ", packet.payload[i]);
+                MESH_LOG("%02X ", packet.payload[i]);
             }
             Serial.println();
+            #endif
             break;
         default:
-            Serial.printf("Unhandled payload type: %d\n", payloadType);
+            MESH_LOG("Unhandled payload type: %d\n", payloadType);
             break;
     }
 
@@ -168,14 +177,16 @@ void MeshCore::handleAdvertPacket(const MeshPacket& packet, const RxMetadata& me
     // Minimum size: 32 + 4 + 64 = 100 bytes
     constexpr size_t ADVERT_HEADER_SIZE = PUB_KEY_SIZE + 4 + ED25519_SIGNATURE_SIZE;
 
-    Serial.printf("ADVERT: payload %d bytes, dumping first 32: ", packet.payloadLen);
+    MESH_LOG("ADVERT: payload %d bytes, dumping first 32: ", packet.payloadLen);
+    #ifdef MESH_DEBUG
     for (size_t i = 0; i < 32 && i < packet.payloadLen; i++) {
-        Serial.printf("%02X ", packet.payload[i]);
+        MESH_LOG("%02X ", packet.payload[i]);
     }
     Serial.println();
+    #endif
 
     if (packet.payloadLen < ADVERT_HEADER_SIZE) {
-        Serial.printf("ADVERT payload too short: %d bytes (need %d)\n",
+        MESH_LOG("ADVERT payload too short: %d bytes (need %d)\n",
                      packet.payloadLen, ADVERT_HEADER_SIZE);
         return;
     }
@@ -192,13 +203,13 @@ void MeshCore::handleAdvertPacket(const MeshPacket& packet, const RxMetadata& me
     memcpy(&timestamp, packet.payload + offset, 4);
     offset += 4;
 
-    Serial.printf("ADVERT: pathHash=%02X, timestamp=%u\n", pathHash, timestamp);
+    MESH_LOG("ADVERT: pathHash=%02X, timestamp=%u\n", pathHash, timestamp);
 
     // Extract signature (offset 36, 64 bytes)
     const uint8_t* signature = packet.payload + offset;
     offset += ED25519_SIGNATURE_SIZE;
 
-    Serial.printf("ADVERT: sig[0..7]: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+    MESH_LOG("ADVERT: sig[0..7]: %02X %02X %02X %02X %02X %02X %02X %02X\n",
                  signature[0], signature[1], signature[2], signature[3],
                  signature[4], signature[5], signature[6], signature[7]);
 
@@ -206,14 +217,16 @@ void MeshCore::handleAdvertPacket(const MeshPacket& packet, const RxMetadata& me
     const uint8_t* appData = packet.payload + offset;
     size_t appDataLen = packet.payloadLen - offset;
 
-    Serial.printf("ADVERT: appDataLen=%d, offset=%d\n", (int)appDataLen, (int)offset);
+    MESH_LOG("ADVERT: appDataLen=%d, offset=%d\n", (int)appDataLen, (int)offset);
+    #ifdef MESH_DEBUG
     if (appDataLen > 0) {
-        Serial.printf("ADVERT: appData: ");
+        MESH_LOG("ADVERT: appData: ");
         for (size_t i = 0; i < appDataLen && i < 32; i++) {
-            Serial.printf("%02X ", appData[i]);
+            MESH_LOG("%02X ", appData[i]);
         }
         Serial.println();
     }
+    #endif
 
     // Verify signature over (pub_key + timestamp + app_data)
     // This is the MeshCore reference format
@@ -275,7 +288,7 @@ void MeshCore::handleAdvertPacket(const MeshPacket& packet, const RxMetadata& me
             longitude = lonRaw / 1000000.0f;
             hasLocation = true;
             dataOffset += 8;
-            Serial.printf("ADVERT: location=%.6f, %.6f\n", latitude, longitude);
+            MESH_LOG("ADVERT: location=%.6f, %.6f\n", latitude, longitude);
         }
         // Skip optional feature1 (2 bytes)
         if (flags & 0x20) {
@@ -292,7 +305,7 @@ void MeshCore::handleAdvertPacket(const MeshPacket& packet, const RxMetadata& me
             nameLen = appDataLen - dataOffset;
         }
 
-        Serial.printf("ADVERT: flags=%02X role=%d hasLoc=%d hasName=%d nameOffset=%d\n",
+        MESH_LOG("ADVERT: flags=%02X role=%d hasLoc=%d hasName=%d nameOffset=%d\n",
                      flags, role, hasLocation ? 1 : 0, (flags & 0x80) ? 1 : 0, (int)dataOffset);
     }
 
@@ -314,10 +327,10 @@ void MeshCore::handleAdvertPacket(const MeshPacket& packet, const RxMetadata& me
     }
 
     if (!sigValid) {
-        Serial.printf("ADVERT from %02X: %s [%s] (sig INVALID)\n", pathHash, name, roleStr);
+        MESH_LOG("ADVERT from %02X: %s [%s] (sig INVALID)\n", pathHash, name, roleStr);
         // Still add the node but could mark as unverified in the future
     } else {
-        Serial.printf("ADVERT from %02X: %s [%s] (verified)\n", pathHash, name, roleStr);
+        MESH_LOG("ADVERT from %02X: %s [%s] (verified)\n", pathHash, name, roleStr);
     }
 
     // Update node info with role, ADVERT timestamp, and location
@@ -603,7 +616,7 @@ bool MeshCore::sendAnnounce() {
 
     packet.payloadLen = offset;
 
-    Serial.printf("Sending ADVERT (pathHash=%02X, name=%s, %d bytes)\n",
+    MESH_LOG("Sending ADVERT (pathHash=%02X, name=%s, %d bytes)\n",
                   _identity.getPathHash(), name, (int)offset);
     return sendPacket(packet);
 }
@@ -627,7 +640,7 @@ bool MeshCore::sendGroupPacket(uint8_t channelHash, const uint8_t* encryptedData
     memcpy(packet.payload + 1, encryptedData, dataLen);
     packet.payloadLen = 1 + dataLen;
 
-    Serial.printf("Sending raw GRP_TXT (hash=%02X, %d bytes)\n", channelHash, (int)dataLen);
+    MESH_LOG("Sending raw GRP_TXT (hash=%02X, %d bytes)\n", channelHash, (int)dataLen);
     return sendPacket(packet);
 }
 

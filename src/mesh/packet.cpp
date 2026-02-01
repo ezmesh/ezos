@@ -2,6 +2,13 @@
 #include <cstring>
 #include <Arduino.h>
 
+// Debug logging - define MESH_DEBUG in platformio.ini to enable verbose mesh output
+#ifdef MESH_DEBUG
+#define MESH_LOG(...) Serial.printf(__VA_ARGS__)
+#else
+#define MESH_LOG(...) do {} while(0)
+#endif
+
 void MeshPacket::clear() {
     header = 0;
     transportCodes[0] = 0;
@@ -75,7 +82,7 @@ size_t MeshPacket::deserialize(const uint8_t* buffer, size_t len) {
 
     // Validate path length
     if (pathLen > MAX_PATH_SIZE) {
-        Serial.printf("Path too long: %d > %d\n", pathLen, MAX_PATH_SIZE);
+        MESH_LOG("Path too long: %d > %d\n", pathLen, MAX_PATH_SIZE);
         return 0;
     }
 
@@ -89,7 +96,7 @@ size_t MeshPacket::deserialize(const uint8_t* buffer, size_t len) {
     // Remaining bytes are payload
     payloadLen = len - offset;
     if (payloadLen > MAX_PACKET_PAYLOAD) {
-        Serial.printf("Payload too long: %d > %d\n", payloadLen, MAX_PACKET_PAYLOAD);
+        MESH_LOG("Payload too long: %d > %d\n", payloadLen, MAX_PACKET_PAYLOAD);
         return 0;
     }
 

@@ -444,8 +444,8 @@ void LuaRuntime::update() {
     // Process message bus (delivers queued messages to subscribers)
     MessageBus::instance().process(_state);
 
-    // Incremental garbage collection step
-    lua_gc(_state, LUA_GCSTEP, 10);
+    // Note: GC is handled by Lua-side scheduler every 2 seconds
+    // Running per-frame GC here was redundant (~100 calls/sec vs 0.5/sec)
 }
 
 bool LuaRuntime::reloadScripts() {
