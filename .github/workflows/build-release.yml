@@ -199,6 +199,6 @@ jobs:
 
             ---
 
-            ⚠️ **Warning:** This firmware has only been tested on the T-Deck Plus. Use on other hardware at your own risk.
+            ⚠️ **Warning:** This is experimental software. Use at your own risk.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
