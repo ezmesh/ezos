@@ -24,32 +24,52 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
       - name: Install PlatformIO and esptool
         run: |
           python -m pip install --upgrade pip
           pip install platformio esptool
 
-      - name: Build firmware (with embedded scripts)
+      - name: Build both firmware variants
         run: |
+          # Build main firmware (with embedded scripts) first
+          echo "=== Building t-deck-plus (embedded scripts) ==="
           pio run -e t-deck-plus
-          # Verify build outputs exist
-          if [ ! -f ".pio/build/t-deck-plus/firmware.bin" ]; then
-            echo "ERROR: firmware.bin not found after build"
-            ls -la .pio/build/t-deck-plus/ || echo "Build directory does not exist"
-            exit 1
-          fi
-          echo "Build successful: $(ls -la .pio/build/t-deck-plus/firmware.bin)"
 
-      - name: Build firmware (SD card scripts)
-        run: |
-          pio run -e t-deck-plus-sdcard
-          # Verify build outputs exist
-          if [ ! -f ".pio/build/t-deck-plus-sdcard/firmware.bin" ]; then
-            echo "ERROR: sdcard firmware.bin not found after build"
-            ls -la .pio/build/t-deck-plus-sdcard/ || echo "Build directory does not exist"
+          # Verify main build succeeded
+          if [ ! -f ".pio/build/t-deck-plus/firmware.bin" ]; then
+            echo "ERROR: t-deck-plus firmware.bin not found"
+            ls -la .pio/build/ || echo "No build directory"
             exit 1
           fi
-          echo "Build successful: $(ls -la .pio/build/t-deck-plus-sdcard/firmware.bin)"
+          echo "t-deck-plus build OK: $(ls -la .pio/build/t-deck-plus/firmware.bin)"
+
+          # Build SD card variant
+          # Note: This reuses the library cache from ~/.platformio but compiles
+          # source files separately due to different build flags (-DNO_EMBEDDED_SCRIPTS)
+          echo "=== Building t-deck-plus-sdcard ==="
+          pio run -e t-deck-plus-sdcard
+
+          # Verify sdcard build succeeded
+          if [ ! -f ".pio/build/t-deck-plus-sdcard/firmware.bin" ]; then
+            echo "ERROR: t-deck-plus-sdcard firmware.bin not found"
+            ls -la .pio/build/ || echo "No build directory"
+            exit 1
+          fi
+          echo "t-deck-plus-sdcard build OK: $(ls -la .pio/build/t-deck-plus-sdcard/firmware.bin)"
+
+          # List both build directories to confirm
+          echo "=== Final build directory state ==="
+          ls -la .pio/build/
 
       - name: Get version
         id: version
@@ -60,15 +80,10 @@ jobs:
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
-      - name: List build outputs
+      - name: Verify build outputs
         run: |
-          echo "=== Build directory contents ==="
-          ls -la .pio/build/ || echo "No .pio/build directory"
-          echo "=== t-deck-plus contents ==="
-          ls -la .pio/build/t-deck-plus/ || echo "No t-deck-plus directory"
-          echo "=== t-deck-plus-sdcard contents ==="
-          ls -la .pio/build/t-deck-plus-sdcard/ || echo "No t-deck-plus-sdcard directory"
-          echo "=== Verifying required files ==="
+          echo "=== Verifying all required files ==="
+          missing=0
           for f in .pio/build/t-deck-plus/firmware.bin \
                    .pio/build/t-deck-plus/bootloader.bin \
                    .pio/build/t-deck-plus/partitions.bin \
@@ -79,30 +94,20 @@ jobs:
               echo "OK: $f ($(stat -c%s "$f") bytes)"
             else
               echo "MISSING: $f"
+              missing=1
             fi
           done
+          if [ $missing -eq 1 ]; then
+            echo "=== Debug: Full build directory listing ==="
+            find .pio/build -name "*.bin" 2>/dev/null || echo "No .bin files found"
+            exit 1
+          fi
 
       - name: Prepare release artifacts
         run: |
           set -e
           mkdir -p release
           VERSION="${{ steps.version.outputs.version }}"
-
-          # Verify all required files exist before proceeding
-          required_files=(
-            ".pio/build/t-deck-plus/firmware.bin"
-            ".pio/build/t-deck-plus/bootloader.bin"
-            ".pio/build/t-deck-plus/partitions.bin"
-            ".pio/build/t-deck-plus-sdcard/firmware.bin"
-            ".pio/build/t-deck-plus-sdcard/bootloader.bin"
-            ".pio/build/t-deck-plus-sdcard/partitions.bin"
-          )
-          for f in "${required_files[@]}"; do
-            if [ ! -f "$f" ]; then
-              echo "ERROR: Required file missing: $f"
-              exit 1
-            fi
-          done
 
           # Main firmware (with embedded scripts)
           cp .pio/build/t-deck-plus/firmware.bin release/ezos-${VERSION}.bin
