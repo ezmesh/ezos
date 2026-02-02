@@ -199,6 +199,8 @@ def embed_lua_scripts(project_root: Path) -> int:
             "const char* get_script(const char*, size_t*) { return nullptr; }\n"
             "size_t get_script_count() { return 0; }\n"
             "size_t get_total_size() { return 0; }\n"
+            "const char* get_script_path(size_t) { return nullptr; }\n"
+            "size_t get_script_size(size_t) { return 0; }\n"
             "}\n"
         )
         return 0
