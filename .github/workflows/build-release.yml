@@ -39,37 +39,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio esptool
 
-      - name: Build both firmware variants
-        run: |
-          # Build main firmware (with embedded scripts) first
-          echo "=== Building t-deck-plus (embedded scripts) ==="
-          pio run -e t-deck-plus
-
-          # Verify main build succeeded
-          if [ ! -f ".pio/build/t-deck-plus/firmware.bin" ]; then
-            echo "ERROR: t-deck-plus firmware.bin not found"
-            ls -la .pio/build/ || echo "No build directory"
-            exit 1
-          fi
-          echo "t-deck-plus build OK: $(ls -la .pio/build/t-deck-plus/firmware.bin)"
-
-          # Build SD card variant
-          # Note: This reuses the library cache from ~/.platformio but compiles
-          # source files separately due to different build flags (-DNO_EMBEDDED_SCRIPTS)
-          echo "=== Building t-deck-plus-sdcard ==="
-          pio run -e t-deck-plus-sdcard
-
-          # Verify sdcard build succeeded
-          if [ ! -f ".pio/build/t-deck-plus-sdcard/firmware.bin" ]; then
-            echo "ERROR: t-deck-plus-sdcard firmware.bin not found"
-            ls -la .pio/build/ || echo "No build directory"
-            exit 1
-          fi
-          echo "t-deck-plus-sdcard build OK: $(ls -la .pio/build/t-deck-plus-sdcard/firmware.bin)"
-
-          # List both build directories to confirm
-          echo "=== Final build directory state ==="
-          ls -la .pio/build/
+      - name: Build firmware
+        run: pio run -e t-deck-plus
 
       - name: Get version
         id: version
@@ -80,36 +51,11 @@ jobs:
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Verify build outputs
-        run: |
-          echo "=== Verifying all required files ==="
-          missing=0
-          for f in .pio/build/t-deck-plus/firmware.bin \
-                   .pio/build/t-deck-plus/bootloader.bin \
-                   .pio/build/t-deck-plus/partitions.bin \
-                   .pio/build/t-deck-plus-sdcard/firmware.bin \
-                   .pio/build/t-deck-plus-sdcard/bootloader.bin \
-                   .pio/build/t-deck-plus-sdcard/partitions.bin; do
-            if [ -f "$f" ]; then
-              echo "OK: $f ($(stat -c%s "$f") bytes)"
-            else
-              echo "MISSING: $f"
-              missing=1
-            fi
-          done
-          if [ $missing -eq 1 ]; then
-            echo "=== Debug: Full build directory listing ==="
-            find .pio/build -name "*.bin" 2>/dev/null || echo "No .bin files found"
-            exit 1
-          fi
-
       - name: Prepare release artifacts
         run: |
-          set -e
           mkdir -p release
           VERSION="${{ steps.version.outputs.version }}"
 
-          # Main firmware (with embedded scripts)
           cp .pio/build/t-deck-plus/firmware.bin release/ezos-${VERSION}.bin
           cp .pio/build/t-deck-plus/bootloader.bin release/ezos-${VERSION}-bootloader.bin
           cp .pio/build/t-deck-plus/partitions.bin release/ezos-${VERSION}-partitions.bin
@@ -124,20 +70,7 @@ jobs:
             0x8000 .pio/build/t-deck-plus/partitions.bin \
             0x10000 .pio/build/t-deck-plus/firmware.bin
 
-          # SD card firmware (without embedded scripts)
-          cp .pio/build/t-deck-plus-sdcard/firmware.bin release/ezos-${VERSION}-sdcard.bin
-
-          # Create combined binary for SD card variant
-          esptool.py --chip esp32s3 merge_bin \
-            -o release/ezos-${VERSION}-sdcard-full.bin \
-            --flash_mode dio \
-            --flash_freq 80m \
-            --flash_size 16MB \
-            0x0000 .pio/build/t-deck-plus-sdcard/bootloader.bin \
-            0x8000 .pio/build/t-deck-plus-sdcard/partitions.bin \
-            0x10000 .pio/build/t-deck-plus-sdcard/firmware.bin
-
-          # Package Lua scripts for SD card
+          # Package Lua scripts for SD card users
           cd data
           zip -r ../release/ezos-${VERSION}-scripts.zip scripts/
           cd ..
@@ -160,34 +93,16 @@ jobs:
             release/ezos-${{ steps.version.outputs.version }}.bin
             release/ezos-${{ steps.version.outputs.version }}-bootloader.bin
             release/ezos-${{ steps.version.outputs.version }}-partitions.bin
-            release/ezos-${{ steps.version.outputs.version }}-sdcard-full.bin
-            release/ezos-${{ steps.version.outputs.version }}-sdcard.bin
             release/ezos-${{ steps.version.outputs.version }}-scripts.zip
             release/checksums.txt
           body: |
             ## Downloads
 
-            ### Standard Firmware (recommended)
-            Scripts are embedded in the firmware - just flash and go.
-
             | File | Description |
             |------|-------------|
-            | `ezos-${{ steps.version.outputs.version }}-full.bin` | Complete firmware for web flasher |
+            | `ezos-${{ steps.version.outputs.version }}-full.bin` | Complete firmware for web flasher (recommended) |
             | `ezos-${{ steps.version.outputs.version }}.bin` | Application firmware only |
-
-            ### SD Card Firmware
-            Scripts loaded from SD card - allows customizing Lua without reflashing.
-
-            | File | Description |
-            |------|-------------|
-            | `ezos-${{ steps.version.outputs.version }}-sdcard-full.bin` | Firmware for web flasher (no scripts) |
-            | `ezos-${{ steps.version.outputs.version }}-scripts.zip` | Lua scripts - extract to SD card root |
-
-            ### Other Files
-            | File | Description |
-            |------|-------------|
-            | `ezos-${{ steps.version.outputs.version }}-bootloader.bin` | ESP32-S3 bootloader |
-            | `ezos-${{ steps.version.outputs.version }}-partitions.bin` | Partition table |
+            | `ezos-${{ steps.version.outputs.version }}-scripts.zip` | Lua scripts (for customization) |
 
             ## Flashing
 
@@ -198,11 +113,6 @@ jobs:
             ```bash
             esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 ezos-${{ steps.version.outputs.version }}-full.bin
             ```
-
-            ## SD Card Setup (for sdcard firmware)
-            1. Flash `ezos-${{ steps.version.outputs.version }}-sdcard-full.bin`
-            2. Extract `ezos-${{ steps.version.outputs.version }}-scripts.zip` to SD card root
-            3. SD card should have `/scripts/boot.lua` at the root
 
             ## Requirements
 
