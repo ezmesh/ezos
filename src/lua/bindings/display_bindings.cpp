@@ -322,32 +322,21 @@ LUA_FUNCTION(l_display_draw_box) {
     return 0;
 }
 
-// @lua ez.display.draw_hline(x, y, w, left_connect, right_connect, color)
-// @brief Draw horizontal line with optional connectors
-// @description Draws a horizontal line using box-drawing characters with optional
-// T-junction connectors at the ends for connecting to vertical borders. Coordinates
-// are in character cells. Used for dividers within boxes or between sections.
-// @param x X position in character cells
-// @param y Y position in character cells
-// @param w Width in character cells
-// @param left_connect Connect to left border (optional)
-// @param right_connect Connect to right border (optional)
-// @param color Line color (optional)
-// @example
-// -- Horizontal divider inside a box (connected on both sides)
-// ez.display.draw_hline(5, 6, 30, true, true, colors.BORDER)
-// @end
+// @lua ez.display.draw_hline(x, y, w, color)
+// @brief Draw a 1-pixel horizontal line in pixel coordinates
+// @param x X start position in pixels
+// @param y Y position in pixels
+// @param w Width in pixels
+// @param color Line color (RGB565)
 LUA_FUNCTION(l_display_draw_hline) {
-    LUA_CHECK_ARGC_RANGE(L, 3, 6);
+    LUA_CHECK_ARGC_RANGE(L, 3, 4);
     int x = luaL_checkinteger(L, 1);
     int y = luaL_checkinteger(L, 2);
     int w = luaL_checkinteger(L, 3);
-    bool leftConnect = lua_toboolean(L, 4);
-    bool rightConnect = lua_toboolean(L, 5);
-    uint16_t color = luaL_optintegerdefault(L, 6, Colors::BORDER);
+    uint16_t color = luaL_optintegerdefault(L, 4, Colors::BORDER);
 
     if (display) {
-        display->drawHLine(x, y, w, leftConnect, rightConnect, color);
+        display->getBuffer().drawFastHLine(x, y, w, color);
     }
     return 0;
 }
@@ -1735,6 +1724,152 @@ LUA_FUNCTION(l_display_create_sprite) {
     return 1;
 }
 
+// @lua ez.display.draw_jpeg(x, y, data [, scale_x, scale_y, off_x, off_y, max_w, max_h])
+// @brief Decode and draw a JPEG image from memory
+// @description Decodes JPEG data and draws it to the display at the given position.
+// Supports optional pan (off_x/off_y crop the source image) and zoom (scale_x/y).
+// Decode happens in C++ using the LovyanGFX built-in TJpgDec decoder.
+// @param x X position on screen
+// @param y Y position on screen
+// @param data JPEG file data as a string (from async_read or file load)
+// @param scale_x Horizontal scale factor (default 1.0)
+// @param scale_y Vertical scale factor (default = scale_x)
+// @param off_x Source image X offset (pan, default 0)
+// @param off_y Source image Y offset (pan, default 0)
+// @param max_w Maximum output width (default 0 = unlimited)
+// @param max_h Maximum output height (default 0 = unlimited)
+// @return true on success, false on decode error
+LUA_FUNCTION(l_display_draw_jpeg) {
+    if (!display) { lua_pushboolean(L, false); return 1; }
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    size_t dataLen;
+    const char* data = luaL_checklstring(L, 3, &dataLen);
+    float scale_x = (float)luaL_optnumber(L, 4, 1.0);
+    float scale_y = (float)luaL_optnumber(L, 5, 0.0);
+    int off_x = (int)luaL_optinteger(L, 6, 0);
+    int off_y = (int)luaL_optinteger(L, 7, 0);
+    int max_w = (int)luaL_optinteger(L, 8, 0);
+    int max_h = (int)luaL_optinteger(L, 9, 0);
+
+    bool ok = display->getBuffer().drawJpg(
+        (const uint8_t*)data, dataLen, x, y,
+        max_w, max_h, off_x, off_y, scale_x, scale_y);
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+// @lua ez.display.draw_png(x, y, data [, scale_x, scale_y, off_x, off_y, max_w, max_h])
+// @brief Decode and draw a PNG image from memory
+// @description Same pan/zoom parameters as draw_jpeg.
+// @return true on success
+LUA_FUNCTION(l_display_draw_png) {
+    if (!display) { lua_pushboolean(L, false); return 1; }
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    size_t dataLen;
+    const char* data = luaL_checklstring(L, 3, &dataLen);
+    float scale_x = (float)luaL_optnumber(L, 4, 1.0);
+    float scale_y = (float)luaL_optnumber(L, 5, 0.0);
+    int off_x = (int)luaL_optinteger(L, 6, 0);
+    int off_y = (int)luaL_optinteger(L, 7, 0);
+    int max_w = (int)luaL_optinteger(L, 8, 0);
+    int max_h = (int)luaL_optinteger(L, 9, 0);
+
+    bool ok = display->getBuffer().drawPng(
+        (const uint8_t*)data, dataLen, x, y,
+        max_w, max_h, off_x, off_y, scale_x, scale_y);
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+// @lua ez.display.get_image_size(data) -> width, height
+// @brief Parse JPEG or PNG header to get dimensions without rendering
+// @description Scans the file header of a JPEG (SOF marker) or PNG (IHDR
+// chunk) and returns image dimensions. Both formats are auto-detected by
+// file signature. Returns nil, nil if the format is unrecognized or the
+// header is incomplete.
+// @return width, height (integers) or nil, nil on error
+LUA_FUNCTION(l_display_get_image_size) {
+    LUA_CHECK_ARGC(L, 1);
+    size_t dataLen;
+    const char* data = luaL_checklstring(L, 1, &dataLen);
+    const uint8_t* p = (const uint8_t*)data;
+
+    // PNG: 8-byte signature [89 50 4E 47 0D 0A 1A 0A] then IHDR chunk
+    // [length:4][type:4="IHDR"][width:4 BE][height:4 BE][...]
+    if (dataLen >= 24
+            && p[0] == 0x89 && p[1] == 0x50 && p[2] == 0x4E && p[3] == 0x47
+            && p[4] == 0x0D && p[5] == 0x0A && p[6] == 0x1A && p[7] == 0x0A) {
+        uint32_t w = ((uint32_t)p[16] << 24) | ((uint32_t)p[17] << 16)
+                   | ((uint32_t)p[18] << 8)  |  (uint32_t)p[19];
+        uint32_t h = ((uint32_t)p[20] << 24) | ((uint32_t)p[21] << 16)
+                   | ((uint32_t)p[22] << 8)  |  (uint32_t)p[23];
+        lua_pushinteger(L, (lua_Integer)w);
+        lua_pushinteger(L, (lua_Integer)h);
+        return 2;
+    }
+
+    // JPEG: scan for SOF (Start Of Frame) marker.
+    if (dataLen >= 4 && p[0] == 0xFF && p[1] == 0xD8) {
+        size_t i = 2;
+        while (i + 9 < dataLen) {
+            if (p[i] != 0xFF) { i++; continue; }
+            uint8_t m = p[i + 1];
+            // Non-differential Huffman SOF markers: C0..C3, C5..C7, C9..CB, CD..CF
+            // (skip DHT=C4, DAC=CC, JPG=C8)
+            if (m >= 0xC0 && m <= 0xCF && m != 0xC4 && m != 0xC8 && m != 0xCC) {
+                // SOF segment: [FF][Mn][len:2][precision:1][height:2][width:2]
+                uint16_t h = (p[i + 5] << 8) | p[i + 6];
+                uint16_t w = (p[i + 7] << 8) | p[i + 8];
+                lua_pushinteger(L, w);
+                lua_pushinteger(L, h);
+                return 2;
+            }
+            // Markers without a payload: SOI, EOI, RST0..RST7
+            if (m == 0xD8 || m == 0xD9 || (m >= 0xD0 && m <= 0xD7)) {
+                i += 2;
+                continue;
+            }
+            if (i + 3 >= dataLen) break;
+            uint16_t seg_len = (p[i + 2] << 8) | p[i + 3];
+            i += 2 + seg_len;
+        }
+    }
+
+    lua_pushnil(L);
+    lua_pushnil(L);
+    return 2;
+}
+
+// @lua ez.display.set_clip_rect(x, y, w, h)
+// @brief Set a clipping rectangle for all subsequent draw operations
+// @description Restricts drawing to the specified rectangle. Any pixels drawn
+// outside this region are discarded. Use clear_clip_rect() to remove.
+// Essential for scrollable containers that must not draw outside their bounds.
+// @param x Left edge of clip region
+// @param y Top edge of clip region
+// @param w Width of clip region
+// @param h Height of clip region
+LUA_FUNCTION(l_display_set_clip_rect) {
+    LUA_CHECK_ARGC(L, 4);
+    if (!display) return 0;
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int w = luaL_checkinteger(L, 3);
+    int h = luaL_checkinteger(L, 4);
+    display->getBuffer().setClipRect(x, y, w, h);
+    return 0;
+}
+
+// @lua ez.display.clear_clip_rect()
+// @brief Remove the clipping rectangle, restoring full-screen drawing
+LUA_FUNCTION(l_display_clear_clip_rect) {
+    if (!display) return 0;
+    display->getBuffer().clearClipRect();
+    return 0;
+}
+
 // ============================================================================
 // Display module function table
 // ============================================================================
@@ -1783,6 +1918,11 @@ static const luaL_Reg display_funcs[] = {
     {"draw_indexed_bitmap_scaled", l_display_draw_indexed_bitmap_scaled},
     {"save_screenshot",   l_display_save_screenshot},
     {"create_sprite",     l_display_create_sprite},
+    {"set_clip_rect",     l_display_set_clip_rect},
+    {"clear_clip_rect",   l_display_clear_clip_rect},
+    {"draw_jpeg",         l_display_draw_jpeg},
+    {"draw_png",          l_display_draw_png},
+    {"get_image_size",    l_display_get_image_size},
     {nullptr, nullptr}
 };
 
