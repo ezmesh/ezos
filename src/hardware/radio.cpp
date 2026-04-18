@@ -91,6 +91,10 @@ bool Radio::init(const RadioConfig& config) {
     Serial.printf("  TX Power: %d dBm\n", _config.txPower);
 
     _initialized = true;
+
+    // Start listening for incoming packets (must be after _initialized = true)
+    startReceive();
+
     return true;
 }
 
