@@ -6,6 +6,7 @@ local theme       = require("ezui.theme")
 local screen_mod  = require("ezui.screen")
 local map_archive = require("services.map_archive")
 local map_view    = require("ezui.widgets.map_view").map_view
+local gps_svc     = require("services.gps")
 
 local PREF_KEY     = "map_last_view"
 local ARCHIVE_PATH = "/sd/maps/world.tdmap"
@@ -99,7 +100,7 @@ end
 function Map:update()
     local s = self._state
     if not (s.follow_gps and s.archive) then return end
-    local loc = ez.gps.get_location()
+    local loc = gps_svc.get_location()
     if not (loc and loc.valid) then return end
     -- Skip tiny deltas so we don't trigger a rebuild every tick from GPS noise.
     local dlat = math.abs((s.center_lat or 0) - loc.lat)
@@ -145,9 +146,23 @@ function Map:handle_key(key)
         return "handled"
     end
 
+    -- H = "home": jump once to the current GPS fix without toggling follow-mode.
+    -- (G still toggles follow-mode; use H when you just want a one-shot recenter.)
+    if ch == "h" or ch == "H" then
+        local loc = gps_svc.get_location()
+        if loc and loc.valid then
+            self:set_state({
+                center_lat = loc.lat,
+                center_lon = loc.lon,
+                follow_gps = false,
+            })
+        end
+        return "handled"
+    end
+
     if ch == "g" or ch == "G" then
         -- First press: jump to current fix if available. Second press: toggle follow-mode.
-        local loc = ez.gps.get_location()
+        local loc = gps_svc.get_location()
         if loc and loc.valid and not s.follow_gps then
             self:set_state({
                 follow_gps = true,
@@ -170,17 +185,69 @@ function Map:handle_key(key)
     return nil
 end
 
--- Build the GPS overlay closure. Returns nil if GPS isn't initialized so we
--- avoid paying the binding cost every frame on devices without GPS.
+-- Clip a ray from (cx, cy) through (px, py) to the rectangle [x, x+w] × [y, y+h].
+-- Returns the (edge_x, edge_y) where the ray exits the rectangle. Only called
+-- when (px, py) is known to be OUTSIDE the rectangle, so a valid exit always
+-- exists and we don't need a miss case.
+local function ray_to_edge(cx, cy, px, py, x, y, w, h)
+    local dx = px - cx
+    local dy = py - cy
+    -- Parametric t at each potential exit plane; pick the smallest positive.
+    local t = math.huge
+    if dx > 1e-9 then       t = math.min(t, (x + w - 1 - cx) / dx)
+    elseif dx < -1e-9 then  t = math.min(t, (x         - cx) / dx) end
+    if dy > 1e-9 then       t = math.min(t, (y + h - 1 - cy) / dy)
+    elseif dy < -1e-9 then  t = math.min(t, (y         - cy) / dy) end
+    return cx + dx * t, cy + dy * t, dx, dy
+end
+
+-- Draw a small triangle arrow with its tip at (ax, ay) pointing in direction
+-- (dx, dy). Size is half-length of the arrow in pixels.
+local function draw_arrow(d, ax, ay, dx, dy, size, fill_color, outline_color)
+    local len = math.sqrt(dx * dx + dy * dy)
+    if len < 1e-6 then return end
+    local ux, uy = dx / len, dy / len       -- forward unit vector
+    local vx, vy = -uy, ux                  -- perpendicular (left)
+    -- Tip slightly inset so the triangle sits inside the viewport, not on the edge.
+    local tx, ty = ax - ux * 2, ay - uy * 2
+    -- Base center is behind the tip, base corners extend sideways.
+    local bx, by = tx - ux * size, ty - uy * size
+    local b1x, b1y = bx + vx * size * 0.6, by + vy * size * 0.6
+    local b2x, b2y = bx - vx * size * 0.6, by - vy * size * 0.6
+    d.fill_triangle(math.floor(tx), math.floor(ty),
+                    math.floor(b1x), math.floor(b1y),
+                    math.floor(b2x), math.floor(b2y), fill_color)
+    d.draw_triangle(math.floor(tx), math.floor(ty),
+                    math.floor(b1x), math.floor(b1y),
+                    math.floor(b2x), math.floor(b2y), outline_color)
+end
+
+-- GPS overlay: user-position dot when visible, edge arrow when off-screen.
+-- Nothing if GPS is disabled in settings or no fix is available.
 local function make_gps_overlay()
     return function(d, x, y, w, h, project)
-        local loc = ez.gps.get_location()
+        local loc = gps_svc.get_location()
         if not (loc and loc.valid) then return end
         local px, py = project(loc.lat, loc.lon)
-        if px < x or px > x + w or py < y or py > y + h then return end
-        local ix, iy = math.floor(px), math.floor(py)
-        d.fill_circle(ix, iy, 4, theme.color("ACCENT"))
-        d.draw_circle(ix, iy, 6, theme.color("TEXT"))
+        local accent = theme.color("ACCENT")
+        local text   = theme.color("TEXT")
+        local bg     = theme.color("BG")
+
+        if px >= x and px <= x + w - 1 and py >= y and py <= y + h - 1 then
+            -- In-view: target-style marker so it's distinct from other map ink.
+            local ix, iy = math.floor(px), math.floor(py)
+            d.fill_circle(ix, iy, 4, accent)
+            d.draw_circle(ix, iy, 6, text)
+            d.draw_circle(ix, iy, 7, bg)    -- halo keeps it legible on any palette
+        else
+            -- Off-screen: arrow at the viewport edge pointing toward the fix.
+            -- Size 18 px: big enough to read on the 320×240 panel but not so
+            -- big it dominates the view.
+            local cx = x + w / 2
+            local cy = y + h / 2
+            local ex, ey, dx, dy = ray_to_edge(cx, cy, px, py, x, y, w, h)
+            draw_arrow(d, ex, ey, dx, dy, 18, accent, text)
+        end
     end
 end
 
@@ -191,7 +258,7 @@ function Map:build(state)
             ui.padding({ 60, 20, 20, 20 },
                 ui.hbox({ gap = 8 }, {
                     { type = "spinner", size = 16 },
-                    ui.text_widget("Loading " .. ARCHIVE_PATH .. "…", { color = "TEXT_SEC" }),
+                    ui.text_widget("Loading " .. ARCHIVE_PATH .. "...", { color = "TEXT_SEC" }),
                 })
             ),
         })
@@ -243,7 +310,9 @@ function Map:build(state)
             end,
         }),
         ui.padding({ 2, 6, 2, 6 },
-            ui.text_widget(table.concat(segments, "  ·  "), {
+            -- Pipe separator: the device font (FreeSans 7pt) covers only ASCII
+            -- 0x20..0x7E, so "·" / "•" render as missing-glyph boxes.
+            ui.text_widget(table.concat(segments, "  |  "), {
                 font = "small", color = "TEXT_SEC",
             })
         ),

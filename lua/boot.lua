@@ -114,6 +114,11 @@ local function boot_sequence()
     local dm_svc = require("services.direct_messages")
     dm_svc.init()
 
+    -- GPS: start the background clock-sync loop. Respects the user's
+    -- "never / at boot / hourly" preference; does nothing if GPS is disabled.
+    local gps_svc = require("services.gps")
+    gps_svc.start_sync_loop()
+
     ez.log("[Boot] Services started")
 
     -- Apply saved display settings

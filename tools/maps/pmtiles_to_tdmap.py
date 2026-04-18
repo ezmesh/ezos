@@ -68,7 +68,7 @@ from config import COMPRESSION_RLE, COMPRESSION_ZLIB, DEFAULT_COMPRESSION
 # below still lives here because its feature-layer logic is tightly coupled
 # to the tile-priority decisions that drive the archive build.
 from render import (
-    F, ROAD_STYLE,
+    F, ROAD_STYLE, RENDER_HALO, RENDER_SIZE,
     decompress_tile, get_layer, scale_coords,
     render_polygon, render_line, get_road_style,
     tile_pixel_to_lat_lon,
@@ -134,27 +134,32 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
     # we need to draw land/water from the OSM land mask
     draw_land_from_mask = False
 
+    # Render on an enlarged canvas (RENDER_SIZE) so road/line caps land inside
+    # the halo; we crop back to TILE_SIZE at the end. This fixes the road
+    # seam artifact documented in issue #17.
+    canvas_size = (RENDER_SIZE, RENDER_SIZE)
+
     if has_coastline_data:
         # Tile has coastline data - use water background, draw land from vector tile
-        img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
+        img = Image.new("L", canvas_size, F.WATER)
     elif land_mask is not None:
         # No coastline data - check if tile is mixed land/water
         land_fraction = land_mask.get_land_fraction(zoom, tile_x, tile_y)
 
         if land_fraction <= 0.0:
             # Pure ocean - water background
-            img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
+            img = Image.new("L", canvas_size, F.WATER)
         elif land_fraction >= 1.0:
             # Pure land - land background
-            img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
+            img = Image.new("L", canvas_size, F.LAND)
         else:
             # Mixed land/water tile without coastline data in vector tile
             # Draw land polygons from OSM mask
-            img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
+            img = Image.new("L", canvas_size, F.WATER)
             draw_land_from_mask = True
     else:
         # No land mask available - assume land
-        img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
+        img = Image.new("L", canvas_size, F.LAND)
 
     draw = ImageDraw.Draw(img)
 
@@ -168,12 +173,13 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
             # Get intersection of land with tile
             land_in_tile = land_mask.land_polygons.intersection(tile_box)
             if not land_in_tile.is_empty:
-                # Convert to tile pixel coordinates and draw
+                # Convert to tile pixel coordinates and draw — offset by RENDER_HALO
+                # so the mask aligns with the inset visible region.
                 def geo_to_pixel(lon, lat):
-                    px = (lon - west) / (east - west) * TILE_SIZE
+                    px = (lon - west) / (east - west) * TILE_SIZE + RENDER_HALO
                     # Use Y-down screen coordinates (north at top y=0, south at bottom y=TILE_SIZE)
                     # This matches MVT's screen coordinate convention
-                    py = (north - lat) / (north - south) * TILE_SIZE
+                    py = (north - lat) / (north - south) * TILE_SIZE + RENDER_HALO
                     return (px, py)
 
                 def draw_polygon_geo(geom):
@@ -193,9 +199,14 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
         except Exception as e:
             # Geometry error - fall back to land fraction-based background
             if land_mask.get_land_fraction(zoom, tile_x, tile_y) >= 0.5:
-                draw.rectangle([0, 0, TILE_SIZE-1, TILE_SIZE-1], fill=F.LAND)
+                draw.rectangle(
+                    [RENDER_HALO, RENDER_HALO,
+                     RENDER_HALO + TILE_SIZE - 1, RENDER_HALO + TILE_SIZE - 1],
+                    fill=F.LAND)
 
-    # Render layers in order (back to front)
+    # Render layers in order (back to front). Every draw uses an offset of
+    # RENDER_HALO so geometry lands in the visible centre of the canvas.
+    halo = RENDER_HALO
 
     # 1. Land/earth polygons (draw land over the ocean background)
     for layer_name in ["land", "earth", "landcover"]:
@@ -204,7 +215,7 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
             for feature in layer.get("features", []):
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, F.LAND)
+                    render_polygon(draw, geom, extent, F.LAND, offset=halo)
 
     # 2. Water polygons (lakes, rivers - these cut through land)
     for layer_name in ["water", "waterway", "ocean"]:
@@ -213,7 +224,7 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
             for feature in layer.get("features", []):
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, F.WATER)
+                    render_polygon(draw, geom, extent, F.WATER, offset=halo)
 
     # 2. Land use (parks/forests)
     layer = get_layer(decoded, "landuse")
@@ -226,7 +237,7 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
             # Only render parks/forests as distinct feature, rest stays as land
             if landuse_class in ("park", "grass", "forest", "wood", "meadow", "nature_reserve"):
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, F.PARK)
+                    render_polygon(draw, geom, extent, F.PARK, offset=halo)
 
     # 3. Buildings (only at higher zoom levels)
     if zoom >= 13:
@@ -235,7 +246,7 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
             for feature in layer.get("features", []):
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, F.BUILDING)
+                    render_polygon(draw, geom, extent, F.BUILDING, offset=halo)
 
     # 4. Waterways (lines) - use RAILWAY index since it's for linear features
     layer = get_layer(decoded, "waterway")
@@ -243,7 +254,7 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
         for feature in layer.get("features", []):
             geom = feature.get("geometry", {})
             if geom.get("type") in ("LineString", "MultiLineString"):
-                render_line(draw, geom, extent, F.WATER, 1)
+                render_line(draw, geom, extent, F.WATER, 1, offset=halo)
 
     # 5. Railways
     layer = get_layer(decoded, "transportation")
@@ -253,7 +264,7 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
             if props.get("class") == "rail":
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("LineString", "MultiLineString"):
-                    render_line(draw, geom, extent, F.RAILWAY, 1)
+                    render_line(draw, geom, extent, F.RAILWAY, 1, offset=halo)
 
     # 6. Roads (render by class, smaller roads first so bigger roads draw on top)
     layer = get_layer(decoded, "transportation")
@@ -284,7 +295,10 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
                 feature_idx, width = style
                 # Scale width by zoom level
                 scaled_width = width * (zoom / 14.0)
-                render_line(draw, geom, extent, feature_idx, scaled_width)
+                render_line(draw, geom, extent, feature_idx, scaled_width, offset=halo)
+
+    # Crop the halo off, returning exactly the visible TILE_SIZE square.
+    img = img.crop((halo, halo, halo + TILE_SIZE, halo + TILE_SIZE))
 
     # MVT uses screen coordinates (Y-down, origin at top-left), same as PIL
     # No flip needed since both land mask and MVT use the same convention

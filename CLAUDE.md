@@ -24,6 +24,28 @@ For building and flashing:
 meshcore-cli). The public channel is shared with real users. Only use DMs to the user's
 own devices for testing.
 
+**Note:** `/dev/ttyUSB0` is typically the user's separate MeshCore CLI node, not the
+T-Deck. The T-Deck is usually on `/dev/ttyACM0`. If `ttyACM0` isn't present, ask the
+user to plug it in rather than falling back to `ttyUSB0`.
+
+## On-device font character set
+
+The built-in bitmap fonts (`src/fonts/FreeSans7pt7b.h`, `FreeMono5pt7b.h`) only cover
+**printable ASCII 0x20..0x7E**. Any other codepoint renders as a `[]` missing-glyph box.
+
+This commonly bites when:
+- Using `·` (U+00B7 middle dot), `•` (U+2022 bullet), `…` (U+2026 ellipsis) as separators or decoration
+- Pulling display strings from external APIs (GPS names, channel names, contact names) without sanitizing
+- Copying UI conventions from web/desktop apps
+
+Safe substitutes:
+- Separator: `|` or multiple spaces
+- Ellipsis: `...`
+- Bullet: `-` or `*`
+
+If a new glyph is genuinely needed, extend the bitmap font (run the font generator with
+a wider range); otherwise stick to ASCII in any string that reaches `draw_text`.
+
 ## Building and Flashing
 
 ```bash

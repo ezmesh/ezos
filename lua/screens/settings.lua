@@ -133,6 +133,22 @@ function Settings:build(state)
         end,
     })
 
+    -- Section header: Sensors
+    content_items[#content_items + 1] = ui.padding({ 12, 8, 4, 8 },
+        ui.text_widget("Sensors", { color = "ACCENT", font = "small" })
+    )
+
+    content_items[#content_items + 1] = ui.list_item({
+        title = "GPS",
+        subtitle = "Power, clock sync",
+        on_press = function()
+            local screen_mod = require("ezui.screen")
+            local G = require("screens.gps_settings")
+            local init = G.initial_state and G.initial_state() or {}
+            screen_mod.push(screen_mod.create(G, init))
+        end,
+    })
+
     for _, ci in ipairs(content_items) do
         items[#items + 1] = ci
     end
