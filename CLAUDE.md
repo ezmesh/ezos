@@ -14,11 +14,15 @@ ezOS is a complete embedded operating system for the LilyGo T-Deck Plus (ESP32-S
 Instead, use the remote control tool for debugging:
 - `python tools/remote/ez_remote.py /dev/ttyACM0 --logs` - Get buffered log entries
 - `python tools/remote/ez_remote.py /dev/ttyACM0 --monitor` - Stream real-time logs
-- `python tools/remote/ez_remote.py /dev/ttyACM0 -e "Debug.memory()"` - Query device state
+- `python tools/remote/ez_remote.py /dev/ttyACM0 -e "return collectgarbage('count')"` - Query device state
 
 For building and flashing:
 - `pio run` - Build firmware
 - `pio run -t upload` - Build and flash
+
+**IMPORTANT:** Do not send messages to public mesh channels (e.g. `public <msg>` via
+meshcore-cli). The public channel is shared with real users. Only use DMs to the user's
+own devices for testing.
 
 ## Building and Flashing
 
@@ -41,11 +45,22 @@ ezos/
 │   ├── lua/               # Lua runtime and bindings
 │   │   └── bindings/      # C++ wrappers for Lua APIs
 │   └── remote/            # USB remote control protocol
-├── data/scripts/           # Lua UI scripts
+├── lua/                    # Lua scripts (embedded into firmware)
 │   ├── boot.lua           # Entry point (services init, apply settings)
-│   └── ui/
-│       ├── screens/       # Individual screens (40+ files)
-│       └── services/      # Background services
+│   ├── core/              # Module infrastructure (modules.lua)
+│   ├── ezui/              # Declarative UI framework
+│   │   ├── init.lua       # Public API, main loop
+│   │   ├── screen.lua     # Screen stack manager
+│   │   ├── node.lua       # Node tree system
+│   │   ├── layout.lua     # Layout nodes (vbox, hbox, scroll, etc.)
+│   │   ├── widgets.lua    # Widget constructors (button, list_item, etc.)
+│   │   ├── focus.lua      # Focus/navigation manager
+│   │   ├── text.lua       # Text measurement and wrapping
+│   │   ├── theme.lua      # Colors, fonts, dimensions
+│   │   ├── icons.lua      # PNG icon definitions
+│   │   └── async.lua      # Async file I/O helpers
+│   ├── screens/           # Screen definitions
+│   └── services/          # Background services (channels, contacts, DMs)
 ├── tools/                  # Development utilities
 │   ├── maps/              # Offline map generation
 │   ├── simulator/         # Browser-based simulator
@@ -53,76 +68,56 @@ ezos/
 └── docs/                   # Documentation
 ```
 
-## UI System Architecture
+## UI System Architecture (ezui)
 
-### Screen Stack
-The UI uses a stack-based screen management system. Screens are Lua classes with standard methods:
+### Declarative Screen Model
+Screens define a `build(state)` method that returns a node tree. State changes via
+`set_state()` trigger an automatic rebuild and redraw.
 
 ```lua
 local MyScreen = { title = "My Screen" }
 
-function MyScreen:new()
-    local o = { ... }
-    setmetatable(o, {__index = MyScreen})
-    return o
+function MyScreen:build(state)
+    return ui.vbox({ gap = 4 }, {
+        ui.title_bar("My Screen", { back = true }),
+        ui.text_widget({ text = state.message or "Hello" }),
+    })
 end
 
-function MyScreen:on_enter()     -- Called when screen becomes active
-function MyScreen:on_exit()      -- Called when screen is popped
-function MyScreen:render(display) -- Draw the screen
-function MyScreen:handle_key(key) -- Process input, return "continue" or "pop"
-function MyScreen:get_menu_items() -- Optional: context menu items
+function MyScreen:on_enter()      -- Called when screen becomes active
+function MyScreen:on_leave()      -- Called when screen is paused (another pushed on top)
+function MyScreen:on_exit()       -- Called when screen is popped off the stack
+function MyScreen:handle_key(key) -- Process input not handled by focused nodes
 ```
 
-### Main Loop (boot.lua → main_loop.lua)
+### Main Loop
 
-The main loop runs at ~100Hz (10ms per frame):
-1. Update mesh network (every 50ms, or 500ms in game mode)
-2. Process timers via Scheduler
-3. Handle keyboard input
-4. Render active screen
-5. Periodic garbage collection
+The C++ `loop()` calls `_G.main_loop()` which is set by `ui.start()`:
+1. Update mesh network (every 50ms via `ez.mesh.update()`)
+2. Screen manager update (input + render at ~30 FPS)
+3. Incremental garbage collection (every 2 seconds)
+
+Timers and bus messages are processed by C++ `LuaRuntime::update()` before the Lua main loop runs.
 
 ### Services
 
-Services are initialized in order at boot:
-1. **Scheduler** - Timer/interval management
-2. **Overlays** - Modal overlay management
-3. **StatusBar** - Battery, signal, node ID display
-4. **ThemeManager** - Wallpaper, colors, icon themes
-5. **TitleBar** - Screen title rendering
-6. **ScreenManager** - Screen stack management
-7. **MainLoop** - Frame loop coordinator
-8. **Logger** - Message logging to storage
+Services are initialized in order in `lua/boot.lua`:
+1. **contacts** - Contact list CRUD with persistence
+2. **channels** - Channel management, GRP_TXT decryption
+3. **direct_messages** - Encrypted DMs via TXT_MSG packets
 
 ### Module Loading
 
 ```lua
-load_module(path)           -- Async load (yields in coroutine)
-unload_module(path)         -- Memory cleanup
+load_module(path)           -- Async load from LittleFS (yields in coroutine)
+require("module.name")      -- Standard Lua require (loads embedded scripts first)
 spawn(fn)                   -- Run function in coroutine
-spawn_screen(path, ...)     -- Load and push screen
-spawn_module(path, method)  -- Load and call method
 ```
 
-### Settings Save/Restore Pattern
+### Settings
 
-Settings must be both saved when changed AND restored at boot.
-
-**Where settings are defined:**
-- `data/scripts/ui/screens/settings.lua` - Settings UI with definitions, defaults, save logic
-
-**How settings are saved:**
-1. In `save_settings()`: Write to preferences using `ez.storage.set_pref(key, value)`
-2. ThemeManager settings: Saved via `ThemeManager.save()`
-
-**How settings are restored at boot:**
-- `data/scripts/boot.lua` - `apply_saved_settings()` function
-
-**Adding a new setting:**
-1. Add setting definition to `settings.lua` with name, label, type, default value
-2. Add save logic in `save_settings()` using `ez.storage.set_pref()`
-3. Add restore logic in `boot.lua` `apply_saved_settings()` using `ez.storage.get_pref()`
+Settings are stored via `ez.storage.set_pref(key, value)` and restored in
+`lua/boot.lua` at startup.
 
 ## Map Tools (`tools/maps/`)
 
@@ -203,6 +198,10 @@ Lua Scripts (boot.lua, screens, services)
 | `mock/gps.js` | Browser geolocation + mock location |
 | `mock/audio.js` | Web Audio API synthesis |
 | `mock/bus.js` | Message bus for screen communication |
+| `mock/crypto.js` | Crypto primitives (AES, HMAC, key derivation) |
+| `mock/system.js` | System APIs (timers, millis, memory) |
+| `mock/radio.js` | LoRa radio simulation |
+| `mock/wifi.js` | WiFi mock |
 
 ## Remote Control (`tools/remote/`)
 
@@ -247,7 +246,7 @@ python ez_remote.py /dev/ttyACM0 --monitor
 
 # Execute Lua code
 python ez_remote.py /dev/ttyACM0 -e "1+1"
-python ez_remote.py /dev/ttyACM0 -e "Debug.memory()"
+python ez_remote.py /dev/ttyACM0 -e "return collectgarbage('count')"
 python ez_remote.py /dev/ttyACM0 -e "ez.system.get_time()"
 python ez_remote.py /dev/ttyACM0 -f script.lua
 ```
@@ -297,7 +296,7 @@ Commands:
 
 **IMPORTANT:** Prefer using `--text` over screenshots when verifying UI content. Text capture is faster, uses less bandwidth, and can be easily compared or searched programmatically.
 
-1. Navigate to the problematic screen (use `spawn_screen()` via `-e` flag)
+1. Navigate to the problematic screen (use `ui.push_screen()` via `-e` flag)
 2. **Prefer:** Capture text to verify content: `--text`
 3. **If needed:** Capture primitives to debug rendering: `--primitives`
 4. **Last resort:** Take screenshot for visual verification: `-s screenshot.png`
@@ -315,61 +314,42 @@ The `-e` flag executes Lua code on the device and returns JSON results:
 ```bash
 # Check system state
 python ez_remote.py /dev/ttyACM0 -e "ez.system.get_time()"
-python ez_remote.py /dev/ttyACM0 -e "Debug.memory()"
+python ez_remote.py /dev/ttyACM0 -e "return collectgarbage('count')"
+python ez_remote.py /dev/ttyACM0 -e "return ez.system.millis()"
 
 # Query settings
 python ez_remote.py /dev/ttyACM0 -e "ez.storage.get_pref('brightness', 200)"
 
 # Access services
-python ez_remote.py /dev/ttyACM0 -e "Logger.get_entries()"
-python ez_remote.py /dev/ttyACM0 -e "ScreenManager.get_stack_depth()"
-
-# Inspect globals
-python ez_remote.py /dev/ttyACM0 -e "_G.StatusBar.battery"
+python ez_remote.py /dev/ttyACM0 -e "local ch = require('services.channels'); return #ch.get_history('#Public')"
+python ez_remote.py /dev/ttyACM0 -e "local dm = require('services.direct_messages'); return dm.get_total_unread()"
 ```
 
-### Spawning Screens Directly
+### Navigating Screens
 
-Use `spawn_screen()` to navigate to any screen without manual key input:
-
-```bash
-# Open file browser
-python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/files.lua')"
-
-# Open file editor with specific file
-python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/file_edit.lua', '/scripts/boot.lua')"
-
-# Open settings
-python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/settings.lua')"
-
-# Open map viewer
-python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/map_viewer.lua')"
-
-# Open nodes list
-python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/nodes.lua')"
-```
-
-Other useful screen navigation:
+Push screens using the ezui API:
 
 ```bash
+# Push a screen loaded from LittleFS
+python ez_remote.py /dev/ttyACM0 -e "local ui = require('ezui'); ui.push_screen('\$screens/messages.lua')"
+
+# Push a screen from a require()'d module
+python ez_remote.py /dev/ttyACM0 -e "local ui = require('ezui'); local s = require('ezui.screen'); local def = require('screens.contacts'); s.push(s.create(def, {}))"
+
 # Pop current screen (go back)
-python ez_remote.py /dev/ttyACM0 -e "ScreenManager.pop()"
-
-# Get current screen info
-python ez_remote.py /dev/ttyACM0 -e "local s = ScreenManager.peek(); return s and s.title"
-
-# Check screen stack depth
-python ez_remote.py /dev/ttyACM0 -e "ScreenManager.get_stack_depth()"
+python ez_remote.py /dev/ttyACM0 -e "require('ezui.screen').pop()"
 ```
 
 ### Testing Changes
 
-For **Lua-only changes** (files in `data/scripts/`):
-- Copy updated files to SD card, or
-- Rebuild and flash (Lua files are in LittleFS)
+Lua scripts in `lua/` are embedded into the firmware at build time. `require()` loads
+embedded scripts before LittleFS, so you must rebuild and flash for changes to take effect:
 
-For **C++ changes** (files in `src/`):
-- Must rebuild and flash: `pio run -t upload`
+```bash
+pio run -t upload
+```
+
+Both Lua and C++ changes require a full rebuild and flash.
 
 ### Verifying Fixes
 
@@ -388,12 +368,54 @@ After making a fix:
 
 ### Channel System
 - Default channel: `#Public` (joined automatically on startup)
-- Encrypted channels: password-based AES-256-GCM with HKDF key derivation
-- All channel messages are signed with Ed25519
+- Encrypted channels: AES-128-ECB with password-derived keys
+- GRP_TXT plaintext format: `[timestamp:4 LE][type:1][sendername: text]`
+- Room server relays wrap an additional `[timestamp:4][type:1][sender: text]` inside the text
+
+### Direct Messages (TXT_MSG)
+- ECDH shared secret (X25519) → first 16 bytes as AES key, full 32 bytes as HMAC key
+- Over-the-air payload: `[dest_hash:1][src_hash:1][MAC:2][ciphertext:N]`
+- MAC: HMAC-SHA256 truncated to 2 bytes, keyed with full 32-byte shared secret
+- Ciphertext: AES-128-ECB, zero-padded to 16-byte boundary
+- Inner plaintext: `[timestamp:4 LE][flags:1][text:N]`
+- Receiver filters by dest_hash, then tries contacts/nodes matching src_hash
 
 ### Radio Status
 - `!RF` indicator means radio failed to initialize
 - Check LoRa module wiring if this appears
+
+## C++ Binding Safety Rules
+
+### Dangling lua_State* Pointer Bug
+
+**CRITICAL:** Never store a `lua_State* L` parameter in a static/global variable when
+the function may be called from a Lua coroutine. The coroutine's state becomes invalid
+after it is garbage collected, causing crashes when the stored pointer is later used.
+
+This bug has occurred multiple times:
+- `callbackState` in `mesh_bindings.cpp` — stored boot coroutine's state, crashed on packet callbacks
+- `timerLuaState` in `system_bindings.cpp` — stored boot coroutine's state, crashed on 30-second timer
+
+**Fix pattern:** Use the `LUA_STATE` macro (`LuaRuntime::instance().getState()`) which
+always returns the main Lua state. Include `lua_runtime.h` for access.
+
+```cpp
+// BAD: L may be a coroutine state that gets GC'd
+static lua_State* savedState = nullptr;
+LUA_FUNCTION(my_func) {
+    savedState = L;  // Dangling after coroutine GC!
+}
+
+// GOOD: Always use main state
+void myCallback() {
+    lua_State* L = LUA_STATE;  // Always valid
+    if (L) { lua_pcall(L, ...); }
+}
+```
+
+When writing new C++ bindings that register callbacks, audit every `lua_State*` that
+outlives the current function call. If it's stored for later use, it must come from
+`LUA_STATE`, not from the `L` parameter.
 
 ## MeshCore Protocol Reference
 

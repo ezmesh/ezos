@@ -231,12 +231,24 @@ bool LuaRuntime::executeFile(const char* path) {
         return false;
     }
 
-    // Mount points:
+    // Path prefixes:
+    //   $     - System scripts (embedded in firmware, e.g. "$boot.lua")
     //   /sd/  - SD card
     //   /fs/  - LittleFS
-    //   /img/ - Embedded scripts (read-only)
-    //
-    // For /scripts/ paths (legacy), use load order: SD > FS > embedded
+    //   /img/ - Embedded scripts by raw path (read-only)
+
+    // Handle $ prefix: embedded system scripts (instant, no I/O)
+    if (path[0] == '$') {
+        size_t size = 0;
+        const char* embedded = embedded_lua::get_script(path, &size);
+        if (embedded != nullptr) {
+            return executeBuffer(embedded, size, path);
+        }
+        char err[128];
+        snprintf(err, sizeof(err), "System script not found: %s", path);
+        reportError(err);
+        return false;
+    }
 
     // Handle explicit /sd/ path
     if (strncmp(path, "/sd/", 4) == 0) {
@@ -574,7 +586,7 @@ bool LuaRuntime::reloadBootScript() {
     reloadScripts();
 
     // Execute boot script again
-    return executeFile("/scripts/boot.lua");
+    return executeFile("$boot.lua");
 }
 
 void LuaRuntime::collectGarbage() {

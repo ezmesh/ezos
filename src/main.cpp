@@ -166,7 +166,7 @@ void setup() {
     // Run boot script (requires display and keyboard)
     if (displayOk && keyboardOk && luaOk) {
         Serial.println("Running boot script...");
-        if (LuaRuntime::instance().executeFile("/scripts/boot.lua")) {
+        if (LuaRuntime::instance().executeFile("$boot.lua")) {
             Serial.println("Boot script executed - Lua shell active");
         } else {
             Serial.println("ERROR: Boot script failed!");
@@ -228,7 +228,7 @@ void setup() {
                         y += lineHeight;
                     }
                 } else {
-                    display->drawText(10, 50, "Check /scripts/boot.lua", 0xFFFF);
+                    display->drawText(10, 50, "Check $boot.lua", 0xFFFF);
                 }
 
                 display->flush();

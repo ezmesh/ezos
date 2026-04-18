@@ -695,10 +695,21 @@ void AsyncIO::processResults() {
 // =============================================================================
 
 // async_read(path) - yields coroutine, resumes with data or nil
-// Mount points: /sd/, /fs/, /img/ (embedded)
-// Legacy /scripts/ paths use load order: SD > FS > embedded
+// Path prefixes: $ (system/embedded), /sd/, /fs/, /img/
 int AsyncIO::l_async_read(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
+
+    // Handle $ prefix: embedded system scripts (synchronous, instant)
+    if (path[0] == '$') {
+        size_t embeddedSize = 0;
+        const char* embedded = embedded_lua::get_script(path, &embeddedSize);
+        if (embedded != nullptr) {
+            lua_pushlstring(L, embedded, embeddedSize);
+        } else {
+            lua_pushnil(L);
+        }
+        return 1;
+    }
 
     // Handle /img/ (embedded) - returns synchronously
     if (strncmp(path, "/img/", 5) == 0) {
@@ -734,42 +745,81 @@ int AsyncIO::l_async_read(lua_State* L) {
     if (strncmp(path, "/scripts/", 9) == 0) {
         // 1. Check SD card first
         if (SD.begin(SD_CS) && SD.exists(path)) {
-            char sdPath[MAX_PATH];
-            snprintf(sdPath, sizeof(sdPath), "/sd%s", path);
+            if (lua_isyieldable(L)) {
+                char sdPath[MAX_PATH];
+                snprintf(sdPath, sizeof(sdPath), "/sd%s", path);
 
-            lua_pushthread(L);
-            int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
+                lua_pushthread(L);
+                int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
 
-            Request req = {};
-            req.type = OpType::READ;
-            req.coroRef = coroRef;
-            strncpy(req.path, sdPath, MAX_PATH - 1);
+                Request req = {};
+                req.type = OpType::READ;
+                req.coroRef = coroRef;
+                strncpy(req.path, sdPath, MAX_PATH - 1);
 
-            if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
-                luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
-                return luaL_error(L, "async queue full");
+                if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
+                    luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
+                    return luaL_error(L, "async queue full");
+                }
+                return lua_yield(L, 0);
+            } else {
+                // Synchronous fallback for calls outside a coroutine
+                File file = SD.open(path, "r");
+                if (file) {
+                    size_t fileSize = file.size();
+                    char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                    if (buffer) {
+                        size_t bytesRead = file.read((uint8_t*)buffer, fileSize);
+                        file.close();
+                        lua_pushlstring(L, buffer, bytesRead);
+                        heap_caps_free(buffer);
+                        return 1;
+                    }
+                    file.close();
+                }
+                lua_pushnil(L);
+                return 1;
             }
-            return lua_yield(L, 0);
         }
 
         // 2. Check LittleFS
         if (LittleFS.exists(path)) {
-            char fsPath[MAX_PATH];
-            snprintf(fsPath, sizeof(fsPath), "/fs%s", path);
+            // Check if we're in a coroutine (can yield) or main thread (must be synchronous)
+            if (lua_isyieldable(L)) {
+                char fsPath[MAX_PATH];
+                snprintf(fsPath, sizeof(fsPath), "/fs%s", path);
 
-            lua_pushthread(L);
-            int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
+                lua_pushthread(L);
+                int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
 
-            Request req = {};
-            req.type = OpType::READ;
-            req.coroRef = coroRef;
-            strncpy(req.path, fsPath, MAX_PATH - 1);
+                Request req = {};
+                req.type = OpType::READ;
+                req.coroRef = coroRef;
+                strncpy(req.path, fsPath, MAX_PATH - 1);
 
-            if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
-                luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
-                return luaL_error(L, "async queue full");
+                if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
+                    luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
+                    return luaL_error(L, "async queue full");
+                }
+                return lua_yield(L, 0);
+            } else {
+                // Synchronous fallback for calls outside a coroutine
+                File file = LittleFS.open(path, "r");
+                if (file) {
+                    size_t fileSize = file.size();
+                    char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                    if (buffer) {
+                        size_t bytesRead = file.read((uint8_t*)buffer, fileSize);
+                        file.close();
+                        lua_pushlstring(L, buffer, bytesRead);
+                        heap_caps_free(buffer);
+                        return 1;
+                    }
+                    file.close();
+                }
+                lua_pushnil(L);
+                return 1;
             }
-            return lua_yield(L, 0);
         }
 
         // 3. Fall back to embedded scripts
