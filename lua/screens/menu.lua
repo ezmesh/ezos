@@ -19,8 +19,8 @@ function Menu:build(state)
     )
 
     local comm_entries = {
-        { title = "Messages",  subtitle = "Private & channels",   icon = icons.mail,    screen = "$screens/messages.lua" },
-        { title = "Contacts",  subtitle = "Known nodes",          icon = icons.users,   mod = "screens.contacts" },
+        { title = "Messages",  subtitle = "Private & channels",   icon = icons.mail,    screen = "$screens/chat/messages.lua" },
+        { title = "Contacts",  subtitle = "Known nodes",          icon = icons.users,   mod = "screens.chat.contacts" },
     }
 
     for _, entry in ipairs(comm_entries) do
@@ -33,8 +33,8 @@ function Menu:build(state)
     )
 
     local tool_entries = {
-        { title = "Map",       subtitle = "Offline maps",         icon = icons.map,      mod = "screens.map" },
-        { title = "Files",     subtitle = "Flash & SD browser",   icon = icons.folder,   mod = "screens.file_manager" },
+        { title = "Map",       subtitle = "Offline maps",         icon = icons.map,      mod = "screens.tools.map" },
+        { title = "Files",     subtitle = "Flash & SD browser",   icon = icons.folder,   mod = "screens.tools.file_manager" },
         { title = "Terminal",  subtitle = "Lua REPL",             icon = icons.terminal, disabled = true },
     }
 
@@ -51,35 +51,35 @@ function Menu:build(state)
         title = "Solitaire",
         subtitle = "Klondike card game",
         icon = icons.grid,
-        mod = "screens.solitaire",
+        mod = "screens.games.solitaire",
     })
 
     content_items[#content_items + 1] = self:_make_item({
         title = "Minesweeper",
         subtitle = "Classic puzzle",
         icon = icons.grid,
-        mod = "screens.minesweeper",
+        mod = "screens.games.minesweeper",
     })
 
     content_items[#content_items + 1] = self:_make_item({
         title = "Sudoku",
         subtitle = "Number puzzle",
         icon = icons.grid,
-        mod = "screens.sudoku",
+        mod = "screens.games.sudoku",
     })
 
     content_items[#content_items + 1] = self:_make_item({
         title = "Sand",
         subtitle = "Falling sand toy",
         icon = icons.grid,
-        mod = "screens.sand",
+        mod = "screens.games.sand",
     })
 
     content_items[#content_items + 1] = self:_make_item({
         title = "Raycaster",
         subtitle = "FPS dungeon shooter",
         icon = icons.grid,
-        mod = "screens.raycaster",
+        mod = "screens.games.raycaster",
     })
 
     -- Section: System
@@ -88,14 +88,27 @@ function Menu:build(state)
     )
 
     local sys_entries = {
-        { title = "Settings",  subtitle = "Device configuration", icon = icons.settings, mod = "screens.settings" },
-        { title = "Pixel Fix", subtitle = "Clear screen ghosting", icon = icons.grid,    mod = "screens.pixel_fix" },
-        { title = "About",     subtitle = "System info",          icon = icons.info,     disabled = true },
+        { title = "Settings",  subtitle = "Device configuration", icon = icons.settings, mod = "screens.settings.settings" },
+        { title = "Pixel Fix", subtitle = "Clear screen ghosting", icon = icons.grid,    mod = "screens.tools.pixel_fix" },
+        { title = "About",     subtitle = "Credits, attributions, version", icon = icons.info, mod = "screens.about" },
     }
 
     for _, entry in ipairs(sys_entries) do
         content_items[#content_items + 1] = self:_make_item(entry)
     end
+
+    -- Section: Developer — scratch space for widget smoke tests. Left in
+    -- the main menu so it's easy to reach while iterating on ezui.
+    content_items[#content_items + 1] = ui.padding({ 10, 8, 2, 8 },
+        ui.text_widget("Developer", { color = "TEXT_MUTED", font = "tiny" })
+    )
+
+    content_items[#content_items + 1] = self:_make_item({
+        title = "Widget kitchen sink",
+        subtitle = "Every widget on one screen",
+        icon = icons.terminal,
+        mod = "screens.dev.kitchen_sink",
+    })
 
     local content = ui.vbox({ gap = 0 }, content_items)
     items[#items + 1] = ui.scroll({ grow = 1, scroll_offset = state.scroll or 0 }, content)

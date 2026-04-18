@@ -33,3 +33,13 @@ node_modules/
 /docs/api/
 /docs/manual/
 /docs/index.html
+
+# Claude session cache
+.claude/
+
+# Raw asset source trees (only processed outputs are tracked)
+wallpapers-in/
+tools/bin/
+tools/fonts/
+Inter-4.1.zip
+Nederland-schoolkaart-461-scaled.jpg

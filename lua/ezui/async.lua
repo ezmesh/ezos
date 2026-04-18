@@ -16,6 +16,45 @@
 local async = {}
 
 -- ---------------------------------------------------------------------------
+-- Global pending-op counter
+-- Drives the status-bar spinner. Increments/decrements automatically around
+-- any work wrapped with async.fn() (and the read/write/json/etc helpers
+-- below). Screens that manage their own coroutines can call begin()/done()
+-- manually to participate in the indicator.
+-- ---------------------------------------------------------------------------
+
+local _pending = 0
+local _listeners = {}
+
+local function notify()
+    for i = 1, #_listeners do _listeners[i](_pending) end
+end
+
+function async.begin()
+    _pending = _pending + 1
+    if _pending == 1 then notify() end
+end
+
+function async.done()
+    if _pending > 0 then _pending = _pending - 1 end
+    if _pending == 0 then notify() end
+end
+
+function async.pending_count()
+    return _pending
+end
+
+function async.is_busy()
+    return _pending > 0
+end
+
+-- Register a listener invoked whenever the busy state edges (0→1 or 1→0).
+-- Used by the screen renderer to wake on async activity.
+function async.on_busy_change(cb)
+    _listeners[#_listeners + 1] = cb
+end
+
+-- ---------------------------------------------------------------------------
 -- Promise
 -- ---------------------------------------------------------------------------
 
@@ -147,8 +186,10 @@ function async.fn(func)
     return function(...)
         local args = { ... }
         return Promise.new(function(resolve, reject)
+            async.begin()
             spawn(function()
                 local ok, result = pcall(func, table.unpack(args))
+                async.done()
                 if ok then
                     resolve(result)
                 else

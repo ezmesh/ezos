@@ -236,12 +236,12 @@ Key building blocks:
 |--------|---------|
 | `ezui.layout` | `vbox`, `hbox`, `zstack`, `padding`, `scroll` |
 | `ezui.widgets` | `button`, `text_widget`, `slider`, `list_item`, `title_bar`, … |
-| `ezui.node` | Register custom node types (see `color_swatch` in `lua/screens/settings.lua`) |
+| `ezui.node` | Register custom node types (see `color_swatch` in `lua/screens/settings/settings.lua`) |
 | `ezui.focus` | Trackball/arrow-key navigation between focusable nodes |
 | `ezui.theme` | Colors, fonts, accent presets |
 | `ezui.async` | Coroutine-based helpers for non-blocking I/O |
 
-`lua/screens/settings.lua` is a good reference for sliders, custom widgets, and theme-aware rendering.
+`lua/screens/settings/settings.lua` is a good reference for sliders, custom widgets, and theme-aware rendering.
 
 > **Note:** The offline map viewer is currently being ported to ezui — see [#10](../../issues/10), [#11](../../issues/11), [#12](../../issues/12). The map tile generator in `tools/maps/` and the desktop viewer still work.
 

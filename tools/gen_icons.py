@@ -1,226 +1,266 @@
 #!/usr/bin/env python3
 """
-Download Lucide SVGs and generate 1-bit bitmap icons for ezOS.
+Generate icon assets for the ezOS desktop.
 
-Produces two sizes per icon:
-  sm = 16x16 (for menu list items, drawn at 1x)
-  lg = 24x24 (for desktop icons, drawn at 2x = 48px on screen)
+The PSP/PS3-style look is composed from three layers at draw time:
 
-Output: lua/ezui/icons.lua
+    1. A solid rounded-rect "plate" in the icon's accent colour (drawn
+       dynamically by Lua via ez.display.fill_round_rect).
+    2. A white 48×48 glyph PNG centred over the plate.
+    3. A shared 48×48 "shim" PNG that adds the vertical darkening gradient,
+       top highlight, and subtle border.
+
+Splitting the look this way means a single shim asset covers every icon,
+tint colours live as integers in Lua, and experiments with colour never
+require regenerating the glyph bitmaps.
+
+Outputs written into lua/ezui/icons.lua:
+    icons._shim            PNG bytes of the shared glass overlay (48×48).
+    icons._plate_inset     pixels between slot edge and plate edge.
+    icons._plate_radius    rounded-rect corner radius in pixels.
+    icons._plate_size      plate side length in pixels.
+    icons.<name>.sm        16×16 flat white glyph for list items.
+    icons.<name>.lg        48×48 white glyph, transparent elsewhere.
+    icons.<name>.color     RGB565 plate tint.
 """
 
 import io
-import struct
 import urllib.request
 from pathlib import Path
 
 import cairosvg
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 
+# -----------------------------------------------------------------------------
+# Icon catalogue
+# -----------------------------------------------------------------------------
+
+# (lucide_name, lua_key, plate_tint_rgb)
 ICONS = [
-    "mail",
-    "users",
-    "map",
-    "grid-3x3",        # "grid" was removed; "grid-3x3" is the replacement
-    "hash",
-    "radio-tower",
-    "folder",
-    "settings",
-    "terminal",
-    "info",
-    "message-square",  # Lucide uses "message-square" for the message bubble icon
+    ("mail",          "mail",        (58, 140, 220)),
+    ("users",         "users",       (220, 80, 70)),
+    ("map",           "map",         (210, 135, 60)),
+    ("grid-3x3",      "grid",        (120, 110, 180)),
+    ("hash",          "hash",        (180, 100, 200)),
+    ("radio-tower",   "radio_tower", (230, 110, 90)),
+    ("folder",        "folder",      (220, 180, 80)),
+    ("settings",      "settings",    (130, 140, 160)),
+    ("terminal",      "terminal",    (60, 170, 150)),
+    ("info",          "info",        (90, 150, 210)),
+    ("message-square", "message",    (100, 180, 200)),
+    ("globe",         "globe",       (60, 170, 90)),
+    ("ellipsis",      "more_horiz",  (120, 120, 130)),
 ]
-
-# Map from Lucide SVG name to our Lua key name
-LUA_NAMES = {
-    "mail": "mail",
-    "users": "users",
-    "map": "map",
-    "grid-3x3": "grid",
-    "hash": "hash",
-    "radio-tower": "radio_tower",
-    "folder": "folder",
-    "settings": "settings",
-    "terminal": "terminal",
-    "info": "info",
-    "message-square": "message",
-}
-
-SIZES = {
-    "sm": 16,
-    "lg": 24,
-}
 
 SVG_BASE_URL = "https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/{name}.svg"
 
-THRESHOLD = 128  # Pixel values below this are "on" (foreground)
+LG_SIZE = 48
+SM_SIZE = 16
+GLYPH_INSET = 10
+PLATE_INSET = 4
+PLATE_RADIUS = max(4, LG_SIZE // 6)
+PLATE_SIZE = LG_SIZE - 2 * PLATE_INSET
+
+# Focus glow is rendered behind the focused icon. Its canvas is larger than
+# the plate so the blurred halo can spread beyond the plate edge.
+GLOW_SIZE = LG_SIZE + 16
+GLOW_PAD = (GLOW_SIZE - LG_SIZE) // 2
+
+
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+
+def rgb565(r: int, g: int, b: int) -> int:
+    """Pack 8-bit-per-channel RGB into the panel's RGB565 layout."""
+    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
 
 
 def download_svg(name: str) -> bytes:
-    """Download an SVG from the Lucide GitHub repo."""
     url = SVG_BASE_URL.format(name=name)
-    print(f"  Downloading {url}")
-    req = urllib.request.Request(url, headers={"User-Agent": "ezos-icon-gen/1.0"})
+    print(f"  fetching {url}")
+    req = urllib.request.Request(url, headers={"User-Agent": "ezos-icon-gen/3.0"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         return resp.read()
 
 
-def svg_to_bitmap(svg_data: bytes, size: int) -> tuple[list[list[int]], int]:
-    """
-    Rasterize SVG to a 1-bit bitmap at the given size.
-
-    Returns (2D list of 0/1 values, count of set bits).
-    The SVGs use stroke on transparent background, so dark pixels = icon.
-    """
-    # Render SVG to PNG at target size
-    png_data = cairosvg.svg2png(
-        bytestring=svg_data,
-        output_width=size,
-        output_height=size,
-    )
-
-    img = Image.open(io.BytesIO(png_data)).convert("RGBA")
-
-    # The Lucide SVGs are stroked paths on transparent background.
-    # We want: opaque dark pixels -> 1 (foreground), everything else -> 0
-    bitmap = []
-    set_bits = 0
+def svg_to_white_glyph(svg_bytes: bytes, size: int) -> Image.Image:
+    """Rasterise SVG at (size, size), keep alpha, paint RGB fully white."""
+    png = cairosvg.svg2png(bytestring=svg_bytes, output_width=size, output_height=size)
+    img = Image.open(io.BytesIO(png)).convert("RGBA")
+    pixels = img.load()
     for y in range(size):
-        row = []
         for x in range(size):
-            r, g, b, a = img.getpixel((x, y))
-            # Combine alpha and luminance: a pixel is "on" if it's
-            # sufficiently opaque AND sufficiently dark
-            luminance = 0.299 * r + 0.587 * g + 0.114 * b
-            # For anti-aliased edges, use alpha-weighted luminance
-            # A fully transparent pixel should be off regardless of color
-            effective = 255 - (a / 255.0) * (255 - luminance)
-            if effective < THRESHOLD:
-                row.append(1)
-                set_bits += 1
-            else:
-                row.append(0)
-        bitmap.append(row)
-
-    return bitmap, set_bits
+            _, _, _, a = pixels[x, y]
+            pixels[x, y] = (255, 255, 255, a)
+    return img
 
 
-def pack_bits(bitmap: list[list[int]], width: int, height: int) -> bytes:
+# -----------------------------------------------------------------------------
+# Shim (shared glass overlay)
+# -----------------------------------------------------------------------------
+
+def make_shim() -> Image.Image:
+    """Render the shared 48×48 glass overlay.
+
+    Contents (all alpha-over the plate):
+      - A vertical darkening ramp from transparent at the top to ~35% black
+        at the bottom, giving depth.
+      - A soft white highlight ellipse over the top third.
+      - A faint white 1-px rounded border to crisp the edge.
+    Everything is masked to the rounded-rect plate shape so the shim can be
+    drawn on top of a rectangular plate without leaking corners.
     """
-    Pack a 2D bitmap into a continuous MSB-first bit stream.
-    No row padding -- bits flow continuously across rows.
-    """
-    # Flatten to bit stream
-    bits = []
-    for row in bitmap:
-        bits.extend(row)
+    size = LG_SIZE
+    plate_box = (PLATE_INSET, PLATE_INSET,
+                 size - PLATE_INSET, size - PLATE_INSET)
 
-    # Pack into bytes, MSB first
-    packed = []
-    for i in range(0, len(bits), 8):
-        byte = 0
-        for j in range(8):
-            if i + j < len(bits):
-                byte |= bits[i + j] << (7 - j)
-        packed.append(byte)
+    # Darkening gradient
+    grad = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(grad)
+    inner_h = size - 2 * PLATE_INSET
+    for i in range(inner_h):
+        t = i / max(1, inner_h - 1)
+        alpha = int(90 * (t ** 1.6))
+        gd.line(
+            [(PLATE_INSET, PLATE_INSET + i),
+             (size - PLATE_INSET, PLATE_INSET + i)],
+            fill=(0, 0, 0, alpha),
+        )
 
-    return bytes(packed)
+    # Top highlight
+    hl = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    hd = ImageDraw.Draw(hl)
+    hd.ellipse(
+        (PLATE_INSET + 2, PLATE_INSET - size // 3,
+         size - PLATE_INSET - 2, PLATE_INSET + size // 3),
+        fill=(255, 255, 255, 120),
+    )
+    hl = hl.filter(ImageFilter.GaussianBlur(0.6))
+
+    combined = Image.alpha_composite(grad, hl)
+
+    # Mask to the plate's rounded rect so the overlay lines up with the plate.
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        plate_box, radius=PLATE_RADIUS, fill=255,
+    )
+    r, g, b, a = combined.split()
+    from PIL import ImageChops
+    a = ImageChops.multiply(a, mask)
+    combined = Image.merge("RGBA", (r, g, b, a))
+
+    # Subtle bright border on top.
+    border = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(border).rounded_rectangle(
+        plate_box, radius=PLATE_RADIUS,
+        outline=(255, 255, 255, 70), width=1,
+    )
+    return Image.alpha_composite(combined, border)
 
 
-def bytes_to_lua_string(data: bytes) -> str:
-    """Convert bytes to a Lua hex-escaped string literal."""
-    parts = []
-    for b in data:
-        parts.append(f"\\x{b:02x}")
-    return '"' + "".join(parts) + '"'
+# -----------------------------------------------------------------------------
+# Per-icon glyphs
+# -----------------------------------------------------------------------------
+
+def make_glow() -> Image.Image:
+    """Render the focus glow — a soft white rounded-rect halo on a
+    transparent canvas, sized GLOW_SIZE so callers can draw it at
+    (icon_x - GLOW_PAD, icon_y - GLOW_PAD) to sit behind a 48×48 plate."""
+    img = Image.new("RGBA", (GLOW_SIZE, GLOW_SIZE), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle(
+        (GLOW_PAD - 2, GLOW_PAD - 2,
+         GLOW_SIZE - GLOW_PAD + 2, GLOW_SIZE - GLOW_PAD + 2),
+        radius=PLATE_RADIUS + 2,
+        fill=(255, 255, 255, 180),
+    )
+    return img.filter(ImageFilter.GaussianBlur(5))
 
 
-def main():
-    output_path = Path(__file__).parent.parent / "lua" / "ezui" / "icons.lua"
+def make_lg_glyph(svg_bytes: bytes) -> Image.Image:
+    """48×48 RGBA, white glyph centred, transparent elsewhere."""
+    glyph_size = LG_SIZE - 2 * GLYPH_INSET
+    glyph = svg_to_white_glyph(svg_bytes, glyph_size)
+    canvas = Image.new("RGBA", (LG_SIZE, LG_SIZE), (0, 0, 0, 0))
+    pos = ((LG_SIZE - glyph_size) // 2, (LG_SIZE - glyph_size) // 2)
+    canvas.paste(glyph, pos, glyph)
+    return canvas
 
-    print("Generating Lucide icon bitmaps for ezOS")
-    print(f"Output: {output_path}")
-    print()
 
-    # Download all SVGs first
+def make_sm_glyph(svg_bytes: bytes) -> Image.Image:
+    return svg_to_white_glyph(svg_bytes, SM_SIZE)
+
+
+# -----------------------------------------------------------------------------
+# Lua emission
+# -----------------------------------------------------------------------------
+
+def png_bytes(img: Image.Image) -> bytes:
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
+def to_lua_literal(data: bytes) -> str:
+    return '"' + "".join(f"\\x{b:02x}" for b in data) + '"'
+
+
+def main() -> None:
+    out_path = Path(__file__).parent.parent / "lua" / "ezui" / "icons.lua"
+    print(f"Generating icon assets -> {out_path}")
+
     svg_cache: dict[str, bytes] = {}
-    for name in ICONS:
-        print(f"[{name}]")
-        svg_cache[name] = download_svg(name)
+    for svg_name, _, _ in ICONS:
+        svg_cache[svg_name] = download_svg(svg_name)
 
     print()
+    shim_png = png_bytes(make_shim())
+    glow_png = png_bytes(make_glow())
+    print(f"  _shim (shared overlay): {len(shim_png):5d}B")
+    print(f"  _glow (focus halo):     {len(glow_png):5d}B")
 
-    # Generate bitmaps at both sizes
-    icon_data: dict[str, dict[str, tuple[int, bytes, int]]] = {}
+    lines = [
+        "-- Desktop icon assets generated by tools/gen_icons.py.",
+        "--",
+        "-- Each icon ships two white glyph PNGs (sm = 16, lg = 48) plus an",
+        "-- RGB565 accent colour used to tint the plate drawn behind the glyph.",
+        "-- icons._shim is a shared 48×48 glass overlay composited on top of",
+        "-- the plate and glyph to add depth (gradient, highlight, border).",
+        "-- icons._glow is a pre-blurred white halo drawn behind the focused",
+        "-- icon at (icon_x - _glow_pad, icon_y - _glow_pad).",
+        "",
+        "local icons = {}",
+        "",
+        f"icons._plate_inset  = {PLATE_INSET}",
+        f"icons._plate_size   = {PLATE_SIZE}",
+        f"icons._plate_radius = {PLATE_RADIUS}",
+        f"icons._glow_pad     = {GLOW_PAD}",
+        f"icons._shim = {to_lua_literal(shim_png)}",
+        f"icons._glow = {to_lua_literal(glow_png)}",
+        "",
+    ]
 
-    for name in ICONS:
-        lua_name = LUA_NAMES[name]
-        icon_data[lua_name] = {}
-        svg = svg_cache[name]
+    for svg_name, lua_name, tint in ICONS:
+        svg = svg_cache[svg_name]
+        sm_bytes = png_bytes(make_sm_glyph(svg))
+        lg_bytes = png_bytes(make_lg_glyph(svg))
+        color = rgb565(*tint)
+        print(f"  {lua_name:15s} lg={len(lg_bytes):5d}B sm={len(sm_bytes):4d}B color=0x{color:04X}")
 
-        for size_key, size in SIZES.items():
-            bitmap, set_bits = svg_to_bitmap(svg, size)
-            total_bits = size * size
-            packed = pack_bits(bitmap, size, size)
-            pct = 100.0 * set_bits / total_bits
-            print(f"  {lua_name:15s} {size_key} ({size:2d}x{size:2d}): {set_bits:4d}/{total_bits:4d} bits set ({pct:5.1f}%) -> {len(packed)} bytes")
+        lines.append(f"icons.{lua_name} = {{")
+        lines.append(f"    sm = {to_lua_literal(sm_bytes)},")
+        lines.append(f"    lg = {to_lua_literal(lg_bytes)},")
+        lines.append(f"    color = 0x{color:04X},")
+        lines.append("}")
+        lines.append("")
 
-            # Sanity checks
-            if set_bits == 0:
-                print(f"    WARNING: No bits set! Icon may be invisible.")
-            elif set_bits == total_bits:
-                print(f"    WARNING: All bits set! Icon may be a solid block.")
-            elif pct < 3.0:
-                print(f"    WARNING: Very few bits set, icon may be too sparse.")
-            elif pct > 60.0:
-                print(f"    WARNING: Many bits set, icon may be too dense.")
+    lines.append("return icons")
+    lines.append("")
 
-            icon_data[lua_name][size_key] = (size, packed, set_bits)
-
-    print()
-
-    # Generate Lua file
-    lines = []
-    lines.append('-- 1-bit bitmap icons derived from the Lucide icon set')
-    lines.append('-- https://github.com/lucide-icons/lucide (ISC License)')
-    lines.append('--')
-    lines.append('-- Each entry has two sizes:')
-    lines.append('--   sm = {width, height, data}  16x16 for menu list item icons (1x scale)')
-    lines.append('--   lg = {width, height, data}  24x24 for desktop icons (2x scale = 48px)')
-    lines.append('--')
-    lines.append('-- Data is a packed 1-bit bitmap string (MSB first, continuous bit')
-    lines.append('-- stream without row padding).')
-    lines.append('--')
-    lines.append('-- Render with:')
-    lines.append('--   ez.display.draw_bitmap_1bit(x, y, icon.lg[1], icon.lg[2], icon.lg[3], 2, color)')
-    lines.append('--   ez.display.draw_bitmap_1bit(x, y, icon.sm[1], icon.sm[2], icon.sm[3], 1, color)')
-    lines.append('')
-    lines.append('local icons = {}')
-    lines.append('')
-
-    for name in ICONS:
-        lua_name = LUA_NAMES[name]
-        data = icon_data[lua_name]
-
-        sm_size, sm_packed, _ = data["sm"]
-        lg_size, lg_packed, _ = data["lg"]
-
-        sm_str = bytes_to_lua_string(sm_packed)
-        lg_str = bytes_to_lua_string(lg_packed)
-
-        lines.append(f'icons.{lua_name} = {{')
-        lines.append(f'    sm = {{{sm_size}, {sm_size}, {sm_str}}},')
-        lines.append(f'    lg = {{{lg_size}, {lg_size}, {lg_str}}},')
-        lines.append(f'}}')
-        lines.append('')
-
-    lines.append('return icons')
-    lines.append('')
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\n".join(lines))
-    print(f"Written to {output_path}")
-    print("Done!")
+    out_path.write_text("\n".join(lines))
+    total = out_path.stat().st_size
+    print(f"\nWrote {out_path} ({total} bytes)")
 
 
 if __name__ == "__main__":

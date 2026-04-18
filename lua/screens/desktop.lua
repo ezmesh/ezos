@@ -1,17 +1,17 @@
 -- Desktop home screen
 -- Wallpaper, icon dock, and carbon taskbar.
 
-local theme = require("ezui.theme")
-local node  = require("ezui.node")
-local focus = require("ezui.focus")
-local text  = require("ezui.text")
-local icons = require("ezui.icons")
+local theme   = require("ezui.theme")
+local node    = require("ezui.node")
+local focus   = require("ezui.focus")
+local text    = require("ezui.text")
+local icons   = require("ezui.icons")
+local shadows = require("ezui.shadows")
 
 local Desktop = { title = "Desktop" }
 
 -- Screen geometry
 local W, H = 320, 240
-local TASKBAR_H = 24
 local ICON_SIZE = 48       -- Native 48px icons (no scaling)
 local COLS = 4
 local ICON_GAP_X = 16
@@ -78,14 +78,11 @@ end
 
 -- Icon definitions: 4 desktop shortcuts
 local icon_defs = {
-    { label = "Messages", icon = icons.mail,    screen = "$screens/messages.lua" },
-    { label = "Contacts", icon = icons.users,   mod = "screens.contacts" },
-    { label = "Map",      icon = icons.globe,   mod = "screens.map" },
+    { label = "Messages", icon = icons.mail,    screen = "$screens/chat/messages.lua" },
+    { label = "Contacts", icon = icons.users,   mod = "screens.chat.contacts" },
+    { label = "Map",      icon = icons.globe,   mod = "screens.tools.map" },
     { label = "More",     icon = icons.more_horiz, screen = "$screens/menu.lua" },
 }
-
--- Track the currently focused icon label for the taskbar
-local focused_label = icon_defs[1].label
 
 -- Register desktop-specific node types
 
@@ -94,14 +91,24 @@ node.register("wallpaper", {
         return max_w, max_h
     end,
     draw = function(n, d, x, y, w, h)
+        -- Wallpapers are authored at the full 320x240 panel size. The
+        -- desktop sits under the global status bar, so the zstack would
+        -- otherwise allocate the reduced content area and clip the image.
+        -- Draw edge-to-edge; the opaque status bar covers the top strip.
         if wallpaper_data then
-            d.draw_jpeg(x, y, wallpaper_data)
+            d.draw_jpeg(0, 0, wallpaper_data)
         else
             build_gradient()
             for _, band in ipairs(gradient_bands) do
-                d.fill_rect(x, y + band.y, w, band.h, band.color)
+                d.fill_rect(0, band.y, theme.SCREEN_W, band.h, band.color)
             end
         end
+
+        -- Soft fade over the bottom strip where the icon labels sit so
+        -- bright wallpapers don't wash out the text.
+        local fade_h = shadows.STRIP_SHORT
+        shadows.draw_horizontal(d, shadows.bottom,
+            0, theme.SCREEN_H - fade_h, theme.SCREEN_W)
     end,
 })
 
@@ -110,7 +117,7 @@ node.register("desktop_icon", {
 
     measure = function(n, max_w, max_h)
         local slot_w = math.floor((W - ICON_GAP_X * (COLS + 1)) / COLS)
-        theme.set_font("tiny")
+        theme.set_font("medium_aa")
         local label_h = theme.font_height()
         return slot_w, ICON_SIZE + label_h + 4
     end,
@@ -119,47 +126,66 @@ node.register("desktop_icon", {
         local focused = n._focused
         local cx = x + math.floor(w / 2)
 
-        -- Update tracked label when this icon is focused
-        if focused then
-            focused_label = n.label or ""
-        end
-
-        -- Measure label to size the highlight
-        theme.set_font("tiny")
+        theme.set_font("medium_aa")
         local label = n.label or ""
         local lw = theme.text_width(label)
-        local label_h = theme.font_height()
 
-        -- Highlight width: at least as wide as label + padding
-        local highlight_w = math.max(w - 4, lw + 8)
-        local highlight_x = cx - math.floor(highlight_w / 2)
-
-        -- Focus: frosted highlight behind icon and label
-        if focused then
-            d.fill_round_rect(highlight_x, y, highlight_w, h, 6, ez.display.rgb(60, 60, 70))
-            d.draw_round_rect(highlight_x, y, highlight_w, h, 6, ez.display.rgb(120, 120, 135))
-        end
-
-        -- Draw 48px PNG icon centered in slot
+        -- Render the icon as layers (bottom to top):
+        --   0. Pre-blurred white halo, drawn only when focused so the
+        --      plate appears to glow off the wallpaper.
+        --   1. Rounded-rect plate in the icon's accent colour, brightened
+        --      slightly on focus for a "lit up" effect.
+        --   2. White glyph PNG centred on the plate.
+        --   3. Shared glass shim (gradient + highlight + border).
         local png = n.icon and n.icon.lg
         if png then
-            local icon_w, icon_h = 48, 48
+            local icon_w = 48
             local ix = cx - math.floor(icon_w / 2)
             local iy = y + 2
+
+            if focused and icons._glow then
+                local pad = icons._glow_pad or 8
+                d.draw_png(ix - pad, iy - pad, icons._glow)
+            end
+
+            local inset  = icons._plate_inset or 4
+            local radius = icons._plate_radius or 8
+            local pw     = icons._plate_size or (icon_w - 2 * inset)
+            local color  = n.icon.color or ez.display.rgb(80, 80, 90)
+            if focused then
+                -- Medium-paced pulse (~1.4 s period) by brightening the
+                -- plate with a sine-wave factor between roughly 1.15 and
+                -- 1.5. screen.invalidate() below keeps the next frame
+                -- scheduled so the pulse actually advances.
+                local t = ez.system.millis() / 1000.0
+                local pulse = 1.32 + 0.18 * math.sin(t * 2 * math.pi / 1.4)
+                if theme.brighten_rgb565 then
+                    color = theme.brighten_rgb565(color, pulse)
+                end
+                local screen_mod = require("ezui.screen")
+                screen_mod.invalidate()
+            end
+            d.fill_round_rect(ix + inset, iy + inset, pw, pw, radius, color)
+
             d.draw_png(ix, iy, png)
+
+            if icons._shim then
+                d.draw_png(ix, iy, icons._shim)
+            end
         end
 
-        -- Label below icon
+        -- Label: static colour with a 1px black shadow for legibility over
+        -- bright wallpapers. Selection is communicated by the glow + plate
+        -- brightening above, so the text stays the same in both states.
         local lx = cx - math.floor(lw / 2)
         local ly = y + ICON_SIZE + 3
-        local label_color = ez.display.rgb(220, 220, 230)
-        if not focused then
-            d.draw_text(lx + 1, ly + 1, label, ez.display.rgb(0, 0, 0))
-        end
-        d.draw_text(lx, ly, label, label_color)
+        d.draw_text(lx + 1, ly + 1, label, ez.display.rgb(0, 0, 0))
+        d.draw_text(lx, ly, label, ez.display.rgb(230, 230, 235))
     end,
 
     on_activate = function(n, key)
+        local ok, ui_sounds = pcall(require, "services.ui_sounds")
+        if ok then ui_sounds.play("button") end
         if n.on_press then n.on_press() end
         return "handled"
     end,
@@ -176,61 +202,6 @@ node.register("desktop_icon", {
             return "handled"
         end
         return nil
-    end,
-})
-
-node.register("taskbar", {
-    measure = function(n, max_w, max_h)
-        return max_w, TASKBAR_H
-    end,
-
-    draw = function(n, d, x, y, w, h)
-        local bands = 4
-        local bh = math.ceil(h / bands)
-        for i = 0, bands - 1 do
-            local t = i / (bands - 1)
-            local v = math.floor(20 + 25 * (1 - t))
-            d.fill_rect(x, y + i * bh, w, bh, ez.display.rgb(v, v, v + 2))
-        end
-        d.draw_hline(x, y, w, ez.display.rgb(80, 80, 85))
-
-        theme.set_font("small")
-        local fh = theme.font_height()
-        local ty = y + math.floor((h - fh) / 2)
-        local text_color = ez.display.rgb(200, 200, 205)
-
-        local shadow = ez.display.rgb(0, 0, 0)
-
-        -- Left: focused icon label
-        if focused_label and focused_label ~= "" then
-            d.draw_text(x + 7, ty + 1, focused_label, shadow)
-            d.draw_text(x + 6, ty, focused_label, ez.display.rgb(255, 255, 255))
-        end
-
-        -- Right side: time, date, battery
-        local rx = x + w - 4
-        if n.battery then
-            local bat_str = n.battery .. "%"
-            rx = rx - theme.text_width(bat_str)
-            d.draw_text(rx + 1, ty + 1, bat_str, shadow)
-            d.draw_text(rx, ty, bat_str, text_color)
-            rx = rx - 8
-        end
-        if n.date and n.date ~= "" then
-            local dw = theme.text_width(n.date)
-            rx = rx - dw
-            d.draw_text(rx + 1, ty + 1, n.date, shadow)
-            d.draw_text(rx, ty, n.date, text_color)
-            rx = rx - 10
-        end
-        if n.time and n.time ~= "" then
-            theme.set_font("medium")
-            local tw = theme.text_width(n.time)
-            rx = rx - tw
-            local time_y = y + math.floor((h - theme.font_height()) / 2)
-            d.draw_text(rx + 1, time_y + 1, n.time, shadow)
-            d.draw_text(rx, time_y, n.time, ez.display.rgb(255, 255, 255))
-        end
     end,
 })
 
@@ -265,7 +236,8 @@ function Desktop:build(state)
         children = {
             { type = "wallpaper" },
 
-            -- Icons bottom-aligned above taskbar
+            -- Icons anchored near the bottom of the wallpaper, with the
+            -- global status bar taking the top strip.
             {
                 type = "vbox", gap = 0, children = {
                     { type = "spacer", grow = 1 },
@@ -275,21 +247,7 @@ function Desktop:build(state)
                         padding = { 0, ICON_GAP_X, 0, ICON_GAP_X },
                         children = row_icons,
                     },
-                    { type = "spacer", h = TASKBAR_H + 6, grow = 0 },
-                },
-            },
-
-            -- Taskbar at bottom
-            {
-                type = "vbox", gap = 0, children = {
-                    { type = "spacer", grow = 1 },
-                    {
-                        type = "taskbar",
-                        time = state.time or "",
-                        date = state.date or "",
-                        battery = state.battery,
-                        node_id = state.node_id,
-                    },
+                    { type = "spacer", h = 12, grow = 0 },
                 },
             },
         },
@@ -297,27 +255,9 @@ function Desktop:build(state)
 end
 
 function Desktop:on_enter()
-    local time_str = ""
-    local date_str = ""
-    if ez.system.get_time then
-        local t = ez.system.get_time()
-        if t and t.hour then
-            time_str = string.format("%02d:%02d", t.hour, t.min)
-        end
-        if t and t.year and t.year > 2024 then
-            date_str = string.format("%02d/%02d/%d", t.mday or 0, t.mon or 0, t.year)
-        end
-    end
-
-    self:set_state({
-        node_id = ez.mesh.is_initialized() and ez.mesh.get_short_id() or nil,
-        battery = ez.system.get_battery_percent(),
-        time = time_str,
-        date = date_str,
-    })
-
+    -- Time, battery, and node id are now polled by the global status bar, so
+    -- this screen no longer needs its own periodic state update.
     if not wallpaper_data then
-        -- Check for custom wallpaper path set by file manager
         local custom = ez.storage.get_pref("wallpaper_path", "")
         if custom and #custom > 0 then
             load_wallpaper_path(custom)
@@ -329,40 +269,23 @@ function Desktop:on_enter()
             load_wallpaper(wallpaper_names[wallpaper_index])
         end
     end
-
-    if not self._timer then
-        self._timer = ez.system.set_interval(30000, function()
-            if ez.system.get_time then
-                local t = ez.system.get_time()
-                if t and t.hour then
-                    local ts = string.format("%02d:%02d", t.hour, t.min)
-                    local ds = ""
-                    if t.year and t.year > 2024 then
-                        ds = string.format("%02d/%02d/%d", t.mday or 0, t.mon or 0, t.year)
-                    end
-                    self:set_state({
-                        time = ts,
-                        date = ds,
-                        battery = ez.system.get_battery_percent(),
-                    })
-                end
-            end
-        end)
-    end
 end
 
-function Desktop:on_leave()
-    if self._timer then
-        ez.system.cancel_timer(self._timer)
-        self._timer = nil
-    end
-end
+-- Debounce character hotkeys. The T-Deck keyboard re-emits held keycodes
+-- every ~60ms (no release events for character keys), so a single tap fires
+-- multiple events. Swallow any repeat within the cooldown window.
+local CHAR_KEY_COOLDOWN_MS = 400
+local last_char_key = nil
+local last_char_time = 0
 
-function Desktop:on_exit()
-    if self._timer then
-        ez.system.cancel_timer(self._timer)
-        self._timer = nil
+local function char_key_debounced(ch)
+    local now = ez.system.millis()
+    if ch == last_char_key and now - last_char_time < CHAR_KEY_COOLDOWN_MS then
+        return true
     end
+    last_char_key = ch
+    last_char_time = now
+    return false
 end
 
 function Desktop:handle_key(key)
@@ -372,6 +295,7 @@ function Desktop:handle_key(key)
         return "handled"
     end
     if key.character == "w" then
+        if char_key_debounced("w") then return "handled" end
         wallpaper_index = wallpaper_index % #wallpaper_names + 1
         local name = wallpaper_names[wallpaper_index]
         ez.storage.set_pref("wallpaper", name)

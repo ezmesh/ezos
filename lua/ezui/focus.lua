@@ -5,6 +5,18 @@ local node_mod = require("ezui.node")
 
 local focus = {}
 
+-- Lazy ui_sounds hook. Requiring here at load time would create a cycle
+-- (ui_sounds pulls in ezui via boot). The lookup is cheap after the first
+-- successful require.
+local _sounds
+local function play_sound(event)
+    if not _sounds then
+        local ok, mod = pcall(require, "services.ui_sounds")
+        if ok then _sounds = mod end
+    end
+    if _sounds then _sounds.play(event) end
+end
+
 -- Current state
 focus.chain = {}     -- Ordered list of focusable nodes
 focus.index = 0      -- Currently focused index (0 = none)
@@ -32,12 +44,15 @@ function focus.current()
     return nil
 end
 
--- Move focus forward (clamp at end, don't wrap)
+-- Move focus forward (clamp at end, don't wrap). Fires a scroll/swipe
+-- sound so the user gets audible feedback while moving through lists or
+-- icon rows; ui_sounds itself gates on the user's pref.
 function focus.next()
     if #focus.chain == 0 then return end
     if focus.index < #focus.chain then
         focus.index = focus.index + 1
         focus._update_marks()
+        play_sound("tap")
     end
 end
 
@@ -47,6 +62,7 @@ function focus.prev()
     if focus.index > 1 then
         focus.index = focus.index - 1
         focus._update_marks()
+        play_sound("tap")
     end
 end
 
@@ -105,6 +121,14 @@ function focus._auto_scroll(item, scroll)
     -- Scroll up if item is above viewport
     if content_y < offset then
         scroll.scroll_offset = content_y
+    end
+
+    -- When focusing the first item in the chain, snap the scroll all the
+    -- way to 0 so any non-focusable header (section label, padding) above
+    -- the item becomes visible again. Without this the viewport stops at
+    -- the item's own top and clips whatever precedes it.
+    if focus.index == 1 and item._scroll_parent == scroll then
+        scroll.scroll_offset = 0
     end
 end
 
@@ -165,8 +189,9 @@ function focus.handle_key(key, screen)
         if result then return result end
     end
 
-    -- Default back: ESCAPE or 'q' pops the screen
-    if key.special == "ESCAPE" or key.character == "q" then
+    -- Default back: ESCAPE or the physical back-arrow key (BACKSPACE on
+    -- the T-Deck keyboard — the left-arrow icon top-right of the block).
+    if key.special == "ESCAPE" or key.special == "BACKSPACE" then
         return "pop"
     end
 

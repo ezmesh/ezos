@@ -616,7 +616,7 @@ Examples:
             import os
 
             for filepath in args.reload:
-                # Resolve module name: lua/screens/settings.lua -> screens.settings
+                # Resolve module name: lua/screens/settings/settings.lua -> screens.settings.settings
                 norm = filepath.replace('\\', '/')
                 if norm.startswith('lua/'):
                     norm = norm[4:]

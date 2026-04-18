@@ -68,8 +68,8 @@ theme.SPACING = {
 -- Screen geometry
 theme.SCREEN_W = 320
 theme.SCREEN_H = 240
-theme.STATUS_H = 20    -- Status bar height
-theme.TITLE_H  = 22    -- Title bar height
+theme.STATUS_H = 20    -- Global status bar height (always rendered at top)
+theme.TITLE_H  = 14    -- In-screen sub-bar height (back hint / right action)
 
 -- Predefined accent color presets
 theme.ACCENT_PRESETS = {
@@ -89,6 +89,20 @@ function theme.darken_rgb565(color, factor)
     local r = math.floor(math.floor(color / 2048) % 32 * factor)
     local g = math.floor(math.floor(color / 32) % 64 * factor)
     local b = math.floor(color % 32 * factor)
+    return r * 2048 + g * 32 + b
+end
+
+-- Brighten an RGB565 color by a factor (>1). Channels clamp at their max
+-- (31 for R/B, 63 for G) so strong factors won't wrap around into dim
+-- colours.
+function theme.brighten_rgb565(color, factor)
+    factor = factor or 1.2
+    local r = math.floor(math.floor(color / 2048) % 32 * factor)
+    local g = math.floor(math.floor(color / 32) % 64 * factor)
+    local b = math.floor(color % 32 * factor)
+    if r > 31 then r = 31 end
+    if g > 63 then g = 63 end
+    if b > 31 then b = 31 end
     return r * 2048 + g * 32 + b
 end
 

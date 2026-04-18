@@ -5,6 +5,40 @@ local node = require("ezui.node")
 local theme = require("ezui.theme")
 local text_util = require("ezui.text")
 local focus_mod = require("ezui.focus")
+local async = require("ezui.async")
+
+-- Lazy UI-sound hook. ui_sounds is itself gated on a user preference; it
+-- returns nil/no-op if the toggle is off, so widgets can fire events
+-- unconditionally.
+local _sounds
+local function play_sound(event)
+    if not _sounds then _sounds = require("services.ui_sounds") end
+    _sounds.play(event)
+end
+
+-- Lazy screen reference — ezui.screen requires theme/node/focus but not
+-- widgets, so a lazy require here avoids a circular load order.
+local _screen
+local function invalidate()
+    if not _screen then _screen = require("ezui.screen") end
+    _screen.invalidate()
+end
+
+-- Draw a small N-dot rotating spinner at (cx, cy) with radius r.
+-- Uses the same phase math as the full spinner widget so anywhere the
+-- effect appears it stays in sync.
+local function draw_mini_spinner(d, cx, cy, r, color, dim_color)
+    local num_dots = 4
+    local dot_r = math.max(1, math.floor(r / 3))
+    local phase = math.floor(ez.system.millis() / 150) % num_dots
+    for i = 0, num_dots - 1 do
+        local angle = (i / num_dots) * 2 * math.pi - math.pi / 2
+        local dx = cx + math.floor(r * math.cos(angle))
+        local dy = cy + math.floor(r * math.sin(angle))
+        local c = (i == phase) and color or dim_color
+        d.fill_circle(dx, dy, dot_r, c)
+    end
+end
 
 local W = {}
 
@@ -14,7 +48,7 @@ local W = {}
 
 node.register("text", {
     measure = function(n, max_w, max_h)
-        local font = n.font or "medium"
+        local font = n.font or "medium_aa"
         theme.set_font(font)
         local fh = theme.font_height()
         local str = n.value or ""
@@ -34,7 +68,7 @@ node.register("text", {
     end,
 
     draw = function(n, d, x, y, w, h)
-        local font = n.font or "medium"
+        local font = n.font or "medium_aa"
         theme.set_font(font)
         local color = theme.color(n.color or "TEXT")
         local fh = theme.font_height()
@@ -73,7 +107,7 @@ node.register("button", {
     focusable = true,
 
     measure = function(n, max_w, max_h)
-        theme.set_font(n.font or "medium")
+        theme.set_font(n.font or "medium_aa")
         local tw = theme.text_width(n.label or "")
         local pad_x = 16
         local pad_y = 6
@@ -89,7 +123,7 @@ node.register("button", {
         d.fill_round_rect(x, y, w, h, 4, bg)
         d.draw_round_rect(x, y, w, h, 4, border)
 
-        theme.set_font(n.font or "medium")
+        theme.set_font(n.font or "medium_aa")
         local label = n.label or ""
         local tw = theme.text_width(label)
         local tx = x + math.floor((w - tw) / 2)
@@ -98,6 +132,7 @@ node.register("button", {
     end,
 
     on_activate = function(n, key)
+        play_sound("button")
         if n.on_press then n.on_press() end
         return "handled"
     end,
@@ -111,7 +146,7 @@ node.register("toggle", {
     focusable = true,
 
     measure = function(n, max_w, max_h)
-        theme.set_font("medium")
+        theme.set_font("medium_aa")
         local label_w = 0
         if n.label then label_w = theme.text_width(n.label) + 8 end
         local switch_w = 32
@@ -122,7 +157,7 @@ node.register("toggle", {
     draw = function(n, d, x, y, w, h)
         local focused = n._focused
         local on = n.value or false
-        theme.set_font("medium")
+        theme.set_font("medium_aa")
 
         -- Label
         if n.label then
@@ -149,6 +184,7 @@ node.register("toggle", {
 
     on_activate = function(n, key)
         n.value = not n.value
+        play_sound(n.value and "toggle_on" or "toggle_off")
         if n.on_change then n.on_change(n.value) end
         return "handled"
     end,
@@ -162,7 +198,7 @@ node.register("text_input", {
     focusable = true,
 
     measure = function(n, max_w, max_h)
-        theme.set_font("medium")
+        theme.set_font("medium_aa")
         return max_w, theme.font_height() + 8
     end,
 
@@ -177,7 +213,7 @@ node.register("text_input", {
         d.fill_round_rect(x, y, w, h, 3, bg)
         d.draw_round_rect(x, y, w, h, 3, border)
 
-        theme.set_font("medium")
+        theme.set_font("medium_aa")
         local fh = theme.font_height()
         local tx = x + 4
         local ty = y + math.floor((h - fh) / 2)
@@ -266,6 +302,7 @@ node.register("text_input", {
             if #val < max then
                 n.value = val:sub(1, cursor) .. key.character .. val:sub(cursor + 1)
                 n._cursor = cursor + 1
+                play_sound("type")
                 if n.on_change then n.on_change(n.value) end
             end
             return "handled"
@@ -283,7 +320,7 @@ node.register("dropdown", {
     focusable = true,
 
     measure = function(n, max_w, max_h)
-        theme.set_font("medium")
+        theme.set_font("medium_aa")
         local h = theme.font_height() + 8
         if n._open then
             local items = n.options or {}
@@ -297,7 +334,7 @@ node.register("dropdown", {
         local focused = n._focused
         local options = n.options or {}
         local selected = n.value or 1
-        theme.set_font("medium")
+        theme.set_font("medium_aa")
         local fh = theme.font_height()
         local row_h = fh + 8
 
@@ -346,11 +383,18 @@ node.register("dropdown", {
             -- Confirm selection
             n.value = n._cursor or n.value or 1
             n._open = false
+            focus_mod.exit_edit()
+            play_sound("select")
             if n.on_change then n.on_change(n.value) end
         else
             n._open = true
             n._cursor = n.value or 1
             n._scroll = 0
+            -- Route all keys to the dropdown while open, and flag the
+            -- screen manager so periodic rebuilds (see focus.editing
+            -- gating) can't wipe the open state mid-interaction.
+            focus_mod.enter_edit()
+            play_sound("tap")
         end
         return "handled"
     end,
@@ -378,8 +422,18 @@ node.register("dropdown", {
                 end
             end
             return "handled"
+        elseif key.special == "ENTER" then
+            -- focus.editing intercepts ENTER before on_activate, so we
+            -- confirm the selection here directly.
+            n.value = n._cursor or n.value or 1
+            n._open = false
+            focus_mod.exit_edit()
+            play_sound("select")
+            if n.on_change then n.on_change(n.value) end
+            return "handled"
         elseif key.special == "ESCAPE" then
             n._open = false
+            focus_mod.exit_edit()
             return "handled"
         end
         return nil
@@ -394,7 +448,7 @@ node.register("list_item", {
     focusable = true,
 
     measure = function(n, max_w, max_h)
-        theme.set_font("medium")
+        theme.set_font("medium_aa")
         local fh = theme.font_height()
         -- Compact: title only, minimal padding (about half the default height).
         if n.compact then
@@ -402,7 +456,7 @@ node.register("list_item", {
         end
         local h = fh + 8  -- single line with padding
         if n.subtitle then
-            theme.set_font("small")
+            theme.set_font("small_aa")
             h = h + theme.font_height() + 2
         end
         return max_w, h
@@ -448,15 +502,15 @@ node.register("list_item", {
         local right_margin = 4
 
         -- Title
-        theme.set_font("medium")
+        theme.set_font("medium_aa")
         local fh = theme.font_height()
         local ty = compact and (y + 2) or (y + 4)
         local title = n.title or ""
         local avail = w - 8 - right_margin - icon_space
         if n.trailing then
-            theme.set_font("small")
+            theme.set_font("small_aa")
             avail = avail - theme.text_width(n.trailing) - 4
-            theme.set_font("medium")
+            theme.set_font("medium_aa")
         end
         if theme.text_width(title) > avail then
             title = text_util.truncate(title, avail)
@@ -465,14 +519,14 @@ node.register("list_item", {
 
         -- Trailing text (right-aligned)
         if n.trailing then
-            theme.set_font("small")
+            theme.set_font("small_aa")
             local tw = theme.text_width(n.trailing)
             d.draw_text(x + w - tw - right_margin, ty + 2, n.trailing, theme.color("TEXT_MUTED"))
         end
 
         -- Subtitle (suppressed in compact mode)
         if n.subtitle and not compact then
-            theme.set_font("small")
+            theme.set_font("small_aa")
             local sub = n.subtitle
             local sub_avail = w - 8 - icon_space
             if theme.text_width(sub) > sub_avail then
@@ -486,7 +540,11 @@ node.register("list_item", {
     end,
 
     on_activate = function(n, key)
-        if n.disabled then return "handled" end
+        if n.disabled then
+            play_sound("disabled")
+            return "handled"
+        end
+        play_sound("tap")
         if n.on_press then n.on_press() end
         return "handled"
     end,
@@ -521,14 +579,14 @@ node.register("slider", {
     focusable = true,
 
     measure = function(n, max_w, max_h)
-        theme.set_font("small")
+        theme.set_font("small_aa")
         local label_w = 0
         if n.label then
-            theme.set_font("medium")
+            theme.set_font("medium_aa")
             label_w = theme.text_width(n.label) + 8
         end
         -- Value text width (e.g. "255")
-        theme.set_font("small")
+        theme.set_font("small_aa")
         local val_w = theme.text_width("255") + 8
         local h = math.max(theme.font_height() + 8, 20)
         return max_w, h
@@ -544,14 +602,14 @@ node.register("slider", {
         -- Label on the left
         local track_x = x
         if n.label then
-            theme.set_font("medium")
+            theme.set_font("medium_aa")
             local label_color = focused and theme.color("ACCENT") or theme.color("TEXT")
             d.draw_text(x + 2, y + math.floor((h - theme.font_height()) / 2), n.label, label_color)
             track_x = x + theme.text_width(n.label) + 10
         end
 
         -- Value text on the right
-        theme.set_font("small")
+        theme.set_font("small_aa")
         local val_str = tostring(math.floor(value))
         local val_w = theme.text_width(val_str)
         local val_x = x + w - val_w - 2
@@ -615,35 +673,67 @@ node.register("status_bar", {
 
     draw = function(n, d, x, y, w, h)
         d.fill_rect(x, y, w, h, theme.color("STATUS_BG"))
-        theme.set_font("small")
+        theme.set_font("small_aa")
         local fh = theme.font_height()
         local ty = y + math.floor((h - fh) / 2)
+        local muted = theme.color("TEXT_MUTED")
+        local sec = theme.color("TEXT_SEC")
 
-        -- Node ID (left)
-        if n.node_id then
-            d.draw_text(x + 4, ty, n.node_id, theme.color("TEXT_SEC"))
-        end
+        -- Right cluster: clock | battery | gps | wifi | spinner
+        -- Items are placed right-to-left so whichever are present pack
+        -- neatly against the right edge.
+        local rx = x + w - 4
 
-        -- Time (right)
         if n.time then
             local tw = theme.text_width(n.time)
-            d.draw_text(x + w - tw - 4, ty, n.time, theme.color("TEXT_SEC"))
+            rx = rx - tw
+            d.draw_text(rx, ty, n.time, sec)
+            rx = rx - 6
         end
 
-        -- Battery icon (right of center)
         if n.battery then
-            local bx = x + w - 50
-            d.draw_battery(bx, y + 4, n.battery, theme.color("TEXT_SEC"))
+            rx = rx - 20
+            d.draw_battery(rx, y + 5, n.battery)
+            rx = rx - 4
         end
 
-        -- Radio indicator
-        if n.radio_ok ~= nil then
-            local rx = x + 60
-            if n.radio_ok then
-                d.draw_signal(rx, y + 4, n.signal_bars or 0, theme.color("SUCCESS"))
-            else
-                theme.set_font("small")
-                d.draw_text(rx, ty, "!RF", theme.color("ERROR"))
+        if n.gps_bars then
+            rx = rx - 11
+            d.draw_gps(rx, y + 5, n.gps_bars)
+            rx = rx - 4
+        end
+
+        if n.wifi_bars then
+            rx = rx - 11
+            d.draw_wifi(rx, y + 5, n.wifi_bars)
+            rx = rx - 4
+        end
+
+        if async.is_busy() then
+            rx = rx - 12
+            draw_mini_spinner(d, rx + 6, y + math.floor(h / 2), 5,
+                theme.color("ACCENT"), theme.color("SURFACE_ALT"))
+            rx = rx - 4
+            invalidate()
+        end
+
+        -- Left: radio status (!RF if radio failed, otherwise the node ID)
+        local lx = x + 4
+        if n.radio_ok == false then
+            d.draw_text(lx, ty, "!RF", theme.color("ERROR"))
+            lx = lx + theme.text_width("!RF") + 6
+        elseif n.node_id then
+            d.draw_text(lx, ty, n.node_id, muted)
+            lx = lx + theme.text_width(n.node_id) + 6
+        end
+
+        -- Center: screen title. Only draw if it actually fits between the
+        -- left cluster and the right cluster without overlap.
+        if n.title and n.title ~= "" then
+            local tw = theme.text_width(n.title)
+            local cx = x + math.floor((w - tw) / 2)
+            if cx >= lx and cx + tw <= rx then
+                d.draw_text(cx, ty, n.title, sec)
             end
         end
 
@@ -656,6 +746,10 @@ node.register("status_bar", {
 -- TitleBar: screen title with optional back hint
 -- ---------------------------------------------------------------------------
 
+-- Title bar: compact sub-bar under the global status bar. Hosts a left-
+-- pointing back-arrow glyph (paired with the T-Deck's physical back key)
+-- followed by "Back", plus an optional right-aligned action string.
+-- The arrow is drawn as primitives since the AA font charset is ASCII.
 node.register("title_bar", {
     measure = function(n, max_w, max_h)
         return max_w, theme.TITLE_H
@@ -663,22 +757,25 @@ node.register("title_bar", {
 
     draw = function(n, d, x, y, w, h)
         d.fill_rect(x, y, w, h, theme.color("SURFACE"))
-        theme.set_font("medium")
+        theme.set_font("small_aa")
         local fh = theme.font_height()
         local ty = y + math.floor((h - fh) / 2)
+        local muted = theme.color("TEXT_MUTED")
 
-        -- Title centered
-        local title = n.title or ""
-        local tw = theme.text_width(title)
-        d.draw_text(x + math.floor((w - tw) / 2), ty, title, theme.color("TEXT"))
-
-        -- Back hint (left)
         if n.back then
-            theme.set_font("small")
-            d.draw_text(x + 4, ty + 1, "q Back", theme.color("TEXT_MUTED"))
+            -- Back arrow glyph: triangle head + short shaft.
+            local cy = y + math.floor(h / 2)
+            local ax = x + 6
+            d.fill_triangle(ax, cy, ax + 4, cy - 3, ax + 4, cy + 3, muted)
+            d.draw_hline(ax + 4, cy, 4, muted)
+            d.draw_text(ax + 12, ty, "Back", muted)
         end
 
-        -- Bottom border
+        if n.right then
+            local rw = theme.text_width(n.right)
+            d.draw_text(x + w - rw - 4, ty, n.right, theme.color("TEXT_SEC"))
+        end
+
         d.draw_hline(x, y + h - 1, w, theme.color("BORDER"))
     end,
 })
@@ -712,8 +809,10 @@ node.register("spinner", {
             d.fill_circle(dx, dy, dot_r, c)
         end
 
-        -- Mark screen dirty so the animation keeps running
-        n._animating = true
+        -- Keep the screen dirty so the animation actually advances.
+        -- screen.render() is throttled by frame_interval so this doesn't
+        -- redraw faster than the configured FPS.
+        invalidate()
     end,
 })
 

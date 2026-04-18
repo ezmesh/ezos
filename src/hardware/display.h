@@ -150,10 +150,14 @@ private:
 
 // Font size options for TUI
 enum class FontSize : uint8_t {
-    TINY = 0,    // FreeSans7pt - proportional sans-serif (~7x12)
-    SMALL = 1,   // FreeMono9pt - compact (6x12), full UTF-8
-    MEDIUM = 2,  // FreeMono12pt - balanced (7x16), default
-    LARGE = 3    // FreeMono18pt - easier to read (11x24)
+    TINY = 0,        // FreeSans7pt - proportional sans-serif (~7x12)
+    SMALL = 1,       // FreeMono9pt - compact (6x12), full UTF-8
+    MEDIUM = 2,      // FreeMono12pt - balanced (7x16), default
+    LARGE = 3,       // FreeMono18pt - easier to read (11x24)
+    // Anti-aliased Inter variants — pre-rasterised grayscale glyphs.
+    SMALL_AA = 4,    // Inter 11px
+    MEDIUM_AA = 5,   // Inter 13px
+    LARGE_AA = 6,    // Inter 17px
 };
 
 // Font metrics for each size
@@ -226,6 +230,13 @@ public:
 
     // Radio signal indicator
     void drawSignal(int x, int y, int bars);  // 0-4 bars
+
+    // WiFi signal indicator: three ascending bars (0-3 lit) in cyan.
+    void drawWifi(int x, int y, int bars);
+
+    // GPS fix indicator: three ascending bars (0-3 lit) in orange, with a
+    // small dot above the bars to distinguish it from wifi.
+    void drawGps(int x, int y, int bars);
 
     // Pixel-level access (for custom graphics)
     void drawPixel(int x, int y, uint16_t color);
@@ -309,6 +320,8 @@ private:
     FontSize _fontSize = FontSize::MEDIUM;
     int _fontWidth = 8;
     int _fontHeight = 16;
+    // Set when an AA font is active; drawText/textWidth route through it.
+    const void* _aaFont = nullptr;
 
     void drawBoxChar(int x, int y, char boxChar, uint16_t color);
 

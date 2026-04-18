@@ -136,6 +136,12 @@ LUA_FUNCTION(l_display_set_font_size) {
         size = FontSize::SMALL;
     } else if (strcmp(sizeStr, "large") == 0) {
         size = FontSize::LARGE;
+    } else if (strcmp(sizeStr, "small_aa") == 0) {
+        size = FontSize::SMALL_AA;
+    } else if (strcmp(sizeStr, "medium_aa") == 0) {
+        size = FontSize::MEDIUM_AA;
+    } else if (strcmp(sizeStr, "large_aa") == 0) {
+        size = FontSize::LARGE_AA;
     }
 
     if (display) {
@@ -800,6 +806,38 @@ LUA_FUNCTION(l_display_draw_signal) {
     return 0;
 }
 
+// @lua ez.display.draw_wifi(x, y, bars)
+// @brief Draw a WiFi signal strength icon (3 ascending cyan bars).
+// @param x X position in pixels
+// @param y Y position in pixels
+// @param bars Signal strength (0-3 bars filled)
+// @end
+LUA_FUNCTION(l_display_draw_wifi) {
+    LUA_CHECK_ARGC(L, 3);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int bars = luaL_checkinteger(L, 3);
+    bars = constrain(bars, 0, 3);
+    if (display) display->drawWifi(x, y, bars);
+    return 0;
+}
+
+// @lua ez.display.draw_gps(x, y, bars)
+// @brief Draw a GPS fix indicator (3 ascending orange bars + satellite dot).
+// @param x X position in pixels
+// @param y Y position in pixels
+// @param bars Fix quality (0-3 bars filled)
+// @end
+LUA_FUNCTION(l_display_draw_gps) {
+    LUA_CHECK_ARGC(L, 3);
+    int x = luaL_checkinteger(L, 1);
+    int y = luaL_checkinteger(L, 2);
+    int bars = luaL_checkinteger(L, 3);
+    bars = constrain(bars, 0, 3);
+    if (display) display->drawGps(x, y, bars);
+    return 0;
+}
+
 // @lua ez.display.text_width(text) -> integer
 // @brief Get pixel width of text string
 // @description Calculates the width in pixels that the given text would occupy when
@@ -1039,12 +1077,18 @@ LUA_FUNCTION(l_display_draw_indexed_bitmap) {
     size_t dataLen;
     const uint8_t* data = (const uint8_t*)luaL_checklstring(L, 5, &dataLen);
 
-    // Get palette table (8 RGB565 colors)
+    // Get palette table (8 RGB565 colors).
+    // The TFT panel expects big-endian RGB565 on the SPI wire. fillRect swaps
+    // internally; pushImage (used by drawBitmap below) does not, so we
+    // pre-swap each palette entry once. Without this, WATER (0xA69E) draws as
+    // 0x9EA6 — a saturated lime green — which is exactly what issue-reports
+    // of "coastline flipped, water is green" turned out to be.
     luaL_checktype(L, 6, LUA_TTABLE);
     uint16_t palette[8];
     for (int i = 0; i < 8; i++) {
         lua_rawgeti(L, 6, i + 1);  // Lua arrays are 1-indexed
-        palette[i] = lua_tointeger(L, -1);
+        uint16_t c = (uint16_t)lua_tointeger(L, -1);
+        palette[i] = (c >> 8) | (c << 8);
         lua_pop(L, 1);
     }
 
@@ -1177,12 +1221,14 @@ LUA_FUNCTION(l_display_draw_indexed_bitmap_scaled) {
     size_t dataLen;
     const uint8_t* data = (const uint8_t*)luaL_checklstring(L, 5, &dataLen);
 
-    // Get palette table
+    // Get palette table. Pre-swap to BE RGB565 — see the comment in
+    // l_display_draw_indexed_bitmap for the byte-order rationale.
     luaL_checktype(L, 6, LUA_TTABLE);
     uint16_t palette[8];
     for (int i = 0; i < 8; i++) {
         lua_rawgeti(L, 6, i + 1);
-        palette[i] = lua_tointeger(L, -1);
+        uint16_t c = (uint16_t)lua_tointeger(L, -1);
+        palette[i] = (c >> 8) | (c << 8);
         lua_pop(L, 1);
     }
 
@@ -1903,6 +1949,8 @@ static const luaL_Reg display_funcs[] = {
     {"draw_progress",     l_display_draw_progress},
     {"draw_battery",      l_display_draw_battery},
     {"draw_signal",       l_display_draw_signal},
+    {"draw_wifi",         l_display_draw_wifi},
+    {"draw_gps",          l_display_draw_gps},
     {"text_width",        l_display_text_width},
     {"rgb",               l_display_rgb},
     {"get_width",         l_display_get_width},

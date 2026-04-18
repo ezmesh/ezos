@@ -353,10 +353,10 @@ Push screens using the ezui API:
 
 ```bash
 # Push a screen loaded from LittleFS
-python ez_remote.py /dev/ttyACM0 -e "local ui = require('ezui'); ui.push_screen('\$screens/messages.lua')"
+python ez_remote.py /dev/ttyACM0 -e "local ui = require('ezui'); ui.push_screen('\$screens/chat/messages.lua')"
 
 # Push a screen from a require()'d module
-python ez_remote.py /dev/ttyACM0 -e "local ui = require('ezui'); local s = require('ezui.screen'); local def = require('screens.contacts'); s.push(s.create(def, {}))"
+python ez_remote.py /dev/ttyACM0 -e "local ui = require('ezui'); local s = require('ezui.screen'); local def = require('screens.chat.contacts'); s.push(s.create(def, {}))"
 
 # Pop current screen (go back)
 python ez_remote.py /dev/ttyACM0 -e "require('ezui.screen').pop()"

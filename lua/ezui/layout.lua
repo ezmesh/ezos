@@ -5,6 +5,15 @@
 local node = require("ezui.node")
 local theme = require("ezui.theme")
 
+-- Lazy shadows import; ezui.shadows requires nothing in this module, but
+-- loading it at module top would force every ezui user to pull the PNG
+-- data even on screens that don't scroll.
+local _shadows
+local function get_shadows()
+    if not _shadows then _shadows = require("ezui.shadows") end
+    return _shadows
+end
+
 local layout = {}
 
 -- Helper: resolve padding shorthand
@@ -283,6 +292,12 @@ node.register("scroll", {
             local thumb_y = y + math.floor(offset * (bar_h - thumb_h) / max_scroll)
             d.fill_rect(bar_x, y, 3, bar_h, theme.color("SCROLLBAR"))
             d.fill_rect(bar_x, thumb_y, 3, thumb_h, theme.color("SCROLLBAR_T"))
+
+            -- Edge shadows hint "more above/below" when content is
+            -- clipped in that direction.
+            local shadows = get_shadows()
+            shadows.draw_scroll_edges(d, x, y, w - 3, h,
+                offset > 0, offset < max_scroll)
         end
     end,
 })

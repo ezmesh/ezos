@@ -4,7 +4,33 @@
 #include <SD.h>
 #include <SPI.h>
 #include "../fonts/FreeSans7pt7b.h"
+#include "../fonts/InterAA11.h"
+#include "../fonts/InterAA13.h"
+#include "../fonts/InterAA17.h"
+#include "aa_font.h"
 #include "../config.h"
+
+// Build a shared `aa_font::Font` view over each generated header. The per-
+// header Glyph layout matches aa_font::Glyph byte-for-byte, so we cast the
+// arrays directly. Ascent and y_advance come from the generator.
+static const aa_font::Font AA_FONT_SMALL = {
+    InterAA11::alpha_data,
+    reinterpret_cast<const aa_font::Glyph*>(InterAA11::glyphs),
+    InterAA11::first_char, InterAA11::last_char,
+    InterAA11::ascent, InterAA11::y_advance,
+};
+static const aa_font::Font AA_FONT_MEDIUM = {
+    InterAA13::alpha_data,
+    reinterpret_cast<const aa_font::Glyph*>(InterAA13::glyphs),
+    InterAA13::first_char, InterAA13::last_char,
+    InterAA13::ascent, InterAA13::y_advance,
+};
+static const aa_font::Font AA_FONT_LARGE = {
+    InterAA17::alpha_data,
+    reinterpret_cast<const aa_font::Glyph*>(InterAA17::glyphs),
+    InterAA17::first_char, InterAA17::last_char,
+    InterAA17::ascent, InterAA17::y_advance,
+};
 
 // Font metrics for each size
 // TINY uses proportional FreeSans for readability at small sizes;
@@ -102,6 +128,12 @@ void Display::drawText(int x, int y, const char* text, uint16_t color) {
         _capturedTextCount++;
     }
 
+    if (_aaFont) {
+        const aa_font::Font& f = *static_cast<const aa_font::Font*>(_aaFont);
+        aa_font::drawText(_buffer, x, y, text, color, f);
+        return;
+    }
+
     _buffer.setTextColor(color);
     _buffer.setCursor(x, y);
     _buffer.print(text);
@@ -123,14 +155,34 @@ void Display::drawChar(int x, int y, char c, uint16_t color) {
 
 int Display::textWidth(const char* text) {
     if (!text) return 0;
+    if (_aaFont) {
+        return aa_font::textWidth(text,
+            *static_cast<const aa_font::Font*>(_aaFont));
+    }
     return _buffer.textWidth(text);
 }
 
 void Display::setFontSize(FontSize size) {
+    _fontSize = size;
+
+    const aa_font::Font* aa = nullptr;
+    switch (size) {
+        case FontSize::SMALL_AA:  aa = &AA_FONT_SMALL;  break;
+        case FontSize::MEDIUM_AA: aa = &AA_FONT_MEDIUM; break;
+        case FontSize::LARGE_AA:  aa = &AA_FONT_LARGE;  break;
+        default: break;
+    }
+
+    if (aa) {
+        _aaFont = aa;
+        _fontWidth = aa->glyphs['x' - aa->first].adv;  // advance of 'x'
+        _fontHeight = aa->y_advance;
+        return;
+    }
+
+    _aaFont = nullptr;
     int idx = static_cast<int>(size);
     if (idx < 0 || idx > 3) idx = 2;  // Default to MEDIUM
-
-    _fontSize = size;
     _fontWidth = FONT_METRICS[idx].width;
     _fontHeight = FONT_METRICS[idx].height;
     _buffer.setFont(FONT_METRICS[idx].font);
@@ -309,31 +361,33 @@ void Display::drawProgressBar(int x, int y, int w, int h, float progress,
 }
 
 void Display::drawBattery(int x, int y, uint8_t percent) {
-    // Battery icon: [####] style
+    // Graphical pill-shaped battery with three vertical fill segments.
+    // Footprint: 20×10 px (18 body + 2 nub).
+    if (percent > 100) percent = 100;
 
-    // Draw battery outline
-    drawText(x, y, "[", Colors::BORDER);
-    drawText(x + 5 * _fontWidth, y, "]", Colors::BORDER);
+    const int bodyW = 18;
+    const int bodyH = 10;
+    const uint16_t frame = Colors::LIGHT_GRAY;
 
-    // Calculate fill level (4 positions)
-    int fillChars = (percent * 4) / 100;
-    if (percent > 0 && fillChars == 0) fillChars = 1;  // Show at least 1 bar if not empty
+    _buffer.drawRect(x, y, bodyW, bodyH, frame);
+    _buffer.fillRect(x + bodyW, y + 3, 2, 4, frame);
 
-    // Choose color based on level
-    uint16_t color = Colors::GREEN;
-    if (percent <= 20) {
-        color = Colors::RED;
-    } else if (percent <= 40) {
-        color = Colors::YELLOW;
-    }
+    uint16_t fill;
+    if (percent <= 15)      fill = Colors::RED;
+    else if (percent <= 35) fill = Colors::YELLOW;
+    else                    fill = Colors::GREEN;
 
-    // Draw fill bars
-    for (int i = 0; i < 4; i++) {
-        if (i < fillChars) {
-            drawText(x + (1 + i) * _fontWidth, y, "#", color);
-        } else {
-            drawText(x + (1 + i) * _fontWidth, y, "-", Colors::DARK_GRAY);
-        }
+    int filled;
+    if      (percent > 66) filled = 3;
+    else if (percent > 33) filled = 2;
+    else if (percent > 5)  filled = 1;
+    else                   filled = 0;
+
+    const int segW = 4;
+    const int segH = 6;
+    for (int i = 0; i < filled; i++) {
+        int sx = x + 2 + i * (segW + 1);
+        _buffer.fillRect(sx, y + 2, segW, segH, fill);
     }
 }
 
@@ -353,6 +407,38 @@ void Display::drawSignal(int x, int y, int bars) {
         uint16_t color = (i < bars) ? Colors::GREEN : Colors::DARK_GRAY;
         _buffer.fillRect(bx, by, barWidth, barHeight, color);
     }
+}
+
+// Internal helper: three ascending bars (widths 3, heights 3/6/9).
+// Footprint: 11×10 px — bars occupy the bottom 9 rows.
+static void drawThreeBars(LGFX_Sprite& buf, int x, int y, int bars,
+                          uint16_t fg, uint16_t dim) {
+    const int barW = 3;
+    const int gap = 1;
+    for (int i = 0; i < 3; i++) {
+        int bh = 3 + i * 3;                // 3, 6, 9
+        int bx = x + i * (barW + gap);
+        int by = y + 1 + (9 - bh);
+        uint16_t c = (i < bars) ? fg : dim;
+        buf.fillRect(bx, by, barW, bh, c);
+    }
+}
+
+void Display::drawWifi(int x, int y, int bars) {
+    if (bars < 0) bars = 0;
+    if (bars > 3) bars = 3;
+    drawThreeBars(_buffer, x, y, bars, Colors::CYAN, Colors::DARK_GRAY);
+}
+
+void Display::drawGps(int x, int y, int bars) {
+    if (bars < 0) bars = 0;
+    if (bars > 3) bars = 3;
+    // Small dot above the bars marks this as "GPS" vs "WiFi" even when
+    // colors are not obvious at small sizes.
+    uint16_t accent = Colors::ORANGE;
+    uint16_t dim = Colors::DARK_GRAY;
+    _buffer.fillRect(x + 4, y - 1, 2, 2, (bars > 0) ? accent : dim);
+    drawThreeBars(_buffer, x, y, bars, accent, dim);
 }
 
 void Display::drawPixel(int x, int y, uint16_t color) {

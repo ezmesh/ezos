@@ -80,7 +80,8 @@ def get_layer(tile_data: dict, name: str) -> Optional[dict]:
     return None
 
 
-def scale_coords(coords: List, extent: int, tile_size: int = TILE_SIZE, offset: float = 0.0) -> List:
+def scale_coords(coords: List, extent: int, tile_size: int = TILE_SIZE, offset: float = 0.0,
+                 mvt_dx: float = 0.0, mvt_dy: float = 0.0) -> List:
     """Scale MVT tile-extent coordinates to pixel coordinates. Y is down in
     both frames — this function does NOT flip. (See git blame on 48ad897 for
     the regression caused by accidentally flipping in one axis.)
@@ -88,42 +89,51 @@ def scale_coords(coords: List, extent: int, tile_size: int = TILE_SIZE, offset: 
     ``offset`` shifts the output by a fixed number of pixels on both axes.
     Used by render_vector_tile to draw on a RENDER_SIZE canvas where the
     visible TILE_SIZE square is inset by RENDER_HALO.
+
+    ``mvt_dx`` / ``mvt_dy`` shift input coordinates *before* scaling. Used to
+    render a neighbor tile's geometry in the target tile's frame: for the
+    south neighbor (+1 in tile-y), pass ``mvt_dy=+extent``; for the east
+    neighbor pass ``mvt_dx=+extent``; etc. Negative values for N/W neighbors.
+    Lets us close the seam where MVT's tiny per-tile clip buffer (~20 units)
+    produces different polygon edges on each side of a boundary.
     """
     scale = tile_size / extent
     if isinstance(coords[0], (list, tuple)):
-        return [scale_coords(c, extent, tile_size, offset) for c in coords]
-    return [coords[0] * scale + offset, coords[1] * scale + offset]
+        return [scale_coords(c, extent, tile_size, offset, mvt_dx, mvt_dy) for c in coords]
+    return [(coords[0] + mvt_dx) * scale + offset,
+            (coords[1] + mvt_dy) * scale + offset]
 
 
 def render_polygon(draw: ImageDraw, geometry: dict, extent: int, color: int,
-                   offset: float = 0.0):
+                   offset: float = 0.0, mvt_dx: float = 0.0, mvt_dy: float = 0.0):
     coords = geometry.get("coordinates", [])
     if not coords:
         return
     for ring in coords:
         if isinstance(ring[0][0], (list, tuple)):
             for poly in ring:
-                scaled = scale_coords(poly, extent, offset=offset)
+                scaled = scale_coords(poly, extent, offset=offset, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
                 if len(scaled) >= 3:
                     draw.polygon([(p[0], p[1]) for p in scaled], fill=color)
         else:
-            scaled = scale_coords(ring, extent, offset=offset)
+            scaled = scale_coords(ring, extent, offset=offset, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
             if len(scaled) >= 3:
                 draw.polygon([(p[0], p[1]) for p in scaled], fill=color)
 
 
 def render_line(draw: ImageDraw, geometry: dict, extent: int, color: int,
-                width: float, offset: float = 0.0):
+                width: float, offset: float = 0.0,
+                mvt_dx: float = 0.0, mvt_dy: float = 0.0):
     coords = geometry.get("coordinates", [])
     if not coords:
         return
     if isinstance(coords[0][0], (list, tuple)):
         for line in coords:
-            scaled = scale_coords(line, extent, offset=offset)
+            scaled = scale_coords(line, extent, offset=offset, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
             if len(scaled) >= 2:
                 draw.line([(p[0], p[1]) for p in scaled], fill=color, width=max(1, int(width)))
     else:
-        scaled = scale_coords(coords, extent, offset=offset)
+        scaled = scale_coords(coords, extent, offset=offset, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
         if len(scaled) >= 2:
             draw.line([(p[0], p[1]) for p in scaled], fill=color, width=max(1, int(width)))
 

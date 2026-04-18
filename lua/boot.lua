@@ -114,6 +114,9 @@ local function boot_sequence()
     local dm_svc = require("services.direct_messages")
     dm_svc.init()
 
+    local ui_sounds = require("services.ui_sounds")
+    ui_sounds.init()
+
     -- GPS: start the background clock-sync loop. Respects the user's
     -- "never / at boot / hourly" preference; does nothing if GPS is disabled.
     local gps_svc = require("services.gps")

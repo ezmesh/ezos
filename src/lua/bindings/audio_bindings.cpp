@@ -37,6 +37,19 @@ static volatile uint32_t toneEndTime = 0;
 static volatile bool toneHasDuration = false;
 static volatile uint8_t audioVolume = 100;  // 0-100 volume level
 
+// What the audio task should be doing each iteration.
+// `Off` parks the task; blocking play_wav/play_mp3/play_sample set this so
+// the task doesn't race the calling thread on the I2S bus.
+enum class AudioMode : uint8_t { Off = 0, Tone = 1, Sample = 2 };
+static volatile AudioMode audioMode = AudioMode::Off;
+
+// Async sample playback state, populated by play_preloaded_async and drained
+// by audioTask.
+static const int16_t* asyncSampleData = nullptr;
+static volatile size_t asyncSampleLen = 0;
+static volatile size_t asyncSamplePos = 0;
+static volatile uint32_t asyncSampleRate = 22050;
+
 static bool initI2S() {
     if (i2sInitialized) return true;
 
@@ -78,19 +91,25 @@ static bool initI2S() {
     return true;
 }
 
-// Background audio generation task
+// Background audio generation task. Dispatches on audioMode so the same
+// worker can synthesise a tone (Tone mode) or stream a preloaded sample
+// (Sample mode). Blocking play_* functions set mode to Off so they can
+// write directly to I2S without racing this task.
 static void audioTask(void* param) {
     float phase = 0;
     int16_t samples[256];
 
     while (true) {
-        // Check if timed tone should end
-        if (toneHasDuration && audioRunning && millis() >= toneEndTime) {
+        AudioMode mode = audioMode;
+
+        // End timed tones.
+        if (mode == AudioMode::Tone && toneHasDuration && audioRunning
+            && millis() >= toneEndTime) {
             audioRunning = false;
             toneHasDuration = false;
         }
 
-        if (audioRunning) {
+        if (mode == AudioMode::Tone && audioRunning) {
             uint32_t freq = audioFrequency;
             float phaseIncrement = 2.0f * M_PI * freq / SAMPLE_RATE;
             float volumeScale = audioVolume / 100.0f;
@@ -105,6 +124,39 @@ static void audioTask(void* param) {
 
             size_t bytes_written;
             i2s_write(I2S_PORT, samples, sizeof(samples), &bytes_written, portMAX_DELAY);
+        } else if (mode == AudioMode::Sample) {
+            if (!asyncSampleData || asyncSamplePos >= asyncSampleLen) {
+                audioMode = AudioMode::Off;
+                int16_t silence[256] = {0};
+                size_t written;
+                i2s_write(I2S_PORT, silence, sizeof(silence), &written, 10);
+                continue;
+            }
+
+            float volumeScale = audioVolume / 100.0f;
+            size_t remain = asyncSampleLen - asyncSamplePos;
+
+            if (asyncSampleRate == SAMPLE_RATE) {
+                size_t chunk = remain < 256 ? remain : 256;
+                for (size_t i = 0; i < chunk; i++) {
+                    samples[i] = (int16_t)(asyncSampleData[asyncSamplePos + i] * volumeScale);
+                }
+                asyncSamplePos += chunk;
+                size_t written;
+                i2s_write(I2S_PORT, samples, chunk * 2, &written, portMAX_DELAY);
+            } else {
+                // 22050Hz source — duplicate each sample for 2x upsample to 44100Hz.
+                size_t chunk = remain < 128 ? remain : 128;
+                int16_t up[256];
+                for (size_t i = 0; i < chunk; i++) {
+                    int16_t s = (int16_t)(asyncSampleData[asyncSamplePos + i] * volumeScale);
+                    up[i * 2] = s;
+                    up[i * 2 + 1] = s;
+                }
+                asyncSamplePos += chunk;
+                size_t written;
+                i2s_write(I2S_PORT, up, chunk * 4, &written, portMAX_DELAY);
+            }
         } else {
             vTaskDelay(10 / portTICK_PERIOD_MS);
         }
@@ -130,6 +182,8 @@ static void ensureAudioTask() {
 static void stopAudio() {
     audioRunning = false;
     toneHasDuration = false;
+    audioMode = AudioMode::Off;
+    asyncSamplePos = asyncSampleLen;
 
     if (i2sInitialized) {
         int16_t silence[256] = {0};
@@ -168,6 +222,7 @@ LUA_FUNCTION(l_audio_play_tone) {
     toneEndTime = millis() + duration;
     toneHasDuration = true;
     audioRunning = true;
+    audioMode = AudioMode::Tone;
 
     lua_pushboolean(L, true);
     return 1;
@@ -200,7 +255,8 @@ LUA_FUNCTION(l_audio_stop) {
 // print("Tone finished!")
 // @end
 LUA_FUNCTION(l_audio_is_playing) {
-    lua_pushboolean(L, audioRunning);
+    bool playing = audioRunning || audioMode == AudioMode::Sample;
+    lua_pushboolean(L, playing);
     return 1;
 }
 
@@ -231,6 +287,7 @@ LUA_FUNCTION(l_audio_beep) {
     offMs = constrain(offMs, 10, 500);
 
     ensureAudioTask();
+    audioMode = AudioMode::Tone;
 
     for (int i = 0; i < count; i++) {
         audioFrequency = frequency;
@@ -293,6 +350,7 @@ LUA_FUNCTION(l_audio_start) {
     ensureAudioTask();
     toneHasDuration = false;
     audioRunning = true;
+    audioMode = AudioMode::Tone;
     return 0;
 }
 
@@ -352,6 +410,7 @@ LUA_FUNCTION(l_audio_play_sample) {
 
     // Stop any running audio first
     audioRunning = false;
+    audioMode = AudioMode::Off;
 
     // Build full path
     String path = "/sounds/";
@@ -498,6 +557,7 @@ LUA_FUNCTION(l_audio_play_wav) {
 
     // Stop any running audio
     audioRunning = false;
+    audioMode = AudioMode::Off;
 
     // Determine file source (SD card or LittleFS)
     File file;
@@ -616,8 +676,11 @@ struct PreloadedSample {
     bool valid;
 };
 
-// Maximum preloaded samples
-static constexpr size_t MAX_PRELOADED = 8;
+// Maximum preloaded samples. Bumped from 8 so the ui_sounds service can
+// keep every SND01 variant (5 tap + 5 swipe + 5 type + one-shots) in PSRAM
+// without evicting anything. Each slot is just a pointer + metadata; the
+// backing samples live in PSRAM and total well under 1 MB.
+static constexpr size_t MAX_PRELOADED = 32;
 static PreloadedSample preloadedSamples[MAX_PRELOADED] = {0};
 
 // Find a free preload slot or return -1
@@ -711,6 +774,7 @@ LUA_FUNCTION(l_audio_play_mp3) {
 
     // Stop any running audio
     audioRunning = false;
+    audioMode = AudioMode::Off;
     mp3Playing = false;
 
     // Determine file source
@@ -962,6 +1026,7 @@ LUA_FUNCTION(l_audio_play_preloaded) {
 
     // Stop any running audio
     audioRunning = false;
+    audioMode = AudioMode::Off;
 
     PreloadedSample& sample = preloadedSamples[slot];
     float volumeScale = audioVolume / 100.0f;
@@ -1003,6 +1068,49 @@ LUA_FUNCTION(l_audio_play_preloaded) {
     return 1;
 }
 
+// @lua ez.audio.play_preloaded_async(handle) -> boolean
+// @brief Play a preloaded sample without blocking.
+// @description Starts playback on the background audio task and returns
+// immediately. Subsequent calls replace the currently-playing sample, which
+// is appropriate for UI click/tap feedback where only the most recent sound
+// needs to complete. Use is_playing() to check whether a sample is still
+// streaming.
+// @param handle Handle returned by preload()
+// @return true if playback started, false if handle is invalid
+// @example
+// local click = ez.audio.preload("tap_01.pcm")
+// -- Fire and forget — UI stays responsive
+// ez.audio.play_preloaded_async(click)
+// @end
+LUA_FUNCTION(l_audio_play_preloaded_async) {
+    LUA_CHECK_ARGC(L, 1);
+    int handle = luaL_checkinteger(L, 1);
+    int slot = handle - 1;
+
+    if (slot < 0 || slot >= MAX_PRELOADED || !preloadedSamples[slot].valid) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    if (!initI2S()) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    ensureAudioTask();
+
+    PreloadedSample& s = preloadedSamples[slot];
+    asyncSampleData = s.samples;
+    asyncSampleLen = s.sampleCount;
+    asyncSamplePos = 0;
+    asyncSampleRate = s.sampleRate;
+    audioRunning = false;
+    audioMode = AudioMode::Sample;
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
 // @lua ez.audio.unload(handle)
 // @brief Free a preloaded audio sample
 // @description Releases the memory used by a preloaded sample. Call this when
@@ -1030,6 +1138,7 @@ static const luaL_Reg audio_funcs[] = {
     {"play",          l_audio_play},
     {"preload",       l_audio_preload},
     {"play_preloaded", l_audio_play_preloaded},
+    {"play_preloaded_async", l_audio_play_preloaded_async},
     {"unload",        l_audio_unload},
     {"play_wav",      l_audio_play_wav},
     {"play_mp3",      l_audio_play_mp3},

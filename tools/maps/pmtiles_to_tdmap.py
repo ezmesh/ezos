@@ -77,7 +77,9 @@ from labels import extract_labels
 
 
 def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int = 0,
-                       land_mask: LandMask = None) -> Image.Image:
+                       land_mask: LandMask = None,
+                       neighbour_tiles: Optional[Dict[Tuple[int, int], bytes]] = None,
+                       ) -> Image.Image:
     """
     Render a vector tile to an indexed PIL Image.
 
@@ -90,6 +92,11 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
         tile_x: Tile X coordinate (for land mask lookup)
         tile_y: Tile Y coordinate (for land mask lookup)
         land_mask: Optional LandMask instance for background detection
+        neighbour_tiles: Optional dict ``{(dx, dy): raw_mvt_bytes}`` for any
+            subset of the 8 surrounding tiles. Their geometry is drawn into
+            this tile's halo (translated by ``±extent`` in MVT coords) so
+            polygon and line features stitch across tile boundaries. Pass an
+            empty dict or ``None`` to render the current tile in isolation.
 
     Returns:
         Indexed PIL Image (256x256) with values 0-7
@@ -110,6 +117,18 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
         if "extent" in layer:
             extent = layer["extent"]
             break
+
+    # Decode any neighbour MVTs up front; store as (dx_px, dy_px, decoded) with
+    # the MVT offset expressed in MVT units (same extent assumed across tiles,
+    # true for every PMTiles source we've looked at).
+    neighbour_decoded: List[Tuple[int, int, dict]] = []
+    if neighbour_tiles:
+        for (dx, dy), raw in neighbour_tiles.items():
+            try:
+                nd = mvt.decode(decompress_tile(raw))
+            except Exception:
+                continue
+            neighbour_decoded.append((dx * extent, dy * extent, nd))
 
     # Check if tile has explicit coastline data (land/earth polygons that define coastline)
     # Note: having lakes (water layer) doesn't count as coastline data - that's just water on land
@@ -208,94 +227,115 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
     # RENDER_HALO so geometry lands in the visible centre of the canvas.
     halo = RENDER_HALO
 
+    # Sources: the tile being rendered (dx=0, dy=0) plus every neighbour we
+    # managed to decode. Each neighbour contributes the geometry that extends
+    # into this tile's halo once translated by ±extent in MVT coords. The
+    # self-tile comes last so any ties in z-order favour local geometry, but
+    # since we draw fills first neighbour fills get overdrawn anyway.
+    sources: List[Tuple[int, int, dict]] = [(0, 0, decoded)]
+    sources.extend(neighbour_decoded)
+
     # 1. Land/earth polygons (draw land over the ocean background)
     for layer_name in ["land", "earth", "landcover"]:
-        layer = get_layer(decoded, layer_name)
-        if layer:
+        for mvt_dx, mvt_dy, d in sources:
+            layer = get_layer(d, layer_name)
+            if not layer:
+                continue
             for feature in layer.get("features", []):
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, F.LAND, offset=halo)
+                    render_polygon(draw, geom, extent, F.LAND,
+                                   offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
     # 2. Water polygons (lakes, rivers - these cut through land)
     for layer_name in ["water", "waterway", "ocean"]:
-        layer = get_layer(decoded, layer_name)
-        if layer:
+        for mvt_dx, mvt_dy, d in sources:
+            layer = get_layer(d, layer_name)
+            if not layer:
+                continue
             for feature in layer.get("features", []):
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, F.WATER, offset=halo)
+                    render_polygon(draw, geom, extent, F.WATER,
+                                   offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
-    # 2. Land use (parks/forests)
-    layer = get_layer(decoded, "landuse")
-    if layer:
+    # 3. Land use (parks/forests)
+    for mvt_dx, mvt_dy, d in sources:
+        layer = get_layer(d, "landuse")
+        if not layer:
+            continue
         for feature in layer.get("features", []):
             props = feature.get("properties", {})
             geom = feature.get("geometry", {})
             landuse_class = props.get("class") or props.get("landuse", "")
-
-            # Only render parks/forests as distinct feature, rest stays as land
             if landuse_class in ("park", "grass", "forest", "wood", "meadow", "nature_reserve"):
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, F.PARK, offset=halo)
+                    render_polygon(draw, geom, extent, F.PARK,
+                                   offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
-    # 3. Buildings (only at higher zoom levels)
+    # 4. Buildings (only at higher zoom levels)
     if zoom >= 13:
-        layer = get_layer(decoded, "building")
-        if layer:
+        for mvt_dx, mvt_dy, d in sources:
+            layer = get_layer(d, "building")
+            if not layer:
+                continue
             for feature in layer.get("features", []):
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, F.BUILDING, offset=halo)
+                    render_polygon(draw, geom, extent, F.BUILDING,
+                                   offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
-    # 4. Waterways (lines) - use RAILWAY index since it's for linear features
-    layer = get_layer(decoded, "waterway")
-    if layer:
+    # 5. Waterways (lines)
+    for mvt_dx, mvt_dy, d in sources:
+        layer = get_layer(d, "waterway")
+        if not layer:
+            continue
         for feature in layer.get("features", []):
             geom = feature.get("geometry", {})
             if geom.get("type") in ("LineString", "MultiLineString"):
-                render_line(draw, geom, extent, F.WATER, 1, offset=halo)
+                render_line(draw, geom, extent, F.WATER, 1,
+                            offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
-    # 5. Railways
-    layer = get_layer(decoded, "transportation")
-    if layer:
+    # 6. Railways
+    for mvt_dx, mvt_dy, d in sources:
+        layer = get_layer(d, "transportation")
+        if not layer:
+            continue
         for feature in layer.get("features", []):
             props = feature.get("properties", {})
             if props.get("class") == "rail":
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("LineString", "MultiLineString"):
-                    render_line(draw, geom, extent, F.RAILWAY, 1, offset=halo)
+                    render_line(draw, geom, extent, F.RAILWAY, 1,
+                                offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
-    # 6. Roads (render by class, smaller roads first so bigger roads draw on top)
-    layer = get_layer(decoded, "transportation")
-    if layer:
-        # Sort features by road importance (render less important first)
-        road_order = ["path", "service", "residential", "tertiary", "secondary", "primary", "trunk", "motorway"]
+    # 7. Roads (sort by importance so bigger roads draw on top)
+    road_order = ["path", "service", "residential", "tertiary", "secondary",
+                  "primary", "trunk", "motorway"]
 
-        def road_sort_key(f):
-            props = f.get("properties", {})
-            road_class = props.get("class") or props.get("highway") or ""
-            for i, cls in enumerate(road_order):
-                if cls in road_class:
-                    return i
-            return -1
+    def _road_sort_key(f):
+        props = f.get("properties", {})
+        road_class = props.get("class") or props.get("highway") or ""
+        for i, cls in enumerate(road_order):
+            if cls in road_class:
+                return i
+        return -1
 
-        features = sorted(layer.get("features", []), key=road_sort_key)
-
-        for feature in features:
+    for mvt_dx, mvt_dy, d in sources:
+        layer = get_layer(d, "transportation")
+        if not layer:
+            continue
+        for feature in sorted(layer.get("features", []), key=_road_sort_key):
             props = feature.get("properties", {})
             geom = feature.get("geometry", {})
-
-            # Skip railways (handled above)
             if props.get("class") == "rail":
                 continue
-
             style = get_road_style(props)
             if style and geom.get("type") in ("LineString", "MultiLineString"):
                 feature_idx, width = style
-                # Scale width by zoom level
                 scaled_width = width * (zoom / 14.0)
-                render_line(draw, geom, extent, feature_idx, scaled_width, offset=halo)
+                render_line(draw, geom, extent, feature_idx, scaled_width,
+                            offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
     # Crop the halo off, returning exactly the visible TILE_SIZE square.
     img = img.crop((halo, halo, halo + TILE_SIZE, halo + TILE_SIZE))
@@ -382,6 +422,17 @@ def _init_worker(pmtiles_path: str):
     _worker_land_mask = get_land_mask()
 
 
+def _fetch_tile(z: int, x: int, y: int) -> Optional[bytes]:
+    """Safe wrapper around the worker's PMTiles reader. Returns raw bytes or None."""
+    global _worker_reader
+    if _worker_reader is None:
+        return None
+    try:
+        return _worker_reader.get(z, x, y)
+    except Exception:
+        return None
+
+
 def _process_tile_worker(args: Tuple[int, int, int]) -> Optional[Dict[str, Any]]:
     """
     Worker function to process a single tile.
@@ -404,8 +455,24 @@ def _process_tile_worker(args: Tuple[int, int, int]) -> Optional[Dict[str, Any]]
         return {"status": "missing", "z": z, "x": x, "y": y}
 
     try:
+        # Fetch 8 neighbour tiles so we can close the seam at tile boundaries.
+        # MVT sources ship with only a ~20-unit buffer past the tile extent,
+        # which corresponds to ~1 pixel at 256 px/tile — not enough for polygon
+        # edges to line up across adjacent renders. By handing each neighbour's
+        # MVT to the renderer (translated into this tile's frame) we fill the
+        # halo region with geometry that stitches naturally. See issue #17.
+        neighbours: Dict[Tuple[int, int], bytes] = {}
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                nd = _fetch_tile(z, x + dx, y + dy)
+                if nd is not None:
+                    neighbours[(dx, dy)] = nd
+
         # Render vector tile to raster using land mask for consistent backgrounds
-        img = render_vector_tile(tile_data, z, x, y, _worker_land_mask)
+        img = render_vector_tile(tile_data, z, x, y, _worker_land_mask,
+                                 neighbour_tiles=neighbours)
         compressed = process_tile_image(img)
 
         # Extract labels
@@ -931,16 +998,31 @@ def preview_zoom(
         mosaic = Image.new("RGB", (cols * TILE_SIZE, rows * TILE_SIZE), (0, 0, 0))
         rendered = 0
 
-        for (x, y) in tiles:
-            raw = None
+        def _safe_get(z, tx, ty):
             try:
-                raw = reader.get(zoom, x, y)
+                return reader.get(z, tx, ty)
             except Exception:
-                raw = None
+                return None
+
+        for (x, y) in tiles:
+            raw = _safe_get(zoom, x, y)
             if raw is None:
                 continue
 
-            indexed = render_vector_tile(raw, zoom, x, y, land_mask)
+            # Pull neighbours so the preview stitches the same way the archive
+            # tiles do. Falls back to the isolated render where a neighbour is
+            # missing (edge of the bounds or a gap in the PMTiles source).
+            neighbours: Dict[Tuple[int, int], bytes] = {}
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    nd = _safe_get(zoom, x + dx, y + dy)
+                    if nd is not None:
+                        neighbours[(dx, dy)] = nd
+
+            indexed = render_vector_tile(raw, zoom, x, y, land_mask,
+                                         neighbour_tiles=neighbours)
             # Apply the semantic palette so the preview looks like the device.
             indexed.putpalette(palette_bytes)
             indexed = indexed.convert("P")
