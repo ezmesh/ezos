@@ -13,6 +13,9 @@ namespace RemoteCmd {
     constexpr uint8_t WAIT_FRAME_TEXT = 0x06;       // Wait for frame and return rendered text
     constexpr uint8_t LUA_EXEC = 0x07;              // Execute Lua code and return result
     constexpr uint8_t WAIT_FRAME_PRIMITIVES = 0x08; // Wait for frame and return draw primitives
+    constexpr uint8_t WRITE_FILE = 0x09;            // Write file: [path_len:2][path][data]
+    constexpr uint8_t READ_FILE = 0x0A;             // Read file:  [path_len:2][path][offset:4][length:4]
+    constexpr uint8_t WRITE_AT = 0x0B;              // Patch file: [path_len:2][path][offset:4][data]
 }
 
 // Response status codes
@@ -56,7 +59,7 @@ private:
 
     // Command handlers
     void processCommand(uint8_t cmd, const uint8_t* payload, uint16_t len);
-    void sendResponse(uint8_t status, const uint8_t* data, uint16_t len);
+    void sendResponse(uint8_t status, const uint8_t* data, uint32_t len);
 
     void handlePing();
     void handleScreenshot();
@@ -66,6 +69,9 @@ private:
     void handleWaitFrameText();
     void handleWaitFramePrimitives();
     void handleLuaExec(const uint8_t* code, uint16_t len);
+    void handleFileWrite(const uint8_t* payload, uint16_t len);
+    void handleFileRead(const uint8_t* payload, uint16_t len);
+    void handleWriteAt(const uint8_t* payload, uint16_t len);
 
     // Frame capture state
     enum class CaptureMode { NONE, TEXT, PRIMITIVES };
@@ -80,7 +86,7 @@ private:
     uint8_t _cmd = 0;
     uint16_t _payloadLen = 0;
     uint16_t _payloadPos = 0;
-    uint8_t _payload[4096];  // Larger buffer for Lua code execution
+    uint8_t _payload[16384];  // Buffer for commands and file transfers
 
     // Timeout for incomplete commands (resets state machine if no data received)
     uint32_t _lastByteTime = 0;

@@ -39,6 +39,9 @@ class EzRemote:
     CMD_WAIT_FRAME_TEXT = 0x06
     CMD_LUA_EXEC = 0x07
     CMD_WAIT_FRAME_PRIMITIVES = 0x08
+    CMD_FILE_WRITE = 0x09
+    CMD_FILE_READ = 0x0A
+    CMD_WRITE_AT = 0x0B
 
     # Response status
     STATUS_OK = 0x00
@@ -83,69 +86,91 @@ class EzRemote:
         # Clear any pending input (log output, noise) that could corrupt response parsing
         self.ser.reset_input_buffer()
         header = struct.pack('<BH', cmd, len(payload))
-        self.ser.write(header + payload)
-        self.ser.flush()
+        data = header + payload
+        # Pace large sends to avoid overrunning the ESP32's 256-byte serial RX buffer
+        if len(data) > 256:
+            import time
+            CHUNK = 128
+            for i in range(0, len(data), CHUNK):
+                self.ser.write(data[i:i + CHUNK])
+                time.sleep(0.015)
+            self.ser.flush()
+        else:
+            self.ser.write(data)
+            self.ser.flush()
 
-    def read_response(self):
-        """Read response from T-Deck."""
-        # Skip any log lines that may have been output during command execution
-        # Log lines are prefixed with #LOG# and end with newline
-        while True:
-            # Peek at first bytes to check for log prefix
-            first_bytes = self.ser.read(5)
-            if len(first_bytes) < 5:
-                raise TimeoutError("Timeout waiting for response header")
+    def read_response(self, max_payload=512 * 1024):
+        """Read response from T-Deck, skipping non-protocol serial noise.
 
-            if first_bytes == b'#LOG#':
-                # This is a log line - read until newline and discard
-                while True:
-                    ch = self.ser.read(1)
-                    if not ch:
-                        raise TimeoutError("Timeout reading log line")
-                    if ch == b'\n':
-                        break
-                continue  # Check for more log lines
+        Protocol: [STATUS:1][LEN:4 little-endian][DATA:LEN]
 
-            # Not a log line - this should be the response header
-            # We already read 5 bytes, but header is only 3 bytes
-            # First 3 bytes are the header, remaining 2 are start of payload
-            header = first_bytes[:3]
-            extra = first_bytes[3:]
-            break
+        Mesh traffic and debug prints can leak into the serial stream between
+        the command and its response.  We scan byte-by-byte for a valid header
+        (status 0x00 or 0x01 followed by a reasonable 4-byte length) while
+        discarding everything else.
+        """
+        MAX_NOISE = 8192  # give up after this many noise bytes
+        noise = 0
 
-        status = header[0]
-        length = struct.unpack('<H', header[1:3])[0]
+        while noise < MAX_NOISE:
+            b = self.ser.read(1)
+            if not b:
+                raise TimeoutError("Timeout waiting for response")
 
-        # Read payload (we may have already read some bytes)
-        data = extra
-        remaining = length - len(extra)
-        if remaining > 0:
-            # Read remaining payload, filtering out any log lines that appear mid-stream
+            # --- #LOG# lines ------------------------------------------------
+            if b == b'#':
+                peek = self.ser.read(4)
+                if peek == b'LOG#':
+                    # consume until newline
+                    while True:
+                        ch = self.ser.read(1)
+                        if not ch or ch == b'\n':
+                            break
+                    continue
+                # Not a log marker — discard the 5 bytes as noise
+                noise += 1 + len(peek)
+                continue
+
+            # --- Printable ASCII lines (mesh debug output) ------------------
+            # Status bytes are 0x00 / 0x01 which are non-printable, so any
+            # printable byte (0x20-0x7E) or common whitespace is noise.
+            if 0x20 <= b[0] <= 0x7E or b[0] in (0x0A, 0x0D, 0x09):
+                noise += 1
+                continue
+
+            # --- Potential response header ----------------------------------
+            status = b[0]
+            if status not in (0x00, 0x01):
+                noise += 1
+                continue
+
+            len_bytes = self.ser.read(4)
+            if len(len_bytes) < 4:
+                raise TimeoutError("Timeout reading response length")
+
+            length = struct.unpack('<I', len_bytes)[0]
+
+            if length > max_payload:
+                # Implausible length — was noise after all
+                noise += 5
+                continue
+
+            # --- Read payload -----------------------------------------------
+            data = bytearray()
             while len(data) < length:
-                chunk = self.ser.read(min(remaining, 1024))
-                if not chunk:
-                    raise TimeoutError(f"Timeout reading payload (got {len(data)}/{length})")
-
-                # Check for embedded log lines and filter them out
-                # This handles logs that appear during payload transmission
-                filtered = bytearray()
-                i = 0
-                while i < len(chunk):
-                    # Check if this looks like start of a log line
-                    if chunk[i:i+5] == b'#LOG#':
-                        # Skip until newline
-                        while i < len(chunk) and chunk[i:i+1] != b'\n':
-                            i += 1
-                        if i < len(chunk):
-                            i += 1  # Skip the newline
-                    else:
-                        filtered.append(chunk[i])
-                        i += 1
-
-                data += bytes(filtered)
                 remaining = length - len(data)
+                chunk = self.ser.read(min(remaining, 4096))
+                if not chunk:
+                    raise TimeoutError(
+                        f"Timeout reading payload (got {len(data)}/{length})"
+                    )
+                data.extend(chunk)
 
-        return status, data[:length]
+            return status, bytes(data)
+
+        raise TimeoutError(
+            f"No valid response header found (skipped {MAX_NOISE} bytes of noise)"
+        )
 
     def ping(self):
         """Test connection with ping command."""
@@ -154,56 +179,26 @@ class EzRemote:
         return status == self.STATUS_OK and data == b'PONG'
 
     def screenshot(self):
-        """Capture screenshot and return PIL Image."""
+        """Capture screenshot as BMP and return PIL Image."""
         try:
             from PIL import Image
+            import io
         except ImportError:
             raise ImportError("PIL/Pillow required for screenshots: pip install Pillow")
 
+        # BMP screenshot is ~230KB, needs longer timeout for serial transfer
+        old_timeout = self.ser.timeout
+        self.ser.timeout = max(old_timeout, 10)
         self.send_command(self.CMD_SCREENSHOT)
         status, data = self.read_response()
+        self.ser.timeout = old_timeout
 
         if status != self.STATUS_OK:
             error_msg = data.decode('utf-8', errors='replace') if data else "Unknown error"
             raise RuntimeError(f"Screenshot failed: {error_msg}")
 
-        return self._decode_rle(data, 320, 240)
-
-    def _decode_rle(self, data, width, height):
-        """Decode RLE-compressed RGB565 data to PIL Image."""
-        from PIL import Image
-
-        img = Image.new('RGB', (width, height))
-        pixels = img.load()
-
-        x, y = 0, 0
-        i = 0
-
-        while i + 2 < len(data) and y < height:
-            count = data[i]
-            # LovyanGFX sprite stores 16-bit colors in big-endian (high byte first)
-            color = (data[i + 1] << 8) | data[i + 2]
-            i += 3
-
-            # Convert RGB565 to RGB888
-            r = ((color >> 11) & 0x1F) << 3
-            g = ((color >> 5) & 0x3F) << 2
-            b = (color & 0x1F) << 3
-
-            # Fill in lower bits for better color accuracy
-            r |= r >> 5
-            g |= g >> 6
-            b |= b >> 5
-
-            for _ in range(count):
-                if y < height:
-                    pixels[x, y] = (r, g, b)
-                    x += 1
-                    if x >= width:
-                        x = 0
-                        y += 1
-
-        return img
+        # Device sends BMP data, PIL handles the decode
+        return Image.open(io.BytesIO(data))
 
     def key(self, char=None, special=None, shift=False, ctrl=False, alt=False, fn=False):
         """Send a key press event."""
@@ -291,6 +286,70 @@ class EzRemote:
 
         return json.loads(data.decode('utf-8'))
 
+    def file_write(self, device_path, data):
+        """Write a file to the device filesystem.
+
+        Uses the binary FILE_WRITE command for efficient transfer.
+        Payload format: [path_len:2 LE][path][file_data]
+        """
+        path_bytes = device_path.encode('utf-8')
+        if isinstance(data, str):
+            data = data.encode('utf-8')
+        payload = struct.pack('<H', len(path_bytes)) + path_bytes + data
+        old_timeout = self.ser.timeout
+        self.ser.timeout = max(old_timeout, 10)
+        self.send_command(self.CMD_FILE_WRITE, payload)
+        status, resp = self.read_response()
+        self.ser.timeout = old_timeout
+        if status != self.STATUS_OK:
+            error_msg = resp.decode('utf-8', errors='replace') if resp else "Unknown error"
+            raise RuntimeError(f"File write failed: {error_msg}")
+        return json.loads(resp.decode('utf-8'))
+
+    def file_read(self, device_path, offset=0, length=0):
+        """Read a file (or portion) from the device.
+
+        Args:
+            device_path: Path on device (e.g. /fs/screens/menu.lua)
+            offset: Byte offset to start reading from
+            length: Number of bytes to read (0 = entire file)
+        Returns:
+            bytes: The file content
+        """
+        path_bytes = device_path.encode('utf-8')
+        payload = (struct.pack('<H', len(path_bytes)) + path_bytes +
+                   struct.pack('<II', offset, length if length > 0 else 0xFFFFFFFF))
+        old_timeout = self.ser.timeout
+        self.ser.timeout = max(old_timeout, 10)
+        self.send_command(self.CMD_FILE_READ, payload)
+        status, data = self.read_response(max_payload=64 * 1024)
+        self.ser.timeout = old_timeout
+        if status != self.STATUS_OK:
+            error_msg = data.decode('utf-8', errors='replace') if data else "Unknown error"
+            raise RuntimeError(f"File read failed: {error_msg}")
+        return data
+
+    def write_at(self, device_path, offset, data):
+        """Write data at a specific offset in an existing file.
+
+        The file must already exist. Data is written starting at offset
+        without truncating the rest of the file.
+        """
+        path_bytes = device_path.encode('utf-8')
+        if isinstance(data, str):
+            data = data.encode('utf-8')
+        payload = (struct.pack('<H', len(path_bytes)) + path_bytes +
+                   struct.pack('<I', offset) + data)
+        old_timeout = self.ser.timeout
+        self.ser.timeout = max(old_timeout, 10)
+        self.send_command(self.CMD_WRITE_AT, payload)
+        status, resp = self.read_response()
+        self.ser.timeout = old_timeout
+        if status != self.STATUS_OK:
+            error_msg = resp.decode('utf-8', errors='replace') if resp else "Unknown error"
+            raise RuntimeError(f"Write-at failed: {error_msg}")
+        return json.loads(resp.decode('utf-8'))
+
     def lua_exec(self, code):
         """
         Execute Lua code on the device and return the result.
@@ -342,6 +401,8 @@ Examples:
     parser.add_argument('port', help='Serial port (e.g., /dev/ttyACM0)')
     parser.add_argument('-s', '--screenshot', metavar='FILE',
                         help='Save screenshot to file (PNG or BMP)')
+    parser.add_argument('--crop', metavar='X,Y,W,H',
+                        help='Crop region for screenshot (e.g., --crop 0,0,160,120)')
     parser.add_argument('-k', '--key', metavar='KEY',
                         help='Send key (single char or special key name)')
     parser.add_argument('--shift', action='store_true',
@@ -364,8 +425,18 @@ Examples:
                         help='Execute Lua code from file')
     parser.add_argument('--logs', action='store_true',
                         help='Get buffered log entries from Logger service')
+    parser.add_argument('--status', action='store_true',
+                        help='Show radio, mesh, and system status')
+    parser.add_argument('--nodes', action='store_true',
+                        help='List discovered mesh nodes')
+    parser.add_argument('--watch', metavar='EXPR', nargs='?', const='ez.mesh.get_rx_count()',
+                        help='Poll a Lua expression every second (default: rx count)')
+    parser.add_argument('--reload', metavar='FILE', nargs='+',
+                        help='Hot-reload Lua file(s) on device (e.g., lua/screens/settings.lua)')
     parser.add_argument('--monitor', action='store_true',
                         help='Monitor serial output (Ctrl+C to stop)')
+    parser.add_argument('--raw', action='store_true',
+                        help='Output raw JSON instead of formatted text (for --text/--primitives)')
     parser.add_argument('-b', '--baudrate', type=int, default=921600,
                         help='Serial baudrate (default: 921600)')
     parser.add_argument('-t', '--timeout', type=float, default=5,
@@ -383,6 +454,10 @@ Examples:
         if args.screenshot:
             print(f"Taking screenshot...")
             img = remote.screenshot()
+            if args.crop:
+                x, y, w, h = [int(v) for v in args.crop.split(',')]
+                img = img.crop((x, y, x + w, y + h))
+                print(f"Cropped to {w}x{h} at ({x},{y})")
             img.save(args.screenshot)
             print(f"Saved: {args.screenshot}")
 
@@ -406,7 +481,13 @@ Examples:
         elif args.text:
             print("Waiting for next frame...")
             texts = remote.wait_frame_text()
-            print(json.dumps(texts, indent=2))
+            if args.raw:
+                print(json.dumps(texts, indent=2))
+            else:
+                # Sort by y then x position for readable output
+                texts.sort(key=lambda t: (t.get('y', 0), t.get('x', 0)))
+                for entry in texts:
+                    print(entry.get('text', ''))
 
         elif args.primitives:
             print("Waiting for next frame...")
@@ -415,12 +496,108 @@ Examples:
 
         elif args.logs:
             # Fetch log entries from the Lua Logger service
-            result = remote.lua_exec("Logger.get_entries()")
-            if isinstance(result, list):
-                for entry in result:
-                    print(entry)
+            # Falls back to ez.system.get_last_error() when Logger isn't initialized
+            # (e.g., boot script failed before Logger was loaded)
+            try:
+                result = remote.lua_exec("Logger.get_entries()")
+                if isinstance(result, list):
+                    for entry in result:
+                        print(entry)
+                else:
+                    print("No log entries.")
+            except RuntimeError:
+                # Logger not available, try to get the last error from C++
+                try:
+                    error = remote.lua_exec("ez.system.get_last_error()")
+                    if error:
+                        print(f"Boot error: {error}")
+                    else:
+                        print("No logs or errors available.")
+                except RuntimeError as e2:
+                    print(f"Could not retrieve logs: {e2}", file=sys.stderr)
+
+        elif args.status:
+            # Query radio, mesh, and system status in separate small calls
+            status = {}
+            queries = {
+                'radio': 'local r=ez.radio return{init=r.is_initialized(),rx=r.is_receiving(),tx=r.is_transmitting(),busy=r.is_busy(),rssi=r.get_last_rssi(),snr=r.get_last_snr(),cfg=r.get_config()}',
+                'mesh': 'if not ez.mesh.is_initialized() then return{init=false} end return{init=true,id=ez.mesh.get_node_id(),name=ez.mesh.get_node_name(),rx=ez.mesh.get_rx_count(),tx=ez.mesh.get_tx_count(),nodes=ez.mesh.get_node_count(),txq=ez.mesh.get_tx_queue_size(),pc=ez.mesh.get_path_check()}',
+                'sys': 'return{mem=collectgarbage("count")}'
+            }
+            for key, code in queries.items():
+                try:
+                    status[key] = remote.lua_exec(code)
+                except (RuntimeError, TimeoutError) as e:
+                    status[key] = {'error': str(e)}
+            # Format output
+            r = status.get('radio', {})
+            print("=== Radio ===")
+            print(f"  Initialized:  {r.get('init')}")
+            print(f"  Receiving:    {r.get('rx')}")
+            print(f"  Transmitting: {r.get('tx')}")
+            print(f"  Busy:         {r.get('busy')}")
+            print(f"  Last RSSI:    {r.get('rssi')} dBm")
+            print(f"  Last SNR:     {r.get('snr')} dB")
+            cfg = r.get('cfg', {})
+            if cfg:
+                print(f"  Frequency:    {cfg.get('frequency')} MHz")
+                print(f"  Bandwidth:    {cfg.get('bandwidth')} kHz")
+                print(f"  SF/CR:        SF{cfg.get('spreading_factor')} CR4/{cfg.get('coding_rate')}")
+                print(f"  TX Power:     {cfg.get('tx_power')} dBm")
+                print(f"  Sync Word:    0x{cfg.get('sync_word', 0):02X}")
+            print()
+            m = status.get('mesh', {})
+            print("=== Mesh ===")
+            print(f"  Initialized:  {m.get('init')}")
+            if m.get('init'):
+                print(f"  Node ID:      {m.get('id')}")
+                print(f"  Node Name:    {m.get('name')}")
+                print(f"  RX Count:     {m.get('rx')}")
+                print(f"  TX Count:     {m.get('tx')}")
+                print(f"  Known Nodes:  {m.get('nodes')}")
+                print(f"  TX Queue:     {m.get('txq')}")
+                print(f"  Path Check:   {m.get('pc')}")
+            print()
+            s = status.get('sys', {})
+            print("=== System ===")
+            print(f"  Lua Memory:   {s.get('mem', 0):.0f} KB")
+
+        elif args.nodes:
+            nodes = remote.lua_exec("ez.mesh.get_nodes()")
+            if not nodes or len(nodes) == 0:
+                print("No nodes discovered.")
             else:
-                print("No logs available (Logger not initialized?)")
+                print(f"{'Name':<20} {'ID':<14} {'RSSI':>6} {'SNR':>6} {'Hops':>5} {'Path':>6}")
+                print("-" * 60)
+                for node in nodes:
+                    name = node.get('name', '?')
+                    node_id = node.get('id', '?')
+                    rssi = node.get('rssi', 0)
+                    snr = node.get('snr', 0)
+                    hops = node.get('hops', '?')
+                    path_hash = node.get('path_hash', 0)
+                    print(f"{name:<20} {node_id:<14} {rssi:>5.0f} {snr:>5.1f} {hops:>5} {path_hash:>5}")
+
+        elif args.watch is not None:
+            # Poll a Lua expression repeatedly
+            expr = args.watch
+            print(f"Watching: {expr}  (Ctrl+C to stop)")
+            import time
+            prev = None
+            try:
+                while True:
+                    try:
+                        result = remote.lua_exec(expr)
+                        display = json.dumps(result) if not isinstance(result, (int, float, str)) else str(result)
+                        if result != prev:
+                            ts = time.strftime("%H:%M:%S")
+                            print(f"[{ts}] {display}")
+                            prev = result
+                    except (RuntimeError, TimeoutError) as e:
+                        print(f"  Error: {e}")
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\nStopped.")
 
         elif args.monitor:
             # Simple serial monitor mode - just read and print serial output
@@ -434,6 +611,84 @@ Examples:
                         sys.stdout.flush()
             except KeyboardInterrupt:
                 print("\nMonitor stopped.")
+
+        elif args.reload:
+            import os
+
+            for filepath in args.reload:
+                # Resolve module name: lua/screens/settings.lua -> screens.settings
+                norm = filepath.replace('\\', '/')
+                if norm.startswith('lua/'):
+                    norm = norm[4:]
+                if norm.endswith('.lua'):
+                    norm = norm[:-4]
+                mod_name = norm.replace('/', '.')
+                dev_path = '/fs/' + norm + '.lua'
+
+                if not os.path.isfile(filepath):
+                    print(f"File not found: {filepath}", file=sys.stderr)
+                    continue
+
+                with open(filepath, 'rb') as f:
+                    new_data = f.read()
+
+                # Try to read existing file from device for diffing
+                old_data = None
+                try:
+                    old_data = remote.file_read(dev_path)
+                except (RuntimeError, TimeoutError):
+                    pass  # File doesn't exist yet, full upload needed
+
+                if old_data and len(old_data) == len(new_data):
+                    # Same length: find changed regions and patch them
+                    patches = []
+                    i = 0
+                    while i < len(new_data):
+                        if new_data[i] != old_data[i]:
+                            start = i
+                            while i < len(new_data) and new_data[i] != old_data[i]:
+                                i += 1
+                            patches.append((start, new_data[start:i]))
+                        else:
+                            i += 1
+
+                    if not patches:
+                        print(f"  {filepath} (unchanged)")
+                    else:
+                        total_patch = sum(len(d) for _, d in patches)
+                        print(f"  {filepath} ({len(patches)} patch(es), {total_patch} bytes)")
+                        ok = True
+                        for offset, data in patches:
+                            try:
+                                remote.write_at(dev_path, offset, data)
+                            except (RuntimeError, TimeoutError) as e:
+                                print(f"  Patch failed at {offset}: {e}", file=sys.stderr)
+                                ok = False
+                                break
+                        if not ok:
+                            continue
+                else:
+                    # Different length or no existing file: full upload
+                    print(f"  {filepath} ({len(new_data)} bytes)")
+                    try:
+                        written = remote.file_write(dev_path, new_data)
+                        print(f"  Uploaded {written} bytes")
+                    except (RuntimeError, TimeoutError) as e:
+                        print(f"  Upload failed: {e}", file=sys.stderr)
+                        continue
+
+                # Trigger hot reload on device
+                try:
+                    result = remote.lua_exec(
+                        f"local ok, err = hot_reload('{mod_name}') "
+                        f"if ok then return 'ok' else return err end"
+                    )
+                    if result == 'ok':
+                        print(f"  Reloaded: {mod_name}")
+                    else:
+                        print(f"  Reload error: {result}")
+                except (RuntimeError, TimeoutError) as e:
+                    print(f"  Reload failed: {e}", file=sys.stderr)
 
         elif args.lua_code:
             result = remote.lua_exec(args.lua_code)
