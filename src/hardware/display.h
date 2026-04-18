@@ -150,7 +150,7 @@ private:
 
 // Font size options for TUI
 enum class FontSize : uint8_t {
-    TINY = 0,    // FreeMono5pt - compact (6x10), UTF-8 monospace
+    TINY = 0,    // FreeSans7pt - proportional sans-serif (~7x12)
     SMALL = 1,   // FreeMono9pt - compact (6x12), full UTF-8
     MEDIUM = 2,  // FreeMono12pt - balanced (7x16), default
     LARGE = 3    // FreeMono18pt - easier to read (11x24)
