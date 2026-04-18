@@ -136,12 +136,14 @@
     </div>
 
     <script>
-    // TDMAP format constants
+    // TDMAP format constants (v4)
     const HEADER_SIZE = 33;
     const PALETTE_SIZE = 16;
     const INDEX_ENTRY_SIZE = 11;
-    const LABEL_INDEX_SIZE = 11;
+    // v4 label entry fixed part: lat_e6(4) + lon_e6(4) + zoom_min(1) + zoom_max(1) + label_type(1)
+    const LABEL_FIXED_SIZE_V4 = 11;
     const TILE_SIZE = 256;
+    const TDMAP_VERSION = 4;
 
     // Feature indices (must match generator)
     const F = {
@@ -239,6 +241,7 @@
     function readU16(dv, offset) { return dv.getUint16(offset, true); }
     function readU32(dv, offset) { return dv.getUint32(offset, true); }
     function readI8(dv, offset) { return dv.getInt8(offset); }
+    function readI32(dv, offset) { return dv.getInt32(offset, true); }
 
     // Parse TDMAP header
     function parseHeader(buffer) {
@@ -246,8 +249,13 @@
         const magic = String.fromCharCode(...new Uint8Array(buffer, 0, 6));
         if (magic !== 'TDMAP\0') throw new Error('Invalid TDMAP file');
 
+        const version = readU8(dv, 6);
+        if (version !== TDMAP_VERSION) {
+            throw new Error(`Unsupported TDMAP version: ${version} (viewer supports v${TDMAP_VERSION})`);
+        }
+
         return {
-            version: readU8(dv, 6),
+            version,
             compression: readU8(dv, 7),
             tileSize: readU16(dv, 8),
             paletteCount: readU8(dv, 10),
@@ -256,8 +264,9 @@
             dataOffset: readU32(dv, 19),
             minZoom: readI8(dv, 23),
             maxZoom: readI8(dv, 24),
-            labelIndexOffset: readU32(dv, 25),
-            labelIndexCount: readU32(dv, 29),
+            // v4: geographic labels, sequential (no index)
+            labelDataOffset: readU32(dv, 25),
+            labelCount: readU32(dv, 29),
         };
     }
 
@@ -288,19 +297,30 @@
         return tiles;
     }
 
-    // Parse label index (v3)
-    function parseLabelIndex(buffer, offset, count) {
+    // Parse v4 label block: sequential geographic labels, no per-tile index.
+    // Each entry: lat_e6(4 i32) + lon_e6(4 i32) + zoom_min(1) + zoom_max(1) + label_type(1) + text_len(1) + text(N)
+    function parseLabels(buffer, offset, count) {
         const dv = new DataView(buffer);
         const labels = [];
+        let p = offset;
         for (let i = 0; i < count; i++) {
-            const entryOffset = offset + i * LABEL_INDEX_SIZE;
+            const latE6 = readI32(dv, p);
+            const lonE6 = readI32(dv, p + 4);
+            const zoomMin = readU8(dv, p + 8);
+            const zoomMax = readU8(dv, p + 9);
+            const labelType = readU8(dv, p + 10);
+            const textLen = readU8(dv, p + 11);
+            const textBytes = new Uint8Array(buffer, p + 12, textLen);
+            const text = new TextDecoder('utf-8', { fatal: false }).decode(textBytes);
             labels.push({
-                zoomMin: readU8(dv, entryOffset),
-                tileX: readU16(dv, entryOffset + 1),
-                tileY: readU16(dv, entryOffset + 3),
-                offset: readU32(dv, entryOffset + 5),
-                count: readU16(dv, entryOffset + 9),
+                lat: latE6 / 1_000_000,
+                lon: lonE6 / 1_000_000,
+                zoomMin,
+                zoomMax,
+                labelType,
+                text,
             });
+            p += LABEL_FIXED_SIZE_V4 + 1 + textLen;
         }
         return labels;
     }
@@ -432,100 +452,18 @@
         return tileCanvas;
     }
 
-    // Load raw labels for a specific label index entry
-    // New v3 format: pixel_x(1) + pixel_y(1) + zoom_min(1) + zoom_max(1) + label_type(1) + text_len(1) + text
-    function loadLabelsFromIndex(idx) {
-        const cacheKey = `raw/${idx.zoomMin}/${idx.tileX}/${idx.tileY}`;
-        if (labelCache.has(cacheKey)) return labelCache.get(cacheKey);
-
-        const labels = [];
-        const dv = new DataView(archive.buffer);
-        let offset = idx.offset;
-
-        for (let i = 0; i < idx.count; i++) {
-            const pixelX = readU8(dv, offset);
-            const pixelY = readU8(dv, offset + 1);
-            const zoomMin = readU8(dv, offset + 2);  // Visibility threshold
-            const zoomMax = readU8(dv, offset + 3);
-            const labelType = readU8(dv, offset + 4);
-            const textLen = readU8(dv, offset + 5);
-            const textBytes = new Uint8Array(archive.buffer, offset + 6, textLen);
-            const text = new TextDecoder().decode(textBytes);
-
-            labels.push({ pixelX, pixelY, zoomMin, zoomMax, labelType, text,
-                          tileX: idx.tileX, tileY: idx.tileY, extractionZoom: idx.zoomMin });
-            offset += 6 + textLen;
+    // Filter labels by current zoom and the visible geographic bounds.
+    // Mirrors TDMAPReader.get_labels_in_bounds() from archive.py.
+    function getVisibleLabels(zoom, minLat, maxLat, minLon, maxLon) {
+        if (!archive || !archive.labels) return [];
+        const result = [];
+        for (const label of archive.labels) {
+            if (zoom < label.zoomMin || zoom > label.zoomMax) continue;
+            if (label.lat < minLat || label.lat > maxLat) continue;
+            if (label.lon < minLon || label.lon > maxLon) continue;
+            result.push(label);
         }
-
-        labelCache.set(cacheKey, labels);
-        return labels;
-    }
-
-    // Load labels for a tile
-    // Labels are indexed by extraction_zoom (tile coordinate level)
-    // Each label has its own zoom_min (visibility threshold)
-    function getLabelsForTile(zoom, tileX, tileY) {
-        const key = `${zoom}/${tileX}/${tileY}`;
-        if (labelCache.has(key)) return labelCache.get(key);
-
-        const labels = [];
-        const seen = new Set();  // Deduplicate by text (same label from different zoom sources)
-        const minDataZoom = archive.header.minZoom;
-        const maxDataZoom = archive.header.maxZoom;
-
-        // Check each zoom level from current zoom DOWN to minZoom for parent tiles with labels
-        // Higher zoom (more detailed) labels take precedence for more accurate positions
-        for (let checkZoom = Math.min(maxDataZoom, zoom); checkZoom >= minDataZoom; checkZoom--) {
-            // Calculate which tile at checkZoom contains the current tile
-            const zoomDiff = zoom - checkZoom;
-            const checkX = tileX >> zoomDiff;
-            const checkY = tileY >> zoomDiff;
-
-            // Binary search for this tile in label index (indexed by extraction_zoom)
-            const idx = archive.labelIndex.find(l =>
-                l.zoomMin === checkZoom && l.tileX === checkX && l.tileY === checkY);
-
-            if (!idx || idx.count === 0) continue;
-
-            // Load labels from this index entry
-            const parentLabels = loadLabelsFromIndex(idx);
-
-            // Scale factor from extraction zoom to current zoom
-            const scale = 1 << zoomDiff;
-
-            // Which sub-tile within the parent are we viewing
-            const subTileX = tileX - (checkX << zoomDiff);
-            const subTileY = tileY - (checkY << zoomDiff);
-
-            for (const label of parentLabels) {
-                // Check visibility: zoom_min <= current_zoom <= zoom_max
-                if (zoom < label.zoomMin || zoom > label.zoomMax) continue;
-
-                // Deduplicate by text to avoid showing same label from different extraction zooms
-                if (seen.has(label.text)) continue;
-
-                // Scale pixel coordinates from extraction zoom to current zoom
-                const scaledPixelX = label.pixelX * scale;
-                const scaledPixelY = label.pixelY * scale;
-
-                // Calculate position within current tile
-                const localX = scaledPixelX - subTileX * TILE_SIZE;
-                const localY = scaledPixelY - subTileY * TILE_SIZE;
-
-                // Only include if the label falls within this tile
-                if (localX >= 0 && localX < TILE_SIZE && localY >= 0 && localY < TILE_SIZE) {
-                    seen.add(label.text);
-                    labels.push({
-                        ...label,
-                        pixelX: localX,
-                        pixelY: localY
-                    });
-                }
-            }
-        }
-
-        labelCache.set(key, labels);
-        return labels;
+        return result;
     }
 
     // Main render function
@@ -582,57 +520,55 @@
             }
         }
 
-        // Draw labels
-        if (showLabelsCheck.checked && archive.labelIndex.length > 0) {
+        // Draw labels (v4: geographic lat/lon filtered by viewport)
+        if (showLabelsCheck.checked && archive.labels.length > 0) {
+            // Convert viewport corners to geographic bounds.
+            // Note: viewY grows downward (south), so top-left pixel maps to maxLat, bottom-right to minLat.
+            const minLon = tileToLon(viewX / TILE_SIZE, zoom);
+            const maxLon = tileToLon((viewX + width) / TILE_SIZE, zoom);
+            const maxLat = tileToLat(viewY / TILE_SIZE, zoom);
+            const minLat = tileToLat((viewY + height) / TILE_SIZE, zoom);
+
+            const visible = getVisibleLabels(zoom, minLat, maxLat, minLon, maxLon);
+
+            // Stable draw order: larger (lower label_type index = more important) first.
+            visible.sort((a, b) => a.labelType - b.labelType);
+
             const drawnLabels = [];
-            const drawnTexts = new Set();  // Deduplicate labels by text across all tiles
+            const drawnTexts = new Set();
 
-            for (let ty = 0; ty < tilesY; ty++) {
-                for (let tx = 0; tx < tilesX; tx++) {
-                    const tileX = startTileX + tx;
-                    const tileY = startTileY + ty;
+            for (const label of visible) {
+                if (drawnTexts.has(label.text)) continue;
 
-                    if (tileX < 0 || tileX > maxTile || tileY < 0 || tileY > maxTile) continue;
+                const tile = latLonToTile(label.lat, label.lon, zoom);
+                const screenX = tile.x * TILE_SIZE - viewX;
+                const screenY = tile.y * TILE_SIZE - viewY;
 
-                    const labels = getLabelsForTile(zoom, tileX, tileY);
-                    for (const label of labels) {
-                        if (zoom > label.zoomMax) continue;
+                if (screenX < -100 || screenX > width + 50 || screenY < 0 || screenY > height) continue;
 
-                        // Skip if we already drew this label text (from a different tile)
-                        if (drawnTexts.has(label.text)) continue;
+                const style = LABEL_TYPES[label.labelType] || LABEL_TYPES[2];
+                ctx.font = style.font;
+                const metrics = ctx.measureText(label.text);
+                const labelWidth = metrics.width;
+                const labelHeight = 14;
 
-                        const screenX = (tileX - startTileX) * TILE_SIZE + label.pixelX - offsetX;
-                        const screenY = (tileY - startTileY) * TILE_SIZE + label.pixelY - offsetY;
-
-                        if (screenX < -100 || screenX > width + 50 || screenY < 0 || screenY > height) continue;
-
-                        const style = LABEL_TYPES[label.labelType] || LABEL_TYPES[2];
-                        ctx.font = style.font;
-                        const metrics = ctx.measureText(label.text);
-                        const labelWidth = metrics.width;
-                        const labelHeight = 14;
-
-                        // Simple occlusion check
-                        let overlaps = false;
-                        for (const dl of drawnLabels) {
-                            if (!(screenX + labelWidth < dl.x || screenX > dl.x + dl.w ||
-                                  screenY + labelHeight < dl.y || screenY > dl.y + dl.h)) {
-                                overlaps = true;
-                                break;
-                            }
-                        }
-                        if (overlaps) continue;
-
-                        // Draw label with shadow
-                        ctx.fillStyle = '#000';
-                        ctx.fillText(label.text, screenX + 1, screenY + 1);
-                        ctx.fillStyle = style.color;
-                        ctx.fillText(label.text, screenX, screenY);
-
-                        drawnLabels.push({ x: screenX, y: screenY - labelHeight, w: labelWidth, h: labelHeight });
-                        drawnTexts.add(label.text);  // Mark as drawn
+                let overlaps = false;
+                for (const dl of drawnLabels) {
+                    if (!(screenX + labelWidth < dl.x || screenX > dl.x + dl.w ||
+                          screenY + labelHeight < dl.y || screenY > dl.y + dl.h)) {
+                        overlaps = true;
+                        break;
                     }
                 }
+                if (overlaps) continue;
+
+                ctx.fillStyle = '#000';
+                ctx.fillText(label.text, screenX + 1, screenY + 1);
+                ctx.fillStyle = style.color;
+                ctx.fillText(label.text, screenX, screenY);
+
+                drawnLabels.push({ x: screenX, y: screenY - labelHeight, w: labelWidth, h: labelHeight });
+                drawnTexts.add(label.text);
             }
         }
 
@@ -675,8 +611,8 @@
                 header,
                 palette: parsePalette(buffer, HEADER_SIZE),
                 tiles: parseTileIndex(buffer, header.indexOffset, header.tileCount),
-                labelIndex: header.labelIndexCount > 0
-                    ? parseLabelIndex(buffer, header.labelIndexOffset, header.labelIndexCount)
+                labels: header.labelCount > 0
+                    ? parseLabels(buffer, header.labelDataOffset, header.labelCount)
                     : [],
             };
 
@@ -700,7 +636,7 @@
                 viewY = avgY * TILE_SIZE - canvas.height / 2;
             }
 
-            infoEl.textContent = `v${header.version} | ${header.tileCount} tiles | ${archive.labelIndex.length} label groups | Z${header.minZoom}-${header.maxZoom}`;
+            infoEl.textContent = `v${header.version} | ${header.tileCount} tiles | ${archive.labels.length} labels | Z${header.minZoom}-${header.maxZoom}`;
             render();
         } catch (e) {
             statusEl.textContent = 'Error: ' + e.message;

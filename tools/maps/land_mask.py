@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Tuple, Optional
 import math
 
+import numpy as np
+
 # Optional: Use shapely for polygon operations if available
 try:
     from shapely.geometry import box, shape
@@ -32,6 +34,15 @@ OSM_LAND_URL = "https://osmdata.openstreetmap.de/download/simplified-land-polygo
 CACHE_DIR = Path(__file__).parent / ".cache"
 LAND_SHAPEFILE = CACHE_DIR / "simplified-land-polygons-complete-3857" / "simplified_land_polygons.shp"
 LAND_GEOJSON = CACHE_DIR / "osm_land_wgs84.geojson"
+
+# Committable sidecar: a low-resolution bit-packed land/water raster in
+# equirectangular projection covering the whole globe. Produced once by
+# `python land_mask.py quantize` and checked into the repo so fresh clones /
+# CI runs don't need to download 24MB of polygons. Loads in milliseconds.
+SIDECAR_DIR = Path(__file__).parent / "data"
+SIDECAR_PATH = SIDECAR_DIR / "land_mask_2048x1024.npz"
+SIDECAR_W = 2048  # longitude axis (-180..180 → 0..W)
+SIDECAR_H = 1024  # latitude axis (90..-90 → 0..H)
 
 
 def mercator_to_wgs84(x: float, y: float) -> Tuple[float, float]:
@@ -94,32 +105,45 @@ class LandMask:
     def __init__(self):
         self.land_polygons = None
         self.prepared_land = None
+        # Bit-packed global raster (1 = land, 0 = water) used as a fast fallback
+        # when the full polygon set isn't available.
+        self.bitmap: Optional[np.ndarray] = None
         self._initialized = False
 
-    def initialize(self) -> bool:
-        """Load land polygons. Returns True if successful."""
+    def initialize(self, *, allow_download: bool = True) -> bool:
+        """Load land polygons. Returns True if any lookup backend is available.
+
+        Tries in order: shapely polygons from cache → committed sidecar bitmap
+        → download + regenerate. When ``allow_download`` is False (CI), skip
+        the 24MB download and accept bitmap-only lookups.
+        """
         if self._initialized:
-            return self.land_polygons is not None
+            return self.land_polygons is not None or self.bitmap is not None
 
         self._initialized = True
 
-        if not HAS_SHAPELY:
+        # Prefer the full polygon set (enables coastline drawing on mixed tiles).
+        if HAS_SHAPELY:
+            if LAND_GEOJSON.exists() and self._load_geojson():
+                return True
+            if LAND_SHAPEFILE.exists() and self._load_shapefile():
+                return True
+        else:
             print("Warning: shapely not installed. Install with: pip install shapely")
-            print("Falling back to simple latitude-based heuristic.")
+
+        # Fall back to the committed sidecar bitmap. Good enough for tile
+        # background decisions at z≤10; higher zooms rely on the vector tile's
+        # own coastline data.
+        if self._load_bitmap():
+            return True
+
+        if not allow_download:
+            print("Land mask: no polygons or sidecar available, and download is disabled.")
             return False
 
-        # Try to load cached GeoJSON first (already in WGS84)
-        if LAND_GEOJSON.exists():
-            return self._load_geojson()
-
-        # Try to load from shapefile (Mercator, needs transform)
-        if LAND_SHAPEFILE.exists():
-            return self._load_shapefile()
-
-        # Download OSM land data
+        # Last resort: download the 24MB archive and regenerate.
         if not download_osm_land():
             return False
-
         return self._load_shapefile()
 
     def _load_geojson(self) -> bool:
@@ -189,6 +213,86 @@ class LandMask:
             traceback.print_exc()
             return False
 
+    # -----------------------------------------------------------------------
+    # Sidecar bitmap
+    # -----------------------------------------------------------------------
+
+    def _load_bitmap(self) -> bool:
+        if not SIDECAR_PATH.exists():
+            return False
+        try:
+            with np.load(SIDECAR_PATH) as f:
+                packed = f["packed"]
+                width = int(f["width"])
+                height = int(f["height"])
+            bits = np.unpackbits(packed)[: width * height].reshape((height, width))
+            self.bitmap = bits.astype(bool)
+            print(f"Loaded land sidecar {width}x{height} ({SIDECAR_PATH.name})")
+            return True
+        except Exception as e:
+            print(f"Failed to load land sidecar: {e}")
+            return False
+
+    def _sample_bitmap(self, lat: float, lon: float) -> bool:
+        """Look up a single (lat, lon) point in the bitmap. Assumes equirectangular
+        projection: x ∈ [0, W) maps to lon ∈ [-180, 180), y ∈ [0, H) maps to
+        lat ∈ (90, -90]."""
+        if self.bitmap is None:
+            return False
+        h, w = self.bitmap.shape
+        # Wrap lon into [-180, 180); clamp lat to [-90, 90].
+        lon = ((lon + 180.0) % 360.0) - 180.0
+        lat = max(-90.0, min(90.0, lat))
+        x = int((lon + 180.0) / 360.0 * w) % w
+        y = int((90.0 - lat) / 180.0 * h)
+        if y >= h:
+            y = h - 1
+        return bool(self.bitmap[y, x])
+
+    def quantize_to_bitmap(self, width: int = SIDECAR_W, height: int = SIDECAR_H) -> np.ndarray:
+        """Rasterize the loaded land polygons into an equirectangular bitmap.
+
+        Requires that `self.land_polygons` is populated (run with a full
+        shapely polygon set). Returns a boolean array of shape (height, width).
+        """
+        if self.land_polygons is None:
+            raise RuntimeError("quantize_to_bitmap requires loaded polygons")
+
+        from shapely.geometry import box as shp_box
+        bitmap = np.zeros((height, width), dtype=bool)
+
+        # Sample the center of each pixel. For a 2048×1024 grid this is ~2M
+        # point-in-polygon tests; slow but a one-shot generator step, so fine.
+        # Process row-by-row; print progress every 64 rows.
+        for row in range(height):
+            if row % 64 == 0:
+                print(f"  quantize row {row}/{height}")
+            lat = 90.0 - (row + 0.5) / height * 180.0
+            # Build a single horizontal strip box and intersect polygons once
+            # per row, then test each column center against the strip.
+            strip = shp_box(-180.0, lat - 180.0 / height / 2,
+                             180.0, lat + 180.0 / height / 2)
+            if not self.prepared_land.intersects(strip):
+                continue
+            row_polys = self.land_polygons.intersection(strip)
+            from shapely.prepared import prep
+            row_prepared = prep(row_polys)
+            from shapely.geometry import Point
+            for col in range(width):
+                lon = -180.0 + (col + 0.5) / width * 360.0
+                if row_prepared.contains(Point(lon, lat)):
+                    bitmap[row, col] = True
+
+        return bitmap
+
+    def save_bitmap(self, bitmap: np.ndarray, path: Path = SIDECAR_PATH) -> None:
+        """Bit-pack and persist a bitmap produced by quantize_to_bitmap()."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        h, w = bitmap.shape
+        packed = np.packbits(bitmap.astype(np.uint8).ravel())
+        np.savez_compressed(path, packed=packed, width=w, height=h)
+        print(f"Wrote {path} ({path.stat().st_size // 1024} KB)")
+
     def tile_to_bbox(self, z: int, x: int, y: int) -> Tuple[float, float, float, float]:
         """Convert tile coordinates to lat/lon bounding box (west, south, east, north)."""
         n = 2 ** z
@@ -213,30 +317,37 @@ class LandMask:
         For tiles that straddle the coastline, the vector tile's land
         polygons will provide the actual boundary.
         """
-        if self.prepared_land is None:
-            # Fallback: simple latitude-based heuristic
-            return self._simple_land_check(z, x, y)
-
         west, south, east, north = self.tile_to_bbox(z, x, y)
-
-        # Check tile center point
         center_lon = (west + east) / 2
         center_lat = (south + north) / 2
 
-        from shapely.geometry import Point
-        center = Point(center_lon, center_lat)
+        if self.prepared_land is not None:
+            from shapely.geometry import Point
+            return self.prepared_land.contains(Point(center_lon, center_lat))
 
-        return self.prepared_land.contains(center)
+        if self.bitmap is not None:
+            return self._sample_bitmap(center_lat, center_lon)
+
+        return self._simple_land_check(z, x, y)
 
     def tile_intersects_land(self, z: int, x: int, y: int) -> bool:
         """Check if tile bbox intersects any land polygon."""
-        if self.prepared_land is None:
-            return self._simple_land_check(z, x, y)
-
         west, south, east, north = self.tile_to_bbox(z, x, y)
-        tile_box = box(west, south, east, north)
 
-        return self.prepared_land.intersects(tile_box)
+        if self.prepared_land is not None:
+            return self.prepared_land.intersects(box(west, south, east, north))
+
+        if self.bitmap is not None:
+            # Sample a 4×4 grid inside the tile; any hit = intersects.
+            for i in range(4):
+                for j in range(4):
+                    lat = south + (north - south) * (i + 0.5) / 4
+                    lon = west + (east - west) * (j + 0.5) / 4
+                    if self._sample_bitmap(lat, lon):
+                        return True
+            return False
+
+        return self._simple_land_check(z, x, y)
 
     def get_land_fraction(self, z: int, x: int, y: int) -> float:
         """
@@ -244,21 +355,30 @@ class LandMask:
 
         Useful for deciding background when tile has partial land coverage.
         """
-        if self.prepared_land is None:
-            return 0.5 if self._simple_land_check(z, x, y) else 0.0
-
         west, south, east, north = self.tile_to_bbox(z, x, y)
-        tile_box = box(west, south, east, north)
 
-        if not self.prepared_land.intersects(tile_box):
-            return 0.0
+        if self.prepared_land is not None:
+            tile_box = box(west, south, east, north)
+            if not self.prepared_land.intersects(tile_box):
+                return 0.0
+            try:
+                return self.land_polygons.intersection(tile_box).area / tile_box.area
+            except Exception:
+                return 1.0 if self.is_land_tile(z, x, y) else 0.0
 
-        try:
-            intersection = self.land_polygons.intersection(tile_box)
-            return intersection.area / tile_box.area
-        except Exception:
-            # Geometry error, fall back to contains check
-            return 1.0 if self.is_land_tile(z, x, y) else 0.0
+        if self.bitmap is not None:
+            # Approximate via 4×4 sampling. Coarse but stable and ~30× faster
+            # than shapely for the tile-background decision.
+            hits = 0
+            for i in range(4):
+                for j in range(4):
+                    lat = south + (north - south) * (i + 0.5) / 4
+                    lon = west + (east - west) * (j + 0.5) / 4
+                    if self._sample_bitmap(lat, lon):
+                        hits += 1
+            return hits / 16.0
+
+        return 0.5 if self._simple_land_check(z, x, y) else 0.0
 
     def _simple_land_check(self, z: int, x: int, y: int) -> bool:
         """
@@ -301,3 +421,39 @@ def get_land_mask() -> LandMask:
 def is_land_tile(z: int, x: int, y: int) -> bool:
     """Convenience function to check if a tile is over land."""
     return get_land_mask().is_land_tile(z, x, y)
+
+
+def _cli() -> int:
+    import argparse
+    p = argparse.ArgumentParser(
+        prog="python land_mask.py",
+        description="Land mask sidecar generator")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    pq = sub.add_parser("quantize", help="Generate the committable sidecar bitmap")
+    pq.add_argument("--width", type=int, default=SIDECAR_W)
+    pq.add_argument("--height", type=int, default=SIDECAR_H)
+    pq.add_argument("--output", type=Path, default=SIDECAR_PATH)
+
+    args = p.parse_args()
+    if args.cmd == "quantize":
+        mask = LandMask()
+        # Force the shapely path so we have polygons to rasterize.
+        if not (LAND_GEOJSON.exists() or LAND_SHAPEFILE.exists()):
+            if not download_osm_land():
+                print("quantize: OSM land data download failed")
+                return 1
+        if not mask.initialize(allow_download=True):
+            print("quantize: could not load polygons")
+            return 1
+        if mask.land_polygons is None:
+            print("quantize: shapely polygons unavailable; cannot rasterize")
+            return 1
+        bitmap = mask.quantize_to_bitmap(args.width, args.height)
+        mask.save_bitmap(bitmap, args.output)
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(_cli())

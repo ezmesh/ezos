@@ -386,6 +386,11 @@
                 <input type="range" id="overlay-opacity" min="0" max="100" value="50">
             </div>
 
+            <div class="overlay-controls">
+                <label for="tdmap-input">Load .tdmap archive (or drag-drop anywhere):</label>
+                <input type="file" id="tdmap-input" accept=".tdmap">
+            </div>
+
             <!-- Virtual T-Deck Keyboard -->
             <div class="keyboard" id="virtual-keyboard">
                 <div class="keyboard-row">
@@ -458,6 +463,10 @@
 
     <!-- Wasmoon Lua interpreter (loaded as UMD, exposes global 'wasmoon') -->
     <script src="./node_modules/wasmoon/dist/index.js"></script>
+    <!-- Pako for synchronous zlib inflate: map_archive needs a drop-in for the
+         device's ez.compression.inflate C binding. Loaded from a pinned CDN
+         build (~45 KB). Optional: RLE archives still work without it. -->
+    <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
     <script type="module" src="./simulator.js"></script>
 </body>
 </html>

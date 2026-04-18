@@ -1,5 +1,13 @@
-# Virtual environment
+# Virtual environments
 venv/
+.venv/
+
+# PMTiles source archives (large, not tracked)
+*.pmtiles
+*.osm.pbf
+
+# pytest cache
+.pytest_cache/
 
 # OSM land polygon cache (downloaded on first run)
 .cache/

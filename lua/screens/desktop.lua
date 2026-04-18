@@ -80,7 +80,7 @@ end
 local icon_defs = {
     { label = "Messages", icon = icons.mail,    screen = "$screens/messages.lua" },
     { label = "Contacts", icon = icons.users,   mod = "screens.contacts" },
-    { label = "Map",      icon = icons.globe,   screen = "$screens/menu.lua" },
+    { label = "Map",      icon = icons.globe,   mod = "screens.map" },
     { label = "More",     icon = icons.more_horiz, screen = "$screens/menu.lua" },
 }
 

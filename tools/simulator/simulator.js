@@ -11,6 +11,8 @@ import { createDisplayModule, loadFonts } from './mock/display.js';
 import { createKeyboardModule } from './mock/keyboard.js';
 import { createSystemModule } from './mock/system.js';
 import { createStorageModule, preloadBinaryFiles } from './mock/storage.js';
+import { attachMapUploader } from './mock/map_upload.js';
+import { createCompressionModule } from './mock/compression.js';
 import { createMeshModule } from './mock/mesh.js';
 import { createRadioModule } from './mock/radio.js';
 import { createAudioModule } from './mock/audio.js';
@@ -273,6 +275,17 @@ async function initLua() {
     await preloadBinaryFiles();
     log('Binary files loaded', 'info');
 
+    // Accept drag-drop / file-picker uploads of .tdmap archives at runtime.
+    // A dropped archive shadows /sd/maps/world.tdmap so the map screen sees it transparently.
+    attachMapUploader({
+        dropTarget: document.body,
+        fileInput: document.getElementById('tdmap-input'),
+        onLoaded: (path, bytes) => {
+            log(`Loaded map ${path} (${(bytes.length / 1024 / 1024).toFixed(1)} MB)`, 'info');
+        },
+        onError: (msg) => log(msg, 'error'),
+    });
+
     setStatus('Loading Wasmoon (Lua 5.4)...', 'loading');
 
     // Create Lua factory and instance
@@ -297,6 +310,7 @@ async function initLua() {
     const audio = createAudioModule();
     const gps = createGpsModule();
     const cryptoMod = createCryptoModule();
+    const compression = createCompressionModule();
     const bus = createBusModule();
     const wifi = createWifiModule();
     busModule = bus;  // Store reference for main loop
@@ -311,6 +325,7 @@ async function initLua() {
     lua.global.set('_audio', audio);
     lua.global.set('_gps', gps);
     lua.global.set('_crypto', cryptoMod);
+    lua.global.set('_compression', compression);
     lua.global.set('_bus', bus);
     lua.global.set('_wifi', wifi);
 
@@ -335,6 +350,7 @@ async function initLua() {
             audio = _audio,
             gps = _gps,
             crypto = _crypto,
+            compression = _compression,
             bus = _bus,
             wifi = _wifi,
             log = _log,
@@ -358,6 +374,7 @@ async function initLua() {
         _audio = nil
         _gps = nil
         _crypto = nil
+        _compression = nil
         _bus = nil
         _log = nil
     `);

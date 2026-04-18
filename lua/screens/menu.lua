@@ -33,7 +33,7 @@ function Menu:build(state)
     )
 
     local tool_entries = {
-        { title = "Map",       subtitle = "Offline maps",         icon = icons.map,      disabled = true },
+        { title = "Map",       subtitle = "Offline maps",         icon = icons.map,      mod = "screens.map" },
         { title = "Files",     subtitle = "Flash & SD browser",   icon = icons.folder,   mod = "screens.file_manager" },
         { title = "Terminal",  subtitle = "Lua REPL",             icon = icons.terminal, disabled = true },
     }

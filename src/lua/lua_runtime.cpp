@@ -26,6 +26,7 @@ void registerAudioModule(lua_State* L);
 // Phase 4 modules
 void registerStorageModule(lua_State* L);
 void registerCryptoModule(lua_State* L);
+void registerCompressionModule(lua_State* L);
 // GPS module
 #include "bindings/gps_bindings.h"
 // WiFi module
@@ -174,6 +175,7 @@ void LuaRuntime::registerAllModules() {
     // Phase 4 modules
     registerStorageModule(_state);
     registerCryptoModule(_state);
+    registerCompressionModule(_state);
 
     // GPS module
     gps_bindings::registerBindings(_state);

@@ -8,9 +8,11 @@ A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 wi
   <img src="docs/screenshots/mesh-chat.png" alt="Mesh Chat" width="240"/>
 </p>
 
+> 🚧 **Early development.** APIs, on-disk formats, and the UI framework change between commits. Expect breaking changes, missing features, and rough edges. Not yet suitable for daily-driver or production use. Pin to a released tag if you want a stable build.
+
 ## Download & Flash
 
-> ⚠️ **Warning:** This firmware has only been tested on the **T-Deck Plus**. Use at your own risk - no warranty or guarantee is provided.
+> ⚠️ **Warning:** This firmware has only been tested on the **T-Deck Plus**. Use at your own risk — no warranty or guarantee is provided.
 
 **Easiest method** - Use the web flasher (no software install required):
 
@@ -62,11 +64,11 @@ The entire user interface is written in **Lua** - no C++ or complex build tools 
 
 **Getting started:**
 
-1. Edit scripts directly on the SD card in `/data/scripts/`
-2. Test changes in the [browser simulator](#browser-simulator) - no hardware needed
-3. Use [remote control](#remote-control) to execute Lua on the device: `ez_remote.py -e "your code"`
+1. Edit `.lua` files under `lua/` in this repo. Scripts are embedded into the firmware at build time, so changes require a rebuild + flash (`pio run -t upload`).
+2. Iterate in the [browser simulator](#browser-simulator) for fast feedback — no hardware or flash cycle needed.
+3. Use [remote control](#remote-control) to execute Lua on a running device: `ez_remote.py -e "return collectgarbage('count')"`
 
-All 40+ screens, 8 games, and every menu you see are plain `.lua` files you can read, modify, and learn from.
+All 40+ screens, games, and every menu you see are plain `.lua` files you can read, modify, and learn from.
 
 ## Hardware
 
@@ -123,17 +125,18 @@ pio run -t upload
 ```
 ezos/
 ├── src/                    # C++ firmware
-│   ├── hardware/          # Display, keyboard, radio, GPS
+│   ├── hardware/          # Display, keyboard, radio, GPS drivers
 │   ├── mesh/              # MeshCore protocol
 │   ├── lua/bindings/      # Lua API bindings
 │   └── remote/            # USB remote control
-├── data/scripts/           # Lua UI
+├── lua/                    # Lua UI (embedded into firmware)
 │   ├── boot.lua           # Entry point
-│   └── ui/
-│       ├── screens/       # UI screens (40+)
-│       └── services/      # Background services
+│   ├── core/              # Module loader
+│   ├── ezui/              # Declarative UI framework
+│   ├── screens/           # UI screens
+│   └── services/          # Background services (channels, DMs, contacts)
 ├── tools/
-│   ├── maps/              # Offline map generator
+│   ├── maps/              # Offline map generator (PMTiles → TDMAP)
 │   ├── simulator/         # Browser simulator
 │   └── remote/            # Remote control client
 └── docs/                   # Documentation
@@ -181,7 +184,7 @@ python ez_remote.py /dev/ttyACM0 -s screenshot.png
 python ez_remote.py /dev/ttyACM0 -k enter
 
 # Execute Lua
-python ez_remote.py /dev/ttyACM0 -e "Debug.memory()"
+python ez_remote.py /dev/ttyACM0 -e "return collectgarbage('count')"
 ```
 
 📖 [Learn more about remote control](docs/remote-control.md)
@@ -199,27 +202,48 @@ Compatible with other MeshCore implementations (Ripple Radio, Meshtastic bridges
 
 ## UI System
 
-The interface is entirely Lua-scripted with a stack-based screen manager:
+The interface is built on **ezui**, a declarative component framework living in `lua/ezui/`. Screens expose a `build(state)` method that returns a tree of nodes; state changes trigger a rebuild and redraw. A stack-based screen manager handles navigation, focus, and input routing.
 
 ```lua
--- Example screen
-local MyScreen = { title = "Hello" }
+-- lua/screens/hello.lua
+local ui = require("ezui")
 
-function MyScreen:new()
-    return setmetatable({}, {__index = MyScreen})
+local Hello = { title = "Hello" }
+
+function Hello:build(state)
+    return ui.vbox({ gap = 4 }, {
+        ui.title_bar("Hello", { back = true }),
+        ui.padding({ 12, 8, 8, 8 },
+            ui.text_widget(state.message or "Hello, World!")
+        ),
+        ui.padding({ 4, 8, 8, 8 },
+            ui.button({
+                label = "Tap me",
+                on_press = function()
+                    self:set_state({ message = "Tapped!" })
+                end,
+            })
+        ),
+    })
 end
 
-function MyScreen:render(display)
-    display.draw_text_centered(120, "Hello, World!", display.colors.WHITE)
-end
-
-function MyScreen:handle_key(key)
-    if key.special == "ESCAPE" then return "pop" end
-    return "continue"
-end
-
-return MyScreen
+return Hello
 ```
+
+Key building blocks:
+
+| Module | Purpose |
+|--------|---------|
+| `ezui.layout` | `vbox`, `hbox`, `zstack`, `padding`, `scroll` |
+| `ezui.widgets` | `button`, `text_widget`, `slider`, `list_item`, `title_bar`, … |
+| `ezui.node` | Register custom node types (see `color_swatch` in `lua/screens/settings.lua`) |
+| `ezui.focus` | Trackball/arrow-key navigation between focusable nodes |
+| `ezui.theme` | Colors, fonts, accent presets |
+| `ezui.async` | Coroutine-based helpers for non-blocking I/O |
+
+`lua/screens/settings.lua` is a good reference for sliders, custom widgets, and theme-aware rendering.
+
+> **Note:** The offline map viewer is currently being ported to ezui — see [#10](../../issues/10), [#11](../../issues/11), [#12](../../issues/12). The map tile generator in `tools/maps/` and the desktop viewer still work.
 
 ## Configuration
 
