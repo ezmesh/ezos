@@ -151,6 +151,15 @@ public:
     // Bits 0-6 = col 0, bits 7-13 = col 1, etc. (7 bits per column)
     uint64_t getRawMatrixBits();
 
+    // Transparent hold-detection for character keys.
+    // The T-Deck keyboard firmware doesn't emit release events for character
+    // keys, so hold state can't be inferred from the normal event stream.
+    // isHeld() bridges the gap: on the first press of each character, we
+    // briefly switch to raw matrix mode to discover its (col,row) position.
+    // Subsequent isHeld() calls check the cached matrix state directly.
+    // Returns false for unknown characters (never pressed yet in this session).
+    bool isHeld(char c);
+
     // Trackball state
     bool hasTrackball() const { return _trackballFound; }
 
@@ -224,6 +233,13 @@ private:
     uint32_t _lastRepeatTime = 0;         // When last repeat was generated
     bool _repeatStarted = false;          // Has repeat started for current key
 
+    // Character → matrix-position map for isHeld(). col == -1 means unknown.
+    struct KeyMatrixPos { int8_t col; int8_t row; };
+    KeyMatrixPos _charMap[128] = {};
+    uint8_t _heldMatrixCache[MATRIX_COLS] = {0};
+    uint32_t _heldMatrixCacheTime = 0;
+    static constexpr uint32_t HELD_MATRIX_CACHE_MS = 90;
+
     // Convert raw keycode to KeyEvent
     KeyEvent translateKeycode(uint8_t code);
 
@@ -232,4 +248,11 @@ private:
 
     // Read and process trackball
     KeyEvent readTrackball();
+
+    // Learn the (col,row) of a character by briefly reading the raw matrix.
+    // Called from read() on the first press of each character.
+    void learnCharPosition(char c);
+
+    // Briefly switch to raw mode, read matrix, restore previous mode.
+    bool peekRawMatrix(uint8_t matrix[MATRIX_COLS]);
 };

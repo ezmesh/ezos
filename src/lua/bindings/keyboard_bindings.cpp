@@ -650,6 +650,31 @@ LUA_FUNCTION(l_keyboard_get_pin_states) {
     return 1;
 }
 
+// @lua ez.keyboard.is_held(char) -> boolean
+// @brief Check whether a character key is currently held down
+// @description The T-Deck I2C keyboard does not emit release events for
+// character keys, so hold state cannot be inferred from the event stream.
+// is_held() bridges the gap by briefly switching to raw matrix mode. The
+// key's (col,row) position is learned automatically on its first press in
+// the session. Until then, is_held() returns false. Case-insensitive:
+// is_held("w") and is_held("W") both query the same matrix bit.
+// @param char Single-character string
+// @return true if the character's key is currently held
+// @example
+// if ez.keyboard.is_held("w") then move_forward() end
+// @end
+LUA_FUNCTION(l_keyboard_is_held) {
+    LUA_CHECK_ARGC(L, 1);
+    size_t len;
+    const char* s = luaL_checklstring(L, 1, &len);
+    if (len != 1 || !keyboard) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+    lua_pushboolean(L, keyboard->isHeld(s[0]));
+    return 1;
+}
+
 // Function table for ez.keyboard
 static const luaL_Reg keyboard_funcs[] = {
     {"available",                l_keyboard_available},
@@ -681,6 +706,7 @@ static const luaL_Reg keyboard_funcs[] = {
     {"get_raw_matrix_bits",      l_keyboard_get_raw_matrix_bits},
     {"has_key_activity",         l_keyboard_has_key_activity},
     {"get_pin_states",           l_keyboard_get_pin_states},
+    {"is_held",                  l_keyboard_is_held},
     {nullptr, nullptr}
 };
 

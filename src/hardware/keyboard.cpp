@@ -83,6 +83,10 @@ namespace KBCommands {
 }
 
 Keyboard::Keyboard() : _wire(nullptr) {
+    for (size_t i = 0; i < sizeof(_charMap) / sizeof(_charMap[0]); i++) {
+        _charMap[i].col = -1;
+        _charMap[i].row = -1;
+    }
 }
 
 bool Keyboard::init() {
@@ -248,6 +252,11 @@ KeyEvent Keyboard::read() {
             KeyEvent evt = translateKeycode(code);
             KB_LOG("[KB] Event: special=%d char='%c'\n",
                    (int)evt.special, evt.character ? evt.character : '?');
+            // Opportunistically learn matrix position for character keys so
+            // isHeld() can query hold state later.
+            if (evt.valid && evt.character && !isRelease) {
+                learnCharPosition(evt.character);
+            }
             return evt;
         }
     }
@@ -257,7 +266,18 @@ KeyEvent Keyboard::read() {
         uint32_t now = millis();
         uint32_t elapsed = now - _keyPressTime;
 
-        if (!_repeatStarted) {
+        // Release timeout: the T-Deck I2C keyboard does not emit release events
+        // for character keys, so we can't tell when a key is let go. Without
+        // this guard, _heldKeyCode stays set forever and repeat fires endlessly
+        // (e.g. desktop wallpaper kept cycling after releasing W). A short
+        // timeout bounds repeat to a handful of events per tap. On hardware
+        // that does auto-repeat natively, each fresh I2C event refreshes
+        // _keyPressTime so elapsed stays small and the timeout never trips.
+        uint32_t holdTimeout = _keyRepeatDelay + _keyRepeatRate * 2;
+        if (elapsed > holdTimeout) {
+            _heldKeyCode = 0;
+            _repeatStarted = false;
+        } else if (!_repeatStarted) {
             // Check if we've passed the initial delay
             if (elapsed >= _keyRepeatDelay) {
                 _repeatStarted = true;
@@ -277,6 +297,31 @@ KeyEvent Keyboard::read() {
     // Trackball handling - supports both polling and interrupt modes
     uint32_t now = millis();
 
+    // Click is debounced via direct GPIO polling in BOTH modes. On some T-Decks
+    // the click pin gets stuck LOW or bounces, and the raw ISR flag fires ENTER
+    // multiple times (opens+closes menus). Holding for >=30ms and re-asserting
+    // INPUT_PULLUP while held matches the original polling-only fix.
+    static bool clickHeld = false;
+    static uint32_t clickStartTime = 0;
+    static bool clickFired = false;
+
+    bool click = (digitalRead(TRACKBALL_CLICK) == LOW);
+    bool clickEvent = false;
+    if (click) {
+        pinMode(TRACKBALL_CLICK, INPUT_PULLUP);
+        if (!clickHeld) {
+            clickHeld = true;
+            clickStartTime = now;
+            clickFired = false;
+        } else if (!clickFired && (now - clickStartTime) >= 30) {
+            clickFired = true;
+            clickEvent = true;
+        }
+    } else {
+        clickHeld = false;
+        clickFired = false;
+    }
+
     if (_trackballMode == TrackballMode::INTERRUPT_DRIVEN) {
         // Interrupt mode: read from volatile counters set by ISRs
         // Atomically read and reset counters
@@ -285,16 +330,13 @@ KeyEvent Keyboard::read() {
         int16_t intDown = tb_int_down;
         int16_t intLeft = tb_int_left;
         int16_t intRight = tb_int_right;
-        bool intClick = tb_int_click;
         tb_int_up = 0;
         tb_int_down = 0;
         tb_int_left = 0;
         tb_int_right = 0;
-        tb_int_click = false;
         interrupts();
 
-        // Handle click from interrupt
-        if (intClick) {
+        if (clickEvent) {
             return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
         }
 
@@ -308,15 +350,11 @@ KeyEvent Keyboard::read() {
         // Initialize last* from actual GPIO state on first call to avoid spurious edges at boot
         static bool firstPoll = true;
         static bool lastUp = false, lastDown = false, lastLeft = false, lastRight = false;
-        static bool clickHeld = false;
-        static uint32_t clickStartTime = 0;
-        static bool clickFired = false;
 
         bool up = (digitalRead(TRACKBALL_UP) == LOW);
         bool down = (digitalRead(TRACKBALL_DOWN) == LOW);
         bool left = (digitalRead(TRACKBALL_LEFT) == LOW);
         bool right = (digitalRead(TRACKBALL_RIGHT) == LOW);
-        bool click = (digitalRead(TRACKBALL_CLICK) == LOW);
 
         // On first poll, just record state without detecting edges
         if (firstPoll) {
@@ -341,21 +379,8 @@ KeyEvent Keyboard::read() {
         lastLeft = left;
         lastRight = right;
 
-        // Handle click (30ms debounce)
-        if (click) {
-            // Re-enable pullup in case it got disabled
-            pinMode(TRACKBALL_CLICK, INPUT_PULLUP);
-            if (!clickHeld) {
-                clickHeld = true;
-                clickStartTime = now;
-                clickFired = false;
-            } else if (!clickFired && (now - clickStartTime) >= 30) {
-                clickFired = true;
-                return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
-            }
-        } else {
-            clickHeld = false;
-            clickFired = false;
+        if (clickEvent) {
+            return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
         }
 
         // Accumulate trackball movement (only on edges)
@@ -690,7 +715,6 @@ void Keyboard::setTrackballMode(TrackballMode mode) {
     detachInterrupt(TRACKBALL_DOWN);
     detachInterrupt(TRACKBALL_LEFT);
     detachInterrupt(TRACKBALL_RIGHT);
-    detachInterrupt(TRACKBALL_CLICK);
 
     if (mode == TrackballMode::INTERRUPT_DRIVEN) {
         // Reset interrupt counters
@@ -700,12 +724,13 @@ void Keyboard::setTrackballMode(TrackballMode mode) {
         tb_int_right = 0;
         tb_int_click = false;
 
-        // Attach interrupts (falling edge = button pressed, active low)
+        // Attach directional interrupts only. Click is handled via debounced
+        // polling in both modes because the stuck-pin workaround re-asserts
+        // INPUT_PULLUP, which would disable an attached interrupt on ESP32.
         attachInterrupt(digitalPinToInterrupt(TRACKBALL_UP), ISR_trackball_up, FALLING);
         attachInterrupt(digitalPinToInterrupt(TRACKBALL_DOWN), ISR_trackball_down, FALLING);
         attachInterrupt(digitalPinToInterrupt(TRACKBALL_LEFT), ISR_trackball_left, FALLING);
         attachInterrupt(digitalPinToInterrupt(TRACKBALL_RIGHT), ISR_trackball_right, FALLING);
-        attachInterrupt(digitalPinToInterrupt(TRACKBALL_CLICK), ISR_trackball_click, FALLING);
 
         Serial.println("[Keyboard] Trackball mode: INTERRUPT");
     } else {
@@ -718,4 +743,99 @@ void Keyboard::setTrackballMode(TrackballMode mode) {
     _trackballY = 0;
 
     _trackballMode = mode;
+}
+
+// Briefly switch to raw mode, read the matrix, restore normal mode.
+// This bypasses setMode's 10ms delay + verification read — those exist for
+// one-time mode switches, but we're doing this on every isHeld() cache miss
+// and can't afford ~15ms per read. If the chip isn't ready in time, the
+// read returns fewer than MATRIX_COLS bytes and we return false (isHeld
+// then reports "not held" for one cache window — self-correcting).
+bool Keyboard::peekRawMatrix(uint8_t matrix[MATRIX_COLS]) {
+    if (!_initialized || !_wire) return false;
+
+    // If the device is already in raw mode (e.g. the matrix test screen),
+    // just read directly — nothing to switch back to.
+    if (_mode == KeyboardMode::RAW) {
+        return readRawMatrix(matrix);
+    }
+
+    // Switch to raw, tiny settling delay, read, switch back
+    _wire->beginTransmission(KB_I2C_ADDR);
+    _wire->write(KBCommands::CMD_MODE_RAW);
+    if (_wire->endTransmission() != 0) return false;
+
+    delayMicroseconds(1500);
+
+    _wire->requestFrom((uint8_t)KB_I2C_ADDR, (uint8_t)MATRIX_COLS);
+    uint8_t got = 0;
+    uint8_t tmp[MATRIX_COLS];
+    while (_wire->available() && got < MATRIX_COLS) {
+        tmp[got++] = _wire->read();
+    }
+    // Drain any leftover bytes to keep the bus clean
+    while (_wire->available()) (void)_wire->read();
+
+    // Always restore NORMAL mode regardless of read success
+    _wire->beginTransmission(KB_I2C_ADDR);
+    _wire->write(KBCommands::CMD_MODE_NORMAL);
+    _wire->endTransmission();
+
+    if (got < MATRIX_COLS) return false;
+    for (uint8_t i = 0; i < MATRIX_COLS; i++) matrix[i] = tmp[i];
+    return true;
+}
+
+void Keyboard::learnCharPosition(char c) {
+    uint8_t idx = (uint8_t)c;
+    if (idx >= 128) return;
+    if (_charMap[idx].col >= 0) return;  // already known
+
+    uint8_t matrix[MATRIX_COLS];
+    if (!peekRawMatrix(matrix)) return;
+
+    // Find exactly one set bit — otherwise we can't be sure which key we're
+    // looking at (modifier combinations would confuse us).
+    int8_t foundCol = -1, foundRow = -1;
+    int count = 0;
+    for (uint8_t col = 0; col < MATRIX_COLS; col++) {
+        uint8_t byte = matrix[col];
+        for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
+            if (byte & (1 << row)) {
+                if (count == 0) { foundCol = col; foundRow = row; }
+                count++;
+            }
+        }
+    }
+    if (count != 1) return;
+
+    // Record for both cases so is_held("w") and is_held("W") both work.
+    _charMap[idx].col = foundCol;
+    _charMap[idx].row = foundRow;
+    if (c >= 'a' && c <= 'z') {
+        _charMap[(uint8_t)(c - 32)].col = foundCol;
+        _charMap[(uint8_t)(c - 32)].row = foundRow;
+    } else if (c >= 'A' && c <= 'Z') {
+        _charMap[(uint8_t)(c + 32)].col = foundCol;
+        _charMap[(uint8_t)(c + 32)].row = foundRow;
+    }
+}
+
+bool Keyboard::isHeld(char c) {
+    uint8_t idx = (uint8_t)c;
+    if (idx >= 128) return false;
+    KeyMatrixPos pos = _charMap[idx];
+    if (pos.col < 0) return false;
+
+    uint32_t now = millis();
+    if (now - _heldMatrixCacheTime > HELD_MATRIX_CACHE_MS) {
+        uint8_t matrix[MATRIX_COLS];
+        if (!peekRawMatrix(matrix)) return false;
+        for (uint8_t col = 0; col < MATRIX_COLS; col++) {
+            _heldMatrixCache[col] = matrix[col];
+        }
+        _heldMatrixCacheTime = now;
+    }
+
+    return (_heldMatrixCache[pos.col] & (1 << pos.row)) != 0;
 }
