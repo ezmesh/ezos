@@ -2,6 +2,7 @@
 // Provides mesh networking functions
 
 #include "../lua_bindings.h"
+#include "../lua_runtime.h"
 #include "../../mesh/meshcore.h"
 #include "../../mesh/identity.h"
 #include "bus_bindings.h"
@@ -113,6 +114,92 @@ struct QueuedPacket {
 static std::deque<QueuedPacket> packetQueue;
 static constexpr size_t MAX_PACKET_QUEUE = 32;
 static bool packetQueueEnabled = false;
+
+// Forward declarations for unified packet callback
+static int packetCallbackRef = LUA_NOREF;
+static void pushPacketTable(lua_State* L, const ParsedPacket& pkt);
+
+// Post a packet to the "mesh/packet" message bus (always happens on receive)
+static void postPacketToBus(const ParsedPacket& pkt) {
+    std::vector<uint8_t> pathCopy(pkt.path, pkt.path + pkt.pathLen);
+    std::vector<uint8_t> payloadCopy(pkt.payload, pkt.payload + pkt.payloadLen);
+    uint8_t routeType = pkt.routeType;
+    uint8_t payloadType = pkt.payloadType;
+    uint8_t version = pkt.version;
+    float rssi = pkt.rssi;
+    float snr = pkt.snr;
+    uint32_t timestamp = pkt.timestamp;
+
+    MessageBus::instance().postTable("mesh/packet",
+        [routeType, payloadType, version, pathCopy, payloadCopy, rssi, snr, timestamp](lua_State* L) {
+            lua_newtable(L);
+            lua_pushinteger(L, routeType);
+            lua_setfield(L, -2, "route_type");
+            lua_pushinteger(L, payloadType);
+            lua_setfield(L, -2, "payload_type");
+            lua_pushinteger(L, version);
+            lua_setfield(L, -2, "version");
+            lua_pushlstring(L, reinterpret_cast<const char*>(pathCopy.data()), pathCopy.size());
+            lua_setfield(L, -2, "path");
+            lua_pushlstring(L, reinterpret_cast<const char*>(payloadCopy.data()), payloadCopy.size());
+            lua_setfield(L, -2, "payload");
+            lua_pushnumber(L, rssi);
+            lua_setfield(L, -2, "rssi");
+            lua_pushnumber(L, snr);
+            lua_setfield(L, -2, "snr");
+            lua_pushinteger(L, timestamp);
+            lua_setfield(L, -2, "timestamp");
+        });
+}
+
+// Install the unified packet callback on MeshCore.
+// Always posts to the message bus so subscribers (DirectMessages etc.) receive packets.
+// Also handles on_packet Lua callback and packet queue if enabled.
+static void installPacketCallback() {
+    if (!mesh) return;
+
+    mesh->setPacketCallback([](const ParsedPacket& pkt) -> std::pair<bool, bool> {
+        bool handled = false;
+        bool rebroadcast = false;
+
+        // Call Lua on_packet callback if registered
+        // Use LUA_STATE (main state) instead of a captured lua_State* that could
+        // become dangling if the registering coroutine is garbage collected
+        lua_State* LS = LUA_STATE;
+        if (LS && packetCallbackRef != LUA_NOREF) {
+            lua_rawgeti(LS, LUA_REGISTRYINDEX, packetCallbackRef);
+            pushPacketTable(LS, pkt);
+            if (lua_pcall(LS, 1, 2, 0) != LUA_OK) {
+                Serial.printf("[Lua] Packet callback error: %s\n",
+                             lua_tostring(LS, -1));
+                lua_pop(LS, 1);
+            } else {
+                rebroadcast = lua_toboolean(LS, -1);
+                handled = lua_toboolean(LS, -2);
+                lua_pop(LS, 2);
+            }
+        }
+
+        // Queue for polling if enabled
+        if (packetQueueEnabled && packetQueue.size() < MAX_PACKET_QUEUE) {
+            QueuedPacket qp;
+            qp.routeType = pkt.routeType;
+            qp.payloadType = pkt.payloadType;
+            qp.version = pkt.version;
+            qp.path.assign(pkt.path, pkt.path + pkt.pathLen);
+            qp.payload.assign(pkt.payload, pkt.payload + pkt.payloadLen);
+            qp.rssi = pkt.rssi;
+            qp.snr = pkt.snr;
+            qp.timestamp = pkt.timestamp;
+            packetQueue.push_back(std::move(qp));
+        }
+
+        // Always post to message bus so subscribers (DirectMessages etc.) get every packet
+        postPacketToBus(pkt);
+
+        return {handled, rebroadcast};
+    });
+}
 
 // @lua ez.mesh.is_initialized() -> boolean
 // @brief Check if mesh networking is initialized
@@ -378,8 +465,7 @@ LUA_FUNCTION(l_mesh_get_rx_count) {
 // Callback references for Lua callbacks (kept for backward compatibility)
 static int nodeCallbackRef = LUA_NOREF;
 static int groupPacketCallbackRef = LUA_NOREF;
-static int packetCallbackRef = LUA_NOREF;
-static lua_State* callbackState = nullptr;
+// packetCallbackRef is declared earlier (forward declaration)
 
 // Helper: Push node info as Lua table onto stack and post to bus
 static void pushNodeTable(lua_State* L, const NodeInfo& node) {
@@ -492,26 +578,25 @@ static void pushPacketTable(lua_State* L, const ParsedPacket& pkt) {
 LUA_FUNCTION(l_mesh_on_node_discovered) {
     LUA_CHECK_ARGC(L, 1);
 
-    if (nodeCallbackRef != LUA_NOREF && callbackState) {
-        luaL_unref(callbackState, LUA_REGISTRYINDEX, nodeCallbackRef);
+    if (nodeCallbackRef != LUA_NOREF) {
+        luaL_unref(LUA_STATE, LUA_REGISTRYINDEX, nodeCallbackRef);
     }
 
     if (lua_isfunction(L, 1)) {
         lua_pushvalue(L, 1);
         nodeCallbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
-        callbackState = L;
 
         if (mesh) {
             mesh->setNodeCallback([](const NodeInfo& node) {
-                // Call legacy callback if registered
-                if (callbackState && nodeCallbackRef != LUA_NOREF) {
-                    lua_rawgeti(callbackState, LUA_REGISTRYINDEX, nodeCallbackRef);
-                    pushNodeTable(callbackState, node);
+                lua_State* LS = LUA_STATE;
+                if (LS && nodeCallbackRef != LUA_NOREF) {
+                    lua_rawgeti(LS, LUA_REGISTRYINDEX, nodeCallbackRef);
+                    pushNodeTable(LS, node);
 
-                    if (lua_pcall(callbackState, 1, 0, 0) != LUA_OK) {
+                    if (lua_pcall(LS, 1, 0, 0) != LUA_OK) {
                         Serial.printf("[Lua] Node callback error: %s\n",
-                                     lua_tostring(callbackState, -1));
-                        lua_pop(callbackState, 1);
+                                     lua_tostring(LS, -1));
+                        lua_pop(LS, 1);
                     }
                 }
 
@@ -547,27 +632,26 @@ LUA_FUNCTION(l_mesh_on_node_discovered) {
 LUA_FUNCTION(l_mesh_on_group_packet) {
     LUA_CHECK_ARGC(L, 1);
 
-    if (groupPacketCallbackRef != LUA_NOREF && callbackState) {
-        luaL_unref(callbackState, LUA_REGISTRYINDEX, groupPacketCallbackRef);
+    if (groupPacketCallbackRef != LUA_NOREF) {
+        luaL_unref(LUA_STATE, LUA_REGISTRYINDEX, groupPacketCallbackRef);
     }
 
     if (lua_isfunction(L, 1)) {
         lua_pushvalue(L, 1);
         groupPacketCallbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
-        callbackState = L;
 
         if (mesh) {
             mesh->setGroupPacketCallback([](uint8_t channelHash, const uint8_t* data, size_t dataLen,
                                            uint8_t senderHash, float rssi, float snr) {
-                // Call legacy callback if registered
-                if (callbackState && groupPacketCallbackRef != LUA_NOREF) {
-                    lua_rawgeti(callbackState, LUA_REGISTRYINDEX, groupPacketCallbackRef);
-                    pushGroupPacketTable(callbackState, channelHash, data, dataLen, senderHash, rssi, snr);
+                lua_State* LS = LUA_STATE;
+                if (LS && groupPacketCallbackRef != LUA_NOREF) {
+                    lua_rawgeti(LS, LUA_REGISTRYINDEX, groupPacketCallbackRef);
+                    pushGroupPacketTable(LS, channelHash, data, dataLen, senderHash, rssi, snr);
 
-                    if (lua_pcall(callbackState, 1, 0, 0) != LUA_OK) {
+                    if (lua_pcall(LS, 1, 0, 0) != LUA_OK) {
                         Serial.printf("[Lua] Group packet callback error: %s\n",
-                                     lua_tostring(callbackState, -1));
-                        lua_pop(callbackState, 1);
+                                     lua_tostring(LS, -1));
+                        lua_pop(LS, 1);
                     }
                 }
 
@@ -639,84 +723,17 @@ LUA_FUNCTION(l_mesh_send_group_packet) {
 LUA_FUNCTION(l_mesh_on_packet) {
     LUA_CHECK_ARGC(L, 1);
 
-    if (packetCallbackRef != LUA_NOREF && callbackState) {
-        luaL_unref(callbackState, LUA_REGISTRYINDEX, packetCallbackRef);
+    if (packetCallbackRef != LUA_NOREF) {
+        luaL_unref(LUA_STATE, LUA_REGISTRYINDEX, packetCallbackRef);
     }
 
     if (lua_isfunction(L, 1)) {
         lua_pushvalue(L, 1);
         packetCallbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
-        callbackState = L;
-
-        if (mesh) {
-            mesh->setPacketCallback([](const ParsedPacket& pkt) -> std::pair<bool, bool> {
-                bool handled = false;
-                bool rebroadcast = false;
-
-                // Call legacy callback if registered
-                if (callbackState && packetCallbackRef != LUA_NOREF) {
-                    lua_rawgeti(callbackState, LUA_REGISTRYINDEX, packetCallbackRef);
-                    pushPacketTable(callbackState, pkt);
-
-                    if (lua_pcall(callbackState, 1, 2, 0) != LUA_OK) {
-                        Serial.printf("[Lua] Packet callback error: %s\n",
-                                     lua_tostring(callbackState, -1));
-                        lua_pop(callbackState, 1);
-                    } else {
-                        rebroadcast = lua_toboolean(callbackState, -1);
-                        handled = lua_toboolean(callbackState, -2);
-                        lua_pop(callbackState, 2);
-                    }
-                }
-
-                // Post table to message bus with full packet data
-                // Copy path and payload since they won't survive beyond this callback
-                std::vector<uint8_t> pathCopy(pkt.path, pkt.path + pkt.pathLen);
-                std::vector<uint8_t> payloadCopy(pkt.payload, pkt.payload + pkt.payloadLen);
-                uint8_t routeType = pkt.routeType;
-                uint8_t payloadType = pkt.payloadType;
-                uint8_t version = pkt.version;
-                float rssi = pkt.rssi;
-                float snr = pkt.snr;
-                uint32_t timestamp = pkt.timestamp;
-
-                MessageBus::instance().postTable("mesh/packet",
-                    [routeType, payloadType, version, pathCopy, payloadCopy, rssi, snr, timestamp](lua_State* L) {
-                        lua_newtable(L);
-
-                        lua_pushinteger(L, routeType);
-                        lua_setfield(L, -2, "route_type");
-
-                        lua_pushinteger(L, payloadType);
-                        lua_setfield(L, -2, "payload_type");
-
-                        lua_pushinteger(L, version);
-                        lua_setfield(L, -2, "version");
-
-                        lua_pushlstring(L, reinterpret_cast<const char*>(pathCopy.data()), pathCopy.size());
-                        lua_setfield(L, -2, "path");
-
-                        lua_pushlstring(L, reinterpret_cast<const char*>(payloadCopy.data()), payloadCopy.size());
-                        lua_setfield(L, -2, "payload");
-
-                        lua_pushnumber(L, rssi);
-                        lua_setfield(L, -2, "rssi");
-
-                        lua_pushnumber(L, snr);
-                        lua_setfield(L, -2, "snr");
-
-                        lua_pushinteger(L, timestamp);
-                        lua_setfield(L, -2, "timestamp");
-                    });
-
-                return {handled, rebroadcast};
-            });
-        }
+        installPacketCallback();
     } else if (lua_isnil(L, 1)) {
         packetCallbackRef = LUA_NOREF;
-        if (mesh) {
-            mesh->setPacketCallback(nullptr);
-        }
+        installPacketCallback();
     }
 
     return 0;
@@ -1248,36 +1265,13 @@ LUA_FUNCTION(l_mesh_enable_packet_queue) {
     bool enable = lua_toboolean(L, 1);
 
     if (enable && !packetQueueEnabled) {
-        // Enable: set up internal callback that queues packets
         packetQueueEnabled = true;
         packetQueue.clear();
-
-        if (mesh) {
-            mesh->setPacketCallback([](const ParsedPacket& pkt) -> std::pair<bool, bool> {
-                // Queue the packet (copy data since pkt pointers are temporary)
-                if (packetQueue.size() < MAX_PACKET_QUEUE) {
-                    QueuedPacket qp;
-                    qp.routeType = pkt.routeType;
-                    qp.payloadType = pkt.payloadType;
-                    qp.version = pkt.version;
-                    qp.path.assign(pkt.path, pkt.path + pkt.pathLen);
-                    qp.payload.assign(pkt.payload, pkt.payload + pkt.payloadLen);
-                    qp.rssi = pkt.rssi;
-                    qp.snr = pkt.snr;
-                    qp.timestamp = pkt.timestamp;
-                    packetQueue.push_back(std::move(qp));
-                }
-                // Don't handle in C++, don't rebroadcast (Lua will decide)
-                return {false, false};
-            });
-        }
+        installPacketCallback();
     } else if (!enable && packetQueueEnabled) {
-        // Disable: clear callback and queue
         packetQueueEnabled = false;
         packetQueue.clear();
-        if (mesh) {
-            mesh->setPacketCallback(nullptr);
-        }
+        installPacketCallback();
     }
 
     return 0;
@@ -1565,6 +1559,11 @@ void registerMeshModule(lua_State* L) {
     lua_setfield(L, -2, "ROLE");
 
     lua_pop(L, 2);  // Pop mesh and tdeck
+
+    // Install the unified packet callback so all incoming packets are posted
+    // to the "mesh/packet" message bus, enabling DirectMessages and other
+    // subscribers to receive packets without explicitly calling on_packet()
+    installPacketCallback();
 
     Serial.println("[LuaRuntime] Registered ez.mesh");
 }
