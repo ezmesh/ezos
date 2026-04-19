@@ -129,6 +129,9 @@ LUA_FUNCTION(l_display_set_font_size) {
     LUA_CHECK_ARGC(L, 1);
     const char* sizeStr = luaL_checkstring(L, 1);
 
+    // Bare names map to the FreeMono bitmap sizes; `_aa` variants map
+    // to the Inter AA pack. FreeSans was retired; callers that want a
+    // proportional tiny use "tiny_aa".
     FontSize size = FontSize::MEDIUM;
     if (strcmp(sizeStr, "tiny") == 0) {
         size = FontSize::TINY;
@@ -136,6 +139,8 @@ LUA_FUNCTION(l_display_set_font_size) {
         size = FontSize::SMALL;
     } else if (strcmp(sizeStr, "large") == 0) {
         size = FontSize::LARGE;
+    } else if (strcmp(sizeStr, "tiny_aa") == 0) {
+        size = FontSize::TINY_AA;
     } else if (strcmp(sizeStr, "small_aa") == 0) {
         size = FontSize::SMALL_AA;
     } else if (strcmp(sizeStr, "medium_aa") == 0) {
@@ -1699,6 +1704,71 @@ LUA_FUNCTION(l_sprite_height) {
     return 1;
 }
 
+// @lua sprite:draw_jpeg(x, y, data [, scale_x, scale_y, off_x, off_y, max_w, max_h])
+// @brief Decode JPEG data into the sprite's pixel buffer
+// @description Identical parameters to ez.display.draw_jpeg but rasterises into
+// the off-screen sprite. Decode happens once; subsequent push() calls reuse the
+// cached pixels without re-decoding.
+LUA_FUNCTION(l_sprite_draw_jpeg) {
+    Sprite* sprite = checkSprite(L, 1);
+    int x = luaL_checkinteger(L, 2);
+    int y = luaL_checkinteger(L, 3);
+    size_t dataLen;
+    const char* data = luaL_checklstring(L, 4, &dataLen);
+    float scale_x = (float)luaL_optnumber(L, 5, 1.0);
+    float scale_y = (float)luaL_optnumber(L, 6, 0.0);
+    int off_x = (int)luaL_optinteger(L, 7, 0);
+    int off_y = (int)luaL_optinteger(L, 8, 0);
+    int max_w = (int)luaL_optinteger(L, 9, 0);
+    int max_h = (int)luaL_optinteger(L, 10, 0);
+    bool ok = sprite ? sprite->drawJpeg((const uint8_t*)data, dataLen,
+                                        x, y, max_w, max_h,
+                                        off_x, off_y, scale_x, scale_y)
+                     : false;
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+// @lua sprite:draw_png(x, y, data [, scale_x, scale_y, off_x, off_y, max_w, max_h])
+// @brief Decode PNG data into the sprite's pixel buffer
+LUA_FUNCTION(l_sprite_draw_png) {
+    Sprite* sprite = checkSprite(L, 1);
+    int x = luaL_checkinteger(L, 2);
+    int y = luaL_checkinteger(L, 3);
+    size_t dataLen;
+    const char* data = luaL_checklstring(L, 4, &dataLen);
+    float scale_x = (float)luaL_optnumber(L, 5, 1.0);
+    float scale_y = (float)luaL_optnumber(L, 6, 0.0);
+    int off_x = (int)luaL_optinteger(L, 7, 0);
+    int off_y = (int)luaL_optinteger(L, 8, 0);
+    int max_w = (int)luaL_optinteger(L, 9, 0);
+    int max_h = (int)luaL_optinteger(L, 10, 0);
+    bool ok = sprite ? sprite->drawPng((const uint8_t*)data, dataLen,
+                                       x, y, max_w, max_h,
+                                       off_x, off_y, scale_x, scale_y)
+                     : false;
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+// @lua sprite:get_raw() -> string
+// @brief Return the sprite's raw pixel buffer as a binary string
+// @description The returned string contains width*height*2 bytes in LGFX
+// buffer format (big-endian RGB565). This is the same layout that
+// ez.display.draw_bitmap consumes, so the bytes can be cached to flash
+// (via ez.storage.write_file) and blitted straight back next boot with
+// no per-pixel conversion. Useful for decoding JPEG/PNG assets once
+// and keeping them as fast-blit raw images.
+LUA_FUNCTION(l_sprite_get_raw) {
+    Sprite* sprite = checkSprite(L, 1);
+    if (!sprite) { lua_pushnil(L); return 1; }
+    const uint8_t* buf = sprite->rawBuffer();
+    size_t len = sprite->rawBufferSize();
+    if (!buf || len == 0) { lua_pushnil(L); return 1; }
+    lua_pushlstring(L, (const char*)buf, len);
+    return 1;
+}
+
 // Sprite __gc metamethod
 LUA_FUNCTION(l_sprite_gc) {
     Sprite** pp = (Sprite**)lua_touserdata(L, 1);
@@ -1725,6 +1795,9 @@ static const luaL_Reg sprite_methods[] = {
     {"destroy",              l_sprite_destroy},
     {"width",                l_sprite_width},
     {"height",               l_sprite_height},
+    {"draw_jpeg",            l_sprite_draw_jpeg},
+    {"draw_png",             l_sprite_draw_png},
+    {"get_raw",              l_sprite_get_raw},
     {nullptr, nullptr}
 };
 

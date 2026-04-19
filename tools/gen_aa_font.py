@@ -32,12 +32,20 @@ class FontSpec:
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-INTER_TTF = REPO_ROOT / "tools" / "fonts" / "InterVariable.ttf"
+# Atkinson Hyperlegible (Braille Institute, OFL). Picked over Inter for the
+# AA UI fonts because its glyphs are designed for maximum distinctiveness
+# at low PPEM — side-bearings don't rely on sub-pixel detail, so letters
+# in a word read as evenly spaced even at 9-11 px. Inter's tighter UI
+# metrics degrade into visible "clumps" around glyphs with a +1 px left
+# bearing (e.g. k/p in "Desktop"). We keep the `InterAA*` namespaces so
+# the C++ side doesn't need plumbing changes.
+ATK_TTF = REPO_ROOT / "tools" / "fonts" / "AtkinsonHyperlegible-Regular.ttf"
 
 FONTS = [
-    FontSpec(INTER_TTF, 11, 500, "InterAA11"),
-    FontSpec(INTER_TTF, 13, 500, "InterAA13"),
-    FontSpec(INTER_TTF, 17, 500, "InterAA17"),
+    FontSpec(ATK_TTF,  9, 400, "InterAA9"),
+    FontSpec(ATK_TTF, 11, 400, "InterAA11"),
+    FontSpec(ATK_TTF, 13, 400, "InterAA13"),
+    FontSpec(ATK_TTF, 17, 400, "InterAA17"),
 ]
 
 FIRST_CHAR = 0x20    # space
@@ -55,7 +63,11 @@ class Glyph:
     height:     int
     x_offset:   int   # pixels to add to cursor x before drawing
     y_offset:   int   # pixels from the top of the text row
-    x_advance:  int   # pixels to advance the cursor after drawing
+    x_advance:  int   # Q8.8 fixed-point advance (pixels * 256). Storing
+                      # subpixel precision lets the renderer accumulate a
+                      # fractional pen position across a string instead of
+                      # rounding each character in isolation — crucial for
+                      # even inter-letter spacing at small sizes.
     data_offset: int
 
 
@@ -91,7 +103,12 @@ def rasterise(spec: FontSpec) -> tuple[list[Glyph], bytes, int, int]:
         )
 
         bbox = img.getbbox()
-        x_advance = int(round(font.getlength(ch)))
+        # Store the subpixel advance as Q8.8 so the renderer can keep a
+        # fractional pen position across a string. This avoids the
+        # per-character rounding bias (ceil lost even spacing; round
+        # risks touching glyphs) and reproduces the font's designed
+        # metrics to within 1/256 px.
+        x_advance = round(font.getlength(ch) * 256)
 
         if bbox is None:
             # Space-like glyph: only an advance, no pixels.
@@ -152,7 +169,7 @@ struct __attribute__((packed)) Glyph {{
     uint8_t  h;
     int8_t   xo;
     int8_t   yo;
-    uint8_t  adv;
+    uint16_t adv;   // Q8.8 pixels (pixels * 256)
     uint16_t off;
 }};
 
@@ -185,7 +202,7 @@ def format_glyphs(glyphs: list[Glyph]) -> str:
             disp = "?"
         lines.append(
             f"    {{ {g.width:3d}, {g.height:3d}, {g.x_offset:3d}, "
-            f"{g.y_offset:3d}, {g.x_advance:3d}, {g.data_offset:5d} }},"
+            f"{g.y_offset:3d}, {g.x_advance:5d}, {g.data_offset:5d} }},"
             f"  // '{disp}'"
         )
     return "\n".join(lines)
@@ -211,11 +228,10 @@ def emit(spec: FontSpec, glyphs: list[Glyph], alpha: bytes,
 
 
 def main() -> None:
-    if not INTER_TTF.exists():
-        raise SystemExit(
-            f"Inter font not found at {INTER_TTF}. "
-            "Unzip Inter-4.1.zip's InterVariable.ttf into tools/fonts/."
-        )
+    missing = [s.ttf for s in FONTS if not s.ttf.exists()]
+    if missing:
+        names = ", ".join(str(p) for p in sorted(set(missing)))
+        raise SystemExit(f"Source TTF(s) not found: {names}")
     print("Rasterising AA fonts")
     for spec in FONTS:
         glyphs, alpha, ascent, y_adv = rasterise(spec)

@@ -52,28 +52,34 @@ void drawChar(LGFX_Sprite& buf, int x, int y_top, char c,
     }
 }
 
+// Advances are Q8.8 subpixel values. We keep the pen position in Q8.8
+// across the whole string and round only when placing each glyph, so
+// fractional character widths accumulate cleanly. Rounding each char
+// in isolation (as the generator used to do with ceil) produces
+// uneven gaps — e.g. "Desktop" at 17px grouped as "Des"|"kto"|"p".
 void drawText(LGFX_Sprite& buf, int x, int y_top, const char* text,
               uint16_t color, const Font& f) {
     if (!text) return;
-    int cx = x;
+    int pen_q8 = x << 8;
     for (const char* p = text; *p; ++p) {
         uint8_t uc = static_cast<uint8_t>(*p);
         if (uc < f.first || uc > f.last) continue;
+        int cx = (pen_q8 + 128) >> 8;
         drawChar(buf, cx, y_top, *p, color, f);
-        cx += f.glyphs[uc - f.first].adv;
+        pen_q8 += f.glyphs[uc - f.first].adv;
     }
 }
 
 int textWidth(const char* text, const Font& f) {
     if (!text) return 0;
-    int w = 0;
+    int w_q8 = 0;
     for (const char* p = text; *p; ++p) {
         uint8_t uc = static_cast<uint8_t>(*p);
         if (uc >= f.first && uc <= f.last) {
-            w += f.glyphs[uc - f.first].adv;
+            w_q8 += f.glyphs[uc - f.first].adv;
         }
     }
-    return w;
+    return (w_q8 + 128) >> 8;
 }
 
 }  // namespace aa_font

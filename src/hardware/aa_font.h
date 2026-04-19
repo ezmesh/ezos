@@ -17,7 +17,7 @@ struct Glyph {
     uint8_t  h;
     int8_t   xo;
     int8_t   yo;
-    uint8_t  adv;
+    uint16_t adv;   // Q8.8 pixels — see gen_aa_font.py
     uint16_t off;
 } __attribute__((packed));
 

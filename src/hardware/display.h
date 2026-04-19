@@ -134,6 +134,29 @@ public:
     void fillRoundRect(int x, int y, int w, int h, int r, uint16_t color);
     void drawText(int x, int y, const char* text, uint16_t color);
 
+    // Image decode into the sprite's pixel buffer. Lets callers decode
+    // a JPEG/PNG once at create time and then reuse the rasterised
+    // sprite for fast blits every frame.
+    bool drawJpeg(const uint8_t* data, size_t len,
+                  int x, int y,
+                  int max_w, int max_h,
+                  int off_x, int off_y,
+                  float scale_x, float scale_y);
+    bool drawPng(const uint8_t* data, size_t len,
+                 int x, int y,
+                 int max_w, int max_h,
+                 int off_x, int off_y,
+                 float scale_x, float scale_y);
+
+    // Return a pointer to the sprite's raw pixel buffer. Bytes are
+    // laid out as width*height big-endian RGB565 (LGFX buffer format),
+    // which is exactly what ez.display.draw_bitmap expects, so the
+    // bytes can be cached to disk and blitted straight back to the
+    // framebuffer with no per-pixel conversion. Returns nullptr if
+    // the sprite was never successfully created.
+    const uint8_t* rawBuffer() const;
+    size_t rawBufferSize() const { return _valid ? (size_t)_width * _height * 2 : 0; }
+
     // Composite to parent display buffer
     // alpha: 0 = fully transparent, 255 = fully opaque
     void push(int x, int y, uint8_t alpha = 255);
@@ -148,16 +171,20 @@ private:
     bool _hasTransparent = false;
 };
 
-// Font size options for TUI
+// Font size options. Bare names are bitmap monospace (FreeMono in four
+// sizes); the `_AA` suffix denotes the anti-aliased Inter family.
+// Values 0-3 index directly into FONT_METRICS (see display.cpp); AA
+// values are dispatched separately via a lookup in setFontSize.
 enum class FontSize : uint8_t {
-    TINY = 0,        // FreeSans7pt - proportional sans-serif (~7x12)
-    SMALL = 1,       // FreeMono9pt - compact (6x12), full UTF-8
-    MEDIUM = 2,      // FreeMono12pt - balanced (7x16), default
-    LARGE = 3,       // FreeMono18pt - easier to read (11x24)
-    // Anti-aliased Inter variants — pre-rasterised grayscale glyphs.
-    SMALL_AA = 4,    // Inter 11px
-    MEDIUM_AA = 5,   // Inter 13px
-    LARGE_AA = 6,    // Inter 17px
+    TINY      = 0,   // Spleen 6x12   - pixel-native mono
+    SMALL     = 1,   // Spleen 8x16   - pixel-native mono
+    MEDIUM    = 2,   // Spleen 12x24  - pixel-native mono
+    LARGE     = 3,   // Spleen 16x32  - pixel-native mono
+    // Anti-aliased Inter — proportional, 8-bit alpha per glyph.
+    TINY_AA   = 4,   // Inter 9px
+    SMALL_AA  = 5,   // Inter 11px
+    MEDIUM_AA = 6,   // Inter 13px
+    LARGE_AA  = 7,   // Inter 17px
 };
 
 // Font metrics for each size
