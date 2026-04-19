@@ -17,11 +17,13 @@ end
 
 -- ordered list of categories shown in the picker.
 local CATEGORIES = {
-    { title = "Display",  subtitle = "Brightness, accent colour", icon = icons.settings,      mod = "screens.settings.display_settings" },
-    { title = "Keyboard", subtitle = "Repeat, trackball",         icon = icons.grid,          mod = "screens.settings.keyboard_settings" },
-    { title = "GPS",      subtitle = "Power, clock sync",         icon = icons.map,           mod = "screens.settings.gps_settings" },
-    { title = "Sound",    subtitle = "UI feedback, volume",       icon = icons.radio_tower,   mod = "screens.settings.sound_settings" },
-    { title = "About",    subtitle = "Version, credits",          icon = icons.info,          mod = "screens.about" },
+    { title = "Display",   subtitle = "Brightness, accent colour",    icon = icons.settings,      mod = "screens.settings.display_settings" },
+    { title = "Wallpaper", subtitle = "Rotate, tile, auto-pan",       icon = icons.grid,          mod = "screens.settings.wallpaper_settings" },
+    { title = "Keyboard",  subtitle = "Repeat, trackball",            icon = icons.grid,          mod = "screens.settings.keyboard_settings" },
+    { title = "GPS",       subtitle = "Power, clock sync",            icon = icons.map,           mod = "screens.settings.gps_settings" },
+    { title = "Time",      subtitle = "Timezone, 12 / 24h format",    icon = icons.info,          mod = "screens.settings.time_settings" },
+    { title = "Sound",     subtitle = "UI feedback, volume",          icon = icons.radio_tower,   mod = "screens.settings.sound_settings" },
+    { title = "About",     subtitle = "Version, credits",             icon = icons.info,          mod = "screens.about" },
 }
 
 function Settings:build(state)

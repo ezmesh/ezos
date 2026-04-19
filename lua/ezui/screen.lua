@@ -96,7 +96,19 @@ function screen.update_status()
     if ez.system.get_time then
         local t = ez.system.get_time()
         if t and t.hour then
-            tstr = string.format("%02d:%02d", t.hour, t.min)
+            -- Re-read the format pref each tick rather than caching it:
+            -- the Time settings screen writes it on toggle and we want
+            -- the bar to flip immediately without a reboot. Lookup is a
+            -- single NVS read, cheap enough at 1 Hz.
+            local fmt = ez.storage.get_pref("time_format", "24h")
+            if fmt == "12h" then
+                local h = t.hour % 12
+                if h == 0 then h = 12 end
+                local ampm = t.hour < 12 and "a" or "p"
+                tstr = string.format("%d:%02d%s", h, t.min or t.minute or 0, ampm)
+            else
+                tstr = string.format("%02d:%02d", t.hour, t.min or t.minute or 0)
+            end
         end
     end
     if tstr ~= s.time then s.time = tstr; changed = true end
@@ -139,10 +151,13 @@ function screen.update_status()
 end
 
 -- Draw the global status bar. Called by render() before flushing.
-function screen._draw_status_bar(d, title)
+-- ``transparent`` lets the active screen request a dithered background so
+-- the wallpaper underneath shows through (desktop only, currently).
+function screen._draw_status_bar(d, title, transparent)
     local s = screen.status
     for k, v in pairs(s) do _status_node[k] = v end
     _status_node.title = title
+    _status_node.transparent = transparent and true or nil
     node.draw(_status_node, d, 0, 0, theme.SCREEN_W, theme.STATUS_H)
 end
 
@@ -361,12 +376,18 @@ function screen.render()
     local now = ez.system.millis()
     if now - screen.last_render < screen.frame_interval then return end
 
+    -- Clear the dirty flag BEFORE drawing so that animated nodes (e.g.
+    -- the pulsing desktop icon) can call screen.invalidate() inside
+    -- their draw handler to request the next frame without being
+    -- immediately overwritten when this function returns.
+    screen.dirty = false
+    screen.last_render = now
+
     local d = ez.display
     local inst = screen.peek()
     if not inst then
         d.fill_rect(0, 0, theme.SCREEN_W, theme.SCREEN_H, theme.color("BG"))
         d.flush()
-        screen.dirty = false
         return
     end
 
@@ -384,12 +405,11 @@ function screen.render()
 
     -- Draw the global status bar on top (unless the screen opted out)
     if not (inst._def and inst._def.fullscreen) then
-        screen._draw_status_bar(d, inst.title)
+        local translucent = inst._def and inst._def.transparent_status
+        screen._draw_status_bar(d, inst.title, translucent)
     end
 
     d.flush()
-    screen.dirty = false
-    screen.last_render = now
 end
 
 -- ---------------------------------------------------------------------------

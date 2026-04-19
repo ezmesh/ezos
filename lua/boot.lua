@@ -80,8 +80,6 @@ local function boot_sequence()
     clean_hot_reload("/fs/services")
     clean_hot_reload("/fs/core")
 
-    ez.keyboard.set_mode("normal")
-
     -- NVS prefs coerce types; normalize anything truthy-shaped to bool
     local function pref_bool(key, default)
         local v = ez.storage.get_pref(key, nil)
@@ -100,6 +98,13 @@ local function boot_sequence()
         ez.keyboard.set_trackball_mode("interrupt")
     end
 
+    -- Apply saved timezone. Without this the clock runs in UTC, which
+    -- makes status-bar readings confusing for users outside GMT.
+    local tz = ez.storage.get_pref("tz_posix", nil)
+    if tz and tz ~= "" and ez.system.set_timezone then
+        ez.system.set_timezone(tz)
+    end
+
     local ui = require("ezui")
 
     ez.log("[Boot] Framework loaded")
@@ -116,6 +121,23 @@ local function boot_sequence()
 
     local ui_sounds = require("services.ui_sounds")
     ui_sounds.init()
+
+    -- Engage raw matrix mode. The C3 keyboard controller sometimes
+    -- refuses the mode-switch command during the first ~200 ms after
+    -- cold boot, so we retry with a short sleep between attempts.
+    _G._BOOT_KB_STATE = { attempts = 0, ok = false, final_mode = "?" }
+    for attempt = 1, 8 do
+        _G._BOOT_KB_STATE.attempts = attempt
+        if ez.keyboard.set_mode("raw") then
+            _G._BOOT_KB_STATE.ok = true
+            break
+        end
+        ez.system.delay(60)
+    end
+    _G._BOOT_KB_STATE.final_mode = ez.keyboard.get_mode()
+    if not _G._BOOT_KB_STATE.ok then
+        ez.log("[boot] Keyboard raw mode unavailable, using legacy path")
+    end
 
     -- GPS: start the background clock-sync loop. Respects the user's
     -- "never / at boot / hourly" preference; does nothing if GPS is disabled.
