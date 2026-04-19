@@ -269,16 +269,49 @@ static int l_gps_get_stats(lua_State* L) {
     lua_pushinteger(L, gps.getCharsProcessed());
     lua_setfield(L, -2, "chars");
 
+    lua_pushinteger(L, gps.getPassedChecksums());
+    lua_setfield(L, -2, "passed");
+
     lua_pushinteger(L, gps.getSentencesWithFix());
     lua_setfield(L, -2, "sentences");
 
     lua_pushinteger(L, gps.getFailedChecksums());
     lua_setfield(L, -2, "failed");
 
+    lua_pushinteger(L, gps.getSatsInView());
+    lua_setfield(L, -2, "sats_in_view");
+
+    lua_pushinteger(L, gps.getFixMode());
+    lua_setfield(L, -2, "fix_mode");
+
+    lua_pushinteger(L, gps.getFixQuality());
+    lua_setfield(L, -2, "fix_quality");
+
+    uint32_t age = gps.getLastByteAge();
+    if (age == UINT32_MAX) {
+        lua_pushnil(L);
+    } else {
+        lua_pushinteger(L, age);
+    }
+    lua_setfield(L, -2, "last_byte_age");
+
     lua_pushboolean(L, gps.isInitialized());
     lua_setfield(L, -2, "initialized");
 
     return 1;
+}
+
+// @lua ez.gps.reset_stats()
+// @brief Zero the diagnostics counters and clear cached fix state
+// @description Useful when debugging: snapshot the current running totals
+// so subsequent get_stats() calls start from zero again. Also forgets the
+// last position/satellite numbers so stale values don't linger on screen
+// until the next NMEA arrives. The underlying parser keeps running; only
+// the reported counters are rebased.
+// @end
+static int l_gps_reset_stats(lua_State* L) {
+    GPS::instance().resetCounters();
+    return 0;
 }
 
 // @lua ez.gps.is_valid() -> boolean
@@ -309,6 +342,7 @@ static const luaL_Reg gps_funcs[] = {
     {"get_satellites", l_gps_get_satellites},
     {"sync_time",      l_gps_sync_time},
     {"get_stats",      l_gps_get_stats},
+    {"reset_stats",    l_gps_reset_stats},
     {"is_valid",       l_gps_is_valid},
     {nullptr, nullptr}
 };

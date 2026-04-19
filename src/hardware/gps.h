@@ -40,22 +40,44 @@ public:
     uint32_t getSatellites() const { return _satellites; }
     double getHDOP() const { return _hdop; }
 
-    // Status
+    // Status. All counter getters report values since the last
+    // resetCounters() call, so the UI can zero the debug stats without
+    // reaching into the parser.
     bool isInitialized() const { return _initialized; }
-    uint32_t getCharsProcessed() const { return _gps.charsProcessed(); }
-    uint32_t getSentencesWithFix() const { return _gps.sentencesWithFix(); }
-    uint32_t getFailedChecksums() const { return _gps.failedChecksum(); }
+    uint32_t getCharsProcessed() const   { return _gps.charsProcessed()   - _baselineChars; }
+    uint32_t getSentencesWithFix() const { return _gps.sentencesWithFix() - _baselineSentences; }
+    uint32_t getFailedChecksums() const  { return _gps.failedChecksum()   - _baselineFailed; }
+    uint32_t getPassedChecksums() const  { return _gps.passedChecksum()   - _baselinePassed; }
+
+    // Extended diagnostics pulled via TinyGPSCustom from specific NMEA
+    // fields. Return 0 / -1 when the module hasn't sent the relevant
+    // sentence yet, so the UI can render a "-" placeholder.
+    int getSatsInView() const;    // GPGSV field 3
+    int getFixMode() const;       // GPGSA field 2: 1=no, 2=2D, 3=3D
+    int getFixQuality() const;    // GPGGA field 6: 0=no, 1=GPS, 2=DGPS, 4=RTK, ...
+
+    // ms since last byte was read off the UART. UINT32_MAX if no byte
+    // ever arrived. Jumps up when the module stops talking.
+    uint32_t getLastByteAge() const;
+
+    // Zero the stats counters and clear cached fix state. Baselines are
+    // snapshotted against the parser's running counters so we never have
+    // to touch TinyGPS++ internals.
+    void resetCounters();
 
     // Time sync - syncs ESP32 RTC with GPS time
     bool syncSystemTime();
     bool hasTimeSynced() const { return _timeSynced; }
 
 private:
-    GPS() = default;
+    GPS();
     GPS(const GPS&) = delete;
     GPS& operator=(const GPS&) = delete;
 
     TinyGPSPlus _gps;
+    TinyGPSCustom _gsvSatsInView;
+    TinyGPSCustom _gsaFixMode;
+    TinyGPSCustom _ggaFixQuality;
     HardwareSerial* _serial = nullptr;
     bool _initialized = false;
 
@@ -79,5 +101,13 @@ private:
 
     uint32_t _lastLocationUpdate = 0;
     uint32_t _lastTimeUpdate = 0;
+    uint32_t _lastByteTime = 0;       // 0 = no byte seen yet
     bool _timeSynced = false;
+
+    // Baselines subtracted from TinyGPSPlus's counters so resetCounters()
+    // zeros the reported values without disturbing the parser itself.
+    uint32_t _baselineChars     = 0;
+    uint32_t _baselinePassed    = 0;
+    uint32_t _baselineFailed    = 0;
+    uint32_t _baselineSentences = 0;
 };

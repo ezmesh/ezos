@@ -511,6 +511,11 @@ LUA_FUNCTION(l_system_set_time) {
     timeinfo.tm_hour = hour;
     timeinfo.tm_min = minute;
     timeinfo.tm_sec = second;
+    // Default-zeroed tm_isdst means "explicitly not DST"; mktime would
+    // then interpret the input as standard time even in summer, storing
+    // a UTC that's 1h off and round-tripping back 1h shifted. -1 asks
+    // mktime to resolve DST from the active TZ rules.
+    timeinfo.tm_isdst = -1;
 
     time_t t = mktime(&timeinfo);
     struct timeval tv = { .tv_sec = t, .tv_usec = 0 };

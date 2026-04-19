@@ -86,8 +86,13 @@ local function try_sync_once(max_wait_ms)
     local started = ez.system.millis()
     while ez.system.millis() - started < max_wait_ms do
         if gps.is_enabled() then
-            local loc = ez.gps.get_location()
-            if loc and loc.valid then
+            -- Time doesn't need a position fix — the module emits a valid
+            -- UTC in GPRMC/GPZDA as soon as it's decoded the time-of-week
+            -- from any tracked satellite, usually well before enough sats
+            -- are locked for a 2D/3D fix. The year >= 2024 guard rejects
+            -- the parser's initial "valid but zeroed" state.
+            local t = ez.gps.get_time()
+            if t and t.valid and (t.year or 0) >= 2024 then
                 local ok = ez.gps.sync_time()
                 if ok then
                     ez.log("[gps] synced system clock to GPS time")
