@@ -16,14 +16,14 @@ local Messages = { title = "Messages" }
 if not node_mod.handler("tab_bar") then
     node_mod.register("tab_bar", {
         measure = function(n, max_w, max_h)
-            theme.set_font("medium")
+            theme.set_font("medium_aa")
             return max_w, theme.font_height() + 10
         end,
 
         draw = function(n, d, x, y, w, h)
             d.fill_rect(x, y, w, h, theme.color("SURFACE"))
 
-            theme.set_font("medium")
+            theme.set_font("medium_aa")
             local fh = theme.font_height()
             local tabs = n.tabs or {}
             local active = n.active or 1
@@ -76,7 +76,7 @@ function Messages:build(state)
             content_items[#content_items + 1] = ui.padding({ 4, 10, 10, 10 },
                 ui.text_widget("Start a chat from Contacts.", {
                     color = "TEXT_MUTED",
-                    font = "small",
+                    font = "small_aa",
                     text_align = "center",
                 })
             )

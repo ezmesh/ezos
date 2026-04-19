@@ -26,7 +26,7 @@ function KB:build(state)
 
     -- Section: Key Repeat
     content[#content + 1] = ui.padding({ 8, 8, 4, 8 },
-        ui.text_widget("Key Repeat", { color = "ACCENT", font = "small" })
+        ui.text_widget("Key Repeat", { color = "ACCENT", font = "small_aa" })
     )
 
     content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
@@ -71,7 +71,7 @@ function KB:build(state)
 
     -- Section: Trackball
     content[#content + 1] = ui.padding({ 12, 8, 4, 8 },
-        ui.text_widget("Trackball", { color = "ACCENT", font = "small" })
+        ui.text_widget("Trackball", { color = "ACCENT", font = "small_aa" })
     )
 
     content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
@@ -87,13 +87,13 @@ function KB:build(state)
     content[#content + 1] = ui.padding({ 2, 8, 8, 8 },
         ui.text_widget(
             "Interrupt mode: lower latency, more CPU. Polling: power efficient.",
-            { color = "TEXT_MUTED", font = "tiny" }
+            { color = "TEXT_MUTED", font = "tiny_aa" }
         )
     )
 
     -- Section: Diagnostics
     content[#content + 1] = ui.padding({ 12, 8, 4, 8 },
-        ui.text_widget("Diagnostics", { color = "ACCENT", font = "small" })
+        ui.text_widget("Diagnostics", { color = "ACCENT", font = "small_aa" })
     )
 
     content[#content + 1] = ui.list_item({

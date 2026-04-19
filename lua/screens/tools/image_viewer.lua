@@ -23,7 +23,7 @@ if not node_mod.handler("image_canvas") then
         draw = function(n, d, x, y, w, h)
             d.fill_rect(x, y, w, h, 0)
             if not active_data then
-                theme.set_font("medium")
+                theme.set_font("medium_aa")
                 local msg = active_state and active_state.error or "Loading..."
                 local tw = theme.text_width(msg)
                 d.draw_text(x + math.floor((w - tw) / 2),
@@ -60,7 +60,7 @@ if not node_mod.handler("image_canvas") then
             d.clear_clip_rect()
 
             -- HUD: zoom % and pan hint
-            theme.set_font("small")
+            theme.set_font("small_aa")
             local hud = string.format("%d%%", math.floor(scale * 100))
             local pad = 3
             local tw = theme.text_width(hud)
@@ -114,7 +114,8 @@ end
 
 function Viewer:on_enter()
     local state = self._state
-    spawn(function()
+    local async = require("ezui.async")
+    async.task(function()
         local data = async_read(state.path)
         if data and #data > 0 then
             state.data = data

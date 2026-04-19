@@ -27,7 +27,7 @@ function ChannelChat:build(state)
         content_items[#content_items + 1] = ui.padding({ 4, 10, 10, 10 },
             ui.text_widget("Listening for messages on this channel.", {
                 color = "TEXT_MUTED",
-                font = "small",
+                font = "small_aa",
                 text_align = "center",
             })
         )

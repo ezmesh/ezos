@@ -239,7 +239,10 @@ node.register("text_input", {
             d.draw_text(tx - scroll, ty, display_val, theme.color("TEXT"))
             d.clear_clip_rect()
 
-            -- Cursor
+            -- Cursor. Request the next frame so the blink keeps ticking
+            -- even when the user is idle — otherwise the screen isn't
+            -- redrawn between keystrokes and the cursor appears frozen
+            -- at whichever half of the duty cycle the last draw hit.
             if editing then
                 local before = display_val:sub(1, cursor_pos)
                 local cx = tx - scroll + theme.text_width(before)
@@ -247,6 +250,7 @@ node.register("text_input", {
                 if blink then
                     d.fill_rect(cx, ty, 2, fh, theme.color("ACCENT"))
                 end
+                invalidate()
             end
         end
     end,
@@ -454,10 +458,10 @@ node.register("list_item", {
         if n.compact then
             return max_w, fh + 4
         end
-        local h = fh + 8  -- single line with padding
+        local h = fh + 6  -- single line with padding
         if n.subtitle then
             theme.set_font("small_aa")
-            h = h + theme.font_height() + 2
+            h = h + theme.font_height()
         end
         return max_w, h
     end,
@@ -504,7 +508,7 @@ node.register("list_item", {
         -- Title
         theme.set_font("medium_aa")
         local fh = theme.font_height()
-        local ty = compact and (y + 2) or (y + 4)
+        local ty = compact and (y + 2) or (y + 3)
         local title = n.title or ""
         local avail = w - 8 - right_margin - icon_space
         if n.trailing then
@@ -532,7 +536,7 @@ node.register("list_item", {
             if theme.text_width(sub) > sub_avail then
                 sub = text_util.truncate(sub, sub_avail)
             end
-            d.draw_text(tx, ty + fh + 2, sub, sub_color)
+            d.draw_text(tx, ty + fh, sub, sub_color)
         end
 
         -- Bottom border
@@ -666,13 +670,56 @@ node.register("slider", {
 -- StatusBar: battery + radio + time + node ID
 -- ---------------------------------------------------------------------------
 
+-- Cached translucent background sprite. The bar geometry never changes
+-- during a session, so we allocate a solid-colour sprite once and push
+-- it with alpha — real per-pixel blending gives a much cleaner look
+-- than a dithered stipple when the status text sits on a busy wallpaper.
+local _status_bg_sprite = nil
+local _status_bg_key    = nil  -- "<w>x<h>x<color>" so palette/theme changes rebuild
+
+local function ensure_status_bg_sprite(w, h, color)
+    local key = w .. "x" .. h .. "x" .. color
+    if _status_bg_sprite and _status_bg_key == key then
+        return _status_bg_sprite
+    end
+    if _status_bg_sprite and _status_bg_sprite.destroy then
+        _status_bg_sprite:destroy()
+    end
+    local s = ez.display.create_sprite(w, h)
+    if not s then
+        _status_bg_sprite = nil
+        _status_bg_key = nil
+        return nil
+    end
+    s:clear(color)
+    _status_bg_sprite = s
+    _status_bg_key = key
+    return s
+end
+
 node.register("status_bar", {
     measure = function(n, max_w, max_h)
         return max_w, theme.STATUS_H
     end,
 
     draw = function(n, d, x, y, w, h)
-        d.fill_rect(x, y, w, h, theme.color("STATUS_BG"))
+        if n.transparent then
+            -- Per-pixel alpha sprite push: the background reads as a
+            -- uniform dark veil over the wallpaper, with the bar's text
+            -- and icons drawn fully opaque on top.
+            local bg = theme.color("STATUS_BG")
+            local sp = ensure_status_bg_sprite(w, h, bg)
+            if sp then
+                sp:push(x, y, 210)
+            else
+                -- Sprite allocation failed (OOM): fall back to a solid fill
+                -- so the bar still renders rather than leaving a hole in
+                -- the UI where the wallpaper would show through the text.
+                d.fill_rect(x, y, w, h, bg)
+            end
+        else
+            d.fill_rect(x, y, w, h, theme.color("STATUS_BG"))
+        end
         theme.set_font("small_aa")
         local fh = theme.font_height()
         local ty = y + math.floor((h - fh) / 2)
@@ -746,10 +793,10 @@ node.register("status_bar", {
 -- TitleBar: screen title with optional back hint
 -- ---------------------------------------------------------------------------
 
--- Title bar: compact sub-bar under the global status bar. Hosts a left-
--- pointing back-arrow glyph (paired with the T-Deck's physical back key)
--- followed by "Back", plus an optional right-aligned action string.
--- The arrow is drawn as primitives since the AA font charset is ASCII.
+-- Title bar: compact sub-bar under the global status bar. Hosts a
+-- backspace-key glyph (mirroring the symbol on the T-Deck's physical back
+-- key) followed by "Back", plus an optional right-aligned action string.
+-- The glyph is drawn as primitives since the AA font charset is ASCII.
 node.register("title_bar", {
     measure = function(n, max_w, max_h)
         return max_w, theme.TITLE_H
@@ -763,12 +810,23 @@ node.register("title_bar", {
         local muted = theme.color("TEXT_MUTED")
 
         if n.back then
-            -- Back arrow glyph: triangle head + short shaft.
-            local cy = y + math.floor(h / 2)
-            local ax = x + 6
-            d.fill_triangle(ax, cy, ax + 4, cy - 3, ax + 4, cy + 3, muted)
-            d.draw_hline(ax + 4, cy, 4, muted)
-            d.draw_text(ax + 12, ty, "Back", muted)
+            -- "Back" label first so it lines up with the node ID in the
+            -- status bar (both start at x + 4). The backspace glyph that
+            -- follows mirrors the symbol on the T-Deck's physical key
+            -- (U+232B ⌫), drawn as an outlined pentagon with a small X.
+            d.draw_text(x + 4, ty, "Back", muted)
+            local bw  = theme.text_width("Back")
+            local cy  = y + math.floor(h / 2)
+            local ax  = x + 4 + bw + 6
+            local top = cy - 3
+            local bot = cy + 3
+            d.draw_line(ax + 3, top, ax + 10, top, muted)  -- top edge
+            d.draw_line(ax + 10, top, ax + 10, bot, muted) -- right edge
+            d.draw_line(ax + 10, bot, ax + 3, bot, muted)  -- bottom edge
+            d.draw_line(ax + 3, top, ax, cy, muted)        -- upper diagonal
+            d.draw_line(ax, cy, ax + 3, bot, muted)        -- lower diagonal
+            d.draw_line(ax + 5, cy - 1, ax + 8, cy + 2, muted)  -- \ of X
+            d.draw_line(ax + 8, cy - 1, ax + 5, cy + 2, muted)  -- / of X
         end
 
         if n.right then

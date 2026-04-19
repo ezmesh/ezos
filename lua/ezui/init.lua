@@ -52,10 +52,12 @@ function ui.create_screen(def, state)
     return screen.create(def, state)
 end
 
--- Convenience: load a screen module, create an instance, and push it
+-- Convenience: load a screen module, create an instance, and push it.
+-- Uses async.task so the status-bar spinner reflects LittleFS reads
+-- on cold-loaded screen definitions.
 function ui.push_screen(path, ...)
     local args = { ... }
-    spawn(function()
+    async.task(function()
         local ok, def = pcall(load_module, path)
         if not ok then
             ez.log("[ezui] Load error: " .. tostring(def))
@@ -65,7 +67,11 @@ function ui.push_screen(path, ...)
         if def.new then
             inst = def.new(def, table.unpack(args))
         else
-            inst = screen.create(def, {})
+            -- Respect the screen's own initial_state() so flags like
+            -- `loading = true` or a saved last-view are honoured from
+            -- the very first build(), not only after a set_state cycle.
+            local init = def.initial_state and def.initial_state() or {}
+            inst = screen.create(def, init)
         end
         screen.push(inst)
     end)
@@ -86,9 +92,6 @@ function ui.start(opts)
 
     -- Apply theme
     if opts.theme then theme.set(opts.theme) end
-
-    -- Ensure keyboard is in normal mode (repeat/trackball prefs set in boot.lua)
-    ez.keyboard.set_mode("normal")
 
     running = true
 

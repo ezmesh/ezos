@@ -24,7 +24,7 @@ if not node_mod.handler("matrix_view") then
             d.fill_rect(x, y, w, h, theme.color("BG"))
 
             if not raw_ok then
-                theme.set_font("medium")
+                theme.set_font("medium_aa")
                 local msg = "Raw mode not available"
                 local tw = theme.text_width(msg)
                 d.draw_text(x + math.floor((w - tw) / 2),
@@ -33,7 +33,7 @@ if not node_mod.handler("matrix_view") then
                 return
             end
 
-            theme.set_font("small")
+            theme.set_font("small_aa")
             local fh = theme.font_height()
             local cell_w = 28
             local cell_h = 22
@@ -72,7 +72,7 @@ if not node_mod.handler("matrix_view") then
             end
 
             -- Hint
-            theme.set_font("small")
+            theme.set_font("small_aa")
             local hint = "Press any key. q to quit."
             d.draw_text(x + math.floor((w - theme.text_width(hint)) / 2),
                         y + h - fh - 4, hint, theme.color("TEXT_MUTED"))
@@ -88,11 +88,15 @@ function Matrix:build(state)
 end
 
 function Matrix:on_enter()
-    raw_ok = ez.keyboard.set_mode("raw")
+    -- The shell already runs in raw mode; on_enter is a no-op now, but
+    -- we still confirm and stash the result so the widget's "raw not
+    -- supported" error message fires if something flipped us back.
+    raw_ok = (ez.keyboard.get_mode() == "raw")
+         or ez.keyboard.set_mode("raw")
 end
 
 function Matrix:on_exit()
-    ez.keyboard.set_mode("normal")
+    -- Leave raw mode engaged — the rest of the shell needs it.
 end
 
 function Matrix:update()

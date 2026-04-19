@@ -3,7 +3,11 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <SPI.h>
-#include "../fonts/FreeSans7pt7b.h"
+#include "../fonts/Spleen6x12.h"
+#include "../fonts/Spleen8x16.h"
+#include "../fonts/Spleen12x24.h"
+#include "../fonts/Spleen16x32.h"
+#include "../fonts/InterAA9.h"
 #include "../fonts/InterAA11.h"
 #include "../fonts/InterAA13.h"
 #include "../fonts/InterAA17.h"
@@ -13,6 +17,12 @@
 // Build a shared `aa_font::Font` view over each generated header. The per-
 // header Glyph layout matches aa_font::Glyph byte-for-byte, so we cast the
 // arrays directly. Ascent and y_advance come from the generator.
+static const aa_font::Font AA_FONT_TINY = {
+    InterAA9::alpha_data,
+    reinterpret_cast<const aa_font::Glyph*>(InterAA9::glyphs),
+    InterAA9::first_char, InterAA9::last_char,
+    InterAA9::ascent, InterAA9::y_advance,
+};
 static const aa_font::Font AA_FONT_SMALL = {
     InterAA11::alpha_data,
     reinterpret_cast<const aa_font::Glyph*>(InterAA11::glyphs),
@@ -32,14 +42,15 @@ static const aa_font::Font AA_FONT_LARGE = {
     InterAA17::ascent, InterAA17::y_advance,
 };
 
-// Font metrics for each size
-// TINY uses proportional FreeSans for readability at small sizes;
-// SMALL/MEDIUM/LARGE use monospace FreeMono.
+// Font metrics for each bitmap size slot. All four bitmap mono sizes
+// are now Spleen (Frederic Cambus, BSD-2), pixel-native with no TTF
+// rasterisation — glyphs are hand-tuned per size, no AA, no hinting
+// artifacts. One consistent family across the scale.
 static const FontMetrics FONT_METRICS[] = {
-    { 7, 12, &FreeSans7pt7b },           // TINY: ~7x12 avg (proportional sans-serif)
-    { 11, 12, &fonts::FreeMono9pt7b },   // SMALL: 11x12 (UTF-8 monospace)
-    { 14, 16, &fonts::FreeMono12pt7b },  // MEDIUM: 14x16 (default)
-    { 21, 24, &fonts::FreeMono18pt7b }   // LARGE: 21x24
+    { 6,  12, &Spleen6x12 },   // TINY:    6x12  pixel mono
+    { 8,  16, &Spleen8x16 },   // SMALL:   8x16  pixel mono
+    { 12, 24, &Spleen12x24 },  // MEDIUM:  12x24 pixel mono
+    { 16, 32, &Spleen16x32 },  // LARGE:   16x32 pixel mono
 };
 
 Display::Display() : _buffer(&_lcd) {
@@ -85,6 +96,12 @@ bool Display::init() {
     // Set default font (FreeMono - true monospace)
     setFontSize(FontSize::MEDIUM);
     _buffer.setTextSize(1);
+
+    // LovyanGFX defaults textWrap to on, which silently wraps bitmap-font
+    // draw_text calls that run past the panel's right edge to the next
+    // line. Disable on both axes so draw_text is always a straight
+    // single-line blit and callers are in charge of clipping.
+    _buffer.setTextWrap(false, false);
 
     _initialized = true;
     Serial.println("Display: Initialization complete");
@@ -167,6 +184,7 @@ void Display::setFontSize(FontSize size) {
 
     const aa_font::Font* aa = nullptr;
     switch (size) {
+        case FontSize::TINY_AA:   aa = &AA_FONT_TINY;   break;
         case FontSize::SMALL_AA:  aa = &AA_FONT_SMALL;  break;
         case FontSize::MEDIUM_AA: aa = &AA_FONT_MEDIUM; break;
         case FontSize::LARGE_AA:  aa = &AA_FONT_LARGE;  break;
@@ -190,10 +208,14 @@ void Display::setFontSize(FontSize size) {
 
 const char* Display::getFontSizeName(FontSize size) {
     switch (size) {
-        case FontSize::TINY:   return "Tiny";
-        case FontSize::SMALL:  return "Small";
-        case FontSize::MEDIUM: return "Medium";
-        case FontSize::LARGE:  return "Large";
+        case FontSize::TINY:      return "Tiny";
+        case FontSize::SMALL:     return "Small";
+        case FontSize::MEDIUM:    return "Medium";
+        case FontSize::LARGE:     return "Large";
+        case FontSize::TINY_AA:   return "TinyAA";
+        case FontSize::SMALL_AA:  return "SmallAA";
+        case FontSize::MEDIUM_AA: return "MediumAA";
+        case FontSize::LARGE_AA:  return "LargeAA";
         default: return "Unknown";
     }
 }
@@ -1070,6 +1092,9 @@ bool Sprite::create(int width, int height) {
     _width = width;
     _height = height;
     _sprite.setColorDepth(16);
+    // Prefer PSRAM. Internal heap is often under 64 KB on this board,
+    // so a 320×240 sprite (150 KB) is guaranteed to fail without this.
+    _sprite.setPsram(true);
 
     void* buffer = _sprite.createSprite(width, height);
     if (!buffer) {
@@ -1164,6 +1189,27 @@ void Sprite::drawText(int x, int y, const char* text, uint16_t color) {
         _sprite.setCursor(x, y + _parent->getFontHeight());
         _sprite.print(text);
     }
+}
+
+bool Sprite::drawJpeg(const uint8_t* data, size_t len,
+                      int x, int y, int max_w, int max_h,
+                      int off_x, int off_y, float scale_x, float scale_y) {
+    if (!_valid) return false;
+    return _sprite.drawJpg(data, len, x, y, max_w, max_h,
+                           off_x, off_y, scale_x, scale_y);
+}
+
+bool Sprite::drawPng(const uint8_t* data, size_t len,
+                     int x, int y, int max_w, int max_h,
+                     int off_x, int off_y, float scale_x, float scale_y) {
+    if (!_valid) return false;
+    return _sprite.drawPng(data, len, x, y, max_w, max_h,
+                           off_x, off_y, scale_x, scale_y);
+}
+
+const uint8_t* Sprite::rawBuffer() const {
+    if (!_valid) return nullptr;
+    return (const uint8_t*)const_cast<LGFX_Sprite&>(_sprite).getBuffer();
 }
 
 // Helper to swap bytes in RGB565 value (for buffer format conversion)

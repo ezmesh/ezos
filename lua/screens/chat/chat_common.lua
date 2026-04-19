@@ -27,14 +27,14 @@ if not node_mod.handler("chat_bubble") then
             local inner_w = bubble_max - PAD_X * 2
 
             -- Sender name line (only for received messages)
-            theme.set_font("tiny")
+            theme.set_font("tiny_aa")
             local name_h = 0
             if not msg.is_self then
                 name_h = theme.font_height() + 1
             end
 
             -- Message text wrapped in small font
-            theme.set_font("small")
+            theme.set_font("small_aa")
             local lines = text_mod.wrap(msg.text or "", inner_w)
             n._lines = lines
             local line_h = theme.font_height()
@@ -49,7 +49,7 @@ if not node_mod.handler("chat_bubble") then
 
             -- Include sender name width in bubble width calculation
             if not msg.is_self then
-                theme.set_font("tiny")
+                theme.set_font("tiny_aa")
                 local name_w = theme.text_width(msg.sender_name or "")
                 if msg.count and msg.count > 1 then
                     name_w = name_w + theme.text_width(" (x" .. msg.count .. ")")
@@ -58,7 +58,7 @@ if not node_mod.handler("chat_bubble") then
             end
 
             -- Meta line (timestamp/rssi/status) in tiny font
-            theme.set_font("tiny")
+            theme.set_font("tiny_aa")
             local meta_h = theme.font_height() + 1
 
             local bubble_w = math.min(max_line_w + PAD_X * 2, bubble_max)
@@ -120,7 +120,7 @@ if not node_mod.handler("chat_bubble") then
 
             -- Sender name (received only)
             if not msg.is_self then
-                theme.set_font("tiny")
+                theme.set_font("tiny_aa")
                 local name_text = msg.sender_name or "?"
                 if msg.count and msg.count > 1 then
                     name_text = name_text .. " (x" .. msg.count .. ")"
@@ -130,14 +130,14 @@ if not node_mod.handler("chat_bubble") then
             end
 
             -- Message text lines
-            theme.set_font("small")
+            theme.set_font("small_aa")
             for _, line in ipairs(lines) do
                 d.draw_text(bx + PAD_X, cy, line, theme.color("TEXT"))
                 cy = cy + line_h
             end
 
             -- Meta line: RSSI for received, empty for sent (status shown via dot)
-            theme.set_font("tiny")
+            theme.set_font("tiny_aa")
             if not msg.is_self then
                 if msg.rssi then
                     local rssi_str = string.format("%ddBm", math.floor(msg.rssi))

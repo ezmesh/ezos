@@ -49,7 +49,7 @@ ICONS = [
     ("info",          "info",        (90, 150, 210)),
     ("message-square", "message",    (100, 180, 200)),
     ("globe",         "globe",       (60, 170, 90)),
-    ("ellipsis",      "more_horiz",  (120, 120, 130)),
+    ("ellipsis",      "more_horiz",  (255, 213, 0)),
 ]
 
 SVG_BASE_URL = "https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/{name}.svg"

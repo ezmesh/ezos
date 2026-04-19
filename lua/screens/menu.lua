@@ -1,10 +1,18 @@
 -- Main menu screen (accessible from desktop via Tab or More icon)
 
-local ui = require("ezui")
-local icons = require("ezui.icons")
-local theme = require("ezui.theme")
+local ui        = require("ezui")
+local icons     = require("ezui.icons")
+local theme     = require("ezui.theme")
+local transient = require("ezui.transient")
+local focus_mod = require("ezui.focus")
 
 local Menu = { title = "Menu" }
+
+-- Transient key for "last place the user was at in the menu" — the
+-- focused item and the scroll offset. Saved on on_leave (push to a
+-- sub-screen) and on on_exit (menu popped back to desktop), restored
+-- from on_enter. Survives close/reopen within a boot.
+local MENU_STATE_KEY = "menu"
 
 function Menu:build(state)
     local items = {}
@@ -15,7 +23,7 @@ function Menu:build(state)
 
     -- Section: Communication
     content_items[#content_items + 1] = ui.padding({ 10, 8, 2, 8 },
-        ui.text_widget("Communication", { color = "TEXT_MUTED", font = "tiny" })
+        ui.text_widget("Communication", { color = "TEXT_MUTED", font = "tiny_aa" })
     )
 
     local comm_entries = {
@@ -29,13 +37,13 @@ function Menu:build(state)
 
     -- Section: Tools
     content_items[#content_items + 1] = ui.padding({ 10, 8, 2, 8 },
-        ui.text_widget("Tools", { color = "TEXT_MUTED", font = "tiny" })
+        ui.text_widget("Tools", { color = "TEXT_MUTED", font = "tiny_aa" })
     )
 
     local tool_entries = {
         { title = "Map",       subtitle = "Offline maps",         icon = icons.map,      mod = "screens.tools.map" },
         { title = "Files",     subtitle = "Flash & SD browser",   icon = icons.folder,   mod = "screens.tools.file_manager" },
-        { title = "Terminal",  subtitle = "Lua REPL",             icon = icons.terminal, disabled = true },
+        { title = "Terminal",  subtitle = "Shell: cd, ls, run",   icon = icons.terminal, mod = "screens.tools.terminal" },
     }
 
     for _, entry in ipairs(tool_entries) do
@@ -44,7 +52,7 @@ function Menu:build(state)
 
     -- Section: Games
     content_items[#content_items + 1] = ui.padding({ 10, 8, 2, 8 },
-        ui.text_widget("Games", { color = "TEXT_MUTED", font = "tiny" })
+        ui.text_widget("Games", { color = "TEXT_MUTED", font = "tiny_aa" })
     )
 
     content_items[#content_items + 1] = self:_make_item({
@@ -82,9 +90,16 @@ function Menu:build(state)
         mod = "screens.games.raycaster",
     })
 
+    content_items[#content_items + 1] = self:_make_item({
+        title = "Breakout",
+        subtitle = "Paddle bricks across 5 levels",
+        icon = icons.grid,
+        mod = "screens.games.breakout",
+    })
+
     -- Section: System
     content_items[#content_items + 1] = ui.padding({ 10, 8, 2, 8 },
-        ui.text_widget("System", { color = "TEXT_MUTED", font = "tiny" })
+        ui.text_widget("System", { color = "TEXT_MUTED", font = "tiny_aa" })
     )
 
     local sys_entries = {
@@ -100,7 +115,7 @@ function Menu:build(state)
     -- Section: Developer — scratch space for widget smoke tests. Left in
     -- the main menu so it's easy to reach while iterating on ezui.
     content_items[#content_items + 1] = ui.padding({ 10, 8, 2, 8 },
-        ui.text_widget("Developer", { color = "TEXT_MUTED", font = "tiny" })
+        ui.text_widget("Developer", { color = "TEXT_MUTED", font = "tiny_aa" })
     )
 
     content_items[#content_items + 1] = self:_make_item({
@@ -110,10 +125,61 @@ function Menu:build(state)
         mod = "screens.dev.kitchen_sink",
     })
 
+    content_items[#content_items + 1] = self:_make_item({
+        title = "Script Editor",
+        subtitle = "Lua editor with token palette",
+        icon = icons.terminal,
+        mod = "screens.dev.script_editor",
+    })
+
+    content_items[#content_items + 1] = self:_make_item({
+        title = "Prefs Editor",
+        subtitle = "Browse, edit, reset, or add NVS prefs",
+        icon = icons.settings,
+        mod = "screens.dev.prefs_editor",
+    })
+
     local content = ui.vbox({ gap = 0 }, content_items)
     items[#items + 1] = ui.scroll({ grow = 1, scroll_offset = state.scroll or 0 }, content)
 
     return ui.vbox({ gap = 0, bg = "BG" }, items)
+end
+
+function Menu.initial_state()
+    local saved = transient.load(MENU_STATE_KEY, {})
+    return {
+        scroll = saved.scroll or 0,
+    }
+end
+
+-- Capture the focused item and scroll offset so returning to the menu
+-- lands back on the same row the user launched a sub-screen from.
+-- Called both when the menu pauses under a pushed screen (on_leave)
+-- and when it's popped off the stack (on_exit), so either flow
+-- survives through the transient store.
+function Menu:_remember()
+    local scroll_off = 0
+    if self._tree and self._tree.children and self._tree.children[2] then
+        scroll_off = self._tree.children[2].scroll_offset or 0
+    end
+    transient.save(MENU_STATE_KEY, {
+        focus  = focus_mod.index,
+        scroll = scroll_off,
+    })
+end
+
+function Menu:on_leave() self:_remember() end
+function Menu:on_exit()  self:_remember() end
+
+function Menu:on_enter()
+    local saved = transient.load(MENU_STATE_KEY)
+    if not saved then return end
+    if saved.focus then
+        -- focus.rebuild runs after this method (via _rebuild) and will
+        -- clamp against the fresh chain length, so a value out of
+        -- range after menu restructuring degrades gracefully.
+        focus_mod.index = saved.focus
+    end
 end
 
 function Menu:_make_item(entry)

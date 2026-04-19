@@ -14,7 +14,7 @@ function ChannelAdd:build(state)
     local form_items = {}
 
     form_items[#form_items + 1] = ui.padding({ 8, 8, 4, 8 },
-        ui.text_widget("Channel Name", { font = "small", color = "TEXT_SEC" })
+        ui.text_widget("Channel Name", { font = "small_aa", color = "TEXT_SEC" })
     )
     form_items[#form_items + 1] = ui.padding({ 0, 8, 8, 8 },
         ui.text_input({
@@ -27,7 +27,7 @@ function ChannelAdd:build(state)
     )
 
     form_items[#form_items + 1] = ui.padding({ 8, 8, 4, 8 },
-        ui.text_widget("Password (optional)", { font = "small", color = "TEXT_SEC" })
+        ui.text_widget("Password (optional)", { font = "small_aa", color = "TEXT_SEC" })
     )
     form_items[#form_items + 1] = ui.padding({ 0, 8, 8, 8 },
         ui.text_input({
@@ -41,7 +41,7 @@ function ChannelAdd:build(state)
 
     form_items[#form_items + 1] = ui.padding({ 4, 8, 4, 8 },
         ui.text_widget("All members must use the same name and password.", {
-            font = "small",
+            font = "small_aa",
             color = "TEXT_MUTED",
             wrap = true,
         })
@@ -50,7 +50,7 @@ function ChannelAdd:build(state)
     -- Error message
     if state.error then
         form_items[#form_items + 1] = ui.padding({ 4, 8, 4, 8 },
-            ui.text_widget(state.error, { font = "small", color = "ERROR" })
+            ui.text_widget(state.error, { font = "small_aa", color = "ERROR" })
         )
     end
 
