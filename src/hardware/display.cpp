@@ -11,36 +11,80 @@
 #include "../fonts/InterAA11.h"
 #include "../fonts/InterAA13.h"
 #include "../fonts/InterAA17.h"
+#include "../fonts/InterAA9Bold.h"
+#include "../fonts/InterAA11Bold.h"
+#include "../fonts/InterAA13Bold.h"
+#include "../fonts/InterAA17Bold.h"
+#include "../fonts/InterAA9Italic.h"
+#include "../fonts/InterAA11Italic.h"
+#include "../fonts/InterAA13Italic.h"
+#include "../fonts/InterAA17Italic.h"
+#include "../fonts/InterAA9BoldItalic.h"
+#include "../fonts/InterAA11BoldItalic.h"
+#include "../fonts/InterAA13BoldItalic.h"
+#include "../fonts/InterAA17BoldItalic.h"
 #include "aa_font.h"
 #include "../config.h"
 
 // Build a shared `aa_font::Font` view over each generated header. The per-
 // header Glyph layout matches aa_font::Glyph byte-for-byte, so we cast the
 // arrays directly. Ascent and y_advance come from the generator.
-static const aa_font::Font AA_FONT_TINY = {
-    InterAA9::alpha_data,
-    reinterpret_cast<const aa_font::Glyph*>(InterAA9::glyphs),
-    InterAA9::first_char, InterAA9::last_char,
-    InterAA9::ascent, InterAA9::y_advance,
+//
+// The lookup is a 4×4 table indexed by [size_idx][style_idx] where size is
+// {tiny, small, medium, large} mapped from FontSize::*_AA and style is
+// FontStyle (regular/bold/italic/bold_italic). Keeping a flat array of
+// POD structs lets us resolve with two uint8_t lookups and no branching.
+#define AA_FONT_ENTRY(NS) { \
+    NS::alpha_data, \
+    reinterpret_cast<const aa_font::Glyph*>(NS::glyphs), \
+    NS::first_char, NS::last_char, \
+    NS::ascent, NS::y_advance, \
+}
+
+static const aa_font::Font AA_FONTS[4][4] = {
+    // TINY_AA (9 px)
+    {
+        AA_FONT_ENTRY(InterAA9),
+        AA_FONT_ENTRY(InterAA9Bold),
+        AA_FONT_ENTRY(InterAA9Italic),
+        AA_FONT_ENTRY(InterAA9BoldItalic),
+    },
+    // SMALL_AA (11 px)
+    {
+        AA_FONT_ENTRY(InterAA11),
+        AA_FONT_ENTRY(InterAA11Bold),
+        AA_FONT_ENTRY(InterAA11Italic),
+        AA_FONT_ENTRY(InterAA11BoldItalic),
+    },
+    // MEDIUM_AA (13 px)
+    {
+        AA_FONT_ENTRY(InterAA13),
+        AA_FONT_ENTRY(InterAA13Bold),
+        AA_FONT_ENTRY(InterAA13Italic),
+        AA_FONT_ENTRY(InterAA13BoldItalic),
+    },
+    // LARGE_AA (17 px)
+    {
+        AA_FONT_ENTRY(InterAA17),
+        AA_FONT_ENTRY(InterAA17Bold),
+        AA_FONT_ENTRY(InterAA17Italic),
+        AA_FONT_ENTRY(InterAA17BoldItalic),
+    },
 };
-static const aa_font::Font AA_FONT_SMALL = {
-    InterAA11::alpha_data,
-    reinterpret_cast<const aa_font::Glyph*>(InterAA11::glyphs),
-    InterAA11::first_char, InterAA11::last_char,
-    InterAA11::ascent, InterAA11::y_advance,
-};
-static const aa_font::Font AA_FONT_MEDIUM = {
-    InterAA13::alpha_data,
-    reinterpret_cast<const aa_font::Glyph*>(InterAA13::glyphs),
-    InterAA13::first_char, InterAA13::last_char,
-    InterAA13::ascent, InterAA13::y_advance,
-};
-static const aa_font::Font AA_FONT_LARGE = {
-    InterAA17::alpha_data,
-    reinterpret_cast<const aa_font::Glyph*>(InterAA17::glyphs),
-    InterAA17::first_char, InterAA17::last_char,
-    InterAA17::ascent, InterAA17::y_advance,
-};
+
+#undef AA_FONT_ENTRY
+
+// Translate FontSize (covers both bitmap and AA slots) into the AA_FONTS
+// first-axis index, or -1 for non-AA sizes.
+static int aa_size_index(FontSize size) {
+    switch (size) {
+        case FontSize::TINY_AA:   return 0;
+        case FontSize::SMALL_AA:  return 1;
+        case FontSize::MEDIUM_AA: return 2;
+        case FontSize::LARGE_AA:  return 3;
+        default:                  return -1;
+    }
+}
 
 // Font metrics for each bitmap size slot. All four bitmap mono sizes
 // are now Spleen (Frederic Cambus, BSD-2), pixel-native with no TTF
@@ -180,21 +224,31 @@ int Display::textWidth(const char* text) {
 }
 
 void Display::setFontSize(FontSize size) {
+    setFont(size, _fontStyle);
+}
+
+void Display::setFontStyle(FontStyle style) {
+    setFont(_fontSize, style);
+}
+
+// Core font dispatch: resolve (size, style) to either an AA font slot or a
+// bitmap mono font, and cache the active metrics. Bitmap mono sizes ignore
+// style — Spleen doesn't ship with bold/italic, and synthesising them on
+// pixel-native fonts looks broken, so we fall through to the regular slot.
+void Display::setFont(FontSize size, FontStyle style) {
     _fontSize = size;
+    _fontStyle = style;
 
-    const aa_font::Font* aa = nullptr;
-    switch (size) {
-        case FontSize::TINY_AA:   aa = &AA_FONT_TINY;   break;
-        case FontSize::SMALL_AA:  aa = &AA_FONT_SMALL;  break;
-        case FontSize::MEDIUM_AA: aa = &AA_FONT_MEDIUM; break;
-        case FontSize::LARGE_AA:  aa = &AA_FONT_LARGE;  break;
-        default: break;
-    }
-
-    if (aa) {
-        _aaFont = aa;
-        _fontWidth = aa->glyphs['x' - aa->first].adv;  // advance of 'x'
-        _fontHeight = aa->y_advance;
+    int size_idx = aa_size_index(size);
+    if (size_idx >= 0) {
+        int style_idx = static_cast<int>(style);
+        if (style_idx < 0 || style_idx > 3) style_idx = 0;
+        const aa_font::Font& aa = AA_FONTS[size_idx][style_idx];
+        _aaFont = &aa;
+        // Q8.8 advance of 'x' rounds to a sensible monospace fallback
+        // for callers that treat font_width as a column step.
+        _fontWidth = (aa.glyphs['x' - aa.first].adv + 128) >> 8;
+        _fontHeight = aa.y_advance;
         return;
     }
 

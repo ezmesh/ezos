@@ -49,7 +49,7 @@ local W = {}
 node.register("text", {
     measure = function(n, max_w, max_h)
         local font = n.font or "medium_aa"
-        theme.set_font(font)
+        theme.set_font(font, n.style or "regular")
         local fh = theme.font_height()
         local str = n.value or ""
 
@@ -69,7 +69,7 @@ node.register("text", {
 
     draw = function(n, d, x, y, w, h)
         local font = n.font or "medium_aa"
-        theme.set_font(font)
+        theme.set_font(font, n.style or "regular")
         local color = theme.color(n.color or "TEXT")
         local fh = theme.font_height()
 
@@ -95,6 +95,201 @@ node.register("text", {
                 lx = x + w - theme.text_width(str)
             end
             d.draw_text(lx, y, str, color)
+        end
+    end,
+})
+
+-- ---------------------------------------------------------------------------
+-- RichText: a single paragraph composed of styled text runs that flow and
+-- wrap together. Used by the markdown renderer for mixed-style lines like
+--   "Hello **world** and `code`"
+-- where each run has its own font/style/color but they share one baseline.
+--
+-- A `run` is a table with these fields (all optional except `t`):
+--   t       -- the text string for this run
+--   font    -- size name (default: n.font or "small_aa")
+--   style   -- "regular" | "bold" | "italic" | "bold_italic"
+--   color   -- theme token name, resolved via theme.color()
+--   mono    -- if true, render in the Spleen bitmap family at the same
+--              approximate size (used for inline `code` spans)
+--   under   -- if true, draw an underline under the run (used for links)
+--
+-- Layout:
+--   Words and the spaces between them are the wrap units. We never break a
+--   single run mid-word unless the word itself is wider than the line.
+--   Line height is the max y_advance of runs that contributed to the line,
+--   so a line with a LargeAA heading run will give the whole line room.
+-- ---------------------------------------------------------------------------
+
+-- Resolve the font size a run should render in. Code runs prefer a bitmap
+-- mono size that roughly matches the surrounding AA size so the baselines
+-- don't look wildly offset.
+local MONO_FOR_AA = {
+    tiny_aa   = "tiny",
+    small_aa  = "tiny",
+    medium_aa = "small",
+    large_aa  = "small",
+}
+
+local function run_font(run, base_font)
+    if run.mono then
+        return MONO_FOR_AA[base_font] or "tiny"
+    end
+    return run.font or base_font
+end
+
+-- Build a layout plan: a list of lines, each a list of pieces
+--   { run_idx, text, x, w }
+-- plus a computed line height. Stored on the node so draw can replay it
+-- without re-measuring every frame.
+local function layout_rich_text(n, max_w)
+    local runs = n.runs or {}
+    local base_font = n.font or "small_aa"
+    local lines = {}
+    local cur_line = { pieces = {}, h = 0, w = 0 }
+
+    local function push_line()
+        if #cur_line.pieces == 0 and cur_line.h == 0 then
+            -- empty-paragraph sentinel: use base font height so blank
+            -- lines produce a visible gap instead of collapsing.
+            theme.set_font(base_font, "regular")
+            cur_line.h = theme.font_height()
+        end
+        lines[#lines + 1] = cur_line
+        cur_line = { pieces = {}, h = 0, w = 0 }
+    end
+
+    for ri, run in ipairs(runs) do
+        if run.newline then
+            push_line()
+        else
+            local t = run.t or ""
+            if t == "" then goto continue end
+            local font = run_font(run, base_font)
+            theme.set_font(font, run.style or "regular")
+            local fh = theme.font_height()
+
+            -- Split the run into alternating word/space tokens. We keep
+            -- spaces as their own piece so they can live at the end of a
+            -- line without forcing a wrap (a trailing space on a line is
+            -- invisible; a leading space on the next line would cause a
+            -- visible double-gap when the next run is another word).
+            local tokens = {}
+            for token in t:gmatch("%S+%s*") do
+                tokens[#tokens + 1] = token
+            end
+            -- Handle strings that start with whitespace (gmatch above
+            -- won't catch leading spaces).
+            local lead = t:match("^%s+")
+            if lead then
+                table.insert(tokens, 1, lead)
+            end
+
+            for _, tok in ipairs(tokens) do
+                theme.set_font(font, run.style or "regular")
+                local tw = theme.text_width(tok)
+                -- If we can't even fit the token on an empty line, break
+                -- it character-by-character rather than disappear it.
+                if tw > max_w and #cur_line.pieces == 0 then
+                    local buf = ""
+                    for i = 1, #tok do
+                        local ch = tok:sub(i, i)
+                        theme.set_font(font, run.style or "regular")
+                        local test_w = theme.text_width(buf .. ch)
+                        if test_w > max_w and buf ~= "" then
+                            cur_line.pieces[#cur_line.pieces + 1] = {
+                                run_idx = ri, text = buf,
+                                x = cur_line.w, w = theme.text_width(buf),
+                            }
+                            cur_line.w = cur_line.w + theme.text_width(buf)
+                            if fh > cur_line.h then cur_line.h = fh end
+                            push_line()
+                            buf = ch
+                        else
+                            buf = buf .. ch
+                        end
+                    end
+                    if buf ~= "" then
+                        theme.set_font(font, run.style or "regular")
+                        cur_line.pieces[#cur_line.pieces + 1] = {
+                            run_idx = ri, text = buf,
+                            x = cur_line.w, w = theme.text_width(buf),
+                        }
+                        cur_line.w = cur_line.w + theme.text_width(buf)
+                        if fh > cur_line.h then cur_line.h = fh end
+                    end
+                elseif cur_line.w + tw > max_w and #cur_line.pieces > 0 then
+                    push_line()
+                    -- Drop leading whitespace on the new line.
+                    if tok:match("^%s+$") then
+                        -- fully-blank token at line head: skip
+                    else
+                        theme.set_font(font, run.style or "regular")
+                        cur_line.pieces[#cur_line.pieces + 1] = {
+                            run_idx = ri, text = tok,
+                            x = cur_line.w, w = tw,
+                        }
+                        cur_line.w = cur_line.w + tw
+                        if fh > cur_line.h then cur_line.h = fh end
+                    end
+                else
+                    cur_line.pieces[#cur_line.pieces + 1] = {
+                        run_idx = ri, text = tok,
+                        x = cur_line.w, w = tw,
+                    }
+                    cur_line.w = cur_line.w + tw
+                    if fh > cur_line.h then cur_line.h = fh end
+                end
+            end
+            ::continue::
+        end
+    end
+    push_line()
+
+    return lines
+end
+
+node.register("rich_text", {
+    measure = function(n, max_w, max_h)
+        local lines = layout_rich_text(n, max_w)
+        n._lines = lines
+        n._layout_w = max_w
+        local total = 0
+        for _, l in ipairs(lines) do total = total + l.h end
+        return max_w, total
+    end,
+
+    draw = function(n, d, x, y, w, h)
+        -- The scroll layout may redraw at a different width than measure
+        -- was called with (e.g. scrollbar on/off). Re-layout when that
+        -- happens so wrapping stays correct.
+        if not n._lines or n._layout_w ~= w then
+            n._lines = layout_rich_text(n, w)
+            n._layout_w = w
+        end
+
+        local runs = n.runs or {}
+        local base_font = n.font or "small_aa"
+        local default_color = theme.color(n.color or "TEXT")
+        local cy = y
+
+        for _, line in ipairs(n._lines) do
+            for _, p in ipairs(line.pieces) do
+                local run = runs[p.run_idx] or {}
+                local font = run_font(run, base_font)
+                theme.set_font(font, run.style or "regular")
+                local fh = theme.font_height()
+                -- Align runs to the line's common baseline: bigger runs
+                -- sit lower so small inline text aligns under the ascender
+                -- of the largest glyph in the line.
+                local py = cy + line.h - fh
+                local col = run.color and theme.color(run.color) or default_color
+                d.draw_text(x + p.x, py, p.text, col)
+                if run.under then
+                    d.draw_hline(x + p.x, py + fh - 1, p.w, col)
+                end
+            end
+            cy = cy + line.h
         end
     end,
 })
@@ -950,6 +1145,13 @@ end
 function W.slider(props)
     props = props or {}
     props.type = "slider"
+    return props
+end
+
+function W.rich_text(runs, props)
+    props = props or {}
+    props.type = "rich_text"
+    props.runs = runs
     return props
 end
 

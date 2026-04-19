@@ -39,13 +39,35 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # metrics degrade into visible "clumps" around glyphs with a +1 px left
 # bearing (e.g. k/p in "Desktop"). We keep the `InterAA*` namespaces so
 # the C++ side doesn't need plumbing changes.
-ATK_TTF = REPO_ROOT / "tools" / "fonts" / "AtkinsonHyperlegible-Regular.ttf"
+ATK_DIR  = REPO_ROOT / "tools" / "fonts"
+ATK_REG  = ATK_DIR / "AtkinsonHyperlegible-Regular.ttf"
+ATK_BOLD = ATK_DIR / "AtkinsonHyperlegible-Bold.ttf"
+ATK_ITAL = ATK_DIR / "AtkinsonHyperlegible-Italic.ttf"
+ATK_BI   = ATK_DIR / "AtkinsonHyperlegible-BoldItalic.ttf"
 
+# Four sizes × four styles. The namespaces here (`InterAA9`, `InterAA9Bold`,
+# `InterAA9Italic`, `InterAA9BoldItalic`, …) mirror the 2-D [size][style]
+# lookup table on the C++ side (see display.cpp).
 FONTS = [
-    FontSpec(ATK_TTF,  9, 400, "InterAA9"),
-    FontSpec(ATK_TTF, 11, 400, "InterAA11"),
-    FontSpec(ATK_TTF, 13, 400, "InterAA13"),
-    FontSpec(ATK_TTF, 17, 400, "InterAA17"),
+    FontSpec(ATK_REG,   9, 400, "InterAA9"),
+    FontSpec(ATK_REG,  11, 400, "InterAA11"),
+    FontSpec(ATK_REG,  13, 400, "InterAA13"),
+    FontSpec(ATK_REG,  17, 400, "InterAA17"),
+
+    FontSpec(ATK_BOLD,  9, 700, "InterAA9Bold"),
+    FontSpec(ATK_BOLD, 11, 700, "InterAA11Bold"),
+    FontSpec(ATK_BOLD, 13, 700, "InterAA13Bold"),
+    FontSpec(ATK_BOLD, 17, 700, "InterAA17Bold"),
+
+    FontSpec(ATK_ITAL,  9, 400, "InterAA9Italic"),
+    FontSpec(ATK_ITAL, 11, 400, "InterAA11Italic"),
+    FontSpec(ATK_ITAL, 13, 400, "InterAA13Italic"),
+    FontSpec(ATK_ITAL, 17, 400, "InterAA17Italic"),
+
+    FontSpec(ATK_BI,    9, 700, "InterAA9BoldItalic"),
+    FontSpec(ATK_BI,   11, 700, "InterAA11BoldItalic"),
+    FontSpec(ATK_BI,   13, 700, "InterAA13BoldItalic"),
+    FontSpec(ATK_BI,   17, 700, "InterAA17BoldItalic"),
 ]
 
 FIRST_CHAR = 0x20    # space

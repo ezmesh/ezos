@@ -187,6 +187,17 @@ enum class FontSize : uint8_t {
     LARGE_AA  = 7,   // Inter 17px
 };
 
+// Style axis for AA fonts. Bitmap mono fonts ignore this — Spleen only
+// ships in one weight, and synthesising bold/italic for pixel-native fonts
+// looks wrong. For AA fonts, each (size, style) pair maps to its own
+// generated header (see tools/gen_aa_font.py).
+enum class FontStyle : uint8_t {
+    REGULAR     = 0,
+    BOLD        = 1,
+    ITALIC      = 2,
+    BOLD_ITALIC = 3,
+};
+
 // Font metrics for each size
 struct FontMetrics {
     int width;
@@ -308,7 +319,10 @@ public:
 
     // Font configuration
     void setFontSize(FontSize size);
+    void setFontStyle(FontStyle style);
+    void setFont(FontSize size, FontStyle style);
     FontSize getFontSize() const { return _fontSize; }
+    FontStyle getFontStyle() const { return _fontStyle; }
     static const char* getFontSizeName(FontSize size);
 
     // Text measurement (UTF-8 aware)
@@ -345,6 +359,7 @@ private:
 
     // Current font settings
     FontSize _fontSize = FontSize::MEDIUM;
+    FontStyle _fontStyle = FontStyle::REGULAR;
     int _fontWidth = 8;
     int _fontHeight = 16;
     // Set when an AA font is active; drawText/textWidth route through it.

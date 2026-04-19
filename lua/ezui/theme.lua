@@ -172,9 +172,17 @@ function theme.font_width()
     return ez.display.get_font_width()
 end
 
--- Set active font size
-function theme.set_font(size)
+-- Set the active font size, resetting the style axis to regular unless
+-- a specific style is requested.
+function theme.set_font(size, style)
     ez.display.set_font_size(size or "medium")
+    ez.display.set_font_style(style or "regular")
+end
+
+-- Set the style axis without touching size. Useful for rich-text runs that
+-- share a size but flip between regular/bold/italic.
+function theme.set_font_style(style)
+    ez.display.set_font_style(style or "regular")
 end
 
 -- Create an RGB565 color from 0-255 components

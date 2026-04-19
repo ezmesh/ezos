@@ -155,6 +155,38 @@ LUA_FUNCTION(l_display_set_font_size) {
     return 0;
 }
 
+// @lua ez.display.set_font_style(style)
+// @brief Set font style (weight/slope)
+// @description Selects a style variant of the current AA font — bold, italic,
+// or both. Bitmap mono fonts (tiny/small/medium/large) ignore this; they only
+// ship in a regular weight. The generated AA pack covers all four combinations
+// per size (see tools/gen_aa_font.py).
+// @param style One of "regular", "bold", "italic", or "bold_italic"
+// @example
+// ez.display.set_font_size("small_aa")
+// ez.display.set_font_style("bold")
+// ez.display.draw_text(10, 10, "Heading", colors.WHITE)
+// ez.display.set_font_style("regular")
+// @end
+LUA_FUNCTION(l_display_set_font_style) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* s = luaL_checkstring(L, 1);
+
+    FontStyle style = FontStyle::REGULAR;
+    if (strcmp(s, "bold") == 0) {
+        style = FontStyle::BOLD;
+    } else if (strcmp(s, "italic") == 0) {
+        style = FontStyle::ITALIC;
+    } else if (strcmp(s, "bold_italic") == 0 || strcmp(s, "bolditalic") == 0) {
+        style = FontStyle::BOLD_ITALIC;
+    }
+
+    if (display) {
+        display->setFontStyle(style);
+    }
+    return 0;
+}
+
 // @lua ez.display.draw_text(x, y, text, color)
 // @brief Draw text at pixel coordinates
 // @description Renders a text string at the specified pixel position using the current
@@ -1999,6 +2031,7 @@ static const luaL_Reg display_funcs[] = {
     {"flush",             l_display_flush},
     {"set_brightness",    l_display_set_brightness},
     {"set_font_size",     l_display_set_font_size},
+    {"set_font_style",    l_display_set_font_style},
     {"draw_text",         l_display_draw_text},
     {"draw_text_bg",      l_display_draw_text_bg},
     {"draw_text_shadow",  l_display_draw_text_shadow},
