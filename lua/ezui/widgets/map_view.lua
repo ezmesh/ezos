@@ -39,8 +39,8 @@ local LABEL_STYLE = {
     [0] = { font = "medium", ink = LABEL_INK },        -- City
     [1] = { font = "small",  ink = LABEL_INK },        -- Town
     [2] = { font = "small",  ink = LABEL_INK },        -- Village
-    [3] = { font = "tiny",   ink = LABEL_INK },        -- Suburb
-    [4] = { font = "tiny",   ink = LABEL_INK },        -- Road
+    [3] = { font = "tiny_aa",   ink = LABEL_INK },        -- Suburb
+    [4] = { font = "tiny_aa",   ink = LABEL_INK },        -- Road
     [5] = { font = "small",  ink = LABEL_INK_WATER },  -- Water body
 }
 local DEFAULT_STYLE = LABEL_STYLE[2]

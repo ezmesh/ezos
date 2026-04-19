@@ -22,6 +22,21 @@ focus.chain = {}     -- Ordered list of focusable nodes
 focus.index = 0      -- Currently focused index (0 = none)
 focus.editing = false -- True when a text widget has captured input
 
+-- Depth-first search for the first scroll node in the tree. Used by
+-- the Alt+UP/DOWN (or granular-scroll) path to find the viewport the
+-- user is scrolling in without the screen having to declare it.
+function focus._find_scroll(node)
+    if not node then return nil end
+    if node.type == "scroll" then return node end
+    if node.children then
+        for _, child in ipairs(node.children) do
+            local s = focus._find_scroll(child)
+            if s then return s end
+        end
+    end
+    return nil
+end
+
 -- Rebuild the focus chain from a node tree
 function focus.rebuild(root)
     focus.chain = node_mod.collect_focusable(root)
@@ -161,6 +176,34 @@ function focus.handle_key(key, screen)
         if handler and handler.on_key then
             local result = handler.on_key(n, key)
             if result then return result end
+        end
+    end
+
+    -- Granular / pixel-mode vertical scrolling.
+    --
+    -- Alt + UP/DOWN always pixel-scrolls the first scroll container in
+    -- the tree (universal "scan the page" affordance). When the screen
+    -- opts in with `granular_scroll = true` on the screen definition,
+    -- the roles swap: plain UP/DOWN pixel-scrolls and Alt+UP/DOWN
+    -- falls through to the linear focus nav below.
+    if key.special == "UP" or key.special == "DOWN" then
+        local granular = screen and screen._def and screen._def.granular_scroll
+        local want_pixel
+        if granular then
+            want_pixel = not key.alt
+        else
+            want_pixel = key.alt
+        end
+        if want_pixel then
+            local scroll = focus._find_scroll(screen and screen._tree)
+            if scroll then
+                local step = 12
+                local dir = key.special == "UP" and -1 or 1
+                scroll.scroll_offset = (scroll.scroll_offset or 0) + step * dir
+                if scroll.scroll_offset < 0 then scroll.scroll_offset = 0 end
+                require("ezui.screen").invalidate()
+                return "handled"
+            end
         end
     end
 

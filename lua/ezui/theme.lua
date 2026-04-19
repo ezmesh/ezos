@@ -126,9 +126,11 @@ function theme.init(name)
     if not p then p = palettes.dark end
     for k, v in pairs(p) do palette[k] = v end
     theme.name = name
-    -- Apply saved accent color
-    local saved = ez.storage.get_pref("accent_color", 0)
-    if saved ~= 0 then
+    -- Apply saved accent color. Coerce via tonumber so a garbage
+    -- string pref (e.g. left over from the dev prefs editor) can't
+    -- crash boot in darken_rgb565's bit math.
+    local saved = tonumber(ez.storage.get_pref("accent_color", 0))
+    if saved and saved ~= 0 then
         theme.set_accent(saved)
     end
 end
