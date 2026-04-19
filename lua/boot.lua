@@ -105,6 +105,14 @@ local function boot_sequence()
         ez.system.set_timezone(tz)
     end
 
+    -- Apply saved mesh auto-advert interval (0 = disabled). Set on the
+    -- mesh module so the C++ update loop starts the periodic announce
+    -- right after radio init, matching what Settings > Radio reflects.
+    local adv_ms = tonumber(ez.storage.get_pref("adv_interval_ms", 0)) or 0
+    if adv_ms > 0 and ez.mesh and ez.mesh.set_announce_interval then
+        ez.mesh.set_announce_interval(adv_ms)
+    end
+
     local ui = require("ezui")
 
     ez.log("[Boot] Framework loaded")
@@ -121,6 +129,21 @@ local function boot_sequence()
 
     local ui_sounds = require("services.ui_sounds")
     ui_sounds.init()
+
+    -- Apps registry: file-type → handler for the file manager. Built-in
+    -- handlers register themselves here; screens opened from the registry
+    -- are loaded lazily on first `open()` so unused apps don't pull their
+    -- screen module into memory at boot.
+    local apps = require("services.apps")
+    apps.register({
+        id    = "text_editor",
+        label = "Text Editor",
+        exts  = { "md", "txt", "log", "csv", "lua", "json", "ini", "conf" },
+        open  = function(path)
+            local ed = require("screens.tools.text_editor")
+            ed.open(path)
+        end,
+    })
 
     -- Engage raw matrix mode. The C3 keyboard controller sometimes
     -- refuses the mode-switch command during the first ~200 ms after

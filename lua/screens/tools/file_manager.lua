@@ -7,6 +7,7 @@ local ui = require("ezui")
 local theme = require("ezui.theme")
 local node_mod = require("ezui.node")
 local screen_mod = require("ezui.screen")
+local apps = require("services.apps")
 
 local FileMgr = { title = "Files" }
 
@@ -150,6 +151,19 @@ local function show_file_menu(mgr, path, file)
             title = "Size: " .. format_size(file.size),
             disabled = true,
         })
+
+        -- Registered app handlers for this extension. The first one is
+        -- the default, but we surface every handler so the user can
+        -- pick explicitly when there's more than one.
+        for _, app in ipairs(apps.handlers_for(full_path)) do
+            actions[#actions + 1] = ui.list_item({
+                title = "Open in " .. (app.label or app.id),
+                on_press = function()
+                    screen_mod.pop()
+                    app.open(full_path)
+                end,
+            })
+        end
 
         -- Set as wallpaper (for .jpg files)
         if file.name:lower():match("%.jpe?g$") then
@@ -362,6 +376,10 @@ function FileMgr:build(state)
                         if image then
                             local IV = require("screens.tools.image_viewer")
                             screen_mod.push(screen_mod.create(IV, IV.initial_state(full)))
+                        elseif apps.open(full) then
+                            -- A registered app handled the open. The
+                            -- registry is responsible for pushing the
+                            -- relevant screen.
                         else
                             show_file_menu(self, path, f)
                         end
