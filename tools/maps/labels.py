@@ -32,7 +32,10 @@ def extract_labels(tile_data: bytes, zoom: int, tile_x: int, tile_y: int) -> Lis
 
     try:
         data = decompress_tile(tile_data)
-        decoded = mvt.decode(data)
+        # y_coord_down=True matches tile_pixel_to_lat_lon's y-down frame. With
+        # the library's default (y-up GeoJSON) every label's latitude comes out
+        # reflected across the tile's mid-parallel.
+        decoded = mvt.decode(data, default_options={"y_coord_down": True})
     except Exception:
         return labels
 

@@ -104,7 +104,10 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
     # Decompress if needed
     try:
         data = decompress_tile(tile_data)
-        decoded = mvt.decode(data)
+        # y_coord_down=True keeps MVT's native top-left, y-increases-down frame.
+        # Without it the library flips to GeoJSON y-up, which combined with our
+        # y-down raster canvas renders every tile mirrored north/south.
+        decoded = mvt.decode(data, default_options={"y_coord_down": True})
     except Exception as e:
         # Return blank tile on decode error - use land mask if available
         if land_mask and land_mask.is_land_tile(zoom, tile_x, tile_y):
@@ -125,7 +128,7 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
     if neighbour_tiles:
         for (dx, dy), raw in neighbour_tiles.items():
             try:
-                nd = mvt.decode(decompress_tile(raw))
+                nd = mvt.decode(decompress_tile(raw), default_options={"y_coord_down": True})
             except Exception:
                 continue
             neighbour_decoded.append((dx * extent, dy * extent, nd))

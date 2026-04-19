@@ -4,7 +4,7 @@ ezOS supports offline OpenStreetMap tiles in the custom TDMAP format, optimized 
 
 ## Quick Start
 
-1. Download a PMTiles file for your region from [Protomaps](https://protomaps.com/downloads/protomaps) or generate one with [tilemaker](https://tilemaker.org/)
+1. Download a PMTiles file for your region from [Protomaps](https://protomaps.com/downloads/protomaps) or generate one with [Planetiler](https://github.com/onthegomap/planetiler)
 2. Convert to TDMAP format using the included tool
 3. Copy to SD card as `/sd/maps/world.tdmap`
 4. Open Map from the main menu
@@ -81,22 +81,25 @@ The TDMAP format is optimized for ESP32:
 
 ## Generating PMTiles
 
-### Using Tilemaker
+### Using Planetiler
 
-[Tilemaker](https://tilemaker.org/) converts OpenStreetMap PBF files to PMTiles:
+[Planetiler](https://github.com/onthegomap/planetiler) converts OpenStreetMap
+PBF files to PMTiles. It is 2-10× faster than tilemaker on the same hardware
+and its `--maxzoom` flag makes deeper zoom levels (z15, z16) trivial to build.
+
+The `tools/maps/planetiler.sh` wrapper runs it via Docker in either mode:
 
 ```bash
-# Download OSM data
-wget https://download.geofabrik.de/europe/netherlands-latest.osm.pbf
+# Download fresh Geofabrik extract for a named area and build at z15:
+./planetiler.sh netherlands 15
 
-# Convert to PMTiles (requires tilemaker installed)
-tilemaker --input netherlands-latest.osm.pbf \
-          --output netherlands.pmtiles \
-          --config config.json \
-          --process process.lua
+# Or convert an existing local PBF:
+./planetiler.sh netherlands-latest.osm.pbf 15
 ```
 
-A sample tilemaker configuration is provided in `tools/maps/tilemaker.sh`.
+Planetiler needs roughly 10 GB of free disk for its intermediate sort buffer
+and 2-4 GB of RAM. A country-size build (NL) takes 5-15 minutes on a modern
+laptop; a continent takes 30-60 minutes.
 
 ### Pre-made PMTiles
 

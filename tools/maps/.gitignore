@@ -6,6 +6,10 @@ venv/
 *.pmtiles
 *.osm.pbf
 
+# Bulk inputs fetched on demand by tilemaker / planetiler (100s of MB)
+sources/
+tile_weights.tsv*
+
 # pytest cache
 .pytest_cache/
 
