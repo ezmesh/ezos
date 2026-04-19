@@ -54,6 +54,23 @@ function async.on_busy_change(cb)
     _listeners[#_listeners + 1] = cb
 end
 
+-- Spawn `fn` as a coroutine with automatic busy-counter bookkeeping:
+-- begin() fires before the body, done() fires after regardless of
+-- success or error. Use this for user-visible work (file reads,
+-- downloads, parsing) where the status-bar spinner should appear.
+-- Background services with "while true" loops should keep using
+-- plain spawn() so they don't pin the spinner on forever.
+function async.task(fn)
+    async.begin()
+    spawn(function()
+        local ok, err = pcall(fn)
+        async.done()
+        if not ok then
+            ez.log("[async.task] error: " .. tostring(err))
+        end
+    end)
+end
+
 -- ---------------------------------------------------------------------------
 -- Promise
 -- ---------------------------------------------------------------------------
@@ -271,7 +288,7 @@ function async.exists(path)
 end
 
 function async.read_bytes(path, offset, length)
-    return async.fn(function() return async_read_bytes(path, offset, length) end)()
+    return async.fn(function() return ez.storage.async_read_bytes(path, offset, length) end)()
 end
 
 function async.json_read(path)

@@ -1249,7 +1249,9 @@ int AsyncIO::l_async_hmac_sha256(lua_State* L) {
 void AsyncIO::registerBindings(lua_State* L) {
     // File I/O
     lua_register(L, "async_read", l_async_read);
-    lua_register(L, "async_read_bytes", l_async_read_bytes);
+    // async_read_bytes lives under ez.storage.async_read_bytes — see the
+    // storage bindings table; registered there alongside read_bytes so
+    // callers find both on the same namespace.
     lua_register(L, "async_write", l_async_write);
     lua_register(L, "async_write_bytes", l_async_write_bytes);
     lua_register(L, "async_append", l_async_append);

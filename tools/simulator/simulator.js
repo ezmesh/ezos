@@ -415,10 +415,11 @@ async function initLua() {
     });
 
     // Wrapper that converts byte arrays to strings (Wasmoon returns arrays to avoid null-byte truncation)
+    // Exposed as ez.storage.async_read_bytes to match the device-side API.
     await lua.doString(`
         do
             local raw_read = _raw_async_read_bytes  -- Capture in local before clearing global
-            function async_read_bytes(path, offset, len)
+            ez.storage.async_read_bytes = function(path, offset, len)
                 local result = raw_read(path, offset, len)
                 if result == nil then return nil end
                 if type(result) == "string" then return result end
