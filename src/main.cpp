@@ -13,6 +13,7 @@
 #include "hardware/radio.h"
 #include "hardware/gps.h"
 #include "mesh/meshcore.h"
+#include "lua/async.h"
 #include "settings.h"
 #include "lua/lua_runtime.h"
 #include "remote/remote_control.h"
@@ -139,6 +140,19 @@ void setup() {
 
             mesh->setNodeCallback([](const NodeInfo& node) {
                 Serial.printf("Node discovered: %02X (%s)\n", node.pathHash, node.name);
+            });
+
+            // Offload X25519 ECDH to the AsyncIO worker (Core 0). The
+            // curve op has no HW accel on ESP32-S3, so running it on
+            // Core 1 would block the UI for ~20-50 ms per first-contact
+            // DM. Identity outlives both the worker and the Lua VM, so
+            // capturing by pointer is safe.
+            // getIdentity returns const Identity& — we only need read
+            // access to the immutable private key inside calcSharedSecret,
+            // so capture the const pointer explicitly.
+            const Identity* id = &mesh->getIdentity();
+            AsyncIO::setX25519Handler([id](const uint8_t* peer, uint8_t* out) {
+                return id->calcSharedSecret(peer, out);
             });
         } else {
             Serial.println("WARNING: Mesh init failed");

@@ -16,14 +16,23 @@ local function hash_from_hex(hex)
     return tonumber(hex:sub(1, 2), 16) or 0
 end
 
--- Persistence: save to prefs as "hex|name|notes|ack;hex|name|notes|ack;..."
+-- Persistence format. Record layout:
+--   hex|name|notes|ack|known
+-- `known` (0/1) tracks whether the contact has proven they hold our
+-- pubkey — either via an ACK to a DM we sent or via a decrypted DM they
+-- sent us. Before that's established, dm.send auto-injects an ADVERT so
+-- the receiver learns our pubkey and can decrypt on first try.
+-- Older saves have only four fields; load_saved() handles both shapes.
 local function save()
     local parts = {}
     for _, c in pairs(store) do
         local name = (c.name or ""):gsub("|", "")
         local notes = (c.notes or ""):gsub("|", "")
         local ack = c.ack_enabled and "1" or "0"
-        parts[#parts + 1] = c.pub_key_hex .. "|" .. name .. "|" .. notes .. "|" .. ack
+        local known = c.known_by and "1" or "0"
+        parts[#parts + 1] = c.pub_key_hex
+            .. "|" .. name .. "|" .. notes
+            .. "|" .. ack .. "|" .. known
     end
     ez.storage.set_pref(PREF_KEY, table.concat(parts, ";"))
 end
@@ -32,7 +41,10 @@ local function load_saved()
     local raw = ez.storage.get_pref(PREF_KEY, "")
     if raw == "" then return end
     for entry in raw:gmatch("[^;]+") do
-        local hex, name, notes, ack_str = entry:match("^([^|]+)|([^|]*)|([^|]*)|?(.-)$")
+        -- Tolerate both the 4-field (legacy) and 5-field layouts so
+        -- users don't lose their contact list on upgrade.
+        local hex, name, notes, ack_str, known_str = entry:match(
+            "^([^|]+)|([^|]*)|([^|]*)|([^|]*)|?(.-)$")
         if hex and #hex == 64 then
             store[hex] = {
                 pub_key_hex = hex,
@@ -40,6 +52,7 @@ local function load_saved()
                 path_hash = hash_from_hex(hex),
                 notes = notes or "",
                 ack_enabled = ack_str == "1" or nil,
+                known_by = known_str == "1" or nil,
                 added_at = 0,
             }
         end
@@ -108,6 +121,28 @@ function contacts.is_ack_enabled(pub_key_hex)
     local c = store[pub_key_hex]
     if not c then return nil end
     return c.ack_enabled
+end
+
+-- Mark whether the peer has proven they hold our pubkey. `true` is set
+-- when we get proof (ACK or decrypted DM); `false` is used to reset the
+-- state when delivery seems to have failed, so the next dm.send will
+-- re-send an ADVERT alongside the message. Returns true if the value
+-- actually changed — used by callers to gate a persist-and-notify.
+function contacts.set_known_by(pub_key_hex, known)
+    local c = store[pub_key_hex]
+    if not c then return false end
+    local current = c.known_by and true or false
+    local next_val = known and true or false
+    if current == next_val then return false end
+    c.known_by = next_val
+    save()
+    return true
+end
+
+function contacts.is_known_by(pub_key_hex)
+    local c = store[pub_key_hex]
+    if not c then return nil end
+    return c.known_by and true or false
 end
 
 function contacts.get(pub_key_hex)

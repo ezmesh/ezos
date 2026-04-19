@@ -40,6 +40,17 @@ AsyncIO& AsyncIO::instance() {
     return inst;
 }
 
+// X25519 handler installed by main.cpp after mesh init. Stored as a
+// static so the worker task can read it without holding a reference to
+// the AsyncIO instance. The assignment happens once on Core 1 before
+// the worker ever pulls an X25519_SHARED_SECRET request, so a simple
+// std::function assignment is safe without synchronisation.
+static AsyncIO::X25519Handler s_x25519_handler;
+
+void AsyncIO::setX25519Handler(X25519Handler handler) {
+    s_x25519_handler = std::move(handler);
+}
+
 bool AsyncIO::init(lua_State* L) {
     _mainState = L;
 
@@ -591,6 +602,28 @@ void AsyncIO::workerTask(void* param) {
                     }
                     break;
                 }
+
+                case OpType::X25519_SHARED_SECRET: {
+                    // Peer's 32-byte Ed25519 pubkey arrives in req.data.
+                    // The handler does the Ed25519 → X25519 conversion
+                    // and X25519 ECDH internally; we just pass bytes
+                    // through. All memory allocation for the result is
+                    // ours so we can propagate it to Lua as a string.
+                    if (req.data && req.dataLen == 32 && s_x25519_handler) {
+                        uint8_t* secret = (uint8_t*)malloc(32);
+                        if (secret) {
+                            if (s_x25519_handler(req.data, secret)) {
+                                result.data = secret;
+                                result.len = 32;
+                                result.success = true;
+                            } else {
+                                free(secret);
+                            }
+                        }
+                    }
+                    if (req.data) free(req.data);
+                    break;
+                }
             }
 
             xQueueSend(self->_resultQueue, &result, portMAX_DELAY);
@@ -627,6 +660,7 @@ void AsyncIO::processResults() {
                 case OpType::AES_ENCRYPT:
                 case OpType::AES_DECRYPT:
                 case OpType::HMAC_SHA256:
+                case OpType::X25519_SHARED_SECRET:
                     if (result.success && result.data) {
                         lua_pushlstring(co, (const char*)result.data, result.len);
                     } else {
@@ -1207,6 +1241,46 @@ int AsyncIO::l_async_aes_decrypt(lua_State* L) {
     return lua_yield(L, 0);
 }
 
+// async_x25519_shared_secret(peer_pub_key) — yields coroutine, resumes
+// with the 32-byte ECDH shared secret or nil. Peer key must be the raw
+// 32-byte Ed25519 public key (the conversion to X25519 happens inside
+// the installed handler). Offloaded to the worker thread because the
+// curve op costs ~20-50 ms on ESP32-S3 (no HW accel for X25519).
+int AsyncIO::l_async_x25519_shared_secret(lua_State* L) {
+    size_t keyLen;
+    const char* peer = luaL_checklstring(L, 1, &keyLen);
+
+    if (keyLen != 32) {
+        lua_pushnil(L);
+        lua_pushstring(L, "Peer public key must be 32 bytes");
+        return 2;
+    }
+
+    lua_pushthread(L);
+    int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    uint8_t* dataCopy = (uint8_t*)malloc(keyLen);
+    if (!dataCopy) {
+        luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
+        return luaL_error(L, "out of memory");
+    }
+    memcpy(dataCopy, peer, keyLen);
+
+    Request req = {};
+    req.type = OpType::X25519_SHARED_SECRET;
+    req.coroRef = coroRef;
+    req.data = dataCopy;
+    req.dataLen = keyLen;
+
+    if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
+        free(dataCopy);
+        luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
+        return luaL_error(L, "async queue full");
+    }
+
+    return lua_yield(L, 0);
+}
+
 // async_hmac_sha256(key, data) - yields coroutine, resumes with 32-byte MAC or nil
 int AsyncIO::l_async_hmac_sha256(lua_State* L) {
     size_t keyLen, dataLen;
@@ -1269,6 +1343,7 @@ void AsyncIO::registerBindings(lua_State* L) {
     lua_register(L, "async_aes_encrypt", l_async_aes_encrypt);
     lua_register(L, "async_aes_decrypt", l_async_aes_decrypt);
     lua_register(L, "async_hmac_sha256", l_async_hmac_sha256);
+    lua_register(L, "async_x25519_shared_secret", l_async_x25519_shared_secret);
 
     Serial.println("[AsyncIO] Registered Lua bindings");
 }

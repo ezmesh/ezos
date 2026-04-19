@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
@@ -19,6 +21,14 @@ public:
 
     // Register Lua bindings
     static void registerBindings(lua_State* L);
+
+    // Install the callback that does X25519 ECDH. Called on the worker
+    // thread, so the handler must be thread-safe with respect to its
+    // captures (the typical implementation reads an immutable private
+    // key out of the mesh identity, which is set once at boot).
+    // Signature: bool(const uint8_t peer_pubkey[32], uint8_t out_secret[32])
+    using X25519Handler = std::function<bool(const uint8_t*, uint8_t*)>;
+    static void setX25519Handler(X25519Handler handler);
 
     // Lua functions - File I/O
     static int l_async_read(lua_State* L);
@@ -40,6 +50,7 @@ public:
     static int l_async_aes_encrypt(lua_State* L);
     static int l_async_aes_decrypt(lua_State* L);
     static int l_async_hmac_sha256(lua_State* L);
+    static int l_async_x25519_shared_secret(lua_State* L);
 
 private:
     AsyncIO() = default;
@@ -62,6 +73,7 @@ private:
         AES_ENCRYPT,
         AES_DECRYPT,
         HMAC_SHA256,
+        X25519_SHARED_SECRET,
     };
 
     // Max sizes
