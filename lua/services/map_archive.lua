@@ -36,6 +36,42 @@ local COMPRESSION_ZLIB = 2
 
 local DEFAULT_CACHE_SIZE = 16
 
+-- Multi-megabyte reads (tile index, labels) exceed ez.storage.read_bytes's
+-- 1 MB per-call ceiling on country-scale archives, so we chunk. Prefer the
+-- PSRAM-backed async read (single file open, no per-call cap) when
+-- running inside a coroutine; fall back to the sync path with smaller
+-- chunks for callers that can't yield. Returns (data, err) — propagate
+-- the err upward rather than swallowing it at the call site.
+local READ_CHUNK = 524288  -- 512 KB per sync call — well under the 1 MB cap
+
+local function read_range(path, offset, length)
+    if length <= 0 then return "" end
+
+    -- async_read_bytes yields the coroutine; `coroutine.running()` returns
+    -- a non-main thread when we can legally yield.
+    local co, is_main = coroutine.running()
+    if co and not is_main and ez.storage.async_read_bytes then
+        local data = ez.storage.async_read_bytes(path, offset, length)
+        if data and #data == length then return data end
+        -- Fall through to the sync path if async returned nil/short.
+    end
+
+    local chunks    = {}
+    local cursor    = offset
+    local remaining = length
+    while remaining > 0 do
+        local n = remaining < READ_CHUNK and remaining or READ_CHUNK
+        local chunk, err = ez.storage.read_bytes(path, cursor, n)
+        if not chunk or #chunk == 0 then
+            return nil, err or "short read"
+        end
+        chunks[#chunks + 1] = chunk
+        cursor    = cursor    + #chunk
+        remaining = remaining - #chunk
+    end
+    return table.concat(chunks)
+end
+
 -- ---------------------------------------------------------------------------
 -- Byte helpers. All positions are 1-indexed to match Lua's string.byte.
 -- ---------------------------------------------------------------------------
@@ -113,15 +149,30 @@ local function tile_key(z, x, y)
     return z * 0x100000000 + x * 0x10000 + y
 end
 
--- Binary search in sorted self.tiles for (z, x, y). Returns the entry or nil.
+-- Binary search the packed tile index. idx_bytes holds tile_count × 11-byte
+-- entries already sorted by (z, x, y) when the archive was written. We
+-- decode candidates on the fly instead of materializing 166k Lua tables,
+-- which on country-scale z15 archives would otherwise blow the Lua heap.
 function Archive:find_tile(z, x, y)
-    local tiles = self.tiles
-    local lo, hi = 1, #tiles
+    local idx = self.idx_bytes
+    if not idx then return nil end
+    local lo, hi = 0, self.header.tile_count - 1
     while lo <= hi do
-        local mid = (lo + hi) >> 1
-        local t = tiles[mid]
-        if t.z == z and t.x == x and t.y == y then return t end
-        if t.z < z or (t.z == z and (t.x < x or (t.x == x and t.y < y))) then
+        local mid  = (lo + hi) >> 1
+        local p    = mid * INDEX_ENTRY_SIZE + 1
+        local mz   = u8(idx,  p)
+        local mx   = u16(idx, p + 1)
+        local my   = u16(idx, p + 3)
+        if mz == z and mx == x and my == y then
+            return {
+                z      = mz,
+                x      = mx,
+                y      = my,
+                offset = u32(idx, p + 5),
+                size   = u16(idx, p + 9),
+            }
+        end
+        if mz < z or (mz == z and (mx < x or (mx == x and my < y))) then
             lo = mid + 1
         else
             hi = mid - 1
@@ -175,8 +226,12 @@ function Archive:get_tile(z, x, y)
     self.pending[key] = true
     local path = self.path
     local compression = self.header.compression
-    spawn(function()
-        local compressed = async_read_bytes(path, entry.offset, entry.size)
+    -- async.task wraps spawn() with begin()/done(); each in-flight
+    -- tile load participates in the status-bar busy indicator, and
+    -- the counter drops even if a read / decompress errors out.
+    local async = require("ezui.async")
+    async.task(function()
+        local compressed = ez.storage.async_read_bytes(path, entry.offset, entry.size)
         self.pending[key] = nil
         if not compressed or #compressed == 0 then
             self.missing[key] = true
@@ -246,7 +301,7 @@ function Archive:close()
     self.pending = {}
     self.missing = {}
     self.labels = {}
-    self.tiles = {}
+    self.idx_bytes = nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -346,32 +401,30 @@ function map_archive.open(path)
         end
     end
 
-    -- Tile index.
+    -- Tile index. Country-scale archives at z=15 push this past 1.5 MB.
+    -- We keep the block as a single immutable string and binary-search it
+    -- directly in find_tile; materializing one Lua table per entry would
+    -- cost ~100 B × tile_count and easily blow the internal heap on z15
+    -- country archives.
     local index_len = header.tile_count * INDEX_ENTRY_SIZE
-    local idx_bytes = ez.storage.read_bytes(path, header.index_offset, index_len)
+    local idx_bytes, idx_err = read_range(path, header.index_offset, index_len)
     if not idx_bytes or #idx_bytes < index_len then
-        return nil, "cannot read tile index"
-    end
-    local tiles = {}
-    for i = 0, header.tile_count - 1 do
-        local p = i * INDEX_ENTRY_SIZE + 1
-        tiles[i + 1] = {
-            z      = u8(idx_bytes,  p),
-            x      = u16(idx_bytes, p + 1),
-            y      = u16(idx_bytes, p + 3),
-            offset = u32(idx_bytes, p + 5),
-            size   = u16(idx_bytes, p + 9),
-        }
+        return nil, "cannot read tile index: " .. tostring(idx_err or "short read")
     end
 
-    -- Labels: read the whole block in one go, then parse sequentially.
+    -- Labels: 1-2 MB at z=15. The same chunked reader handles both cases
+    -- — we just need to propagate its error message so silent truncation
+    -- surfaces as a real failure instead of a mystery blank map.
     local labels = {}
     if header.label_count > 0 and header.label_offset > 0 then
         local file_size = ez.storage.file_size(path) or 0
         local block_len = file_size - header.label_offset
         if block_len > 0 then
-            local block = ez.storage.read_bytes(path, header.label_offset, block_len)
-            if block and #block > 0 then
+            local block, lbl_err = read_range(path, header.label_offset, block_len)
+            if not block then
+                return nil, "cannot read label block: " .. tostring(lbl_err or "short read")
+            end
+            if #block > 0 then
                 local p = 1
                 local block_size = #block
                 for _ = 1, header.label_count do
@@ -401,7 +454,7 @@ function map_archive.open(path)
         path        = path,
         header      = header,
         palette     = palette,
-        tiles       = tiles,
+        idx_bytes   = idx_bytes,
         labels      = labels,
         tile_cache  = {},
         pending     = {},

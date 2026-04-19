@@ -49,7 +49,10 @@ function Map:on_enter()
     local s = self._state
     if s.archive or s.error then return end
     local inst = self
-    spawn(function()
+    -- async.task wraps spawn with begin()/done() so the status-bar
+    -- spinner reflects this load and clears even if something errors.
+    local async = require("ezui.async")
+    async.task(function()
         local arc, err = map_archive.open(ARCHIVE_PATH)
         if not arc then
             inst:set_state({ loading = false, error = err or "failed to open archive" })
@@ -252,7 +255,12 @@ local function make_gps_overlay()
 end
 
 function Map:build(state)
-    if state.loading then
+    -- "No archive, no error" means the async open() hasn't resolved yet,
+    -- regardless of whether the loading flag got seeded. Treat both as
+    -- loading so callers that push us with an empty state (e.g. direct
+    -- ui.push_screen without initial_state) still see a spinner instead
+    -- of the map_view's bare "No map archive loaded" placeholder.
+    if state.loading or (not state.archive and not state.error) then
         return ui.vbox({ gap = 0 }, {
             ui.title_bar("Map", { back = true }),
             ui.padding({ 60, 20, 20, 20 },
@@ -275,7 +283,7 @@ function Map:build(state)
             ui.padding({ 12, 16, 16, 16 },
                 ui.text_widget(
                     "Copy a .tdmap archive to " .. ARCHIVE_PATH .. " and reopen this screen.",
-                    { wrap = true, color = "TEXT_MUTED", font = "small" })
+                    { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
             ),
         })
     end
@@ -313,7 +321,7 @@ function Map:build(state)
             -- Pipe separator: the device font (FreeSans 7pt) covers only ASCII
             -- 0x20..0x7E, so "·" / "•" render as missing-glyph boxes.
             ui.text_widget(table.concat(segments, "  |  "), {
-                font = "small", color = "TEXT_SEC",
+                font = "small_aa", color = "TEXT_SEC",
             })
         ),
     })
