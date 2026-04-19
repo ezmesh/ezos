@@ -1,94 +1,69 @@
--- About screen: firmware version + credits and attributions for third-
--- party assets shipped in the image. Keep entries here in sync with any
--- asset additions so license obligations stay visible.
+-- About screen: firmware version + credits for third-party assets.
+--
+-- Content lives in `data/about.md` on LittleFS (flashed via `pio run
+-- -t uploadfs`). Keeping it out of the embedded-Lua blob means the doc
+-- can grow without stealing from the firmware flash budget, and the
+-- markdown renderer gets a real-world exercise of the LittleFS async
+-- load path every time the screen opens.
 
-local ui = require("ezui")
-local theme = require("ezui.theme")
+local ui    = require("ezui")
+local async = require("ezui.async")
 
 local About = { title = "About" }
 
-local VERSION = "ezOS v2 (feature/offline-maps-v5-zlib)"
+local MD_PATH = "/fs/about.md"
 
--- Each entry renders as a block: title, description, and optional link.
--- Licenses/terms are summarised; full text lives with the asset (e.g.
--- data/sounds/snd01/CREDITS.md, LICENSE files in tools/).
-local CREDITS = {
-    {
-        heading = "ezOS",
-        lines = {
-            VERSION,
-            "C++ firmware + Lua userspace for the LilyGo T-Deck Plus.",
-        },
-    },
-    {
-        heading = "SND01 \"Sine\" Sound Pack",
-        lines = {
-            "Yasuhiro Tsuchiya / Dentsu Inc.",
-            "https://snd.dev",
-            "Free for personal and commercial use;",
-            "modified and embedded per snd.dev terms.",
-        },
-    },
-    {
-        heading = "Lucide Icons",
-        lines = {
-            "https://lucide.dev",
-            "ISC License. Used to source the glyphs",
-            "composited into the desktop icons.",
-        },
-    },
-    {
-        heading = "Inter Font",
-        lines = {
-            "Rasmus Andersson",
-            "https://rsms.me/inter/",
-            "SIL Open Font License 1.1. Used for the",
-            "anti-aliased UI fonts.",
-        },
-    },
-    {
-        heading = "MeshCore Protocol",
-        lines = {
-            "https://github.com/ripplebiz/MeshCore",
-            "Reference implementation for the mesh",
-            "networking stack.",
-        },
-    },
-    {
-        heading = "LovyanGFX",
-        lines = {
-            "https://github.com/lovyan03/LovyanGFX",
-            "FreeBSD License. Display driver.",
-        },
-    },
-}
+-- Cache loaded markdown across screen open/close so the LittleFS read
+-- only runs once per boot. The state dict still carries it per-instance
+-- so hot-reload can drop it cleanly.
+local _cached_md = nil
+
+function About.initial_state()
+    return { md = _cached_md, error = nil }
+end
+
+function About:on_enter()
+    local state = self:get_state()
+    if state.md or state.error then return end
+
+    local this = self
+    async.task(function()
+        local content = async_read(MD_PATH)
+        if content and content ~= "" then
+            _cached_md = content
+            this:set_state({ md = content, error = nil })
+        else
+            -- Fall back gracefully. The most common reason for a missing
+            -- file is a user that has flashed the firmware but not yet
+            -- run `uploadfs`; point them at it in the error copy.
+            this:set_state({
+                md = nil,
+                error = "about.md not found on LittleFS.\nRun `pio run -t uploadfs`.",
+            })
+        end
+    end)
+end
 
 function About:build(state)
-    local items = { ui.title_bar("About", { back = true }) }
-
-    local content = {}
-    for _, entry in ipairs(CREDITS) do
-        content[#content + 1] = ui.padding({ 8, 10, 2, 10 },
-            ui.text_widget(entry.heading, { color = "ACCENT", font = "small_aa" })
-        )
-        for _, line in ipairs(entry.lines) do
-            content[#content + 1] = ui.padding({ 1, 10, 1, 10 },
-                ui.text_widget(line, { color = "TEXT", font = "small_aa", wrap = true })
-            )
-        end
+    local body
+    if state.md then
+        body = ui.markdown(state.md)
+    elseif state.error then
+        body = ui.text_widget(state.error, {
+            font = "small_aa", color = "ERROR", wrap = true,
+        })
+    else
+        body = ui.text_widget("Loading...", {
+            font = "small_aa", color = "TEXT_MUTED",
+        })
     end
-    content[#content + 1] = ui.padding({ 16, 10, 12, 10 },
-        ui.text_widget(
-            "Full license texts ship alongside each asset in the source tree.",
-            { color = "TEXT_MUTED", font = "small_aa", wrap = true }
-        )
-    )
 
-    items[#items + 1] = ui.scroll({ grow = 1 },
-        ui.vbox({ gap = 0 }, content)
-    )
-
-    return ui.vbox({ gap = 0, bg = "BG" }, items)
+    return ui.vbox({ gap = 0, bg = "BG" }, {
+        ui.title_bar("About", { back = true }),
+        ui.scroll({ grow = 1 },
+            ui.padding({ 4, 10, 8, 10 }, body)
+        ),
+    })
 end
 
 function About:handle_key(key)

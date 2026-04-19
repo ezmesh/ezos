@@ -41,6 +41,15 @@ ui.status_bar  = widgets.status_bar
 ui.title_bar   = widgets.title_bar
 ui.spinner     = widgets.spinner
 ui.slider      = widgets.slider
+ui.rich_text   = widgets.rich_text
+
+-- Markdown renderer (exposes ui.markdown). Loaded lazily so screens that
+-- don't use it don't pay the parser's load cost.
+local _markdown
+function ui.markdown(source, opts)
+    if not _markdown then _markdown = require("ezui.markdown") end
+    return _markdown.render(source, opts)
+end
 
 -- Screen management
 ui.push    = screen.push
