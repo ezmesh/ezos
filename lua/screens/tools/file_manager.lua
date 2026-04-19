@@ -40,7 +40,7 @@ if not node_mod.handler("thumb_overlay") then
             d.draw_rect(bx, by, box_w, box_h, theme.color("ACCENT"))
 
             if not preview_data then
-                theme.set_font("tiny")
+                theme.set_font("tiny_aa")
                 local msg = "..."
                 local tw = theme.text_width(msg)
                 d.draw_text(bx + math.floor((box_w - tw) / 2),
@@ -299,7 +299,7 @@ function FileMgr:build(state)
             .. "  [TAB: " .. (is_fs and "SD" or "Flash") .. "]"
     end
     items[#items + 1] = ui.padding({ 2, 8, 2, 8 },
-        ui.text_widget(info_text, { color = "TEXT_MUTED", font = "tiny" })
+        ui.text_widget(info_text, { color = "TEXT_MUTED", font = "tiny_aa" })
     )
 
     local content_items = {}
@@ -417,7 +417,8 @@ function FileMgr:update()
             preview_loading = true
             local load_path = n._file_path
             preview_path = load_path  -- shows the loading frame immediately
-            spawn(function()
+            local async = require("ezui.async")
+            async.task(function()
                 local data = async_read(load_path)
                 -- Drop the result if the user moved to another file in the meantime
                 if self._hover_path ~= load_path then return end

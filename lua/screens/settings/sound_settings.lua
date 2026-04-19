@@ -34,7 +34,7 @@ function Sound:build(state)
     content[#content + 1] = ui.padding({ 2, 8, 4, 8 },
         ui.text_widget(
             "Taps, toggles, and screen transitions play SND01 samples " ..
-            "(Yasuhiro Tsuchiya / snd.dev — see About).",
+            "(Yasuhiro Tsuchiya / snd.dev - see About).",
             { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
     )
 

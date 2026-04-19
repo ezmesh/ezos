@@ -126,7 +126,7 @@ if not node_mod.handler("pixel_fix_view") then
 
             -- Overlay pattern name and progress (except on solid patterns where
             -- the text might blend in - always draw with contrasting outline)
-            theme.set_font("tiny")
+            theme.set_font("tiny_aa")
             local name = pattern_names[pattern + 1] or ""
             local progress = floor((frame % FRAMES_PER_PATTERN) / FRAMES_PER_PATTERN * 100)
             local info = name .. "  " .. progress .. "%  [Q:exit]"

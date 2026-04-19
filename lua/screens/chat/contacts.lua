@@ -10,11 +10,14 @@ local screen_mod = require("ezui.screen")
 local theme = require("ezui.theme")
 local node_mod = require("ezui.node")
 
--- Tab bar node: two horizontal buttons, one highlighted as active
+-- Tab bar node: two horizontal buttons, one highlighted as active.
+-- Uses the AA Inter medium so it sits in the same visual weight class
+-- as list_item titles; "medium" would switch to the bitmap Spleen and
+-- read as heavier than everything around it.
 if not node_mod.handler("tab_bar") then
     node_mod.register("tab_bar", {
         measure = function(n, max_w, max_h)
-            theme.set_font("medium")
+            theme.set_font("small_aa")
             return max_w, theme.font_height() + 8
         end,
 
@@ -25,7 +28,7 @@ if not node_mod.handler("tab_bar") then
             if count == 0 then return end
 
             local tab_w = math.floor(w / count)
-            theme.set_font("medium")
+            theme.set_font("small_aa")
             local fh = theme.font_height()
 
             for i, label in ipairs(tabs) do
@@ -141,7 +144,7 @@ function Contacts:build(state)
             content_items[#content_items + 1] = ui.padding({ 4, 10, 10, 10 },
                 ui.text_widget("Switch to Nearby tab to add nodes.", {
                     color = "TEXT_MUTED",
-                    font = "small",
+                    font = "small_aa",
                     text_align = "center",
                 })
             )
@@ -181,7 +184,7 @@ function Contacts:build(state)
             content_items[#content_items + 1] = ui.padding({ 4, 10, 10, 10 },
                 ui.text_widget("Nearby mesh nodes will appear here.", {
                     color = "TEXT_MUTED",
-                    font = "small",
+                    font = "small_aa",
                     text_align = "center",
                 })
             )
@@ -220,6 +223,7 @@ function Contacts:on_enter()
     self._sub = ez.bus.subscribe("contacts/changed", function()
         self:set_state({})
     end)
+    self._last_refresh = 0
 end
 
 function Contacts:on_leave()
@@ -228,6 +232,34 @@ end
 
 function Contacts:on_exit()
     self:on_leave()
+end
+
+-- Nearby tab shows a snapshot of ez.mesh.get_nodes(), but the mesh
+-- stack doesn't post an event when that list changes. Poll the list
+-- at ~1 Hz while the Nearby tab is active and rebuild only when the
+-- node count or ordering actually changes — avoids needless rebuilds
+-- that would reset focus or clobber the user's scroll.
+local function nearby_fingerprint()
+    if not ez.mesh.is_initialized() then return "nomesh" end
+    local nodes = ez.mesh.get_nodes() or {}
+    local parts = { #nodes }
+    for _, n in ipairs(nodes) do
+        parts[#parts + 1] = (n.pub_key_hex or ""):sub(1, 8)
+    end
+    return table.concat(parts, "|")
+end
+
+function Contacts:update()
+    if (self._state.tab or 1) ~= 2 then return end
+    local now = ez.system.millis()
+    if now - (self._last_refresh or 0) < 1000 then return end
+    self._last_refresh = now
+
+    local fp = nearby_fingerprint()
+    if fp ~= self._nearby_fp then
+        self._nearby_fp = fp
+        self:set_state({})
+    end
 end
 
 function Contacts:handle_key(key)

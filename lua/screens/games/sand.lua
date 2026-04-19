@@ -279,7 +279,7 @@ if not node_mod.handler("sand_view") then
             -- HUD bar at the top
             d.fill_rect(x, y, 320, GRID_OY, rgb(10, 10, 20))
 
-            theme.set_font("tiny")
+            theme.set_font("tiny_aa")
             -- Current particle type indicator with colored square
             local type_name = TYPE_NAMES[particle_type]
             local type_color = particle_color(particle_type, 5, 5)

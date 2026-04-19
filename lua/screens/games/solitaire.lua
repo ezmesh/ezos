@@ -438,7 +438,7 @@ local function draw_card_face(d, card, x, y, highlight)
         d.draw_rect(x, y, CARD_W, CARD_H, rgb(80, 80, 80))
     end
     -- Rank text and suit icon in the top-left corner
-    theme.set_font("tiny")
+    theme.set_font("tiny_aa")
     local rank_str = RANK_CHARS[card.rank]
     local text_color = is_red(card) and CLR_RED or CLR_BLACK
     d.draw_text(x + 2, y + 2, rank_str, text_color)
@@ -497,14 +497,14 @@ if not node_mod.handler("solitaire_view") then
             if #stock > 0 then
                 draw_card_back(d, x + STOCK_X, y + STOCK_Y)
                 -- Show remaining count
-                theme.set_font("tiny")
+                theme.set_font("tiny_aa")
                 local count_str = tostring(#stock)
                 d.draw_text(x + STOCK_X + floor((CARD_W - theme.text_width(count_str)) / 2),
                            y + STOCK_Y + CARD_H + 1, count_str, CLR_TEXT_DIM)
             else
                 -- Empty stock: draw recycle indicator
                 draw_empty_pile(d, x + STOCK_X, y + STOCK_Y)
-                theme.set_font("tiny")
+                theme.set_font("tiny_aa")
                 local r_str = "O"
                 d.draw_text(x + STOCK_X + floor((CARD_W - theme.text_width(r_str)) / 2),
                            y + STOCK_Y + floor((CARD_H - 8) / 2), r_str, CLR_EMPTY)
@@ -562,7 +562,7 @@ if not node_mod.handler("solitaire_view") then
                                     d.fill_rect(tx, cy, 1, FACEUP_STEP, rgb(80, 80, 80))
                                     d.fill_rect(tx + CARD_W - 1, cy, 1, FACEUP_STEP, rgb(80, 80, 80))
                                 end
-                                theme.set_font("tiny")
+                                theme.set_font("tiny_aa")
                                 local rank_str = RANK_CHARS[card.rank]
                                 local tc = is_red(card) and CLR_RED or CLR_BLACK
                                 d.draw_text(tx + 2, cy + 2, rank_str, tc)
@@ -595,7 +595,7 @@ if not node_mod.handler("solitaire_view") then
             end
 
             -- === HUD text ===
-            theme.set_font("tiny")
+            theme.set_font("tiny_aa")
             if game_won then
                 theme.set_font("small")
                 local win_msg = "YOU WIN!"

@@ -111,7 +111,7 @@ if not node_mod.handler("minesweeper_view") then
             d.draw_text(x + floor((320 - theme.text_width(title)) / 2), y + 4, title, title_c)
 
             -- Remaining mines counter (mines minus flags placed)
-            theme.set_font("tiny")
+            theme.set_font("tiny_aa")
             local flags = 0
             for r = 1, ROWS do
                 for c = 1, COLS do
@@ -194,7 +194,7 @@ if not node_mod.handler("minesweeper_view") then
             end
 
             -- Bottom hint text
-            theme.set_font("tiny")
+            theme.set_font("tiny_aa")
             if not game_over then
                 local hint = "Space:reveal  F:flag"
                 d.draw_text(x + floor((320 - theme.text_width(hint)) / 2), y + 228, hint, rgb(100, 100, 110))

@@ -164,7 +164,7 @@ if not node_mod.handler("sudoku_view") then
             local title = solved and "SOLVED!" or "Sudoku"
             local tc = solved and rgb(50, 220, 50) or rgb(220, 220, 220)
             d.draw_text(x + floor((320 - theme.text_width(title)) / 2), y + 4, title, tc)
-            theme.set_font("tiny")
+            theme.set_font("tiny_aa")
             d.draw_text(x + 4, y + 6, "R:new", rgb(120, 120, 120))
             d.draw_text(x + 280, y + 6, "Q:quit", rgb(120, 120, 120))
 
@@ -234,7 +234,7 @@ if not node_mod.handler("sudoku_view") then
             end
 
             -- Bottom hint text
-            theme.set_font("tiny")
+            theme.set_font("tiny_aa")
             local hint = solved and "R for new puzzle" or "1-9:place  0:clear"
             d.draw_text(x + floor((320 - theme.text_width(hint)) / 2), y + 228, hint, rgb(100, 100, 110))
         end,

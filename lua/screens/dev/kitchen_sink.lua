@@ -6,7 +6,11 @@
 local ui    = require("ezui")
 local icons = require("ezui.icons")
 
-local Kitchen = { title = "Widgets" }
+-- granular_scroll: plain UP/DOWN pixel-scrolls the viewport (12 px per
+-- press) instead of jumping between focusable widgets. Alt+UP/DOWN
+-- still runs the linear focus nav, so buttons/toggles/etc. are
+-- reachable via the modifier when you want to press them.
+local Kitchen = { title = "Widgets", granular_scroll = true }
 
 function Kitchen.initial_state()
     return {
@@ -29,10 +33,28 @@ function Kitchen:build(state)
     local items = { ui.title_bar("Widgets", { back = true }) }
     local content = {}
 
+    -- Fonts catalogue: one sample per available size, both families.
+    -- Mono family uses ASCII only (bitmap fonts ship ASCII 0x20-0x7E).
+    content[#content + 1] = section("Fonts - mono (Spleen)")
+    local FONTS_MONO = { "tiny", "small", "medium", "large" }
+    local FONT_SAMPLE_MONO = "The quick brown fox 0123"
+    for _, f in ipairs(FONTS_MONO) do
+        content[#content + 1] = ui.padding({ 1, 10, 1, 10 },
+            ui.text_widget(f .. "  " .. FONT_SAMPLE_MONO, { font = f }))
+    end
+
+    content[#content + 1] = section("Fonts - AA (Inter)")
+    local FONTS_AA = { "tiny_aa", "small_aa", "medium_aa", "large_aa" }
+    local FONT_SAMPLE_AA = "The quick brown fox 0123"
+    for _, f in ipairs(FONTS_AA) do
+        content[#content + 1] = ui.padding({ 1, 10, 1, 10 },
+            ui.text_widget(f .. "  " .. FONT_SAMPLE_AA, { font = f }))
+    end
+
     -- Text
     content[#content + 1] = section("Text")
     content[#content + 1] = ui.padding({ 4, 10, 2, 10 },
-        ui.text_widget("Regular body text — the quick brown fox.", {
+        ui.text_widget("Regular body text - the quick brown fox.", {
             font = "small_aa", wrap = true,
         }))
     content[#content + 1] = ui.padding({ 2, 10, 4, 10 },
@@ -106,7 +128,7 @@ function Kitchen:build(state)
     content[#content + 1] = ui.padding({ 4, 10, 4, 10 },
         ui.hbox({ gap = 10 }, {
             { type = "spinner", size = 16 },
-            ui.text_widget("Loading…", { font = "small_aa", color = "TEXT_SEC" }),
+            ui.text_widget("Loading...", { font = "small_aa", color = "TEXT_SEC" }),
         }))
 
     -- List items (regular, compact, icon, disabled)
