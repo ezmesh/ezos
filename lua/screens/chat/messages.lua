@@ -12,6 +12,22 @@ local contacts_svc = require("services.contacts")
 
 local Messages = { title = "Messages" }
 
+-- NVS pref controlling the Private-tab filter. When set, DM conversations
+-- whose sender isn't in the contact list are hidden — handy for ignoring
+-- noise from nodes the user hasn't explicitly adopted yet.
+local PREF_DM_KNOWN_ONLY = "msg_known_only"
+
+function Messages.initial_state()
+    -- Pref values come back as strings or nil; normalise to a bool.
+    local raw = ez.storage.get_pref(PREF_DM_KNOWN_ONLY, nil)
+    local known_only = raw == true or raw == 1 or raw == "1" or raw == "true"
+    return {
+        tab        = 1,
+        scroll     = 0,
+        known_only = known_only,
+    }
+end
+
 -- Register tab_bar node type once
 if not node_mod.handler("tab_bar") then
     node_mod.register("tab_bar", {
@@ -64,17 +80,65 @@ function Messages:build(state)
 
     if active_tab == 1 then
         -- Private tab: DM conversations
-        local convos = dm_svc.get_conversations()
+        local all_convos = dm_svc.get_conversations()
+
+        -- Partition into known/unknown so the filter toggle can show a
+        -- useful hint like "Hiding 3 unknown". get_conversations() exposes
+        -- pub_key_hex, which is exactly what contacts_svc.is_contact wants.
+        local known_convos, unknown_count = {}, 0
+        for _, c in ipairs(all_convos) do
+            if contacts_svc.is_contact(c.pub_key_hex) then
+                known_convos[#known_convos + 1] = c
+            else
+                unknown_count = unknown_count + 1
+            end
+        end
+        local convos = state.known_only and known_convos or all_convos
+
+        -- Filter toggle. Only show the row when it would actually do
+        -- something — if every conversation is already with a known
+        -- contact, surfacing the toggle is just noise.
+        if #all_convos > 0 and (unknown_count > 0 or state.known_only) then
+            local sub
+            if state.known_only then
+                sub = "Hiding " .. unknown_count .. " unknown sender"
+                    .. (unknown_count == 1 and "" or "s")
+            else
+                sub = "Showing all senders"
+            end
+            content_items[#content_items + 1] = ui.list_item({
+                title = "Known contacts only",
+                subtitle = sub,
+                compact = true,
+                trailing = state.known_only and "On" or "Off",
+                on_press = function()
+                    local new_val = not state.known_only
+                    state.known_only = new_val
+                    ez.storage.set_pref(PREF_DM_KNOWN_ONLY, new_val and "1" or "0")
+                    self:set_state({ scroll = 0 })
+                end,
+            })
+        end
 
         if #convos == 0 then
+            local empty_title, empty_sub
+            if state.known_only and unknown_count > 0 then
+                empty_title = "No messages from contacts"
+                empty_sub   = "Turn off the filter to see " .. unknown_count
+                    .. " unknown sender" .. (unknown_count == 1 and "" or "s")
+                    .. "."
+            else
+                empty_title = "No conversations yet"
+                empty_sub   = "Start a chat from Contacts."
+            end
             content_items[#content_items + 1] = ui.padding({ 20, 10, 10, 10 },
-                ui.text_widget("No conversations yet", {
+                ui.text_widget(empty_title, {
                     color = "TEXT_MUTED",
                     text_align = "center",
                 })
             )
             content_items[#content_items + 1] = ui.padding({ 4, 10, 10, 10 },
-                ui.text_widget("Start a chat from Contacts.", {
+                ui.text_widget(empty_sub, {
                     color = "TEXT_MUTED",
                     font = "small_aa",
                     text_align = "center",
@@ -82,6 +146,7 @@ function Messages:build(state)
             )
         else
             for _, conv in ipairs(convos) do
+
                 local subtitle = "No messages"
                 if conv.last_msg then
                     local prefix = conv.last_msg.is_self and "You: " or ""
@@ -103,6 +168,31 @@ function Messages:build(state)
                         local inst = screen_mod.create(DMConv, { contact_key = conv.pub_key_hex })
                         screen_mod.push(inst)
                     end,
+                })
+            end
+        end
+
+        -- Pending (undecryptable) DMs live at the bottom. Each bucket
+        -- groups by src_hash — the one byte we can read from the
+        -- envelope. The items are informational only; they can't be
+        -- opened until the sender's ADVERT or contact-add auto-promotes
+        -- them into the list above.
+        local pending_summary = dm_svc.get_pending_summary()
+        if #pending_summary > 0 then
+            content_items[#content_items + 1] = ui.padding({ 10, 10, 4, 10 },
+                ui.text_widget("Unreadable (awaiting sender's advert)", {
+                    color = "TEXT_MUTED", font = "tiny_aa",
+                })
+            )
+            for _, b in ipairs(pending_summary) do
+                local subtitle = b.count .. " message"
+                    .. (b.count == 1 and "" or "s")
+                    .. " · src " .. string.format("0x%02X", b.src_hash)
+                content_items[#content_items + 1] = ui.list_item({
+                    title = "Unknown sender",
+                    subtitle = subtitle,
+                    icon = icons.message,
+                    disabled = true,
                 })
             end
         end
@@ -177,12 +267,20 @@ function Messages:on_enter()
             self:set_state({})
         end
     end)
+    -- Pending buffer changes (arrival of an undecryptable DM, or a
+    -- retroactive promotion) also affect the Private tab.
+    self._sub_pending = ez.bus.subscribe("dm/pending", function()
+        if (self._state.tab or 1) == 1 then
+            self:set_state({})
+        end
+    end)
 end
 
 function Messages:on_leave()
     if self._sub_list then ez.bus.unsubscribe(self._sub_list); self._sub_list = nil end
     if self._sub_msg then ez.bus.unsubscribe(self._sub_msg); self._sub_msg = nil end
     if self._sub_dm then ez.bus.unsubscribe(self._sub_dm); self._sub_dm = nil end
+    if self._sub_pending then ez.bus.unsubscribe(self._sub_pending); self._sub_pending = nil end
 end
 
 function Messages:on_exit()

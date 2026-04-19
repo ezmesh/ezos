@@ -87,6 +87,32 @@ end
 
 local DMConversation = { title = "Chat" }
 
+-- Find the scroll node inside an already-built tree. Returns nil if the
+-- tree hasn't been built yet.
+local function find_scroll(node)
+    if not node then return nil end
+    if node.type == "scroll" then return node end
+    if node.children then
+        for _, c in ipairs(node.children) do
+            local s = find_scroll(c)
+            if s then return s end
+        end
+    end
+    return nil
+end
+
+-- Pin the scroll viewport to the most recent message. ezui persists
+-- scroll_offset across rebuilds (see _PERSISTENT_FIELDS in
+-- ezui/screen.lua), which normally keeps the viewport stable but here
+-- overrides the build()-time `scroll_offset = 99999` — so we reach in
+-- after the rebuild and set the live node directly. The scroll node
+-- clamps the value to max_scroll on draw.
+local function stick_to_bottom(inst)
+    local s = find_scroll(inst._tree)
+    if s then s.scroll_offset = 99999 end
+    require("ezui.screen").invalidate()
+end
+
 function DMConversation:build(state)
     local key = state.contact_key or ""
     local contact = contacts_svc.get(key)
@@ -138,7 +164,8 @@ function DMConversation:build(state)
             on_submit = function(val)
                 if val and #val > 0 then
                     dm_svc.send(key, val)
-                    self:set_state({ input = "", scroll = 99999 })
+                    self:set_state({ input = "" })
+                    stick_to_bottom(self)
                 end
             end,
         })
@@ -151,16 +178,37 @@ function DMConversation:on_enter()
     local key = self._state.contact_key or ""
     dm_svc.mark_read(key)
 
-    -- Focus the text input (last focusable item) instead of the first chat bubble
+    -- screen.push calls on_enter BEFORE the first _rebuild, so the
+    -- focus chain is still empty at this point. Force a rebuild now so
+    -- we can target the text input directly — the subsequent rebuild
+    -- inside screen.push() preserves focus.index as long as it stays
+    -- within bounds, so our choice sticks.
+    self:_rebuild()
+
+    -- Land the user directly at the compose box so typing a reply needs
+    -- zero setup keystrokes. Focus the last focusable node (the text
+    -- input, since chat bubbles precede it in the tree) and flip the
+    -- global edit flag so keystrokes route into the input immediately.
     local focus_mod = require("ezui.focus")
     if #focus_mod.chain > 0 then
         focus_mod.index = #focus_mod.chain
         focus_mod._update_marks()
+        focus_mod.enter_edit()
     end
+
+    -- Snap the scroll to the most recent message. The initial rebuild
+    -- above populated self._tree; reach into it directly because the
+    -- scroll-offset persistence mechanism would otherwise preserve any
+    -- stale offset from a previous screen instance.
+    stick_to_bottom(self)
 
     self._sub = ez.bus.subscribe("dm/message", function(topic, msg)
         if msg and (msg.sender_key == key or msg.is_self) then
-            self:set_state({ scroll = 99999 })
+            -- Rebuild first to add the new bubble to the tree, then
+            -- override the persisted scroll_offset so we actually
+            -- land at the bottom of the now-taller content.
+            self:set_state({})
+            stick_to_bottom(self)
         end
     end)
 
