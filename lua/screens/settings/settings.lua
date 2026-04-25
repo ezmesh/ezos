@@ -17,6 +17,7 @@ end
 
 -- ordered list of categories shown in the picker.
 local CATEGORIES = {
+    { title = "Identity",  subtitle = "Node name, callsign, regenerate", icon = icons.users,        mod = "screens.settings.identity_settings" },
     { title = "Display",   subtitle = "Brightness, accent colour",    icon = icons.settings,      mod = "screens.settings.display_settings" },
     { title = "Wallpaper", subtitle = "Rotate, tile, auto-pan",       icon = icons.grid,          mod = "screens.settings.wallpaper_settings" },
     { title = "Keyboard",  subtitle = "Repeat, trackball",            icon = icons.grid,          mod = "screens.settings.keyboard_settings" },

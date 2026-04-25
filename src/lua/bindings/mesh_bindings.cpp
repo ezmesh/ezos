@@ -316,6 +316,38 @@ LUA_FUNCTION(l_mesh_set_node_name) {
     return 1;
 }
 
+// @lua ez.mesh.regenerate_identity() -> string
+// @brief Regenerate this node's Ed25519 keypair
+// @description Generates a fresh Ed25519 keypair and persists it to NVS. The
+// previous keypair is discarded. The node name is reset to the default
+// `Node-<short-id>` derived from the new public key — set a custom name
+// after this call if the user had one.
+// Side effects: peers will see a different short ID and pub_key on the next
+// advert; previously-encrypted DMs from peers using the old shared secret
+// stop decrypting. Use sparingly.
+// @return The new 6-byte short ID as a 12-char hex string, or nil on failure.
+// @example
+// local new_id = ez.mesh.regenerate_identity()
+// if new_id then print("new short id: " .. new_id) end
+// @end
+LUA_FUNCTION(l_mesh_regenerate_identity) {
+    if (!mesh) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    Identity& identity = const_cast<Identity&>(mesh->getIdentity());
+    if (!identity.reset()) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    char shortId[16];
+    identity.getShortId(shortId);
+    lua_pushstring(L, shortId);
+    return 1;
+}
+
 // Helper function to convert public key bytes to hex string (alias for compatibility)
 #define pubKeyToHex pubKeyToHexStr
 
@@ -1451,6 +1483,7 @@ static const luaL_Reg mesh_funcs[] = {
     {"get_short_id",         l_mesh_get_short_id},
     {"get_node_name",        l_mesh_get_node_name},
     {"set_node_name",        l_mesh_set_node_name},
+    {"regenerate_identity",  l_mesh_regenerate_identity},
     {"get_nodes",            l_mesh_get_nodes},
     {"get_node_count",       l_mesh_get_node_count},
     {"send_announce",        l_mesh_send_announce},

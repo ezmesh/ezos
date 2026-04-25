@@ -18,8 +18,7 @@ function Welcome:build(state)
         "device to device without needing the internet.\n\n" ..
         "The next few screens set the must-haves: your node name, the " ..
         "radio band you're in, your timezone, and your colour scheme. " ..
-        "Nothing here is irreversible -- you can change every setting " ..
-        "later from the Settings menu.\n\n" ..
+        "Each of these can be changed later from Settings.\n\n" ..
         "Press ENTER to begin."
 
     return ui.vbox({ gap = 0, bg = "BG" }, {

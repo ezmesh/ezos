@@ -1,15 +1,14 @@
 -- Onboarding optional — identity readout.
 --
--- Shows the node's public identity hash so the user can write it down
--- or share it with another mesh participant. The full Ed25519 public
--- key is also displayed for completeness; both values are derived from
--- the keypair stored in NVS, which survives a reflash unless the user
--- explicitly wipes prefs.
+-- Shows the node's public identity so the user can write it down or
+-- share it with another mesh participant. Both the short ID and the
+-- full Ed25519 public key are displayed; they're derived from the
+-- keypair stored in NVS, which survives a reflash unless explicitly
+-- wiped.
 --
--- This screen does not back up the private key. SD-based identity
--- backup/restore is tracked separately. A QR rendering of the pubkey
--- is also out of scope here (no QR encoder is present in the firmware
--- yet); a future change can add the QR overlay alongside the hex.
+-- "Pick a different ID" regenerates the keypair on the spot — useful
+-- for users who don't like the random short ID they got. The change
+-- is immediate and persists across reboots.
 
 local ui = require("ezui")
 local M  = require("screens.onboarding")
@@ -32,6 +31,16 @@ local function get_pub_key_hex()
         if k and k ~= "" then return k end
     end
     return nil
+end
+
+function Identity:_regenerate()
+    if ez.mesh and ez.mesh.regenerate_identity then
+        ez.mesh.regenerate_identity()
+    end
+    -- Trigger a rebuild so the new short ID + pubkey render. Identity
+    -- has no per-screen state so set_state with an empty table is
+    -- enough to re-run build().
+    self:set_state({})
 end
 
 function Identity:build(state)
@@ -62,8 +71,13 @@ function Identity:build(state)
     end
 
     rows[#rows + 1] = ui.padding({ 12, 0, 0, 0 },
-        ui.button("Continue", {
-            on_press = function() M.advance(PATH) end,
+        ui.hbox({ gap = 8 }, {
+            ui.button("Continue", {
+                on_press = function() M.advance(PATH) end,
+            }),
+            ui.button("Pick a different ID", {
+                on_press = function() self:_regenerate() end,
+            }),
         })
     )
 

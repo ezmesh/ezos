@@ -14,7 +14,8 @@
 -- Both settings are persisted to NVS and re-applied by boot.lua on the
 -- next cold start. See `PREF_ADV_INTERVAL` below for the pref key.
 
-local ui = require("ezui")
+local ui      = require("ezui")
+local regions = require("util.regions")
 
 local Radio = { title = "Radio" }
 
@@ -60,12 +61,13 @@ end
 function Radio.initial_state()
     local saved = tonumber(ez.storage.get_pref(PREF_ADV_INTERVAL, 0)) or 0
     return {
-        enabled     = saved > 0,
+        enabled      = saved > 0,
         -- If the toggle is off but the user previously picked a preset,
         -- we remember the choice so flipping the toggle back on restores
         -- the same interval rather than forcing a re-pick.
-        preset_idx  = preset_index_for(saved),
-        last_action = nil,  -- "Sent" / "Saved" transient feedback
+        preset_idx   = preset_index_for(saved),
+        region_idx   = regions.current_index(),
+        last_action  = nil,  -- "Sent" / "Saved" transient feedback
     }
 end
 
@@ -77,6 +79,32 @@ end
 
 function Radio:build(state)
     local content = {}
+
+    -- Section: Region / carrier frequency.
+    -- LoRa is regulated per region. All nodes in the same mesh must
+    -- share a frequency. Changing this re-tunes the radio immediately
+    -- and persists across reboots (boot.lua replays the saved value).
+    content[#content + 1] = ui.padding({ 8, 8, 4, 8 },
+        ui.text_widget("Region", { color = "ACCENT", font = "small_aa" })
+    )
+    content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+        ui.dropdown(regions.LABELS, {
+            value = state.region_idx,
+            on_change = function(idx)
+                state.region_idx = idx
+                regions.apply_index(idx)
+                state.last_action = "Region set to " .. regions.LABELS[idx]
+                self:set_state({})
+            end,
+        })
+    )
+    content[#content + 1] = ui.padding({ 0, 8, 6, 8 },
+        ui.text_widget(
+            "Pick the legal band for your country. All nodes in your " ..
+            "mesh must use the same band.",
+            { color = "TEXT_MUTED", font = "tiny_aa", wrap = true }
+        )
+    )
 
     -- Section: Auto-advert toggle + interval picker
     content[#content + 1] = ui.padding({ 8, 8, 4, 8 },
