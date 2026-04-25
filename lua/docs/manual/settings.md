@@ -38,3 +38,11 @@ Set the system clock. GPS supplies time when a fix is available.
 
 Pick a wallpaper from `/fs/wallpapers/`. Use the Files app to set
 any JPEG as wallpaper.
+
+## System
+
+Device-level operations.
+
+- Repeat onboarding: re-runs the first-run wizard from the welcome
+  screen. The flow over-writes prefs idempotently, so it's safe to
+  rerun on an already-onboarded device.

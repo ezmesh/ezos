@@ -4,43 +4,12 @@
 -- by a caller invoking ez.system.set_time directly — this screen only
 -- controls how that clock is interpreted and displayed.
 
-local ui = require("ezui")
+local ui  = require("ezui")
+local tzs = require("util.timezones")
 
 local Time = { title = "Time" }
 
--- Pref keys (NVS namespace: 15 char limit)
-local PREF_TZ           = "tz_posix"
 local PREF_TIME_FORMAT  = "time_format"   -- "12h" | "24h"
-
--- Common timezones as POSIX TZ strings. DST rules are baked in so the
--- displayed time flips automatically with the wall-clock change — no
--- need to re-sync or edit prefs twice a year. Order is rough "what
--- most users pick" rather than strictly alphabetical.
-local TZ_CHOICES = {
-    { label = "UTC",              tz = "UTC0" },
-    { label = "Amsterdam / CET",  tz = "CET-1CEST,M3.5.0,M10.5.0/3" },
-    { label = "London",           tz = "GMT0BST,M3.5.0/1,M10.5.0" },
-    { label = "Paris / Berlin",   tz = "CET-1CEST,M3.5.0,M10.5.0/3" },
-    { label = "Athens",           tz = "EET-2EEST,M3.5.0/3,M10.5.0/4" },
-    { label = "Moscow",           tz = "MSK-3" },
-    { label = "New York",         tz = "EST5EDT,M3.2.0,M11.1.0" },
-    { label = "Chicago",          tz = "CST6CDT,M3.2.0,M11.1.0" },
-    { label = "Denver",           tz = "MST7MDT,M3.2.0,M11.1.0" },
-    { label = "Los Angeles",      tz = "PST8PDT,M3.2.0,M11.1.0" },
-    { label = "Tokyo",            tz = "JST-9" },
-    { label = "Sydney",           tz = "AEST-10AEDT,M10.1.0,M4.1.0/3" },
-}
-
-local TZ_LABELS = {}
-for i, c in ipairs(TZ_CHOICES) do TZ_LABELS[i] = c.label end
-
-local function current_tz_index()
-    local cur = ez.storage.get_pref(PREF_TZ, "UTC0")
-    for i, c in ipairs(TZ_CHOICES) do
-        if c.tz == cur then return i end
-    end
-    return 1
-end
 
 local function pref_bool(key, default)
     local v = ez.storage.get_pref(key, nil)
@@ -52,7 +21,7 @@ end
 
 function Time.initial_state()
     return {
-        tz_index    = current_tz_index(),
+        tz_index    = tzs.current_index(),
         format_12h  = ez.storage.get_pref(PREF_TIME_FORMAT, "24h") == "12h",
     }
 end
@@ -135,16 +104,12 @@ function Time:build(state)
     )
 
     content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
-        ui.dropdown(TZ_LABELS, {
+        ui.dropdown(tzs.LABELS, {
             label = "Region",
             value = state.tz_index,
             on_change = function(idx)
                 state.tz_index = idx
-                local entry = TZ_CHOICES[idx]
-                if entry then
-                    ez.storage.set_pref(PREF_TZ, entry.tz)
-                    ez.system.set_timezone(entry.tz)
-                end
+                tzs.apply_index(idx)
             end,
         })
     )

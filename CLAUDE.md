@@ -34,14 +34,19 @@ The built-in bitmap fonts (`src/fonts/FreeSans7pt7b.h`, `FreeMono5pt7b.h`) only 
 **printable ASCII 0x20..0x7E**. Any other codepoint renders as a `[]` missing-glyph box.
 
 This commonly bites when:
-- Using `·` (U+00B7 middle dot), `•` (U+2022 bullet), `…` (U+2026 ellipsis) as separators or decoration
+- Using em-dashes (`—`, U+2014), en-dashes (`–`, U+2013), `·` (U+00B7 middle dot), `•` (U+2022 bullet), `…` (U+2026 ellipsis), curly quotes (`"`, `"`, `'`, `'`), or arrows (`→`, `←`) as separators or decoration
 - Pulling display strings from external APIs (GPS names, channel names, contact names) without sanitizing
 - Copying UI conventions from web/desktop apps
 
 Safe substitutes:
+- Em/en-dash: `--` or ` - `
 - Separator: `|` or multiple spaces
 - Ellipsis: `...`
 - Bullet: `-` or `*`
+- Arrows: `->` or `<-`
+- Quotes: straight `"` and `'`
+
+**Applies equally to docs.** Markdown under `lua/docs/manual/` is embedded into firmware and rendered by the on-device markdown viewer (`lua/ezui/markdown.lua`), which uses the same fonts as everything else — non-ASCII characters render as `[]` boxes there too. Keep the source ASCII; the auto-generated `docs/manual/` and `docs/api/` trees served on GitHub Pages are tolerant either way, but the source the renderer reads must not be.
 
 If a new glyph is genuinely needed, extend the bitmap font (run the font generator with
 a wider range); otherwise stick to ASCII in any string that reaches `draw_text`.
