@@ -65,8 +65,7 @@ The entire user interface is written in **Lua** - no C++ or complex build tools 
 **Getting started:**
 
 1. Edit `.lua` files under `lua/` in this repo. Scripts are embedded into the firmware at build time, so changes require a rebuild + flash (`pio run -t upload`).
-2. Iterate in the [browser simulator](#browser-simulator) for fast feedback — no hardware or flash cycle needed.
-3. Use [remote control](#remote-control) to execute Lua on a running device: `ez_remote.py -e "return collectgarbage('count')"`
+2. Use [remote control](#remote-control) to execute Lua on a running device: `ez_remote.py -e "return collectgarbage('count')"`
 
 All 40+ screens, games, and every menu you see are plain `.lua` files you can read, modify, and learn from.
 
@@ -137,23 +136,11 @@ ezos/
 │   └── services/          # Background services (channels, DMs, contacts)
 ├── tools/
 │   ├── maps/              # Offline map generator (PMTiles → TDMAP)
-│   ├── simulator/         # Browser simulator
 │   └── remote/            # Remote control client
 └── docs/                   # Documentation
 ```
 
 ## Tools
-
-### Browser Simulator
-
-Test the UI without hardware using Wasmoon (Lua in WebAssembly):
-
-```bash
-cd tools/simulator
-npm install
-npm start
-# Opens http://localhost:3000/tools/simulator/
-```
 
 ### Offline Maps
 
@@ -263,5 +250,4 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 - [MeshCore](https://github.com/ripplebiz/MeshCore) - Mesh networking protocol
 - [LilyGo](https://www.lilygo.cc/) - T-Deck hardware
-- [Wasmoon](https://github.com/ceifa/wasmoon) - Lua WebAssembly runtime
 - [OpenStreetMap](https://www.openstreetmap.org/) - Map data

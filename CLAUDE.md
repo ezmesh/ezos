@@ -89,8 +89,8 @@ ezos/
 │                          #   contacts, direct_messages, file_transfer,
 │                          #   gps, map_archive, prefs_registry, ui_sounds)
 ├── scripts/                # Build-time generators (Lua embedder)
-├── tools/                  # Host utilities (map gen, simulator, remote
-│                          #   control, doc generator, font/icon/sound gen)
+├── tools/                  # Host utilities (map gen, remote control,
+│                          #   doc generator, font/icon/sound gen)
 └── docs/                   # User manual + Lua API reference (see below)
 ```
 
@@ -208,47 +208,6 @@ Checkpoints saved every 500 tiles. Interrupted conversions resume automatically:
 # If interrupted, just run again:
 python pmtiles_to_tdmap.py input.pmtiles -o output.tdmap
 ```
-
-## Simulator (`tools/simulator/`)
-
-Browser-based ezOS simulator using Wasmoon (Lua 5.4 in WebAssembly).
-
-### Running
-
-```bash
-cd tools/simulator
-npm install
-npm start
-# Opens http://localhost:3000/tools/simulator/
-```
-
-### Architecture
-
-```
-Browser (Canvas + Console)
-    ↓
-JavaScript Mocks (display, keyboard, storage, mesh, GPS, audio)
-    ↓
-Wasmoon (Lua 5.4 VM)
-    ↓
-Lua Scripts (boot.lua, screens, services)
-```
-
-### Mock APIs
-
-| File | Purpose |
-|------|---------|
-| `mock/display.js` | Canvas rendering with all drawing APIs |
-| `mock/keyboard.js` | Browser keyboard event mapping |
-| `mock/storage.js` | IndexedDB for files, localStorage for prefs |
-| `mock/mesh.js` | Simulated mesh network with mock nodes |
-| `mock/gps.js` | Browser geolocation + mock location |
-| `mock/audio.js` | Web Audio API synthesis |
-| `mock/bus.js` | Message bus for screen communication |
-| `mock/crypto.js` | Crypto primitives (AES, HMAC, key derivation) |
-| `mock/system.js` | System APIs (timers, millis, memory) |
-| `mock/radio.js` | LoRa radio simulation |
-| `mock/wifi.js` | WiFi mock |
 
 ## Remote Control (`tools/remote/`)
 

@@ -142,9 +142,10 @@ class TDMAPWriter:
 
         Args:
             output_path: Path to output .tdmap file
-            compression: COMPRESSION_RLE or COMPRESSION_ZLIB. Stored verbatim
-                in the header so readers can dispatch. Writer only sets the
-                flag — actual compression happens upstream in ``process.py``.
+            compression: COMPRESSION_ZLIB (the only value in v6). Stored
+                verbatim in the header byte for forward-compat with future
+                codecs. Writer only sets the flag — actual compression
+                happens upstream in ``process.py``.
         """
         self.output_path = Path(output_path)
         self.tiles: List[Tuple[TileEntry, bytes]] = []

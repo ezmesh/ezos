@@ -200,21 +200,13 @@ local function boot_sequence()
     ez.log("[Boot] Boot complete")
 end
 
--- Run boot in coroutine (async_read needs coroutine context for filesystem I/O)
-if __SIMULATOR__ then
-    local ok, err = pcall(boot_sequence)
-    if not ok then
-        _G._BOOT_ERROR = tostring(err)
-        ez.log("[Boot] FATAL: " .. _G._BOOT_ERROR)
-    end
-else
-    local co = coroutine.create(boot_sequence)
-    local ok, err = coroutine.resume(co)
-    if not ok then
-        _G._BOOT_ERROR = tostring(err)
-        ez.log("[Boot] FATAL: " .. _G._BOOT_ERROR)
-    elseif coroutine.status(co) == "suspended" then
-        _G._BOOT_ERROR = "boot coroutine suspended (stuck on yield)"
-        ez.log("[Boot] WARNING: " .. _G._BOOT_ERROR)
-    end
+-- Run boot in a coroutine — async_read needs coroutine context for filesystem I/O
+local co = coroutine.create(boot_sequence)
+local ok, err = coroutine.resume(co)
+if not ok then
+    _G._BOOT_ERROR = tostring(err)
+    ez.log("[Boot] FATAL: " .. _G._BOOT_ERROR)
+elseif coroutine.status(co) == "suspended" then
+    _G._BOOT_ERROR = "boot coroutine suspended (stuck on yield)"
+    ez.log("[Boot] WARNING: " .. _G._BOOT_ERROR)
 end
