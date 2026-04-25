@@ -26,7 +26,7 @@ end
 
 function Done:build(state)
     return ui.vbox({ gap = 0, bg = "BG" }, {
-        ui.title_bar("All set!", { right = M.progress_label("done") }),
+        ui.title_bar("All set!", {}),
         ui.scroll({ grow = 1 },
             ui.padding({ 12, 14, 10, 14 },
                 ui.vbox({ gap = 6 }, {

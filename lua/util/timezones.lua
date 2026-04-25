@@ -11,11 +11,10 @@ local M = {}
 M.PREF_KEY = "tz_posix"
 
 M.CHOICES = {
-    { label = "UTC",              tz = "UTC0" },
-    { label = "Amsterdam / CET",  tz = "CET-1CEST,M3.5.0,M10.5.0/3" },
-    { label = "London",           tz = "GMT0BST,M3.5.0/1,M10.5.0" },
-    { label = "Paris / Berlin",   tz = "CET-1CEST,M3.5.0,M10.5.0/3" },
-    { label = "Athens",           tz = "EET-2EEST,M3.5.0/3,M10.5.0/4" },
+    { label = "UTC",                        tz = "UTC0" },
+    { label = "Amsterdam / Paris / Berlin", tz = "CET-1CEST,M3.5.0,M10.5.0/3" },
+    { label = "London",                     tz = "GMT0BST,M3.5.0/1,M10.5.0" },
+    { label = "Athens",                     tz = "EET-2EEST,M3.5.0/3,M10.5.0/4" },
     { label = "Moscow",           tz = "MSK-3" },
     { label = "New York",         tz = "EST5EDT,M3.2.0,M11.1.0" },
     { label = "Chicago",          tz = "CST6CDT,M3.2.0,M11.1.0" },
