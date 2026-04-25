@@ -24,6 +24,7 @@ local CATEGORIES = {
     { title = "Time",      subtitle = "Timezone, 12 / 24h format",    icon = icons.info,          mod = "screens.settings.time_settings" },
     { title = "Radio",     subtitle = "Mesh advert, announce cadence",icon = icons.radio_tower,   mod = "screens.settings.radio_settings" },
     { title = "Sound",     subtitle = "UI feedback, volume",          icon = icons.radio_tower,   mod = "screens.settings.sound_settings" },
+    { title = "System",    subtitle = "Repeat onboarding",            icon = icons.settings,      mod = "screens.settings.system_settings" },
     { title = "About",     subtitle = "Version, credits",             icon = icons.info,          mod = "screens.about" },
 }
 

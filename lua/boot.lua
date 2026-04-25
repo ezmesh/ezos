@@ -113,6 +113,17 @@ local function boot_sequence()
         ez.mesh.set_announce_interval(adv_ms)
     end
 
+    -- Apply the saved LoRa carrier frequency. The onboarding wizard
+    -- writes this on the region step; without persistence, every reboot
+    -- would fall back to whatever the radio driver defaults to, which
+    -- would silently take the device out of the user's chosen mesh.
+    -- The value is persisted as a string because set_pref(float) lands
+    -- in NVS as a blob with no matching float reader on the get side.
+    local freq_mhz = tonumber(ez.storage.get_pref("radio_freq_mhz", "")) or 0
+    if freq_mhz > 0 and ez.radio and ez.radio.set_frequency then
+        ez.radio.set_frequency(freq_mhz)
+    end
+
     local ui = require("ezui")
 
     ez.log("[Boot] Framework loaded")
@@ -194,8 +205,21 @@ local function boot_sequence()
     local desktop = ui.create_screen(Desktop, {})
     ui.push(desktop)
 
-    -- Start the framework main loop
-    ui.start({ theme = "dark" })
+    -- First-run gate: if the user hasn't completed onboarding yet,
+    -- push the wizard on top of the desktop. The wizard pops itself
+    -- after the done step so the user lands directly on the desktop.
+    local onboarding = require("screens.onboarding")
+    if not onboarding.is_onboarded() then
+        ez.log("[Boot] First run — entering onboarding wizard")
+        onboarding.start()
+    end
+
+    -- Start the framework main loop. Honour the saved theme so the
+    -- choice made in the wizard (or Settings → Display) survives a
+    -- reboot; default to dark when no pref has been written yet.
+    local theme_name = ez.storage.get_pref("theme", "dark")
+    if theme_name ~= "dark" and theme_name ~= "light" then theme_name = "dark" end
+    ui.start({ theme = theme_name })
 
     ez.log("[Boot] Boot complete")
 end
