@@ -12,6 +12,23 @@ const SD_FILE_MAPPINGS = {
 // Binary file metadata cache (path -> { size, serverPath })
 const binaryFileMeta = new Map();
 
+// In-memory binary files uploaded at runtime (path -> Uint8Array).
+// Takes precedence over SD_FILE_MAPPINGS in read_bytes/file_size/exists so dropped
+// .tdmap archives shadow the default mappings without editing this file.
+const uploadedFiles = new Map();
+
+// Register or replace an in-memory binary file. Path should be the SD-style
+// path the Lua side will request (e.g. '/sd/maps/world.tdmap').
+export function registerUploadedFile(sdPath, bytes) {
+    const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    uploadedFiles.set(sdPath, u8);
+    console.log(`[Storage] Registered in-memory file ${sdPath}: ${(u8.length / 1024 / 1024).toFixed(1)} MB`);
+}
+
+export function listUploadedFiles() {
+    return Array.from(uploadedFiles.keys());
+}
+
 // Small byte range cache to avoid repeated fetches (path -> Map(rangeKey -> Uint8Array))
 const rangeCache = new Map();
 const MAX_RANGE_CACHE_SIZE = 50;  // Max cached ranges per file
@@ -148,6 +165,15 @@ export function createStorageModule() {
         // Note: Returns undefined instead of null so Wasmoon converts to Lua nil properly
         // Uses synchronous XMLHttpRequest for Range requests (Wasmoon doesn't handle async Promises)
         read_bytes(path, offset, len) {
+            // In-memory uploaded files win over HTTP-backed mappings so a dropped
+            // archive can shadow the default /sd/maps/world.tdmap without reload.
+            const uploaded = uploadedFiles.get(path);
+            if (uploaded) {
+                const end = Math.min(offset + len, uploaded.length);
+                if (offset >= uploaded.length) return undefined;
+                return Array.from(uploaded.subarray(offset, end));
+            }
+
             // Check if this is a mapped binary file
             const meta = binaryFileMeta.get(path);
             if (meta) {
@@ -174,7 +200,8 @@ export function createStorageModule() {
 
         // Check if file exists
         exists(path) {
-            // Check binary file metadata first
+            if (uploadedFiles.has(path)) return true;
+            // Check binary file metadata next
             if (binaryFileMeta.has(path)) {
                 return true;
             }
@@ -234,7 +261,9 @@ export function createStorageModule() {
 
         // Get file size
         file_size(path) {
-            // Check binary file metadata first
+            const uploaded = uploadedFiles.get(path);
+            if (uploaded) return uploaded.length;
+            // Check binary file metadata next
             const meta = binaryFileMeta.get(path);
             if (meta) {
                 return meta.size;

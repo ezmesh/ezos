@@ -151,6 +151,15 @@ public:
     // Bits 0-6 = col 0, bits 7-13 = col 1, etc. (7 bits per column)
     uint64_t getRawMatrixBits();
 
+    // Transparent hold-detection for character keys.
+    // The T-Deck keyboard firmware doesn't emit release events for character
+    // keys, so hold state can't be inferred from the normal event stream.
+    // isHeld() bridges the gap: on the first press of each character, we
+    // briefly switch to raw matrix mode to discover its (col,row) position.
+    // Subsequent isHeld() calls check the cached matrix state directly.
+    // Returns false for unknown characters (never pressed yet in this session).
+    bool isHeld(char c);
+
     // Trackball state
     bool hasTrackball() const { return _trackballFound; }
 
@@ -215,21 +224,55 @@ private:
     // Trackball mode
     TrackballMode _trackballMode = TrackballMode::POLLING;
 
-    // Key repeat state
-    bool _keyRepeatEnabled = true;        // Enable key repeat
-    uint16_t _keyRepeatDelay = 400;       // Initial delay before repeat starts (ms)
-    uint16_t _keyRepeatRate = 50;         // Interval between repeats (ms)
-    uint8_t _heldKeyCode = 0;             // Currently held key code (0 = none)
-    uint32_t _keyPressTime = 0;           // When the key was first pressed
-    uint32_t _lastRepeatTime = 0;         // When last repeat was generated
-    bool _repeatStarted = false;          // Has repeat started for current key
+    // Key repeat settings — retained as configuration surface but no
+    // longer functional. With always-on raw matrix scanning the host
+    // already sees every physical press, so software-generated repeats
+    // aren't necessary. Settings UI still reads/writes these values.
+    bool _keyRepeatEnabled = false;
+    uint16_t _keyRepeatDelay = 400;
+    uint16_t _keyRepeatRate = 50;
 
-    // Convert raw keycode to KeyEvent
+    // Previous matrix snapshot for edge detection in the main read()
+    // path. Updated each scan; rising edges (new & ~prev) become
+    // press events.
+    uint8_t _prevMatrix[MATRIX_COLS] = {0};
+
+    // Layer state (tracked locally from matrix bits).
+    bool _symHeld = false;
+
+    // Repeat tracking for the most-recently-pressed non-modifier key.
+    // On each scan we check whether the tracked bit is still set; while
+    // it is, the usual delay/rate timers fire synthetic press events
+    // (the rising edge itself still emits the initial one). If a
+    // different key is pressed, tracking moves to the new one.
+    int8_t _heldCol = -1;
+    int8_t _heldRow = -1;
+    uint32_t _heldPressTime = 0;
+    uint32_t _heldLastRepeat = 0;
+    bool _heldRepeating = false;
+
+    // FIFO of press events produced by a single matrix scan. One scan
+    // can produce multiple presses (e.g. chord of Backspace + 'a'), but
+    // read() returns one event per call; the rest wait here.
+    static constexpr size_t MATRIX_EVENT_QUEUE = 8;
+    KeyEvent _eventQueue[MATRIX_EVENT_QUEUE];
+    uint8_t _eventHead = 0;
+    uint8_t _eventTail = 0;
+
+    // Convert raw keycode to KeyEvent (legacy inject-queue path only).
     KeyEvent translateKeycode(uint8_t code);
 
-    // Handle modifier key updates
+    // Handle modifier key updates (legacy).
     void updateModifiers(uint8_t code, bool pressed);
 
-    // Read and process trackball
+    // Read and process trackball.
     KeyEvent readTrackball();
+
+    // Scan the matrix, update modifier state, and queue rising-edge
+    // events into _eventQueue. Called from read() whenever the queue
+    // is empty.
+    void scanMatrix();
+
+    bool pushEvent(const KeyEvent& e);
+    bool popEvent(KeyEvent& out);
 };

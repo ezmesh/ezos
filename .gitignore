@@ -1,9 +1,11 @@
 # PlatformIO build directory
 .pio/
 
-# Auto-generated embedded Lua scripts (regenerated on each build)
+# Auto-generated embedded Lua scripts + docs (regenerated on each build)
 src/lua/embedded_lua_scripts.cpp
 src/lua/embedded_lua_scripts.h
+src/lua/embedded_docs.cpp
+src/lua/embedded_docs.h
 
 # IDE settings
 .idea/
@@ -33,3 +35,13 @@ node_modules/
 /docs/api/
 /docs/manual/
 /docs/index.html
+
+# Claude session cache
+.claude/
+
+# Raw asset source trees (only processed outputs are tracked)
+wallpapers-in/
+tools/bin/
+tools/fonts/
+Inter-4.1.zip
+Nederland-schoolkaart-461-scaled.jpg

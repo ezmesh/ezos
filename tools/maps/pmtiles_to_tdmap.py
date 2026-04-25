@@ -55,126 +55,29 @@ from config import (
     LABEL_TYPE_ROAD, LABEL_TYPE_WATER, LABEL_TYPE_PARK, LABEL_TYPE_POI,
     LABEL_MIN_ZOOM
 )
-from process import pack_3bit_pixels, rle_compress
+from process import pack_3bit_pixels, zlib_compress
 from archive import TDMAPWriter, verify_archive
 from land_mask import get_land_mask, LandMask
 
+from config import COMPRESSION_ZLIB, DEFAULT_COMPRESSION
 
-# Feature indices for semantic tile encoding (3-bit, 0-7)
-# Tiles store "what is here", renderer decides colors
-class F:
-    """Feature indices - what each pixel represents"""
-    LAND = 0        # Background/land
-    WATER = 1       # Water bodies (lakes, sea)
-    PARK = 2        # Parks, forests, grass
-    BUILDING = 3    # Buildings
-    ROAD_MINOR = 4  # Residential, service, paths
-    ROAD_MAJOR = 5  # Primary, secondary, tertiary
-    ROAD_HIGHWAY = 6  # Motorway, trunk
-    RAILWAY = 7     # Railways, waterways (lines)
-
-# Road rendering: (feature_index, line_width)
-ROAD_STYLE = {
-    "motorway": (F.ROAD_HIGHWAY, 3),
-    "motorway_link": (F.ROAD_HIGHWAY, 2),
-    "trunk": (F.ROAD_HIGHWAY, 2.5),
-    "trunk_link": (F.ROAD_HIGHWAY, 2),
-    "primary": (F.ROAD_MAJOR, 2),
-    "primary_link": (F.ROAD_MAJOR, 1.5),
-    "secondary": (F.ROAD_MAJOR, 1.5),
-    "secondary_link": (F.ROAD_MAJOR, 1),
-    "tertiary": (F.ROAD_MAJOR, 1),
-    "tertiary_link": (F.ROAD_MAJOR, 0.8),
-    "residential": (F.ROAD_MINOR, 0.8),
-    "living_street": (F.ROAD_MINOR, 0.8),
-    "unclassified": (F.ROAD_MINOR, 0.8),
-    "service": (F.ROAD_MINOR, 0.5),
-    "track": (F.ROAD_MINOR, 0.3),
-    "path": (F.ROAD_MINOR, 0.3),
-    "footway": (F.ROAD_MINOR, 0.3),
-    "cycleway": (F.ROAD_MINOR, 0.3),
-    "pedestrian": (F.ROAD_MINOR, 0.5),
-}
-
-
-def decompress_tile(data: bytes) -> bytes:
-    """Decompress tile data if gzipped."""
-    if data[:2] == b'\x1f\x8b':  # gzip magic
-        return gzip.decompress(data)
-    return data
-
-
-def get_layer(tile_data: dict, name: str) -> Optional[dict]:
-    """Get a layer from decoded tile data by name."""
-    for layer_name, layer in tile_data.items():
-        if layer_name == name:
-            return layer
-    return None
-
-
-def scale_coords(coords: List, extent: int, tile_size: int = TILE_SIZE) -> List:
-    """Scale coordinates from tile extent to pixel coordinates.
-
-    MVT uses screen coordinates (Y-down, origin at top-left), same as images.
-    """
-    scale = tile_size / extent
-    if isinstance(coords[0], (list, tuple)):
-        return [scale_coords(c, extent, tile_size) for c in coords]
-    return [coords[0] * scale, coords[1] * scale]
-
-
-def render_polygon(draw: ImageDraw, geometry: dict, extent: int, color: int):
-    """Render a polygon geometry."""
-    coords = geometry.get("coordinates", [])
-    if not coords:
-        return
-
-    for ring in coords:
-        if isinstance(ring[0][0], (list, tuple)):
-            # MultiPolygon
-            for poly in ring:
-                scaled = scale_coords(poly, extent)
-                if len(scaled) >= 3:
-                    flat = [(p[0], p[1]) for p in scaled]
-                    draw.polygon(flat, fill=color)
-        else:
-            # Simple polygon
-            scaled = scale_coords(ring, extent)
-            if len(scaled) >= 3:
-                flat = [(p[0], p[1]) for p in scaled]
-                draw.polygon(flat, fill=color)
-
-
-def render_line(draw: ImageDraw, geometry: dict, extent: int, color: int, width: float):
-    """Render a line geometry."""
-    coords = geometry.get("coordinates", [])
-    if not coords:
-        return
-
-    if isinstance(coords[0][0], (list, tuple)):
-        # MultiLineString
-        for line in coords:
-            scaled = scale_coords(line, extent)
-            if len(scaled) >= 2:
-                flat = [(p[0], p[1]) for p in scaled]
-                draw.line(flat, fill=color, width=max(1, int(width)))
-    else:
-        # Simple LineString
-        scaled = scale_coords(coords, extent)
-        if len(scaled) >= 2:
-            flat = [(p[0], p[1]) for p in scaled]
-            draw.line(flat, fill=color, width=max(1, int(width)))
-
-
-def get_road_style(props: dict) -> Optional[Tuple[int, float]]:
-    """Get road rendering style based on properties."""
-    # Try different property names used by various tilemaker configs
-    road_class = props.get("class") or props.get("highway") or props.get("type", "")
-    return ROAD_STYLE.get(road_class)
+# Rendering primitives + label extraction live in dedicated modules so they
+# can be tested in isolation (see tools/maps/tests/). `render_vector_tile`
+# below still lives here because its feature-layer logic is tightly coupled
+# to the tile-priority decisions that drive the archive build.
+from render import (
+    F, ROAD_STYLE, RENDER_HALO, RENDER_SIZE,
+    decompress_tile, get_layer, scale_coords,
+    render_polygon, render_line, get_road_style,
+    tile_pixel_to_lat_lon,
+)
+from labels import extract_labels
 
 
 def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int = 0,
-                       land_mask: LandMask = None) -> Image.Image:
+                       land_mask: LandMask = None,
+                       neighbour_tiles: Optional[Dict[Tuple[int, int], bytes]] = None,
+                       ) -> Image.Image:
     """
     Render a vector tile to an indexed PIL Image.
 
@@ -187,6 +90,11 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
         tile_x: Tile X coordinate (for land mask lookup)
         tile_y: Tile Y coordinate (for land mask lookup)
         land_mask: Optional LandMask instance for background detection
+        neighbour_tiles: Optional dict ``{(dx, dy): raw_mvt_bytes}`` for any
+            subset of the 8 surrounding tiles. Their geometry is drawn into
+            this tile's halo (translated by ``±extent`` in MVT coords) so
+            polygon and line features stitch across tile boundaries. Pass an
+            empty dict or ``None`` to render the current tile in isolation.
 
     Returns:
         Indexed PIL Image (256x256) with values 0-7
@@ -194,7 +102,10 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
     # Decompress if needed
     try:
         data = decompress_tile(tile_data)
-        decoded = mvt.decode(data)
+        # y_coord_down=True keeps MVT's native top-left, y-increases-down frame.
+        # Without it the library flips to GeoJSON y-up, which combined with our
+        # y-down raster canvas renders every tile mirrored north/south.
+        decoded = mvt.decode(data, default_options={"y_coord_down": True})
     except Exception as e:
         # Return blank tile on decode error - use land mask if available
         if land_mask and land_mask.is_land_tile(zoom, tile_x, tile_y):
@@ -207,6 +118,18 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
         if "extent" in layer:
             extent = layer["extent"]
             break
+
+    # Decode any neighbour MVTs up front; store as (dx_px, dy_px, decoded) with
+    # the MVT offset expressed in MVT units (same extent assumed across tiles,
+    # true for every PMTiles source we've looked at).
+    neighbour_decoded: List[Tuple[int, int, dict]] = []
+    if neighbour_tiles:
+        for (dx, dy), raw in neighbour_tiles.items():
+            try:
+                nd = mvt.decode(decompress_tile(raw), default_options={"y_coord_down": True})
+            except Exception:
+                continue
+            neighbour_decoded.append((dx * extent, dy * extent, nd))
 
     # Check if tile has explicit coastline data (land/earth polygons that define coastline)
     # Note: having lakes (water layer) doesn't count as coastline data - that's just water on land
@@ -231,27 +154,32 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
     # we need to draw land/water from the OSM land mask
     draw_land_from_mask = False
 
+    # Render on an enlarged canvas (RENDER_SIZE) so road/line caps land inside
+    # the halo; we crop back to TILE_SIZE at the end. This fixes the road
+    # seam artifact documented in issue #17.
+    canvas_size = (RENDER_SIZE, RENDER_SIZE)
+
     if has_coastline_data:
         # Tile has coastline data - use water background, draw land from vector tile
-        img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
+        img = Image.new("L", canvas_size, F.WATER)
     elif land_mask is not None:
         # No coastline data - check if tile is mixed land/water
         land_fraction = land_mask.get_land_fraction(zoom, tile_x, tile_y)
 
         if land_fraction <= 0.0:
             # Pure ocean - water background
-            img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
+            img = Image.new("L", canvas_size, F.WATER)
         elif land_fraction >= 1.0:
             # Pure land - land background
-            img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
+            img = Image.new("L", canvas_size, F.LAND)
         else:
             # Mixed land/water tile without coastline data in vector tile
             # Draw land polygons from OSM mask
-            img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.WATER)
+            img = Image.new("L", canvas_size, F.WATER)
             draw_land_from_mask = True
     else:
         # No land mask available - assume land
-        img = Image.new("L", (TILE_SIZE, TILE_SIZE), F.LAND)
+        img = Image.new("L", canvas_size, F.LAND)
 
     draw = ImageDraw.Draw(img)
 
@@ -265,12 +193,13 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
             # Get intersection of land with tile
             land_in_tile = land_mask.land_polygons.intersection(tile_box)
             if not land_in_tile.is_empty:
-                # Convert to tile pixel coordinates and draw
+                # Convert to tile pixel coordinates and draw — offset by RENDER_HALO
+                # so the mask aligns with the inset visible region.
                 def geo_to_pixel(lon, lat):
-                    px = (lon - west) / (east - west) * TILE_SIZE
+                    px = (lon - west) / (east - west) * TILE_SIZE + RENDER_HALO
                     # Use Y-down screen coordinates (north at top y=0, south at bottom y=TILE_SIZE)
                     # This matches MVT's screen coordinate convention
-                    py = (north - lat) / (north - south) * TILE_SIZE
+                    py = (north - lat) / (north - south) * TILE_SIZE + RENDER_HALO
                     return (px, py)
 
                 def draw_polygon_geo(geom):
@@ -290,258 +219,136 @@ def render_vector_tile(tile_data: bytes, zoom: int, tile_x: int = 0, tile_y: int
         except Exception as e:
             # Geometry error - fall back to land fraction-based background
             if land_mask.get_land_fraction(zoom, tile_x, tile_y) >= 0.5:
-                draw.rectangle([0, 0, TILE_SIZE-1, TILE_SIZE-1], fill=F.LAND)
+                draw.rectangle(
+                    [RENDER_HALO, RENDER_HALO,
+                     RENDER_HALO + TILE_SIZE - 1, RENDER_HALO + TILE_SIZE - 1],
+                    fill=F.LAND)
 
-    # Render layers in order (back to front)
+    # Render layers in order (back to front). Every draw uses an offset of
+    # RENDER_HALO so geometry lands in the visible centre of the canvas.
+    halo = RENDER_HALO
+
+    # Sources: the tile being rendered (dx=0, dy=0) plus every neighbour we
+    # managed to decode. Each neighbour contributes the geometry that extends
+    # into this tile's halo once translated by ±extent in MVT coords. The
+    # self-tile comes last so any ties in z-order favour local geometry, but
+    # since we draw fills first neighbour fills get overdrawn anyway.
+    sources: List[Tuple[int, int, dict]] = [(0, 0, decoded)]
+    sources.extend(neighbour_decoded)
 
     # 1. Land/earth polygons (draw land over the ocean background)
     for layer_name in ["land", "earth", "landcover"]:
-        layer = get_layer(decoded, layer_name)
-        if layer:
+        for mvt_dx, mvt_dy, d in sources:
+            layer = get_layer(d, layer_name)
+            if not layer:
+                continue
             for feature in layer.get("features", []):
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, F.LAND)
+                    render_polygon(draw, geom, extent, F.LAND,
+                                   offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
     # 2. Water polygons (lakes, rivers - these cut through land)
     for layer_name in ["water", "waterway", "ocean"]:
-        layer = get_layer(decoded, layer_name)
-        if layer:
+        for mvt_dx, mvt_dy, d in sources:
+            layer = get_layer(d, layer_name)
+            if not layer:
+                continue
             for feature in layer.get("features", []):
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, F.WATER)
+                    render_polygon(draw, geom, extent, F.WATER,
+                                   offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
-    # 2. Land use (parks/forests)
-    layer = get_layer(decoded, "landuse")
-    if layer:
+    # 3. Land use (parks/forests)
+    for mvt_dx, mvt_dy, d in sources:
+        layer = get_layer(d, "landuse")
+        if not layer:
+            continue
         for feature in layer.get("features", []):
             props = feature.get("properties", {})
             geom = feature.get("geometry", {})
             landuse_class = props.get("class") or props.get("landuse", "")
-
-            # Only render parks/forests as distinct feature, rest stays as land
             if landuse_class in ("park", "grass", "forest", "wood", "meadow", "nature_reserve"):
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, F.PARK)
+                    render_polygon(draw, geom, extent, F.PARK,
+                                   offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
-    # 3. Buildings (only at higher zoom levels)
+    # 4. Buildings (only at higher zoom levels)
     if zoom >= 13:
-        layer = get_layer(decoded, "building")
-        if layer:
+        for mvt_dx, mvt_dy, d in sources:
+            layer = get_layer(d, "building")
+            if not layer:
+                continue
             for feature in layer.get("features", []):
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    render_polygon(draw, geom, extent, F.BUILDING)
+                    render_polygon(draw, geom, extent, F.BUILDING,
+                                   offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
-    # 4. Waterways (lines) - use RAILWAY index since it's for linear features
-    layer = get_layer(decoded, "waterway")
-    if layer:
+    # 5. Waterways (lines)
+    for mvt_dx, mvt_dy, d in sources:
+        layer = get_layer(d, "waterway")
+        if not layer:
+            continue
         for feature in layer.get("features", []):
             geom = feature.get("geometry", {})
             if geom.get("type") in ("LineString", "MultiLineString"):
-                render_line(draw, geom, extent, F.WATER, 1)
+                render_line(draw, geom, extent, F.WATER, 1,
+                            offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
-    # 5. Railways
-    layer = get_layer(decoded, "transportation")
-    if layer:
+    # 6. Railways
+    for mvt_dx, mvt_dy, d in sources:
+        layer = get_layer(d, "transportation")
+        if not layer:
+            continue
         for feature in layer.get("features", []):
             props = feature.get("properties", {})
             if props.get("class") == "rail":
                 geom = feature.get("geometry", {})
                 if geom.get("type") in ("LineString", "MultiLineString"):
-                    render_line(draw, geom, extent, F.RAILWAY, 1)
+                    render_line(draw, geom, extent, F.RAILWAY, 1,
+                                offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
 
-    # 6. Roads (render by class, smaller roads first so bigger roads draw on top)
-    layer = get_layer(decoded, "transportation")
-    if layer:
-        # Sort features by road importance (render less important first)
-        road_order = ["path", "service", "residential", "tertiary", "secondary", "primary", "trunk", "motorway"]
+    # 7. Roads (sort by importance so bigger roads draw on top)
+    road_order = ["path", "service", "residential", "tertiary", "secondary",
+                  "primary", "trunk", "motorway"]
 
-        def road_sort_key(f):
-            props = f.get("properties", {})
-            road_class = props.get("class") or props.get("highway") or ""
-            for i, cls in enumerate(road_order):
-                if cls in road_class:
-                    return i
-            return -1
+    def _road_sort_key(f):
+        props = f.get("properties", {})
+        road_class = props.get("class") or props.get("highway") or ""
+        for i, cls in enumerate(road_order):
+            if cls in road_class:
+                return i
+        return -1
 
-        features = sorted(layer.get("features", []), key=road_sort_key)
-
-        for feature in features:
+    for mvt_dx, mvt_dy, d in sources:
+        layer = get_layer(d, "transportation")
+        if not layer:
+            continue
+        for feature in sorted(layer.get("features", []), key=_road_sort_key):
             props = feature.get("properties", {})
             geom = feature.get("geometry", {})
-
-            # Skip railways (handled above)
             if props.get("class") == "rail":
                 continue
-
             style = get_road_style(props)
             if style and geom.get("type") in ("LineString", "MultiLineString"):
                 feature_idx, width = style
-                # Scale width by zoom level
                 scaled_width = width * (zoom / 14.0)
-                render_line(draw, geom, extent, feature_idx, scaled_width)
+                render_line(draw, geom, extent, feature_idx, scaled_width,
+                            offset=halo, mvt_dx=mvt_dx, mvt_dy=mvt_dy)
+
+    # Crop the halo off, returning exactly the visible TILE_SIZE square.
+    img = img.crop((halo, halo, halo + TILE_SIZE, halo + TILE_SIZE))
 
     # MVT uses screen coordinates (Y-down, origin at top-left), same as PIL
     # No flip needed since both land mask and MVT use the same convention
     return img
 
 
-def tile_pixel_to_lat_lon(zoom: int, tile_x: int, tile_y: int, pixel_x: float, pixel_y: float, extent: int = 4096) -> Tuple[float, float]:
-    """
-    Convert tile coordinates + pixel offset to lat/lon.
-
-    Args:
-        zoom: Tile zoom level
-        tile_x, tile_y: Tile coordinates
-        pixel_x, pixel_y: Position within tile (0 to extent-1)
-        extent: Tile extent (default 4096 for MVT)
-
-    Returns:
-        (latitude, longitude) in degrees
-    """
-    n = 2 ** zoom
-    # MVT uses screen coordinates (Y=0 at top/north, Y=extent at bottom/south)
-    # This matches web tile convention where tile_y increases southward
-    # Convert pixel offset to fraction of tile (0 to 1)
-    frac_x = pixel_x / extent
-    frac_y = pixel_y / extent
-    # Full tile coordinates including fractional part
-    full_x = tile_x + frac_x
-    full_y = tile_y + frac_y
-    # Convert to lon/lat
-    lon = full_x / n * 360.0 - 180.0
-    lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * full_y / n)))
-    lat = math.degrees(lat_rad)
-    return (lat, lon)
-
-
-def extract_labels(tile_data: bytes, zoom: int, tile_x: int, tile_y: int) -> List[dict]:
-    """
-    Extract text labels from a vector tile.
-
-    Args:
-        tile_data: Raw MVT data (possibly gzipped)
-        zoom: Zoom level
-        tile_x: Tile X coordinate
-        tile_y: Tile Y coordinate
-
-    Returns:
-        List of label dicts with keys: zoom_min, zoom_max, lat, lon, label_type, text
-    """
-    labels = []
-
-    try:
-        data = decompress_tile(tile_data)
-        decoded = mvt.decode(data)
-    except Exception:
-        return labels
-
-    # Get extent (default 4096 for most vector tiles)
-    extent = 4096
-    for layer_name, layer in decoded.items():
-        if "extent" in layer:
-            extent = layer["extent"]
-            break
-
-    # Extract place labels (cities, towns, villages)
-    for layer_name in ["place", "place_name", "place_label"]:
-        layer = get_layer(decoded, layer_name)
-        if not layer:
-            continue
-
-        for feature in layer.get("features", []):
-            props = feature.get("properties", {})
-            geom = feature.get("geometry", {})
-
-            # Get place name
-            name = props.get("name") or props.get("name:en") or props.get("name:latin")
-            if not name:
-                continue
-
-            # Get place class/type
-            place_class = props.get("class") or props.get("place") or props.get("type", "")
-
-            # Determine label type based on place class
-            label_type = LABEL_TYPE_VILLAGE  # default
-            zoom_max = 14
-
-            if place_class in ("city", "metropolis"):
-                label_type = LABEL_TYPE_CITY
-                zoom_max = 14
-            elif place_class in ("town",):
-                label_type = LABEL_TYPE_TOWN
-                zoom_max = 14
-            elif place_class in ("village", "hamlet"):
-                label_type = LABEL_TYPE_VILLAGE
-                zoom_max = 14
-            elif place_class in ("suburb", "neighbourhood", "neighborhood", "quarter"):
-                label_type = LABEL_TYPE_SUBURB
-                zoom_max = 14
-            else:
-                # Skip unknown place types
-                continue
-
-            # Get position (center point for the label)
-            coords = geom.get("coordinates", [])
-            if geom.get("type") == "Point" and len(coords) >= 2:
-                # Convert tile pixel to lat/lon
-                lat, lon = tile_pixel_to_lat_lon(zoom, tile_x, tile_y, coords[0], coords[1], extent)
-
-                zoom_min = LABEL_MIN_ZOOM.get(label_type, zoom)
-
-                labels.append({
-                    "zoom_min": zoom_min,
-                    "zoom_max": zoom_max,
-                    "lat": lat,
-                    "lon": lon,
-                    "label_type": label_type,
-                    "text": name[:50],  # Limit length
-                })
-
-    # Extract water labels
-    for layer_name in ["water_name", "waterway_label"]:
-        layer = get_layer(decoded, layer_name)
-        if not layer:
-            continue
-
-        for feature in layer.get("features", []):
-            props = feature.get("properties", {})
-            geom = feature.get("geometry", {})
-
-            name = props.get("name") or props.get("name:en")
-            if not name:
-                continue
-
-            # Get centroid of the geometry
-            coords = geom.get("coordinates", [])
-            px, py = None, None
-            if geom.get("type") == "Point" and len(coords) >= 2:
-                px, py = coords[0], coords[1]
-            elif geom.get("type") in ("LineString", "MultiLineString"):
-                # Use midpoint of line
-                if isinstance(coords[0][0], (list, tuple)):
-                    coords = coords[0]  # First line of multiline
-                if len(coords) >= 2:
-                    mid_idx = len(coords) // 2
-                    px, py = coords[mid_idx][0], coords[mid_idx][1]
-
-            if px is None:
-                continue
-
-            lat, lon = tile_pixel_to_lat_lon(zoom, tile_x, tile_y, px, py, extent)
-
-            labels.append({
-                "zoom_min": LABEL_MIN_ZOOM[LABEL_TYPE_WATER],
-                "zoom_max": 14,
-                "lat": lat,
-                "lon": lon,
-                "label_type": LABEL_TYPE_WATER,
-                "text": name[:50],
-            })
-
-    return labels
+# extract_labels and tile_pixel_to_lat_lon moved to labels.py and render.py.
+# Imported at the top of this file for backwards compatibility with any
+# script that imports them from here.
 
 
 def lat_lon_to_tile(lat: float, lon: float, zoom: int) -> Tuple[int, int]:
@@ -616,6 +423,17 @@ def _init_worker(pmtiles_path: str):
     _worker_land_mask = get_land_mask()
 
 
+def _fetch_tile(z: int, x: int, y: int) -> Optional[bytes]:
+    """Safe wrapper around the worker's PMTiles reader. Returns raw bytes or None."""
+    global _worker_reader
+    if _worker_reader is None:
+        return None
+    try:
+        return _worker_reader.get(z, x, y)
+    except Exception:
+        return None
+
+
 def _process_tile_worker(args: Tuple[int, int, int]) -> Optional[Dict[str, Any]]:
     """
     Worker function to process a single tile.
@@ -638,8 +456,24 @@ def _process_tile_worker(args: Tuple[int, int, int]) -> Optional[Dict[str, Any]]
         return {"status": "missing", "z": z, "x": x, "y": y}
 
     try:
+        # Fetch 8 neighbour tiles so we can close the seam at tile boundaries.
+        # MVT sources ship with only a ~20-unit buffer past the tile extent,
+        # which corresponds to ~1 pixel at 256 px/tile — not enough for polygon
+        # edges to line up across adjacent renders. By handing each neighbour's
+        # MVT to the renderer (translated into this tile's frame) we fill the
+        # halo region with geometry that stitches naturally. See issue #17.
+        neighbours: Dict[Tuple[int, int], bytes] = {}
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                nd = _fetch_tile(z, x + dx, y + dy)
+                if nd is not None:
+                    neighbours[(dx, dy)] = nd
+
         # Render vector tile to raster using land mask for consistent backgrounds
-        img = render_vector_tile(tile_data, z, x, y, _worker_land_mask)
+        img = render_vector_tile(tile_data, z, x, y, _worker_land_mask,
+                                 neighbour_tiles=neighbours)
         compressed = process_tile_image(img)
 
         # Extract labels
@@ -663,30 +497,46 @@ def process_tile_image(img: Image.Image) -> bytes:
 
     Pixels are already feature indices (0-7), so no dithering needed.
     1. Pack to 3 bits per pixel
-    2. RLE compress
+    2. zlib-compress the packed bytes
     """
-    # Ensure correct size and mode
     if img.size != (TILE_SIZE, TILE_SIZE):
         img = img.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.NEAREST)
     if img.mode != "L":
         img = img.convert("L")
 
-    # Get pixel data as array
     indices = np.array(img, dtype=np.uint8)
-
-    # Clamp to valid range 0-7 (in case of any artifacts)
     indices = np.clip(indices, 0, 7)
+    packed = pack_3bit_pixels(indices.flatten().tolist())
+    return zlib_compress(packed)
 
-    # Convert to flat list for pack_3bit_pixels
-    indices_list = indices.flatten().tolist()
 
-    # Pack to 3 bits per pixel
-    packed = pack_3bit_pixels(indices_list)
+def compute_render_fingerprint(pmtiles_path: Optional[Path] = None) -> str:
+    """Hash of everything that affects tile output bytes.
 
-    # RLE compress
-    compressed = rle_compress(packed)
+    Covers palette, tile size, label thresholds, archive format version, and
+    (optionally) the source PMTiles path + size. If any of these change,
+    cached/checkpointed tiles are invalid and must be re-rendered.
 
-    return compressed
+    Deliberately exclude file mtime — editing the source script without
+    changing palette/priorities shouldn't invalidate the cache.
+    """
+    import hashlib
+    from config import (PALETTE_RGB, TILE_SIZE, TDMAP_VERSION,
+                        DEFAULT_COMPRESSION, LABEL_MIN_ZOOM)
+
+    h = hashlib.sha256()
+    h.update(repr(PALETTE_RGB).encode())
+    h.update(repr(TILE_SIZE).encode())
+    h.update(repr(TDMAP_VERSION).encode())
+    h.update(repr(DEFAULT_COMPRESSION).encode())
+    h.update(repr(sorted(LABEL_MIN_ZOOM.items())).encode())
+    if pmtiles_path is not None and pmtiles_path.exists():
+        st = pmtiles_path.stat()
+        # Source identity = path + size. File size changes if the PMTiles was
+        # regenerated; different path = different source. mtime is noisy so skip.
+        h.update(str(pmtiles_path.resolve()).encode())
+        h.update(str(st.st_size).encode())
+    return h.hexdigest()
 
 
 class Checkpoint:
@@ -696,7 +546,7 @@ class Checkpoint:
         self.path = checkpoint_path
         self.save_interval = save_interval
         self.data: Dict[str, Any] = {
-            "version": 2,  # v2: labels use lat/lon instead of tile coords
+            "version": 3,  # v3: render_fingerprint added for config/source change detection
             "processed_tiles": [],  # List of "z/x/y" strings
             "labels": [],  # List of label dicts with lat/lon
             "seen_label_keys": [],  # List of (text, lat_e6, lon_e6) for dedup
@@ -708,6 +558,7 @@ class Checkpoint:
             },
             "last_position": None,  # {"zoom": z, "x": x, "y": y}
             "config": {},  # bounds, zoom_range for validation
+            "render_fingerprint": None,  # Hash of palette/tile_size/source
         }
         self.tiles_since_save = 0
 
@@ -790,6 +641,15 @@ class Checkpoint:
         stored_zoom = tuple(stored.get("zoom_range")) if stored.get("zoom_range") else None
         return stored_bounds == bounds and stored_zoom == zoom_range
 
+    def set_render_fingerprint(self, fp: str):
+        self.data["render_fingerprint"] = fp
+
+    def validate_render_fingerprint(self, fp: str) -> bool:
+        """Returns True if the stored fingerprint matches. A None-stored value
+        (pre-v3 checkpoint) is treated as a mismatch so old checkpoints are
+        discarded on resume."""
+        return self.data.get("render_fingerprint") == fp
+
     def delete(self):
         """Remove checkpoint file after successful completion."""
         if self.path.exists():
@@ -805,7 +665,8 @@ def convert_pmtiles(
     dry_run: bool = False,
     resume: bool = True,
     checkpoint_interval: int = 500,
-    workers: int = None
+    workers: int = None,
+    region_name: Optional[str] = None,
 ):
     """
     Convert PMTiles vector tiles to TDMAP raster archive.
@@ -874,19 +735,26 @@ def convert_pmtiles(
         # Now that we have actual bounds/zoom, validate checkpoint
         effective_zoom_range = (min_zoom, max_zoom)
         resuming = False
+        fingerprint = compute_render_fingerprint(input_path)
         if checkpoint_loaded:
-            if checkpoint.validate_config(bounds, effective_zoom_range):
+            bounds_zoom_match = checkpoint.validate_config(bounds, effective_zoom_range)
+            fingerprint_match = checkpoint.validate_render_fingerprint(fingerprint)
+            if bounds_zoom_match and fingerprint_match:
                 print("Resuming from checkpoint...")
                 resuming = True
                 checkpoint.prepare_for_resume()
             else:
-                print("Warning: Checkpoint config doesn't match current settings.")
+                if not bounds_zoom_match:
+                    print("Warning: Checkpoint bounds/zoom don't match current settings.")
+                if not fingerprint_match:
+                    print("Warning: Render config or source PMTiles changed since checkpoint.")
                 print("  Starting fresh (old checkpoint will be overwritten).")
                 checkpoint = Checkpoint(checkpoint_path, save_interval=checkpoint_interval)
 
         # Store config in checkpoint for new runs
         if not resuming:
             checkpoint.set_config(bounds, effective_zoom_range)
+            checkpoint.set_render_fingerprint(fingerprint)
 
         # Estimate tile count
         total_tiles = 0
@@ -904,6 +772,25 @@ def convert_pmtiles(
         # Create archive writer
         writer = TDMAPWriter(output_path)
 
+        # v5 metadata — best-effort, all optional. Bounds come from the
+        # requested slice (or global defaults), region from the CLI, source
+        # hash from a quick read of the PMTiles file header.
+        if bounds is not None:
+            writer.set_bounds(*bounds)
+        if region_name:
+            writer.set_region_name(region_name)
+        writer.set_build_timestamp()
+        writer.set_tool_version("pmtiles_to_tdmap.py v5")
+        try:
+            # Hash a 1MB prefix rather than the whole PMTiles (650MB+ otherwise).
+            # Still uniquely identifies the source for cache invalidation.
+            import hashlib
+            with open(input_path, "rb") as sf:
+                src_hash = hashlib.sha256(sf.read(1024 * 1024)).digest()
+            writer.set_source_hash(src_hash)
+        except Exception:
+            pass
+
         # Initialize stats from checkpoint or fresh
         if resuming:
             # Check checkpoint version compatibility
@@ -913,6 +800,7 @@ def convert_pmtiles(
                 resuming = False
                 checkpoint = Checkpoint(checkpoint_path, save_interval=checkpoint_interval)
                 checkpoint.set_config(bounds, effective_zoom_range)
+                checkpoint.set_render_fingerprint(fingerprint)
                 checkpoint.prepare_for_resume()
 
         if resuming:
@@ -1061,6 +949,91 @@ def convert_pmtiles(
         print(f"  Labels extracted: {labels_extracted:,}")
 
 
+def preview_zoom(
+    pmtiles_path: Path,
+    output_png: Path,
+    zoom: int,
+    bounds: Optional[Tuple[float, float, float, float]] = None,
+) -> None:
+    """
+    Render a single zoom level to a flat PNG mosaic for visual inspection.
+
+    Bypasses the full archive pipeline (no RLE, no 3bpp packing, no labels) so
+    iteration on palette/dithering choices takes minutes instead of hours.
+    Palette comes from config.PALETTE_RGB so the PNG matches how tiles look
+    when drawn on-device in the light theme.
+    """
+    with open(pmtiles_path, "rb") as f:
+        source = MmapSource(f)
+        reader = PMTilesReader(source)
+        land_mask = get_land_mask()
+
+        tiles = list(get_tiles_in_bounds(bounds, zoom))
+        if not tiles:
+            print(f"No tiles in bounds at zoom {zoom}")
+            return
+
+        xs = [x for x, _ in tiles]
+        ys = [y for _, y in tiles]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        cols = max_x - min_x + 1
+        rows = max_y - min_y + 1
+
+        # Safety cap: a global z=14 preview would produce a 67M-pixel PNG.
+        max_pixels = 64 * 1024 * 1024
+        if cols * rows * TILE_SIZE * TILE_SIZE > max_pixels:
+            print(f"Preview mosaic would be {cols * TILE_SIZE}×{rows * TILE_SIZE} "
+                  f"({cols * rows} tiles); use --bounds to narrow the region")
+            return
+
+        # Palette lookup table: 8 feature indices → RGB.
+        palette_bytes = bytearray()
+        for rgb in PALETTE_RGB:
+            palette_bytes.extend(rgb)
+        palette_bytes.extend(b"\x00" * (256 * 3 - len(palette_bytes)))
+
+        mosaic = Image.new("RGB", (cols * TILE_SIZE, rows * TILE_SIZE), (0, 0, 0))
+        rendered = 0
+
+        def _safe_get(z, tx, ty):
+            try:
+                return reader.get(z, tx, ty)
+            except Exception:
+                return None
+
+        for (x, y) in tiles:
+            raw = _safe_get(zoom, x, y)
+            if raw is None:
+                continue
+
+            # Pull neighbours so the preview stitches the same way the archive
+            # tiles do. Falls back to the isolated render where a neighbour is
+            # missing (edge of the bounds or a gap in the PMTiles source).
+            neighbours: Dict[Tuple[int, int], bytes] = {}
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    nd = _safe_get(zoom, x + dx, y + dy)
+                    if nd is not None:
+                        neighbours[(dx, dy)] = nd
+
+            indexed = render_vector_tile(raw, zoom, x, y, land_mask,
+                                         neighbour_tiles=neighbours)
+            # Apply the semantic palette so the preview looks like the device.
+            indexed.putpalette(palette_bytes)
+            indexed = indexed.convert("P")
+            indexed.putpalette(palette_bytes)
+
+            rgb_tile = indexed.convert("RGB")
+            mosaic.paste(rgb_tile, ((x - min_x) * TILE_SIZE, (y - min_y) * TILE_SIZE))
+            rendered += 1
+
+        mosaic.save(output_png)
+        print(f"Wrote {output_png}: {cols}×{rows} tiles at z{zoom} ({rendered} rendered)")
+
+
 def parse_bounds(bounds_str: str) -> Tuple[float, float, float, float]:
     """Parse bounds string 'west,south,east,north' to tuple."""
     parts = [float(x.strip()) for x in bounds_str.split(",")]
@@ -1163,6 +1136,33 @@ Resume behavior:
         help=f"Number of parallel workers (default: CPU count = {mp.cpu_count()})"
     )
 
+    parser.add_argument(
+        "--preview-zoom",
+        type=int,
+        default=None,
+        metavar="Z",
+        help="Render a flat PNG mosaic at zoom Z instead of building a .tdmap. "
+             "Use with --bounds to limit the region; --preview-out sets the output path."
+    )
+
+    parser.add_argument(
+        "--preview-out",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Output PNG path for --preview-zoom (default: <input>-z<Z>.png)"
+    )
+
+    parser.add_argument(
+        "--region-name",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="Human-readable region name written to the v5 archive metadata "
+             "(e.g. 'Amsterdam', 'Netherlands'). Shown in the inspect output "
+             "and surfaceable in on-device UI."
+    )
+
     args = parser.parse_args()
 
     # Validate input
@@ -1185,6 +1185,14 @@ Resume behavior:
     if args.zoom:
         zoom_range = parse_zoom(args.zoom)
 
+    # Preview path short-circuits the full conversion.
+    if args.preview_zoom is not None:
+        preview_out = args.preview_out or args.input.with_suffix("").with_name(
+            f"{args.input.stem}-z{args.preview_zoom}.png")
+        print(f"Rendering preview mosaic at z{args.preview_zoom} → {preview_out}")
+        preview_zoom(args.input, preview_out, args.preview_zoom, bounds=bounds)
+        return
+
     # Print configuration
     print("PMTiles to TDMAP Converter")
     print("=" * 40)
@@ -1201,7 +1209,8 @@ Resume behavior:
         dry_run=args.dry_run,
         resume=not args.no_resume,
         checkpoint_interval=args.checkpoint_interval,
-        workers=args.workers
+        workers=args.workers,
+        region_name=args.region_name,
     )
 
 

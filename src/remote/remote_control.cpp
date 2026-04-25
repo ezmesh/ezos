@@ -4,6 +4,12 @@
 #include "../lua/lua_runtime.h"
 #include "../config.h"
 #include <lua.hpp>
+#include <LittleFS.h>
+
+// Miniz deflate compressor from LovyanGFX
+extern "C" size_t tdefl_compress_mem_to_mem(
+    void *pOut_buf, size_t out_buf_len,
+    const void *pSrc_buf, size_t src_buf_len, int flags);
 
 // External references to hardware instances
 extern Display* display;
@@ -34,13 +40,52 @@ void RemoteControl::update() {
             _waitingForFrame = false;
             _captureMode = CaptureMode::NONE;
         } else if (millis() - _frameWaitStart > FRAME_WAIT_TIMEOUT_MS) {
-            // Timeout waiting for frame
+            // Timeout waiting for frame - no Lua rendering loop is active
             if (_captureMode == CaptureMode::TEXT) {
                 display->setTextCaptureEnabled(false);
             } else if (_captureMode == CaptureMode::PRIMITIVES) {
                 display->setPrimitiveCaptureEnabled(false);
             }
-            sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Timeout", 7);
+
+            // If there's a boot error, return it instead of a generic timeout
+            const char* lastError = LuaRuntime::instance().getLastError();
+            if (lastError && lastError[0] != '\0') {
+                // Build a JSON response with the escaped error string
+                static char errJson[2048];
+                size_t pos = 0;
+                const char* prefix = "[{\"x\":0,\"y\":0,\"color\":63488,\"text\":\"Boot script failed!\"},{\"x\":0,\"y\":20,\"color\":65535,\"text\":\"";
+                size_t prefixLen = strlen(prefix);
+                memcpy(errJson, prefix, prefixLen);
+                pos = prefixLen;
+
+                // JSON-escape the error message
+                for (const char* p = lastError; *p && pos < sizeof(errJson) - 10; p++) {
+                    char c = *p;
+                    if (c == '"' || c == '\\') {
+                        errJson[pos++] = '\\';
+                        errJson[pos++] = c;
+                    } else if (c == '\n') {
+                        errJson[pos++] = '\\';
+                        errJson[pos++] = 'n';
+                    } else if (c == '\r') {
+                        errJson[pos++] = '\\';
+                        errJson[pos++] = 'r';
+                    } else if (c == '\t') {
+                        errJson[pos++] = '\\';
+                        errJson[pos++] = 't';
+                    } else {
+                        errJson[pos++] = c;
+                    }
+                }
+
+                const char* suffix = "\"}]";
+                memcpy(errJson + pos, suffix, 3);
+                pos += 3;
+
+                sendResponse(RemoteStatus::OK, (const uint8_t*)errJson, pos);
+            } else {
+                sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Timeout", 7);
+            }
             _waitingForFrame = false;
             _captureMode = CaptureMode::NONE;
         }
@@ -138,21 +183,41 @@ void RemoteControl::processCommand(uint8_t cmd, const uint8_t* payload, uint16_t
             handleLuaExec(payload, len);
             break;
 
+        case RemoteCmd::WRITE_FILE:
+            handleFileWrite(payload, len);
+            break;
+
+        case RemoteCmd::READ_FILE:
+            handleFileRead(payload, len);
+            break;
+
+        case RemoteCmd::WRITE_AT:
+            handleWriteAt(payload, len);
+            break;
+
         default:
             sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Unknown command", 15);
             break;
     }
 }
 
-void RemoteControl::sendResponse(uint8_t status, const uint8_t* data, uint16_t len) {
-    // Send response header: [STATUS:1][LEN:2]
+void RemoteControl::sendResponse(uint8_t status, const uint8_t* data, uint32_t len) {
+    // Response header: [STATUS:1][LEN:4] (little-endian)
     Serial.write(status);
     Serial.write(len & 0xFF);
     Serial.write((len >> 8) & 0xFF);
+    Serial.write((len >> 16) & 0xFF);
+    Serial.write((len >> 24) & 0xFF);
 
-    // Send payload
+    // Send payload in chunks to avoid serial buffer overflows
     if (len > 0 && data != nullptr) {
-        Serial.write(data, len);
+        size_t sent = 0;
+        while (sent < len) {
+            size_t chunk = min((size_t)512, len - sent);
+            Serial.write(data + sent, chunk);
+            sent += chunk;
+            Serial.flush();  // Wait for chunk to transmit
+        }
     }
 }
 
@@ -167,23 +232,52 @@ void RemoteControl::handleScreenshot() {
         return;
     }
 
-    // Get RLE-compressed screenshot data
-    size_t maxSize = 64 * 1024;  // 64KB buffer for RLE data
-    uint8_t* buffer = (uint8_t*)malloc(maxSize);
-    if (!buffer) {
+    int w = display->getWidth();
+    int h = display->getHeight();
+
+    // Build BMP file in PSRAM: header (54 bytes) + pixel data (w*h*3 bytes, bottom-up)
+    size_t rowBytes = w * 3;
+    // BMP rows are padded to 4-byte boundaries
+    size_t rowPadded = (rowBytes + 3) & ~3;
+    size_t pixelDataSize = rowPadded * h;
+    size_t fileSize = 54 + pixelDataSize;
+
+    uint8_t* bmp = (uint8_t*)ps_malloc(fileSize);
+    if (!bmp) bmp = (uint8_t*)malloc(fileSize);
+    if (!bmp) {
         sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Out of memory", 13);
         return;
     }
+    memset(bmp, 0, 54);
 
-    size_t size = display->getScreenshotRLE(buffer, maxSize);
-    if (size == 0) {
-        free(buffer);
-        sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Screenshot failed", 17);
-        return;
+    // BMP header
+    bmp[0] = 'B'; bmp[1] = 'M';
+    *(uint32_t*)(bmp + 2) = fileSize;
+    *(uint32_t*)(bmp + 10) = 54;  // pixel data offset
+    // DIB header (BITMAPINFOHEADER)
+    *(uint32_t*)(bmp + 14) = 40;  // header size
+    *(int32_t*)(bmp + 18) = w;
+    *(int32_t*)(bmp + 22) = h;    // positive = bottom-up
+    *(uint16_t*)(bmp + 26) = 1;   // planes
+    *(uint16_t*)(bmp + 28) = 24;  // bits per pixel
+    *(uint32_t*)(bmp + 34) = pixelDataSize;
+
+    // Convert RGB565 framebuffer to BGR888 (BMP uses BGR, bottom-up row order)
+    for (int y = 0; y < h; y++) {
+        uint8_t* row = bmp + 54 + (h - 1 - y) * rowPadded;  // bottom-up
+        for (int x = 0; x < w; x++) {
+            uint16_t color = display->getBuffer().readPixel(x, y);
+            uint8_t r = ((color >> 11) & 0x1F) << 3; r |= r >> 5;
+            uint8_t g = ((color >> 5) & 0x3F) << 2;  g |= g >> 6;
+            uint8_t b = (color & 0x1F) << 3;          b |= b >> 5;
+            row[x * 3]     = b;  // BMP stores BGR
+            row[x * 3 + 1] = g;
+            row[x * 3 + 2] = r;
+        }
     }
 
-    sendResponse(RemoteStatus::OK, buffer, size);
-    free(buffer);
+    sendResponse(RemoteStatus::OK, bmp, fileSize);
+    free(bmp);
 }
 
 void RemoteControl::handleKeyChar(uint8_t ch, uint8_t modifiers) {
@@ -498,4 +592,139 @@ void RemoteControl::handleLuaExec(const uint8_t* code, uint16_t len) {
 
     lua_pop(L, nresults);
     sendResponse(RemoteStatus::OK, (const uint8_t*)resultBuf, pos);
+}
+
+void RemoteControl::handleFileWrite(const uint8_t* payload, uint16_t len) {
+    // Payload: [path_len:2 LE][path:path_len][file_data:remaining]
+    // Path uses /fs/ prefix which maps to LittleFS root.
+    if (len < 3) {
+        sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Payload too short", 17);
+        return;
+    }
+
+    uint16_t pathLen = payload[0] | ((uint16_t)payload[1] << 8);
+    if (pathLen == 0 || pathLen > 256 || 2 + pathLen > len) {
+        sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Invalid path length", 19);
+        return;
+    }
+
+    char rawPath[257];
+    memcpy(rawPath, payload + 2, pathLen);
+    rawPath[pathLen] = '\0';
+
+    // Strip /fs prefix to get the LittleFS-relative path
+    const char* fsPath = rawPath;
+    if (strncmp(rawPath, "/fs/", 4) == 0) {
+        fsPath = rawPath + 3;  // "/fs/foo/bar" -> "/foo/bar"
+    }
+
+    const uint8_t* fileData = payload + 2 + pathLen;
+    uint16_t dataLen = len - 2 - pathLen;
+
+    // Create parent directories
+    String pathStr(fsPath);
+    for (int i = 1; i < (int)pathStr.length(); i++) {
+        if (pathStr[i] == '/') {
+            String dir = pathStr.substring(0, i);
+            if (!LittleFS.exists(dir)) {
+                LittleFS.mkdir(dir);
+            }
+        }
+    }
+
+    // Write file to LittleFS
+    auto f = LittleFS.open(fsPath, "w");
+    if (!f) {
+        sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Cannot open file", 16);
+        return;
+    }
+
+    size_t written = f.write(fileData, dataLen);
+    f.close();
+
+    char resp[32];
+    int respLen = snprintf(resp, sizeof(resp), "%u", (unsigned)written);
+    sendResponse(RemoteStatus::OK, (const uint8_t*)resp, respLen);
+}
+
+void RemoteControl::handleFileRead(const uint8_t* payload, uint16_t len) {
+    // Payload: [path_len:2 LE][path][offset:4 LE][length:4 LE]
+    if (len < 10) {
+        sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Payload too short", 17);
+        return;
+    }
+
+    uint16_t pathLen = payload[0] | ((uint16_t)payload[1] << 8);
+    if (pathLen == 0 || pathLen > 256 || 2 + pathLen + 8 > len) {
+        sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Invalid path", 12);
+        return;
+    }
+
+    char rawPath[257];
+    memcpy(rawPath, payload + 2, pathLen);
+    rawPath[pathLen] = '\0';
+
+    const char* fsPath = rawPath;
+    if (strncmp(rawPath, "/fs/", 4) == 0) fsPath = rawPath + 3;
+
+    const uint8_t* meta = payload + 2 + pathLen;
+    uint32_t offset = meta[0] | (meta[1] << 8) | (meta[2] << 16) | (meta[3] << 24);
+    uint32_t readLen = meta[4] | (meta[5] << 8) | (meta[6] << 16) | (meta[7] << 24);
+
+    // Cap read to payload buffer size
+    if (readLen > sizeof(_payload)) readLen = sizeof(_payload);
+
+    auto f = LittleFS.open(fsPath, "r");
+    if (!f) {
+        sendResponse(RemoteStatus::ERROR, (const uint8_t*)"File not found", 14);
+        return;
+    }
+
+    if (offset > 0) f.seek(offset);
+    size_t got = f.read(_payload, readLen);
+    f.close();
+
+    sendResponse(RemoteStatus::OK, _payload, got);
+}
+
+void RemoteControl::handleWriteAt(const uint8_t* payload, uint16_t len) {
+    // Payload: [path_len:2 LE][path][offset:4 LE][data]
+    if (len < 7) {
+        sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Payload too short", 17);
+        return;
+    }
+
+    uint16_t pathLen = payload[0] | ((uint16_t)payload[1] << 8);
+    if (pathLen == 0 || pathLen > 256 || 2 + pathLen + 4 > len) {
+        sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Invalid path", 12);
+        return;
+    }
+
+    char rawPath[257];
+    memcpy(rawPath, payload + 2, pathLen);
+    rawPath[pathLen] = '\0';
+
+    const char* fsPath = rawPath;
+    if (strncmp(rawPath, "/fs/", 4) == 0) fsPath = rawPath + 3;
+
+    const uint8_t* meta = payload + 2 + pathLen;
+    uint32_t offset = meta[0] | (meta[1] << 8) | (meta[2] << 16) | (meta[3] << 24);
+
+    const uint8_t* fileData = meta + 4;
+    uint16_t dataLen = len - 2 - pathLen - 4;
+
+    // Open for read+write without truncating
+    auto f = LittleFS.open(fsPath, "r+");
+    if (!f) {
+        sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Cannot open file", 16);
+        return;
+    }
+
+    f.seek(offset);
+    size_t written = f.write(fileData, dataLen);
+    f.close();
+
+    char resp[32];
+    int respLen = snprintf(resp, sizeof(resp), "%u", (unsigned)written);
+    sendResponse(RemoteStatus::OK, (const uint8_t*)resp, respLen);
 }

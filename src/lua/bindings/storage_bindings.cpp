@@ -3,6 +3,7 @@
 
 #include "../lua_bindings.h"
 #include "../embedded_scripts.h"
+#include "../async.h"
 #include "../../config.h"
 #include <Arduino.h>
 #include <LittleFS.h>
@@ -10,6 +11,7 @@
 #include <SPI.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
+#include <nvs.h>
 
 // @module ez.storage
 // @brief File I/O for internal flash (LittleFS) and SD card
@@ -125,18 +127,25 @@ static fs::FS* getFS(const char* path, const char** adjustedPath) {
 // @lua ez.storage.read_bytes(path, offset, length) -> string
 // @brief Read bytes from file at specific offset (for random access)
 // @description Reads a specific range of bytes from a file without loading the
-// entire file into memory. Useful for reading headers, seeking within large files,
-// or implementing file formats with random access. Maximum read size is 64KB.
+// entire file into memory. Useful for reading headers, seeking within large
+// files, or implementing file formats with random access. The read is buffered
+// in PSRAM when available (falls back to internal heap), so country-scale map
+// indexes and other ~1 MB blocks load in a single call. For larger blobs, call
+// in a loop with successive offsets — each call is still a single file open.
 // @param path File path (prefix /sd/ for SD card)
 // @param offset Byte offset to start reading from (0-based)
-// @param length Number of bytes to read (max 65536)
+// @param length Number of bytes to read (max 1048576 — 1 MB per call)
 // @return Binary data as string, or nil with error message
 // @example
 // -- Read file header (first 16 bytes)
 // local header = ez.storage.read_bytes("/sd/maps/tiles.bin", 0, 16)
-// -- Read a specific tile from a map file
-// local tile_offset = header_size + (tile_index * tile_size)
-// local tile_data = ez.storage.read_bytes("/sd/maps/tiles.bin", tile_offset, 4096)
+// -- Stream a multi-megabyte file in 64KB chunks
+// local offset = 0
+// while true do
+//     local chunk = ez.storage.read_bytes("/sd/huge.bin", offset, 65536)
+//     if not chunk or #chunk == 0 then break end
+//     process(chunk); offset = offset + #chunk
+// end
 // @end
 LUA_FUNCTION(l_storage_read_bytes) {
     LUA_CHECK_ARGC(L, 3);
@@ -144,9 +153,23 @@ LUA_FUNCTION(l_storage_read_bytes) {
     lua_Integer offset = luaL_checkinteger(L, 2);
     lua_Integer length = luaL_checkinteger(L, 3);
 
-    if (offset < 0 || length <= 0 || length > 65536) {
+    // Safety ceiling: 1 MB matches read_file's limit and keeps a single
+    // call from starving the internal heap when PSRAM fallback isn't
+    // available. Callers that legitimately need more should stream in a
+    // loop with successive offsets.
+    const lua_Integer MAX_READ = 1 * 1024 * 1024;
+    if (offset < 0 || length <= 0) {
         lua_pushnil(L);
-        lua_pushstring(L, "Invalid offset or length (max 64KB)");
+        lua_pushstring(L, "Invalid offset or length");
+        return 2;
+    }
+    if (length > MAX_READ) {
+        lua_pushnil(L);
+        lua_pushfstring(L,
+            "requested %I bytes exceeds 1 MB per-call limit — "
+            "call in a loop with smaller chunks or use "
+            "ez.storage.async_read_bytes",
+            (lua_Integer)length);
         return 2;
     }
 
@@ -179,7 +202,12 @@ LUA_FUNCTION(l_storage_read_bytes) {
         length = availableBytes;
     }
 
-    char* buffer = (char*)malloc(length);
+    // Prefer PSRAM so multi-hundred-KB reads don't starve the internal
+    // heap; fall back to malloc on boards without PSRAM.
+    char* buffer = (char*)ps_malloc(length);
+    if (!buffer) {
+        buffer = (char*)malloc(length);
+    }
     if (!buffer) {
         file.close();
         lua_pushnil(L);
@@ -188,13 +216,22 @@ LUA_FUNCTION(l_storage_read_bytes) {
     }
 
     file.seek(offset);
-    size_t bytesRead = file.readBytes(buffer, length);
+    // Some FS backends return short reads even for in-range offsets, so
+    // loop until we've filled the requested length or the underlying
+    // readBytes reports zero progress (EOF / I/O error).
+    size_t totalRead = 0;
+    while (totalRead < (size_t)length) {
+        size_t n = file.readBytes(buffer + totalRead, length - totalRead);
+        if (n == 0) break;
+        totalRead += n;
+    }
     file.close();
 
-    if (bytesRead != (size_t)length) {
+    if (totalRead != (size_t)length) {
         free(buffer);
         lua_pushnil(L);
-        lua_pushstring(L, "Read incomplete");
+        lua_pushfstring(L, "Read incomplete: got %I of %I bytes",
+                        (lua_Integer)totalRead, (lua_Integer)length);
         return 2;
     }
 
@@ -795,18 +832,37 @@ LUA_FUNCTION(l_storage_get_pref) {
         return 1;
     }
 
-    // Get the type of the stored preference and read accordingly
+    // Get the type of the stored preference and read accordingly.
+    // Picking the right getter matters: each NVS type has its own call
+    // (e.g. getInt only reads PT_I32), and calling the wrong one
+    // silently returns the default. Most notably, Preferences.putBool
+    // uses nvs_set_i8 under the hood, so a stored bool is PT_I8 — not
+    // PT_U8, and not a dedicated bool type.
     PreferenceType type = prefs.getType(key);
     switch (type) {
         case PT_I8:
+            lua_pushinteger(L, prefs.getChar(key, 0));
+            break;
         case PT_U8:
+            lua_pushinteger(L, prefs.getUChar(key, 0));
+            break;
         case PT_I16:
+            lua_pushinteger(L, prefs.getShort(key, 0));
+            break;
         case PT_U16:
+            lua_pushinteger(L, prefs.getUShort(key, 0));
+            break;
         case PT_I32:
-        case PT_U32:
-        case PT_I64:
-        case PT_U64:
             lua_pushinteger(L, prefs.getInt(key, 0));
+            break;
+        case PT_U32:
+            lua_pushinteger(L, prefs.getUInt(key, 0));
+            break;
+        case PT_I64:
+            lua_pushinteger(L, (lua_Integer)prefs.getLong64(key, 0));
+            break;
+        case PT_U64:
+            lua_pushinteger(L, (lua_Integer)prefs.getULong64(key, 0));
             break;
         case PT_STR:
             lua_pushstring(L, prefs.getString(key, "").c_str());
@@ -816,12 +872,8 @@ LUA_FUNCTION(l_storage_get_pref) {
             lua_pushstring(L, prefs.getString(key, "").c_str());
             break;
         default:
-            // For bool and unknown types, try bool first then string
-            // Note: ESP32 Preferences doesn't have PT_BOOL, bools are stored as U8
-            {
-                bool boolVal = prefs.getBool(key, false);
-                lua_pushboolean(L, boolVal);
-            }
+            // Unknown type — fall back to bool read and push as bool.
+            lua_pushboolean(L, prefs.getBool(key, false));
             break;
     }
     return 1;
@@ -847,16 +899,24 @@ LUA_FUNCTION(l_storage_set_pref) {
     ensurePrefs();
 
     bool ok = false;
-    if (lua_isstring(L, 2)) {
-        ok = prefs.putString(key, lua_tostring(L, 2)) > 0;
-    } else if (lua_isinteger(L, 2)) {
-        ok = prefs.putInt(key, lua_tointeger(L, 2)) > 0;
-    } else if (lua_isnumber(L, 2)) {
-        ok = prefs.putFloat(key, lua_tonumber(L, 2)) > 0;
-    } else if (lua_isboolean(L, 2)) {
+    // Dispatch on the value's actual Lua type, not on the convertible-to
+    // type: lua_isnumber("1") and lua_isstring(1) are both true, which
+    // used to route a string "1" into putFloat() — stored as a blob,
+    // then read back as an empty string. Using lua_type pins us to what
+    // the caller actually passed.
+    int t = lua_type(L, 2);
+    if (t == LUA_TBOOLEAN) {
         ok = prefs.putBool(key, lua_toboolean(L, 2)) > 0;
+    } else if (t == LUA_TNUMBER) {
+        if (lua_isinteger(L, 2)) {
+            ok = prefs.putInt(key, lua_tointeger(L, 2)) > 0;
+        } else {
+            ok = prefs.putFloat(key, lua_tonumber(L, 2)) > 0;
+        }
+    } else if (t == LUA_TSTRING) {
+        ok = prefs.putString(key, lua_tostring(L, 2)) > 0;
     } else {
-        // Convert to string
+        // Nil / tables / userdata — coerce to a string representation.
         ok = prefs.putString(key, luaL_tolstring(L, 2, nullptr)) > 0;
         lua_pop(L, 1);
     }
@@ -897,6 +957,63 @@ LUA_FUNCTION(l_storage_remove_pref) {
 LUA_FUNCTION(l_storage_clear_prefs) {
     ensurePrefs();
     lua_pushboolean(L, prefs.clear());
+    return 1;
+}
+
+// @lua ez.storage.list_prefs() -> table
+// @brief Enumerate every pref in the lua_storage namespace
+// @description Returns an array of { key = "...", type = "bool" | "int" |
+// "string" | "float" | "blob" } for every key currently stored in NVS
+// under the Lua prefs namespace. Used by the developer prefs editor
+// to show all keys — including ones not declared in the system-prefs
+// registry.
+// @return Array of {key, type} tables
+// @end
+LUA_FUNCTION(l_storage_list_prefs) {
+    ensurePrefs();
+    lua_newtable(L);
+    int index = 0;
+
+    // The ESP32 Preferences library opens NVS in the "nvs" partition
+    // and its own namespace (here "lua_storage"). Older arduino-esp32
+    // (ESP-IDF 4.x) exposes the iterator via a return value rather
+    // than an out-param, so advance with `nvs_entry_next(it)` returning
+    // the next iterator.
+    nvs_iterator_t it = nvs_entry_find("nvs", "lua_storage", NVS_TYPE_ANY);
+    while (it != nullptr) {
+        nvs_entry_info_t info;
+        nvs_entry_info(it, &info);
+
+        // Report the exact NVS storage type so the editor can pick a
+        // matching setter and display accurate metadata. Booleans are
+        // stored as int8 by Preferences.putBool — the editor treats
+        // int8/uint8 as bool-ish (0/non-zero) when it makes sense, but
+        // the type label itself stays honest about what's on disk.
+        const char* typeStr = "unknown";
+        switch (info.type) {
+            case NVS_TYPE_I8:     typeStr = "int8";   break;
+            case NVS_TYPE_U8:     typeStr = "uint8";  break;
+            case NVS_TYPE_I16:    typeStr = "int16";  break;
+            case NVS_TYPE_U16:    typeStr = "uint16"; break;
+            case NVS_TYPE_I32:    typeStr = "int32";  break;
+            case NVS_TYPE_U32:    typeStr = "uint32"; break;
+            case NVS_TYPE_I64:    typeStr = "int64";  break;
+            case NVS_TYPE_U64:    typeStr = "uint64"; break;
+            case NVS_TYPE_STR:    typeStr = "string"; break;
+            case NVS_TYPE_BLOB:   typeStr = "blob";   break;
+            default:              typeStr = "unknown"; break;
+        }
+
+        lua_newtable(L);
+        lua_pushstring(L, info.key);
+        lua_setfield(L, -2, "key");
+        lua_pushstring(L, typeStr);
+        lua_setfield(L, -2, "type");
+        lua_rawseti(L, -2, ++index);
+
+        it = nvs_entry_next(it);
+    }
+    // No release needed when the iterator has already walked to NULL.
     return 1;
 }
 
@@ -1332,15 +1449,17 @@ LUA_FUNCTION(l_storage_is_embedded) {
 
 // Function table for ez.storage
 static const luaL_Reg storage_funcs[] = {
-    {"read_file",       l_storage_read_file},
-    {"read_bytes",      l_storage_read_bytes},
-    {"file_size",       l_storage_file_size},
+    {"read_file",        l_storage_read_file},
+    {"read_bytes",       l_storage_read_bytes},
+    {"async_read_bytes", AsyncIO::l_async_read_bytes},
+    {"file_size",        l_storage_file_size},
     {"write_file",      l_storage_write_file},
     {"append_file",     l_storage_append_file},
     {"exists",          l_storage_exists},
     {"remove",          l_storage_remove},
     {"rename",          l_storage_rename},
     {"mkdir",           l_storage_mkdir},
+    {"list_prefs",      l_storage_list_prefs},
     {"rmdir",           l_storage_rmdir},
     {"list_dir",        l_storage_list_dir},
     {"get_pref",        l_storage_get_pref},

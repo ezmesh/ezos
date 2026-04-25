@@ -3,6 +3,7 @@
 
 #include "../lua_bindings.h"
 #include "../lua_runtime.h"
+#include "../embedded_scripts.h"
 #include "../../hardware/usb_msc.h"
 #include "../../util/log.h"
 #include <Arduino.h>
@@ -95,7 +96,15 @@ struct TimerEntry {
 static constexpr int MAX_TIMERS = 16;
 static TimerEntry timers[MAX_TIMERS];
 static int nextTimerId = 1;
-static lua_State* timerLuaState = nullptr;
+// timerLuaState uses LUA_STATE macro (main state) to avoid dangling pointers
+// when timers are registered from coroutines that later get garbage collected.
+// Previously this stored the registering coroutine's lua_State* which would
+// become invalid after the coroutine was collected.
+
+// Deferred coroutine queue - coroutines yielded via defer() are resumed next frame
+static constexpr int MAX_DEFERRED = 16;
+static int deferredCoroutines[MAX_DEFERRED];
+static int deferredCount = 0;
 
 // Forward declarations
 void processLuaTimers();
@@ -172,7 +181,6 @@ LUA_FUNCTION(l_system_set_timer) {
     timers[slot].interval = 0;  // One-shot
     timers[slot].nextTrigger = millis() + ms;
     timers[slot].active = true;
-    timerLuaState = L;
 
     // Return timer ID (slot + base)
     int timerId = nextTimerId++;
@@ -219,7 +227,6 @@ LUA_FUNCTION(l_system_set_interval) {
     timers[slot].interval = ms;
     timers[slot].nextTrigger = millis() + ms;
     timers[slot].active = true;
-    timerLuaState = L;
 
     lua_pushinteger(L, slot);
     return 1;
@@ -246,6 +253,33 @@ LUA_FUNCTION(l_system_cancel_timer) {
     }
 
     return 0;
+}
+
+// @lua defer()
+// @brief Yield the current coroutine and resume it on the next frame
+// @description Cooperative yield for coroutines. The coroutine is suspended and
+// automatically resumed on the next main loop iteration, after async I/O
+// completions are processed. Enables polling patterns and parallel async work.
+// Must be called from within a coroutine (spawn/async context).
+// @example
+// -- Wait for a condition without blocking
+// while not ready do defer() end
+// @end
+LUA_FUNCTION(l_defer) {
+    if (!lua_isyieldable(L)) {
+        return luaL_error(L, "defer() must be called from a coroutine");
+    }
+
+    if (deferredCount >= MAX_DEFERRED) {
+        return luaL_error(L, "defer queue full");
+    }
+
+    // Store coroutine reference for resumption on next frame
+    lua_pushthread(L);
+    int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
+    deferredCoroutines[deferredCount++] = coroRef;
+
+    return lua_yield(L, 0);
 }
 
 // @lua ez.system.get_battery_percent() -> integer
@@ -349,7 +383,7 @@ LUA_FUNCTION(l_system_get_total_psram) {
     return 1;
 }
 
-// @lua ez.system.log(message)
+// @lua ez.log(message)
 // @brief Log message to serial output
 // @description Sends a log message to the serial console. Messages are prefixed
 // with #LOG#[Lua] for easy filtering. Use for debugging during development.
@@ -477,6 +511,11 @@ LUA_FUNCTION(l_system_set_time) {
     timeinfo.tm_hour = hour;
     timeinfo.tm_min = minute;
     timeinfo.tm_sec = second;
+    // Default-zeroed tm_isdst means "explicitly not DST"; mktime would
+    // then interpret the input as standard time even in summer, storing
+    // a UTC that's 1h off and round-tripping back 1h shifted. -1 asks
+    // mktime to resolve DST from the active TZ rules.
+    timeinfo.tm_isdst = -1;
 
     time_t t = mktime(&timeinfo);
     struct timeval tv = { .tv_sec = t, .tv_usec = 0 };
@@ -1074,35 +1113,65 @@ static bool loadScriptFile(lua_State* L, const char* path) {
     return true;
 }
 
+// Try loading an embedded script by path, return 2 on success (loader + path on stack)
+static int tryEmbedded(lua_State* L, const char* path) {
+    size_t size = 0;
+    const char* data = embedded_lua::get_script(path, &size);
+    if (data != nullptr) {
+        int status = luaL_loadbuffer(L, data, size, path);
+        if (status == LUA_OK) {
+            lua_pushstring(L, path);
+            return 2;
+        }
+        return 1;  // Load error on stack
+    }
+    return 0;  // Not found
+}
+
 // Custom package searcher for scripts
-// Searches /scripts/<module>.lua on SD card first, then LittleFS
+// require("ezui") → tries $ezui.lua, $ezui/init.lua, then SD/FS
 static int l_script_searcher(lua_State* L) {
     const char* modname = luaL_checkstring(L, 1);
 
-    // Build path: /scripts/<modname>.lua
-    // First copy modname and replace dots with slashes (for nested modules like "foo.bar")
+    // Convert dots to slashes (e.g. "ezui.core" → "ezui/core")
     char modpath[100];
     strncpy(modpath, modname, sizeof(modpath) - 1);
     modpath[sizeof(modpath) - 1] = '\0';
-
-    // Replace dots with slashes for nested module paths
     for (char* p = modpath; *p; p++) {
         if (*p == '.') *p = '/';
     }
 
-    // Build final path
     char path[128];
+    int result;
+
+    // Try embedded: $<mod>.lua
+    snprintf(path, sizeof(path), "$%s.lua", modpath);
+    result = tryEmbedded(L, path);
+    if (result > 0) return result;
+
+    // Try embedded: $<mod>/init.lua
+    snprintf(path, sizeof(path), "$%s/init.lua", modpath);
+    result = tryEmbedded(L, path);
+    if (result > 0) return result;
+
+    // Fall back to SD/LittleFS: /scripts/<mod>.lua
     snprintf(path, sizeof(path), "/scripts/%s.lua", modpath);
-
-    // Try to load the file (checks SD then LittleFS)
-    if (!loadScriptFile(L, path)) {
-        // Return error message as the search result (nil + message)
-        return 1;
+    if (loadScriptFile(L, path)) {
+        lua_pushstring(L, path);
+        return 2;
     }
+    lua_pop(L, 1);
 
-    // Return the loader function and the path
-    lua_pushstring(L, path);
-    return 2;
+    // SD/FS: /scripts/<mod>/init.lua
+    snprintf(path, sizeof(path), "/scripts/%s/init.lua", modpath);
+    if (loadScriptFile(L, path)) {
+        lua_pushstring(L, path);
+        return 2;
+    }
+    lua_pop(L, 1);
+
+    lua_pushfstring(L, "no module '%s' (checked $%s.lua, $%s/init.lua, SD, FS)", modname, modpath, modpath);
+    return 1;
 }
 
 // Custom dofile that checks SD card first, then LittleFS
@@ -1134,6 +1203,12 @@ void registerSystemModule(lua_State* L) {
     lua_setfield(L, -2, "log");
     lua_pop(L, 1);
 
+    // Register defer() as a global function (coroutine next-tick yield/resume)
+    lua_register(L, "defer", l_defer);
+
+    // Initialize deferred coroutine queue
+    deferredCount = 0;
+
     // Override global dofile with our custom version (checks SD first, then LittleFS)
     lua_pushcfunction(L, l_dofile_script);
     lua_setglobal(L, "dofile");
@@ -1161,9 +1236,10 @@ void registerSystemModule(lua_State* L) {
     LOG("LuaRuntime", "Registered ez.system");
 }
 
-// Process pending timers (called from LuaRuntime::update())
+// Process pending timers and deferred coroutines (called from LuaRuntime::update())
 void processLuaTimers() {
-    if (timerLuaState == nullptr) return;
+    lua_State* L = LUA_STATE;
+    if (L == nullptr) return;
 
     uint32_t now = millis();
 
@@ -1172,23 +1248,52 @@ void processLuaTimers() {
 
         if (now >= timers[i].nextTrigger) {
             // Get callback from registry
-            lua_rawgeti(timerLuaState, LUA_REGISTRYINDEX, timers[i].callbackRef);
+            lua_rawgeti(L, LUA_REGISTRYINDEX, timers[i].callbackRef);
 
             // Call callback with no arguments
-            if (lua_pcall(timerLuaState, 0, 0, 0) != LUA_OK) {
-                LOG("Lua Timer", "Error: %s", lua_tostring(timerLuaState, -1));
-                lua_pop(timerLuaState, 1);
+            if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+                LOG("Lua Timer", "Error: %s", lua_tostring(L, -1));
+                lua_pop(L, 1);
             }
 
             // Handle one-shot vs interval
             if (timers[i].interval == 0) {
                 // One-shot: deactivate
-                luaL_unref(timerLuaState, LUA_REGISTRYINDEX, timers[i].callbackRef);
+                luaL_unref(L, LUA_REGISTRYINDEX, timers[i].callbackRef);
                 timers[i].active = false;
             } else {
                 // Interval: reschedule
                 timers[i].nextTrigger = now + timers[i].interval;
             }
+        }
+    }
+
+    // Resume deferred coroutines (from defer() calls)
+    if (deferredCount > 0) {
+        int count = deferredCount;
+        // Copy and reset before resuming (coroutines may defer again)
+        int refs[MAX_DEFERRED];
+        for (int i = 0; i < count; i++) {
+            refs[i] = deferredCoroutines[i];
+        }
+        deferredCount = 0;
+
+        for (int i = 0; i < count; i++) {
+            lua_rawgeti(L, LUA_REGISTRYINDEX, refs[i]);
+            lua_State* co = lua_tothread(L, -1);
+            lua_pop(L, 1);
+
+            if (co) {
+                int nresults = 0;
+                int status = lua_resume(co, L, 0, &nresults);
+                if (status != LUA_OK && status != LUA_YIELD) {
+                    const char* err = lua_tostring(co, -1);
+                    LOG("Defer", "Coroutine error: %s", err ? err : "unknown");
+                    lua_pop(co, 1);
+                }
+            }
+
+            luaL_unref(L, LUA_REGISTRYINDEX, refs[i]);
         }
     }
 }

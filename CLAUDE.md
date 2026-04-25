@@ -14,11 +14,37 @@ ezOS is a complete embedded operating system for the LilyGo T-Deck Plus (ESP32-S
 Instead, use the remote control tool for debugging:
 - `python tools/remote/ez_remote.py /dev/ttyACM0 --logs` - Get buffered log entries
 - `python tools/remote/ez_remote.py /dev/ttyACM0 --monitor` - Stream real-time logs
-- `python tools/remote/ez_remote.py /dev/ttyACM0 -e "Debug.memory()"` - Query device state
+- `python tools/remote/ez_remote.py /dev/ttyACM0 -e "return collectgarbage('count')"` - Query device state
 
 For building and flashing:
 - `pio run` - Build firmware
 - `pio run -t upload` - Build and flash
+
+**IMPORTANT:** Do not send messages to public mesh channels (e.g. `public <msg>` via
+meshcore-cli). The public channel is shared with real users. Only use DMs to the user's
+own devices for testing.
+
+**Note:** `/dev/ttyUSB0` is typically the user's separate MeshCore CLI node, not the
+T-Deck. The T-Deck is usually on `/dev/ttyACM0`. If `ttyACM0` isn't present, ask the
+user to plug it in rather than falling back to `ttyUSB0`.
+
+## On-device font character set
+
+The built-in bitmap fonts (`src/fonts/FreeSans7pt7b.h`, `FreeMono5pt7b.h`) only cover
+**printable ASCII 0x20..0x7E**. Any other codepoint renders as a `[]` missing-glyph box.
+
+This commonly bites when:
+- Using `·` (U+00B7 middle dot), `•` (U+2022 bullet), `…` (U+2026 ellipsis) as separators or decoration
+- Pulling display strings from external APIs (GPS names, channel names, contact names) without sanitizing
+- Copying UI conventions from web/desktop apps
+
+Safe substitutes:
+- Separator: `|` or multiple spaces
+- Ellipsis: `...`
+- Bullet: `-` or `*`
+
+If a new glyph is genuinely needed, extend the bitmap font (run the font generator with
+a wider range); otherwise stick to ASCII in any string that reaches `draw_text`.
 
 ## Building and Flashing
 
@@ -39,90 +65,93 @@ ezos/
 │   ├── hardware/          # Display, keyboard, radio, GPS drivers
 │   ├── mesh/              # MeshCore implementation (identity, routing, crypto)
 │   ├── lua/               # Lua runtime and bindings
-│   │   └── bindings/      # C++ wrappers for Lua APIs
+│   │   └── bindings/      # C++ wrappers for Lua APIs (@lua-annotated)
 │   └── remote/            # USB remote control protocol
-├── data/scripts/           # Lua UI scripts
+├── lua/                    # Lua scripts (embedded into firmware)
 │   ├── boot.lua           # Entry point (services init, apply settings)
-│   └── ui/
-│       ├── screens/       # Individual screens (40+ files)
-│       └── services/      # Background services
-├── tools/                  # Development utilities
-│   ├── maps/              # Offline map generation
-│   ├── simulator/         # Browser-based simulator
-│   └── remote/            # Remote control client
-└── docs/                   # Documentation
+│   ├── core/              # Module infrastructure (modules.lua)
+│   ├── engine/            # Long-lived helpers (audio_engine, highscores)
+│   ├── ezui/              # Declarative UI framework
+│   │   ├── init.lua       # Public API, main loop
+│   │   ├── screen.lua     # Screen stack manager
+│   │   ├── node.lua       # Node tree system
+│   │   ├── layout.lua     # Layout nodes (vbox, hbox, scroll, etc.)
+│   │   ├── widgets.lua    # Widget constructors (button, list_item, etc.)
+│   │   ├── widgets/       # Composite widgets (map_view, etc.)
+│   │   ├── focus.lua      # Focus/navigation manager
+│   │   ├── text.lua       # Text measurement and wrapping
+│   │   ├── theme.lua      # Palettes, map palette, fonts, dimensions
+│   │   ├── icons.lua      # PNG icon definitions
+│   │   └── async.lua      # Async file I/O helpers
+│   ├── screens/           # Screen definitions (about, chat, dialog,
+│   │                      #   games, settings, tools)
+│   └── services/          # Background services (apps registry, channels,
+│                          #   contacts, direct_messages, file_transfer,
+│                          #   gps, map_archive, prefs_registry, ui_sounds)
+├── scripts/                # Build-time generators (Lua embedder)
+├── tools/                  # Host utilities (map gen, simulator, remote
+│                          #   control, doc generator, font/icon/sound gen)
+└── docs/                   # User manual + Lua API reference (see below)
 ```
 
-## UI System Architecture
+## UI System Architecture (ezui)
 
-### Screen Stack
-The UI uses a stack-based screen management system. Screens are Lua classes with standard methods:
+### Declarative Screen Model
+Screens define a `build(state)` method that returns a node tree. State changes via
+`set_state()` trigger an automatic rebuild and redraw.
 
 ```lua
 local MyScreen = { title = "My Screen" }
 
-function MyScreen:new()
-    local o = { ... }
-    setmetatable(o, {__index = MyScreen})
-    return o
+function MyScreen:build(state)
+    return ui.vbox({ gap = 4 }, {
+        ui.title_bar("My Screen", { back = true }),
+        ui.text_widget({ text = state.message or "Hello" }),
+    })
 end
 
-function MyScreen:on_enter()     -- Called when screen becomes active
-function MyScreen:on_exit()      -- Called when screen is popped
-function MyScreen:render(display) -- Draw the screen
-function MyScreen:handle_key(key) -- Process input, return "continue" or "pop"
-function MyScreen:get_menu_items() -- Optional: context menu items
+function MyScreen:on_enter()      -- Called when screen becomes active
+function MyScreen:on_leave()      -- Called when screen is paused (another pushed on top)
+function MyScreen:on_exit()       -- Called when screen is popped off the stack
+function MyScreen:handle_key(key) -- Process input not handled by focused nodes
 ```
 
-### Main Loop (boot.lua → main_loop.lua)
+### Main Loop
 
-The main loop runs at ~100Hz (10ms per frame):
-1. Update mesh network (every 50ms, or 500ms in game mode)
-2. Process timers via Scheduler
-3. Handle keyboard input
-4. Render active screen
-5. Periodic garbage collection
+The C++ `loop()` calls `_G.main_loop()` which is set by `ui.start()`:
+1. Update mesh network (every 50ms via `ez.mesh.update()`)
+2. Screen manager update (input + render at ~30 FPS)
+3. Incremental garbage collection (every 2 seconds)
+
+Timers and bus messages are processed by C++ `LuaRuntime::update()` before the Lua main loop runs.
 
 ### Services
 
-Services are initialized in order at boot:
-1. **Scheduler** - Timer/interval management
-2. **Overlays** - Modal overlay management
-3. **StatusBar** - Battery, signal, node ID display
-4. **ThemeManager** - Wallpaper, colors, icon themes
-5. **TitleBar** - Screen title rendering
-6. **ScreenManager** - Screen stack management
-7. **MainLoop** - Frame loop coordinator
-8. **Logger** - Message logging to storage
+Services are initialized in order in `lua/boot.lua`:
+1. **contacts** — Contact list CRUD with persistence
+2. **channels** — Channel management, GRP_TXT decryption
+3. **direct_messages** — Encrypted DMs via TXT_MSG packets
+4. **custom_packets** — Custom (non-MeshCore) packet handlers
+5. **file_transfer** — Mesh-based file send/receive
+6. **ui_sounds** — UI sound effects via the audio engine
+7. **apps** — Registered file-type → screen handlers (used by the file manager)
+8. **gps** — Started lazily based on the user pref
+
+Other modules under `lua/services/` (e.g. `map_archive`, `prefs_registry`)
+are loaded on demand by the screens that need them.
 
 ### Module Loading
 
 ```lua
-load_module(path)           -- Async load (yields in coroutine)
-unload_module(path)         -- Memory cleanup
+load_module(path)           -- Async load from LittleFS (yields in coroutine)
+require("module.name")      -- Standard Lua require (loads embedded scripts first)
 spawn(fn)                   -- Run function in coroutine
-spawn_screen(path, ...)     -- Load and push screen
-spawn_module(path, method)  -- Load and call method
 ```
 
-### Settings Save/Restore Pattern
+### Settings
 
-Settings must be both saved when changed AND restored at boot.
-
-**Where settings are defined:**
-- `data/scripts/ui/screens/settings.lua` - Settings UI with definitions, defaults, save logic
-
-**How settings are saved:**
-1. In `save_settings()`: Write to preferences using `ez.storage.set_pref(key, value)`
-2. ThemeManager settings: Saved via `ThemeManager.save()`
-
-**How settings are restored at boot:**
-- `data/scripts/boot.lua` - `apply_saved_settings()` function
-
-**Adding a new setting:**
-1. Add setting definition to `settings.lua` with name, label, type, default value
-2. Add save logic in `save_settings()` using `ez.storage.set_pref()`
-3. Add restore logic in `boot.lua` `apply_saved_settings()` using `ez.storage.get_pref()`
+Settings are stored via `ez.storage.set_pref(key, value)` and restored in
+`lua/boot.lua` at startup.
 
 ## Map Tools (`tools/maps/`)
 
@@ -132,10 +161,10 @@ Convert OpenStreetMap vector tiles to optimized TDMAP format for offline viewing
 
 | File | Purpose |
 |------|---------|
-| `pmtiles_to_tdmap.py` | Main converter - PMTiles to TDMAP |
-| `config.py` | Tile sources, regions, 8-color semantic palette |
-| `process.py` | Grayscale conversion, dithering, RLE compression |
-| `archive.py` | TDMAP format writer/reader |
+| `pmtiles_to_tdmap.py` | Main converter — PMTiles to TDMAP |
+| `config.py` | Tile sources, regions, semantic-index → grayscale lookup used by the rasterizer |
+| `process.py` | Grayscale conversion, dithering, RLE/zlib tile compression |
+| `archive.py` | TDMAP format writer/reader/inspector |
 | `land_mask.py` | Natural Earth land polygon downloader |
 | `viewer.html` | Browser-based TDMAP viewer |
 
@@ -148,16 +177,29 @@ python pmtiles_to_tdmap.py input.pmtiles -o output.tdmap
 python pmtiles_to_tdmap.py input.pmtiles --bounds 4.0,52.0,5.5,52.5 --zoom 10,14 -o region.tdmap
 ```
 
-### TDMAP Format (v4)
+Copy generated `.tdmap` files to `/sd/maps/` on the device. The Map app
+opens a loader screen (`screens/tools/map_loader.lua`) that lists every
+archive there; "Set as default" via the M-key actions menu skips the
+picker on subsequent opens.
 
-Optimized archive format for ESP32:
-- **Header** (33 bytes): Magic, version, compression type, tile/label counts, offsets
-- **Palette** (16 bytes): 8 RGB565 colors for semantic features
-- **Tile Index**: Sorted by (zoom, x, y) for binary search
-- **Tile Data**: RLE-compressed 3-bit indexed pixels
-- **Labels**: Geographic coordinates (lat_e6, lon_e6), zoom ranges, label types
+### TDMAP Format (v6)
 
-Semantic feature indices (0-7): Land, Water, Park, Building, RoadMinor, RoadMajor, Highway, Railway
+Optimized archive format for ESP32. The writer emits v6 and the reader
+accepts v6 only — pre-v6 archives are rejected at open time with a
+"regenerate with the current writer" message.
+
+- **Header** (33 bytes): Magic, version, compression type, tile/label counts, offsets, zoom range. `palette_count` is always 0; the byte is kept for header-shape stability.
+- **Metadata block**: 4-byte length + TLV tags (region name, bounds, build timestamp, tool version, source hash). Always present (length may be 0) so readers don't need a version-conditional branch to locate the index.
+- **Tile Index**: Sorted by (zoom, x, y) for binary search.
+- **Tile Data**: zlib-compressed 3-bit indexed pixels.
+- **Labels**: Geographic coordinates (lat_e6, lon_e6), zoom ranges, label types.
+
+Semantic feature indices (0-7): Land, Water, Park, Building, RoadMinor, RoadMajor, Highway, Railway.
+
+Tile colors are **not** stored in the archive. The on-device renderer
+maps indices to RGB565 via `ezui.theme.map_palette()`, which returns a
+per-theme palette plus matching label inks — so a single archive serves
+both light and dark themes.
 
 ### Resume Support
 
@@ -203,6 +245,10 @@ Lua Scripts (boot.lua, screens, services)
 | `mock/gps.js` | Browser geolocation + mock location |
 | `mock/audio.js` | Web Audio API synthesis |
 | `mock/bus.js` | Message bus for screen communication |
+| `mock/crypto.js` | Crypto primitives (AES, HMAC, key derivation) |
+| `mock/system.js` | System APIs (timers, millis, memory) |
+| `mock/radio.js` | LoRa radio simulation |
+| `mock/wifi.js` | WiFi mock |
 
 ## Remote Control (`tools/remote/`)
 
@@ -247,7 +293,7 @@ python ez_remote.py /dev/ttyACM0 --monitor
 
 # Execute Lua code
 python ez_remote.py /dev/ttyACM0 -e "1+1"
-python ez_remote.py /dev/ttyACM0 -e "Debug.memory()"
+python ez_remote.py /dev/ttyACM0 -e "return collectgarbage('count')"
 python ez_remote.py /dev/ttyACM0 -e "ez.system.get_time()"
 python ez_remote.py /dev/ttyACM0 -f script.lua
 ```
@@ -297,7 +343,7 @@ Commands:
 
 **IMPORTANT:** Prefer using `--text` over screenshots when verifying UI content. Text capture is faster, uses less bandwidth, and can be easily compared or searched programmatically.
 
-1. Navigate to the problematic screen (use `spawn_screen()` via `-e` flag)
+1. Navigate to the problematic screen (use `ui.push_screen()` via `-e` flag)
 2. **Prefer:** Capture text to verify content: `--text`
 3. **If needed:** Capture primitives to debug rendering: `--primitives`
 4. **Last resort:** Take screenshot for visual verification: `-s screenshot.png`
@@ -315,61 +361,42 @@ The `-e` flag executes Lua code on the device and returns JSON results:
 ```bash
 # Check system state
 python ez_remote.py /dev/ttyACM0 -e "ez.system.get_time()"
-python ez_remote.py /dev/ttyACM0 -e "Debug.memory()"
+python ez_remote.py /dev/ttyACM0 -e "return collectgarbage('count')"
+python ez_remote.py /dev/ttyACM0 -e "return ez.system.millis()"
 
 # Query settings
 python ez_remote.py /dev/ttyACM0 -e "ez.storage.get_pref('brightness', 200)"
 
 # Access services
-python ez_remote.py /dev/ttyACM0 -e "Logger.get_entries()"
-python ez_remote.py /dev/ttyACM0 -e "ScreenManager.get_stack_depth()"
-
-# Inspect globals
-python ez_remote.py /dev/ttyACM0 -e "_G.StatusBar.battery"
+python ez_remote.py /dev/ttyACM0 -e "local ch = require('services.channels'); return #ch.get_history('#Public')"
+python ez_remote.py /dev/ttyACM0 -e "local dm = require('services.direct_messages'); return dm.get_total_unread()"
 ```
 
-### Spawning Screens Directly
+### Navigating Screens
 
-Use `spawn_screen()` to navigate to any screen without manual key input:
-
-```bash
-# Open file browser
-python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/files.lua')"
-
-# Open file editor with specific file
-python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/file_edit.lua', '/scripts/boot.lua')"
-
-# Open settings
-python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/settings.lua')"
-
-# Open map viewer
-python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/map_viewer.lua')"
-
-# Open nodes list
-python ez_remote.py /dev/ttyACM0 -e "spawn_screen('/scripts/ui/screens/nodes.lua')"
-```
-
-Other useful screen navigation:
+Push screens using the ezui API:
 
 ```bash
+# Push a screen loaded from LittleFS
+python ez_remote.py /dev/ttyACM0 -e "local ui = require('ezui'); ui.push_screen('\$screens/chat/messages.lua')"
+
+# Push a screen from a require()'d module
+python ez_remote.py /dev/ttyACM0 -e "local ui = require('ezui'); local s = require('ezui.screen'); local def = require('screens.chat.contacts'); s.push(s.create(def, {}))"
+
 # Pop current screen (go back)
-python ez_remote.py /dev/ttyACM0 -e "ScreenManager.pop()"
-
-# Get current screen info
-python ez_remote.py /dev/ttyACM0 -e "local s = ScreenManager.peek(); return s and s.title"
-
-# Check screen stack depth
-python ez_remote.py /dev/ttyACM0 -e "ScreenManager.get_stack_depth()"
+python ez_remote.py /dev/ttyACM0 -e "require('ezui.screen').pop()"
 ```
 
 ### Testing Changes
 
-For **Lua-only changes** (files in `data/scripts/`):
-- Copy updated files to SD card, or
-- Rebuild and flash (Lua files are in LittleFS)
+Lua scripts in `lua/` are embedded into the firmware at build time. `require()` loads
+embedded scripts before LittleFS, so you must rebuild and flash for changes to take effect:
 
-For **C++ changes** (files in `src/`):
-- Must rebuild and flash: `pio run -t upload`
+```bash
+pio run -t upload
+```
+
+Both Lua and C++ changes require a full rebuild and flash.
 
 ### Verifying Fixes
 
@@ -388,12 +415,157 @@ After making a fix:
 
 ### Channel System
 - Default channel: `#Public` (joined automatically on startup)
-- Encrypted channels: password-based AES-256-GCM with HKDF key derivation
-- All channel messages are signed with Ed25519
+- Encrypted channels: AES-128-ECB with password-derived keys
+- GRP_TXT plaintext format: `[timestamp:4 LE][type:1][sendername: text]`
+- Room server relays wrap an additional `[timestamp:4][type:1][sender: text]` inside the text
+
+### Direct Messages (TXT_MSG)
+- ECDH shared secret (X25519) → first 16 bytes as AES key, full 32 bytes as HMAC key
+- Over-the-air payload: `[dest_hash:1][src_hash:1][MAC:2][ciphertext:N]`
+- MAC: HMAC-SHA256 truncated to 2 bytes, keyed with full 32-byte shared secret
+- Ciphertext: AES-128-ECB, zero-padded to 16-byte boundary
+- Inner plaintext: `[timestamp:4 LE][flags:1][text:N]`
+- Receiver filters by dest_hash, then tries contacts/nodes matching src_hash
 
 ### Radio Status
 - `!RF` indicator means radio failed to initialize
 - Check LoRa module wiring if this appears
+
+## Theming
+
+`lua/ezui/theme.lua` is the single source of truth for colors and fonts.
+
+- Built-in palettes: `dark` (default) and `light`. Selected via
+  `theme.set("dark"|"light")`, persisted under the `theme` pref, and
+  restored at boot.
+- Accent color is independent of the dark/light choice. Stored under
+  `accent_color`, picked from `theme.ACCENT_PRESETS`. Settings → Display
+  → Accent colour.
+- **Map palette**: `theme.map_palette()` returns the 8-color tile palette
+  + label inks/halo for the active theme. The map renderer reads this
+  every frame, so a theme switch repaints tiles without invalidating the
+  cache. See `lua/ezui/widgets/map_view.lua`.
+- User entry points: Settings → Display → Theme → Dark mode toggle. The
+  Map screen also accepts `T` as a legacy shortcut.
+
+When adding new theme tokens, use `theme.color("NAME")` rather than raw
+RGB565 literals so the value can flow through both palettes.
+
+## C++ Binding Safety Rules
+
+### Dangling lua_State* Pointer Bug
+
+**CRITICAL:** Never store a `lua_State* L` parameter in a static/global variable when
+the function may be called from a Lua coroutine. The coroutine's state becomes invalid
+after it is garbage collected, causing crashes when the stored pointer is later used.
+
+This bug has occurred multiple times:
+- `callbackState` in `mesh_bindings.cpp` — stored boot coroutine's state, crashed on packet callbacks
+- `timerLuaState` in `system_bindings.cpp` — stored boot coroutine's state, crashed on 30-second timer
+
+**Fix pattern:** Use the `LUA_STATE` macro (`LuaRuntime::instance().getState()`) which
+always returns the main Lua state. Include `lua_runtime.h` for access.
+
+```cpp
+// BAD: L may be a coroutine state that gets GC'd
+static lua_State* savedState = nullptr;
+LUA_FUNCTION(my_func) {
+    savedState = L;  // Dangling after coroutine GC!
+}
+
+// GOOD: Always use main state
+void myCallback() {
+    lua_State* L = LUA_STATE;  // Always valid
+    if (L) { lua_pcall(L, ...); }
+}
+```
+
+When writing new C++ bindings that register callbacks, audit every `lua_State*` that
+outlives the current function call. If it's stored for later use, it must come from
+`LUA_STATE`, not from the `L` parameter.
+
+## Documentation
+
+Two doc surfaces live under `docs/`:
+
+- `docs/manual/` — User-facing manual (Markdown + generated HTML).
+  Hand-written prose covering what the device does, how to use each
+  app, and where to find settings.
+- `docs/api/` — Lua API reference, **generated from C++ binding
+  annotations** by `tools/generate_lua_docs.py`. Do not hand-edit;
+  changes are overwritten on the next regen.
+
+### Annotation conventions (C++ bindings)
+
+Every Lua binding under `src/lua/bindings/` is documented inline with
+structured comments. The generator parses these into `docs/api/`. See
+the docstring at the top of `tools/generate_lua_docs.py` for the full
+grammar; the common cases:
+
+```cpp
+// @module ez.display
+// @brief Display drawing and rendering functions
+// @description ...
+// @end
+
+// @lua ez.display.draw_text(x, y, text, color) -> nil
+// @brief Draw a string at (x, y)
+// @param x  X coordinate (pixels)
+// @param y  Y coordinate (pixels)
+// @param text  UTF-8 string (ASCII-only on default fonts)
+// @param color  RGB565 color
+// @example
+// ez.display.draw_text(8, 8, "hello", 0xFFFF)
+// @end
+
+// @bus key/down
+// @brief Posted on every keypress (before per-screen handling)
+// @payload { key: string, special: bool, ctrl: bool, shift: bool }
+```
+
+Bus topics (`@bus`), parameters (`@param`), return values (`@return`),
+and code samples (`@example`) all flow into the published API page.
+
+### Regenerating docs
+
+```bash
+python tools/generate_lua_docs.py
+```
+
+The script writes both Markdown and HTML to `docs/api/` and `docs/manual/`.
+There is **no** "watch" mode; run it manually after touching annotations.
+
+### Maintenance contract
+
+- **Adding or modifying a Lua binding**: update the C++ annotation in
+  the same diff. Don't ship undocumented surface — `@brief` at minimum.
+- **Adding or removing a Lua-only API** (something that doesn't go
+  through a C++ binding, e.g. a service or ezui module): document it
+  under `docs/manual/` if it's user-visible, or in CLAUDE.md if it's
+  developer-only context.
+- **Adding a new screen / app / settings panel**: add or update the
+  matching page under `docs/manual/<area>/index.md`.
+- **Changing on-disk formats** (TDMAP, prefs, transfer protocol): keep
+  CLAUDE.md's Key Components / TDMAP / MeshCore sections honest. Bump
+  the version constant *and* the prose in the same commit.
+- **CLAUDE.md itself is a living doc**: when a section becomes wrong
+  (renamed module, deleted screen, format bump), fix the section in the
+  same change set rather than letting drift accumulate.
+
+The on-device docs reader (`lua/screens/tools/help.lua`) browses two
+stores: firmware-embedded markdown under `lua/docs/` (hand-authored
+prose, exposed via the `ez.docs.list` / `ez.docs.read` bindings) and
+SD-side markdown under `/sd/docs/manual/` and `/sd/docs/api/` (the
+bulkier auto-generated reference content). Both render through
+`lua/ezui/markdown.lua`, the same renderer used by the About screen.
+
+Source-of-truth split:
+- `lua/docs/manual/` — hand-authored, embedded in firmware. Edit
+  directly; the embedder picks it up on the next `pio run`.
+- `docs/manual/` and `docs/api/` — auto-generated by
+  `tools/generate_lua_docs.py` from C++ binding annotations and Lua
+  registries. Do not hand-edit; deployed to GitHub Pages and meant to
+  be copied to SD for on-device reference reading.
 
 ## MeshCore Protocol Reference
 

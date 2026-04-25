@@ -165,8 +165,15 @@ void MeshCore::handlePacket(const uint8_t* data, size_t len, const RxMetadata& m
             break;
     }
 
-    // Rebroadcast if flood routing (C++ path)
-    if (packet.getRouteType() == RouteType::FLOOD) {
+    // Rebroadcast if flood routing (C++ path). RAW_CUSTOM is an
+    // application-defined payload with no stack-level retry semantics;
+    // the reference MeshCore firmware (ripplebiz/MeshCore Mesh.cpp:281)
+    // explicitly does NOT re-flood it, and forwarding it here wastes
+    // airtime and — more importantly — contends with our own response
+    // packets when the receiving app wants to reply. Keep the floor
+    // clear for app-initiated sends.
+    if (packet.getRouteType() == RouteType::FLOOD
+            && payloadType != PayloadType::RAW_CUSTOM) {
         scheduleRebroadcast(packet);
     }
 }

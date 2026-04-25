@@ -3,16 +3,98 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <SPI.h>
-#include "../fonts/FreeMono5pt7b.h"
+#include "../fonts/Spleen6x12.h"
+#include "../fonts/Spleen8x16.h"
+#include "../fonts/Spleen12x24.h"
+#include "../fonts/Spleen16x32.h"
+#include "../fonts/InterAA9.h"
+#include "../fonts/InterAA11.h"
+#include "../fonts/InterAA13.h"
+#include "../fonts/InterAA17.h"
+#include "../fonts/InterAA9Bold.h"
+#include "../fonts/InterAA11Bold.h"
+#include "../fonts/InterAA13Bold.h"
+#include "../fonts/InterAA17Bold.h"
+#include "../fonts/InterAA9Italic.h"
+#include "../fonts/InterAA11Italic.h"
+#include "../fonts/InterAA13Italic.h"
+#include "../fonts/InterAA17Italic.h"
+#include "../fonts/InterAA9BoldItalic.h"
+#include "../fonts/InterAA11BoldItalic.h"
+#include "../fonts/InterAA13BoldItalic.h"
+#include "../fonts/InterAA17BoldItalic.h"
+#include "aa_font.h"
 #include "../config.h"
 
-// Font metrics for each size (measured via textWidth for monospace accuracy)
-// All fonts are FreeMono - true monospace with UTF-8 support
+// Build a shared `aa_font::Font` view over each generated header. The per-
+// header Glyph layout matches aa_font::Glyph byte-for-byte, so we cast the
+// arrays directly. Ascent and y_advance come from the generator.
+//
+// The lookup is a 4×4 table indexed by [size_idx][style_idx] where size is
+// {tiny, small, medium, large} mapped from FontSize::*_AA and style is
+// FontStyle (regular/bold/italic/bold_italic). Keeping a flat array of
+// POD structs lets us resolve with two uint8_t lookups and no branching.
+#define AA_FONT_ENTRY(NS) { \
+    NS::alpha_data, \
+    reinterpret_cast<const aa_font::Glyph*>(NS::glyphs), \
+    NS::first_char, NS::last_char, \
+    NS::ascent, NS::y_advance, \
+}
+
+static const aa_font::Font AA_FONTS[4][4] = {
+    // TINY_AA (9 px)
+    {
+        AA_FONT_ENTRY(InterAA9),
+        AA_FONT_ENTRY(InterAA9Bold),
+        AA_FONT_ENTRY(InterAA9Italic),
+        AA_FONT_ENTRY(InterAA9BoldItalic),
+    },
+    // SMALL_AA (11 px)
+    {
+        AA_FONT_ENTRY(InterAA11),
+        AA_FONT_ENTRY(InterAA11Bold),
+        AA_FONT_ENTRY(InterAA11Italic),
+        AA_FONT_ENTRY(InterAA11BoldItalic),
+    },
+    // MEDIUM_AA (13 px)
+    {
+        AA_FONT_ENTRY(InterAA13),
+        AA_FONT_ENTRY(InterAA13Bold),
+        AA_FONT_ENTRY(InterAA13Italic),
+        AA_FONT_ENTRY(InterAA13BoldItalic),
+    },
+    // LARGE_AA (17 px)
+    {
+        AA_FONT_ENTRY(InterAA17),
+        AA_FONT_ENTRY(InterAA17Bold),
+        AA_FONT_ENTRY(InterAA17Italic),
+        AA_FONT_ENTRY(InterAA17BoldItalic),
+    },
+};
+
+#undef AA_FONT_ENTRY
+
+// Translate FontSize (covers both bitmap and AA slots) into the AA_FONTS
+// first-axis index, or -1 for non-AA sizes.
+static int aa_size_index(FontSize size) {
+    switch (size) {
+        case FontSize::TINY_AA:   return 0;
+        case FontSize::SMALL_AA:  return 1;
+        case FontSize::MEDIUM_AA: return 2;
+        case FontSize::LARGE_AA:  return 3;
+        default:                  return -1;
+    }
+}
+
+// Font metrics for each bitmap size slot. All four bitmap mono sizes
+// are now Spleen (Frederic Cambus, BSD-2), pixel-native with no TTF
+// rasterisation — glyphs are hand-tuned per size, no AA, no hinting
+// artifacts. One consistent family across the scale.
 static const FontMetrics FONT_METRICS[] = {
-    { 6, 10, &FreeMono5pt7b },           // TINY: 6x10 (compact UTF-8 monospace)
-    { 11, 12, &fonts::FreeMono9pt7b },   // SMALL: 11x12 (UTF-8 monospace)
-    { 14, 16, &fonts::FreeMono12pt7b },  // MEDIUM: 14x16 (default)
-    { 21, 24, &fonts::FreeMono18pt7b }   // LARGE: 21x24
+    { 6,  12, &Spleen6x12 },   // TINY:    6x12  pixel mono
+    { 8,  16, &Spleen8x16 },   // SMALL:   8x16  pixel mono
+    { 12, 24, &Spleen12x24 },  // MEDIUM:  12x24 pixel mono
+    { 16, 32, &Spleen16x32 },  // LARGE:   16x32 pixel mono
 };
 
 Display::Display() : _buffer(&_lcd) {
@@ -59,6 +141,12 @@ bool Display::init() {
     setFontSize(FontSize::MEDIUM);
     _buffer.setTextSize(1);
 
+    // LovyanGFX defaults textWrap to on, which silently wraps bitmap-font
+    // draw_text calls that run past the panel's right edge to the next
+    // line. Disable on both axes so draw_text is always a straight
+    // single-line blit and callers are in charge of clipping.
+    _buffer.setTextWrap(false, false);
+
     _initialized = true;
     Serial.println("Display: Initialization complete");
 
@@ -101,6 +189,12 @@ void Display::drawText(int x, int y, const char* text, uint16_t color) {
         _capturedTextCount++;
     }
 
+    if (_aaFont) {
+        const aa_font::Font& f = *static_cast<const aa_font::Font*>(_aaFont);
+        aa_font::drawText(_buffer, x, y, text, color, f);
+        return;
+    }
+
     _buffer.setTextColor(color);
     _buffer.setCursor(x, y);
     _buffer.print(text);
@@ -122,14 +216,45 @@ void Display::drawChar(int x, int y, char c, uint16_t color) {
 
 int Display::textWidth(const char* text) {
     if (!text) return 0;
+    if (_aaFont) {
+        return aa_font::textWidth(text,
+            *static_cast<const aa_font::Font*>(_aaFont));
+    }
     return _buffer.textWidth(text);
 }
 
 void Display::setFontSize(FontSize size) {
+    setFont(size, _fontStyle);
+}
+
+void Display::setFontStyle(FontStyle style) {
+    setFont(_fontSize, style);
+}
+
+// Core font dispatch: resolve (size, style) to either an AA font slot or a
+// bitmap mono font, and cache the active metrics. Bitmap mono sizes ignore
+// style — Spleen doesn't ship with bold/italic, and synthesising them on
+// pixel-native fonts looks broken, so we fall through to the regular slot.
+void Display::setFont(FontSize size, FontStyle style) {
+    _fontSize = size;
+    _fontStyle = style;
+
+    int size_idx = aa_size_index(size);
+    if (size_idx >= 0) {
+        int style_idx = static_cast<int>(style);
+        if (style_idx < 0 || style_idx > 3) style_idx = 0;
+        const aa_font::Font& aa = AA_FONTS[size_idx][style_idx];
+        _aaFont = &aa;
+        // Q8.8 advance of 'x' rounds to a sensible monospace fallback
+        // for callers that treat font_width as a column step.
+        _fontWidth = (aa.glyphs['x' - aa.first].adv + 128) >> 8;
+        _fontHeight = aa.y_advance;
+        return;
+    }
+
+    _aaFont = nullptr;
     int idx = static_cast<int>(size);
     if (idx < 0 || idx > 3) idx = 2;  // Default to MEDIUM
-
-    _fontSize = size;
     _fontWidth = FONT_METRICS[idx].width;
     _fontHeight = FONT_METRICS[idx].height;
     _buffer.setFont(FONT_METRICS[idx].font);
@@ -137,10 +262,14 @@ void Display::setFontSize(FontSize size) {
 
 const char* Display::getFontSizeName(FontSize size) {
     switch (size) {
-        case FontSize::TINY:   return "Tiny";
-        case FontSize::SMALL:  return "Small";
-        case FontSize::MEDIUM: return "Medium";
-        case FontSize::LARGE:  return "Large";
+        case FontSize::TINY:      return "Tiny";
+        case FontSize::SMALL:     return "Small";
+        case FontSize::MEDIUM:    return "Medium";
+        case FontSize::LARGE:     return "Large";
+        case FontSize::TINY_AA:   return "TinyAA";
+        case FontSize::SMALL_AA:  return "SmallAA";
+        case FontSize::MEDIUM_AA: return "MediumAA";
+        case FontSize::LARGE_AA:  return "LargeAA";
         default: return "Unknown";
     }
 }
@@ -308,31 +437,33 @@ void Display::drawProgressBar(int x, int y, int w, int h, float progress,
 }
 
 void Display::drawBattery(int x, int y, uint8_t percent) {
-    // Battery icon: [####] style
+    // Graphical pill-shaped battery with three vertical fill segments.
+    // Footprint: 20×10 px (18 body + 2 nub).
+    if (percent > 100) percent = 100;
 
-    // Draw battery outline
-    drawText(x, y, "[", Colors::BORDER);
-    drawText(x + 5 * _fontWidth, y, "]", Colors::BORDER);
+    const int bodyW = 18;
+    const int bodyH = 10;
+    const uint16_t frame = Colors::LIGHT_GRAY;
 
-    // Calculate fill level (4 positions)
-    int fillChars = (percent * 4) / 100;
-    if (percent > 0 && fillChars == 0) fillChars = 1;  // Show at least 1 bar if not empty
+    _buffer.drawRect(x, y, bodyW, bodyH, frame);
+    _buffer.fillRect(x + bodyW, y + 3, 2, 4, frame);
 
-    // Choose color based on level
-    uint16_t color = Colors::GREEN;
-    if (percent <= 20) {
-        color = Colors::RED;
-    } else if (percent <= 40) {
-        color = Colors::YELLOW;
-    }
+    uint16_t fill;
+    if (percent <= 15)      fill = Colors::RED;
+    else if (percent <= 35) fill = Colors::YELLOW;
+    else                    fill = Colors::GREEN;
 
-    // Draw fill bars
-    for (int i = 0; i < 4; i++) {
-        if (i < fillChars) {
-            drawText(x + (1 + i) * _fontWidth, y, "#", color);
-        } else {
-            drawText(x + (1 + i) * _fontWidth, y, "-", Colors::DARK_GRAY);
-        }
+    int filled;
+    if      (percent > 66) filled = 3;
+    else if (percent > 33) filled = 2;
+    else if (percent > 5)  filled = 1;
+    else                   filled = 0;
+
+    const int segW = 4;
+    const int segH = 6;
+    for (int i = 0; i < filled; i++) {
+        int sx = x + 2 + i * (segW + 1);
+        _buffer.fillRect(sx, y + 2, segW, segH, fill);
     }
 }
 
@@ -352,6 +483,38 @@ void Display::drawSignal(int x, int y, int bars) {
         uint16_t color = (i < bars) ? Colors::GREEN : Colors::DARK_GRAY;
         _buffer.fillRect(bx, by, barWidth, barHeight, color);
     }
+}
+
+// Internal helper: three ascending bars (widths 3, heights 3/6/9).
+// Footprint: 11×10 px — bars occupy the bottom 9 rows.
+static void drawThreeBars(LGFX_Sprite& buf, int x, int y, int bars,
+                          uint16_t fg, uint16_t dim) {
+    const int barW = 3;
+    const int gap = 1;
+    for (int i = 0; i < 3; i++) {
+        int bh = 3 + i * 3;                // 3, 6, 9
+        int bx = x + i * (barW + gap);
+        int by = y + 1 + (9 - bh);
+        uint16_t c = (i < bars) ? fg : dim;
+        buf.fillRect(bx, by, barW, bh, c);
+    }
+}
+
+void Display::drawWifi(int x, int y, int bars) {
+    if (bars < 0) bars = 0;
+    if (bars > 3) bars = 3;
+    drawThreeBars(_buffer, x, y, bars, Colors::CYAN, Colors::DARK_GRAY);
+}
+
+void Display::drawGps(int x, int y, int bars) {
+    if (bars < 0) bars = 0;
+    if (bars > 3) bars = 3;
+    // Small dot above the bars marks this as "GPS" vs "WiFi" even when
+    // colors are not obvious at small sizes.
+    uint16_t accent = Colors::ORANGE;
+    uint16_t dim = Colors::DARK_GRAY;
+    _buffer.fillRect(x + 4, y - 1, 2, 2, (bars > 0) ? accent : dim);
+    drawThreeBars(_buffer, x, y, bars, accent, dim);
 }
 
 void Display::drawPixel(int x, int y, uint16_t color) {
@@ -983,6 +1146,9 @@ bool Sprite::create(int width, int height) {
     _width = width;
     _height = height;
     _sprite.setColorDepth(16);
+    // Prefer PSRAM. Internal heap is often under 64 KB on this board,
+    // so a 320×240 sprite (150 KB) is guaranteed to fail without this.
+    _sprite.setPsram(true);
 
     void* buffer = _sprite.createSprite(width, height);
     if (!buffer) {
@@ -1077,6 +1243,27 @@ void Sprite::drawText(int x, int y, const char* text, uint16_t color) {
         _sprite.setCursor(x, y + _parent->getFontHeight());
         _sprite.print(text);
     }
+}
+
+bool Sprite::drawJpeg(const uint8_t* data, size_t len,
+                      int x, int y, int max_w, int max_h,
+                      int off_x, int off_y, float scale_x, float scale_y) {
+    if (!_valid) return false;
+    return _sprite.drawJpg(data, len, x, y, max_w, max_h,
+                           off_x, off_y, scale_x, scale_y);
+}
+
+bool Sprite::drawPng(const uint8_t* data, size_t len,
+                     int x, int y, int max_w, int max_h,
+                     int off_x, int off_y, float scale_x, float scale_y) {
+    if (!_valid) return false;
+    return _sprite.drawPng(data, len, x, y, max_w, max_h,
+                           off_x, off_y, scale_x, scale_y);
+}
+
+const uint8_t* Sprite::rawBuffer() const {
+    if (!_valid) return nullptr;
+    return (const uint8_t*)const_cast<LGFX_Sprite&>(_sprite).getBuffer();
 }
 
 // Helper to swap bytes in RGB565 value (for buffer format conversion)

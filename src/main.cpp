@@ -7,12 +7,14 @@
 
 #include <Arduino.h>
 #include <LittleFS.h>
+#include "esp_heap_caps.h"
 #include "config.h"
 #include "hardware/display.h"
 #include "hardware/keyboard.h"
 #include "hardware/radio.h"
 #include "hardware/gps.h"
 #include "mesh/meshcore.h"
+#include "lua/async.h"
 #include "settings.h"
 #include "lua/lua_runtime.h"
 #include "remote/remote_control.h"
@@ -49,6 +51,30 @@ void setup() {
     // Initialize PSRAM (8MB OPI on T-Deck Plus)
     if (psramInit()) {
         // PSRAM initialized successfully
+
+        // Route non-DMA/non-internal allocations above the threshold to
+        // PSRAM so WiFi / LWIP / mesh state stops starving internal RAM.
+        // The ESP32-S3 WiFi driver asks for MALLOC_CAP_DMA or
+        // MALLOC_CAP_INTERNAL explicitly when it needs DMA-reachable
+        // memory, so those still come from internal as required.
+        //
+        // Threshold is deliberately low (128 B) because the WiFi + LWIP
+        // stacks issue huge numbers of small generic mallocs for LWIP
+        // pbufs, mbox entries, per-station state, scan results, and so
+        // on. At 256 B a fair chunk of LWIP's per-TCP-PCB / DHCP /
+        // per-station-state allocations (all sub-256 B) stayed in
+        // internal RAM, which capped us at 2 SoftAP clients before the
+        // per-station overhead ran internal heap dry. Dropping to 128 B
+        // catches those and frees ~8 kB of additional internal heap at
+        // steady state; the cost is that PSRAM's ~4× slower access now
+        // covers more of the LWIP hot path, but the user-visible effect
+        // (TCP blob throughput) is well within spec for our use case.
+        //
+        // Sub-128 B hot-path allocations (task stack frames, small
+        // esp-idf bookkeeping) stay on internal where latency matters,
+        // and DMA/internal-caps paths are untouched — those go through
+        // heap_caps_malloc() with explicit caps.
+        heap_caps_malloc_extmem_enable(128);
     }
 
     // Brief delay for power stabilization
@@ -66,7 +92,7 @@ void setup() {
     Serial.println();
     Serial.println("=====================================");
     Serial.println("  T-Deck Plus MeshCore");
-    Serial.println("  Version 0.2.0 (Lua Shell)");
+    Serial.println("  Version " EZOS_VERSION " (Lua Shell)");
     Serial.println("=====================================");
     Serial.printf("PSRAM: %d KB free / %d KB total\n", ESP.getFreePsram() / 1024, ESP.getPsramSize() / 1024);
     Serial.printf("Heap:  %d KB free / %d KB total\n", ESP.getFreeHeap() / 1024, ESP.getHeapSize() / 1024);
@@ -140,6 +166,19 @@ void setup() {
             mesh->setNodeCallback([](const NodeInfo& node) {
                 Serial.printf("Node discovered: %02X (%s)\n", node.pathHash, node.name);
             });
+
+            // Offload X25519 ECDH to the AsyncIO worker (Core 0). The
+            // curve op has no HW accel on ESP32-S3, so running it on
+            // Core 1 would block the UI for ~20-50 ms per first-contact
+            // DM. Identity outlives both the worker and the Lua VM, so
+            // capturing by pointer is safe.
+            // getIdentity returns const Identity& — we only need read
+            // access to the immutable private key inside calcSharedSecret,
+            // so capture the const pointer explicitly.
+            const Identity* id = &mesh->getIdentity();
+            AsyncIO::setX25519Handler([id](const uint8_t* peer, uint8_t* out) {
+                return id->calcSharedSecret(peer, out);
+            });
         } else {
             Serial.println("WARNING: Mesh init failed");
         }
@@ -166,7 +205,7 @@ void setup() {
     // Run boot script (requires display and keyboard)
     if (displayOk && keyboardOk && luaOk) {
         Serial.println("Running boot script...");
-        if (LuaRuntime::instance().executeFile("/scripts/boot.lua")) {
+        if (LuaRuntime::instance().executeFile("$boot.lua")) {
             Serial.println("Boot script executed - Lua shell active");
         } else {
             Serial.println("ERROR: Boot script failed!");
@@ -228,7 +267,7 @@ void setup() {
                         y += lineHeight;
                     }
                 } else {
-                    display->drawText(10, 50, "Check /scripts/boot.lua", 0xFFFF);
+                    display->drawText(10, 50, "Check $boot.lua", 0xFFFF);
                 }
 
                 display->flush();
@@ -276,6 +315,12 @@ void loop() {
     if (luaOk) {
         LuaRuntime::instance().update();
     }
+
+    // Pump the UDP echo server used by the WiFi test screen. No-op when
+    // the echo server isn't running, so the cost while WiFi testing is
+    // inactive is a single boolean check.
+    extern void wifiUdpPump();
+    wifiUdpPump();
 
     // Call Lua main loop (if defined)
     if (luaOk) {

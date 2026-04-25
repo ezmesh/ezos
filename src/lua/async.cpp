@@ -40,6 +40,17 @@ AsyncIO& AsyncIO::instance() {
     return inst;
 }
 
+// X25519 handler installed by main.cpp after mesh init. Stored as a
+// static so the worker task can read it without holding a reference to
+// the AsyncIO instance. The assignment happens once on Core 1 before
+// the worker ever pulls an X25519_SHARED_SECRET request, so a simple
+// std::function assignment is safe without synchronisation.
+static AsyncIO::X25519Handler s_x25519_handler;
+
+void AsyncIO::setX25519Handler(X25519Handler handler) {
+    s_x25519_handler = std::move(handler);
+}
+
 bool AsyncIO::init(lua_State* L) {
     _mainState = L;
 
@@ -591,6 +602,28 @@ void AsyncIO::workerTask(void* param) {
                     }
                     break;
                 }
+
+                case OpType::X25519_SHARED_SECRET: {
+                    // Peer's 32-byte Ed25519 pubkey arrives in req.data.
+                    // The handler does the Ed25519 → X25519 conversion
+                    // and X25519 ECDH internally; we just pass bytes
+                    // through. All memory allocation for the result is
+                    // ours so we can propagate it to Lua as a string.
+                    if (req.data && req.dataLen == 32 && s_x25519_handler) {
+                        uint8_t* secret = (uint8_t*)malloc(32);
+                        if (secret) {
+                            if (s_x25519_handler(req.data, secret)) {
+                                result.data = secret;
+                                result.len = 32;
+                                result.success = true;
+                            } else {
+                                free(secret);
+                            }
+                        }
+                    }
+                    if (req.data) free(req.data);
+                    break;
+                }
             }
 
             xQueueSend(self->_resultQueue, &result, portMAX_DELAY);
@@ -627,6 +660,7 @@ void AsyncIO::processResults() {
                 case OpType::AES_ENCRYPT:
                 case OpType::AES_DECRYPT:
                 case OpType::HMAC_SHA256:
+                case OpType::X25519_SHARED_SECRET:
                     if (result.success && result.data) {
                         lua_pushlstring(co, (const char*)result.data, result.len);
                     } else {
@@ -695,10 +729,21 @@ void AsyncIO::processResults() {
 // =============================================================================
 
 // async_read(path) - yields coroutine, resumes with data or nil
-// Mount points: /sd/, /fs/, /img/ (embedded)
-// Legacy /scripts/ paths use load order: SD > FS > embedded
+// Path prefixes: $ (system/embedded), /sd/, /fs/, /img/
 int AsyncIO::l_async_read(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
+
+    // Handle $ prefix: embedded system scripts (synchronous, instant)
+    if (path[0] == '$') {
+        size_t embeddedSize = 0;
+        const char* embedded = embedded_lua::get_script(path, &embeddedSize);
+        if (embedded != nullptr) {
+            lua_pushlstring(L, embedded, embeddedSize);
+        } else {
+            lua_pushnil(L);
+        }
+        return 1;
+    }
 
     // Handle /img/ (embedded) - returns synchronously
     if (strncmp(path, "/img/", 5) == 0) {
@@ -734,42 +779,81 @@ int AsyncIO::l_async_read(lua_State* L) {
     if (strncmp(path, "/scripts/", 9) == 0) {
         // 1. Check SD card first
         if (SD.begin(SD_CS) && SD.exists(path)) {
-            char sdPath[MAX_PATH];
-            snprintf(sdPath, sizeof(sdPath), "/sd%s", path);
+            if (lua_isyieldable(L)) {
+                char sdPath[MAX_PATH];
+                snprintf(sdPath, sizeof(sdPath), "/sd%s", path);
 
-            lua_pushthread(L);
-            int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
+                lua_pushthread(L);
+                int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
 
-            Request req = {};
-            req.type = OpType::READ;
-            req.coroRef = coroRef;
-            strncpy(req.path, sdPath, MAX_PATH - 1);
+                Request req = {};
+                req.type = OpType::READ;
+                req.coroRef = coroRef;
+                strncpy(req.path, sdPath, MAX_PATH - 1);
 
-            if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
-                luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
-                return luaL_error(L, "async queue full");
+                if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
+                    luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
+                    return luaL_error(L, "async queue full");
+                }
+                return lua_yield(L, 0);
+            } else {
+                // Synchronous fallback for calls outside a coroutine
+                File file = SD.open(path, "r");
+                if (file) {
+                    size_t fileSize = file.size();
+                    char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                    if (buffer) {
+                        size_t bytesRead = file.read((uint8_t*)buffer, fileSize);
+                        file.close();
+                        lua_pushlstring(L, buffer, bytesRead);
+                        heap_caps_free(buffer);
+                        return 1;
+                    }
+                    file.close();
+                }
+                lua_pushnil(L);
+                return 1;
             }
-            return lua_yield(L, 0);
         }
 
         // 2. Check LittleFS
         if (LittleFS.exists(path)) {
-            char fsPath[MAX_PATH];
-            snprintf(fsPath, sizeof(fsPath), "/fs%s", path);
+            // Check if we're in a coroutine (can yield) or main thread (must be synchronous)
+            if (lua_isyieldable(L)) {
+                char fsPath[MAX_PATH];
+                snprintf(fsPath, sizeof(fsPath), "/fs%s", path);
 
-            lua_pushthread(L);
-            int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
+                lua_pushthread(L);
+                int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
 
-            Request req = {};
-            req.type = OpType::READ;
-            req.coroRef = coroRef;
-            strncpy(req.path, fsPath, MAX_PATH - 1);
+                Request req = {};
+                req.type = OpType::READ;
+                req.coroRef = coroRef;
+                strncpy(req.path, fsPath, MAX_PATH - 1);
 
-            if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
-                luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
-                return luaL_error(L, "async queue full");
+                if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
+                    luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
+                    return luaL_error(L, "async queue full");
+                }
+                return lua_yield(L, 0);
+            } else {
+                // Synchronous fallback for calls outside a coroutine
+                File file = LittleFS.open(path, "r");
+                if (file) {
+                    size_t fileSize = file.size();
+                    char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                    if (buffer) {
+                        size_t bytesRead = file.read((uint8_t*)buffer, fileSize);
+                        file.close();
+                        lua_pushlstring(L, buffer, bytesRead);
+                        heap_caps_free(buffer);
+                        return 1;
+                    }
+                    file.close();
+                }
+                lua_pushnil(L);
+                return 1;
             }
-            return lua_yield(L, 0);
         }
 
         // 3. Fall back to embedded scripts
@@ -1157,6 +1241,46 @@ int AsyncIO::l_async_aes_decrypt(lua_State* L) {
     return lua_yield(L, 0);
 }
 
+// async_x25519_shared_secret(peer_pub_key) — yields coroutine, resumes
+// with the 32-byte ECDH shared secret or nil. Peer key must be the raw
+// 32-byte Ed25519 public key (the conversion to X25519 happens inside
+// the installed handler). Offloaded to the worker thread because the
+// curve op costs ~20-50 ms on ESP32-S3 (no HW accel for X25519).
+int AsyncIO::l_async_x25519_shared_secret(lua_State* L) {
+    size_t keyLen;
+    const char* peer = luaL_checklstring(L, 1, &keyLen);
+
+    if (keyLen != 32) {
+        lua_pushnil(L);
+        lua_pushstring(L, "Peer public key must be 32 bytes");
+        return 2;
+    }
+
+    lua_pushthread(L);
+    int coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    uint8_t* dataCopy = (uint8_t*)malloc(keyLen);
+    if (!dataCopy) {
+        luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
+        return luaL_error(L, "out of memory");
+    }
+    memcpy(dataCopy, peer, keyLen);
+
+    Request req = {};
+    req.type = OpType::X25519_SHARED_SECRET;
+    req.coroRef = coroRef;
+    req.data = dataCopy;
+    req.dataLen = keyLen;
+
+    if (xQueueSend(AsyncIO::instance()._requestQueue, &req, 0) != pdTRUE) {
+        free(dataCopy);
+        luaL_unref(L, LUA_REGISTRYINDEX, coroRef);
+        return luaL_error(L, "async queue full");
+    }
+
+    return lua_yield(L, 0);
+}
+
 // async_hmac_sha256(key, data) - yields coroutine, resumes with 32-byte MAC or nil
 int AsyncIO::l_async_hmac_sha256(lua_State* L) {
     size_t keyLen, dataLen;
@@ -1199,7 +1323,9 @@ int AsyncIO::l_async_hmac_sha256(lua_State* L) {
 void AsyncIO::registerBindings(lua_State* L) {
     // File I/O
     lua_register(L, "async_read", l_async_read);
-    lua_register(L, "async_read_bytes", l_async_read_bytes);
+    // async_read_bytes lives under ez.storage.async_read_bytes — see the
+    // storage bindings table; registered there alongside read_bytes so
+    // callers find both on the same namespace.
     lua_register(L, "async_write", l_async_write);
     lua_register(L, "async_write_bytes", l_async_write_bytes);
     lua_register(L, "async_append", l_async_append);
@@ -1217,6 +1343,7 @@ void AsyncIO::registerBindings(lua_State* L) {
     lua_register(L, "async_aes_encrypt", l_async_aes_encrypt);
     lua_register(L, "async_aes_decrypt", l_async_aes_decrypt);
     lua_register(L, "async_hmac_sha256", l_async_hmac_sha256);
+    lua_register(L, "async_x25519_shared_secret", l_async_x25519_shared_secret);
 
     Serial.println("[AsyncIO] Registered Lua bindings");
 }

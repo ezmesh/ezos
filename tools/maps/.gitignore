@@ -1,5 +1,17 @@
-# Virtual environment
+# Virtual environments
 venv/
+.venv/
+
+# PMTiles source archives (large, not tracked)
+*.pmtiles
+*.osm.pbf
+
+# Bulk inputs fetched on demand by tilemaker / planetiler (100s of MB)
+sources/
+tile_weights.tsv*
+
+# pytest cache
+.pytest_cache/
 
 # OSM land polygon cache (downloaded on first run)
 .cache/

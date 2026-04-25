@@ -1,5 +1,7 @@
 #include "keyboard.h"
+#include "keyboard_matrix.h"
 #include <Arduino.h>
+#include <cstring>
 
 // Set to 1 to enable verbose keyboard debug logging
 #define KB_DEBUG 0
@@ -82,8 +84,7 @@ namespace KBCommands {
     constexpr uint8_t CMD_MODE_NORMAL = 0x04;  // Disable raw mode (return to normal)
 }
 
-Keyboard::Keyboard() : _wire(nullptr) {
-}
+Keyboard::Keyboard() : _wire(nullptr) {}
 
 bool Keyboard::init() {
     if (_initialized) {
@@ -150,6 +151,11 @@ bool Keyboard::init() {
     _trackballFound = true;
 
     _initialized = true;
+
+    // Raw-matrix mode is engaged from boot.lua after services come up —
+    // the C3 tends to NAK the mode-switch command this early after cold
+    // boot. Until that call lands we stay in NORMAL mode and read()
+    // returns nothing useful from the keyboard (trackball still works).
     return true;
 }
 
@@ -211,71 +217,56 @@ KeyEvent Keyboard::read() {
         return KeyEvent::invalid();
     }
 
-    // First check inject queue for remote control events
+    // Remote-control injections (from the USB protocol) take precedence.
     if (_injectTail != _injectHead) {
         KeyEvent event = _injectQueue[_injectTail];
         _injectTail = (_injectTail + 1) % INJECT_QUEUE_SIZE;
         return event;
     }
 
-    // Then check for key press (direct read from keyboard I2C)
-    _wire->requestFrom((uint8_t)KB_I2C_ADDR, (uint8_t)1);
-    if (_wire->available()) {
-        uint8_t code = _wire->read();
-        if (code != 0) {
-            KB_LOG("[KB] I2C code: 0x%02X\n", code);
+    // Drain any events queued from the previous matrix scan before
+    // sampling again — a chord press produces multiple rising edges in
+    // a single scan and we only return one per read() call.
+    KeyEvent queued;
+    if (popEvent(queued)) return queued;
 
-            bool isRelease = (code & 0x80) != 0;
-            uint8_t keyCode = code & 0x7F;
-
-            // Track held key for repeat (excluding modifiers)
-            if (keyCode < KeyCodes::KEY_SHIFT || keyCode > KeyCodes::KEY_FN) {
-                if (isRelease) {
-                    // Key released - stop repeat
-                    if (_heldKeyCode == keyCode) {
-                        _heldKeyCode = 0;
-                        _repeatStarted = false;
-                    }
-                } else {
-                    // New key pressed - start tracking
-                    _heldKeyCode = keyCode;
-                    _keyPressTime = millis();
-                    _lastRepeatTime = 0;
-                    _repeatStarted = false;
-                }
-            }
-
-            KeyEvent evt = translateKeycode(code);
-            KB_LOG("[KB] Event: special=%d char='%c'\n",
-                   (int)evt.special, evt.character ? evt.character : '?');
-            return evt;
-        }
-    }
-
-    // Check for key repeat (if a key is held and repeat is enabled)
-    if (_keyRepeatEnabled && _heldKeyCode != 0) {
-        uint32_t now = millis();
-        uint32_t elapsed = now - _keyPressTime;
-
-        if (!_repeatStarted) {
-            // Check if we've passed the initial delay
-            if (elapsed >= _keyRepeatDelay) {
-                _repeatStarted = true;
-                _lastRepeatTime = now;
-                // Generate repeat event
-                return translateKeycode(_heldKeyCode);
-            }
-        } else {
-            // We're in repeat mode - check rate
-            if (now - _lastRepeatTime >= _keyRepeatRate) {
-                _lastRepeatTime = now;
-                return translateKeycode(_heldKeyCode);
-            }
-        }
+    // Scan the matrix for new edges when we're actually in raw mode.
+    // If the keyboard firmware didn't accept raw mode at boot we fall
+    // through to trackball handling only — character input is unavail-
+    // able in that case, which is noisy but self-healing after a
+    // re-flash of the C3.
+    if (_mode == KeyboardMode::RAW) {
+        scanMatrix();
+        if (popEvent(queued)) return queued;
     }
 
     // Trackball handling - supports both polling and interrupt modes
     uint32_t now = millis();
+
+    // Click is debounced via direct GPIO polling in BOTH modes. On some T-Decks
+    // the click pin gets stuck LOW or bounces, and the raw ISR flag fires ENTER
+    // multiple times (opens+closes menus). Holding for >=30ms and re-asserting
+    // INPUT_PULLUP while held matches the original polling-only fix.
+    static bool clickHeld = false;
+    static uint32_t clickStartTime = 0;
+    static bool clickFired = false;
+
+    bool click = (digitalRead(TRACKBALL_CLICK) == LOW);
+    bool clickEvent = false;
+    if (click) {
+        pinMode(TRACKBALL_CLICK, INPUT_PULLUP);
+        if (!clickHeld) {
+            clickHeld = true;
+            clickStartTime = now;
+            clickFired = false;
+        } else if (!clickFired && (now - clickStartTime) >= 30) {
+            clickFired = true;
+            clickEvent = true;
+        }
+    } else {
+        clickHeld = false;
+        clickFired = false;
+    }
 
     if (_trackballMode == TrackballMode::INTERRUPT_DRIVEN) {
         // Interrupt mode: read from volatile counters set by ISRs
@@ -285,16 +276,13 @@ KeyEvent Keyboard::read() {
         int16_t intDown = tb_int_down;
         int16_t intLeft = tb_int_left;
         int16_t intRight = tb_int_right;
-        bool intClick = tb_int_click;
         tb_int_up = 0;
         tb_int_down = 0;
         tb_int_left = 0;
         tb_int_right = 0;
-        tb_int_click = false;
         interrupts();
 
-        // Handle click from interrupt
-        if (intClick) {
+        if (clickEvent) {
             return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
         }
 
@@ -308,15 +296,11 @@ KeyEvent Keyboard::read() {
         // Initialize last* from actual GPIO state on first call to avoid spurious edges at boot
         static bool firstPoll = true;
         static bool lastUp = false, lastDown = false, lastLeft = false, lastRight = false;
-        static bool clickHeld = false;
-        static uint32_t clickStartTime = 0;
-        static bool clickFired = false;
 
         bool up = (digitalRead(TRACKBALL_UP) == LOW);
         bool down = (digitalRead(TRACKBALL_DOWN) == LOW);
         bool left = (digitalRead(TRACKBALL_LEFT) == LOW);
         bool right = (digitalRead(TRACKBALL_RIGHT) == LOW);
-        bool click = (digitalRead(TRACKBALL_CLICK) == LOW);
 
         // On first poll, just record state without detecting edges
         if (firstPoll) {
@@ -341,21 +325,8 @@ KeyEvent Keyboard::read() {
         lastLeft = left;
         lastRight = right;
 
-        // Handle click (30ms debounce)
-        if (click) {
-            // Re-enable pullup in case it got disabled
-            pinMode(TRACKBALL_CLICK, INPUT_PULLUP);
-            if (!clickHeld) {
-                clickHeld = true;
-                clickStartTime = now;
-                clickFired = false;
-            } else if (!clickFired && (now - clickStartTime) >= 30) {
-                clickFired = true;
-                return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
-            }
-        } else {
-            clickHeld = false;
-            clickFired = false;
+        if (clickEvent) {
+            return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
         }
 
         // Accumulate trackball movement (only on edges)
@@ -595,41 +566,28 @@ bool Keyboard::setMode(KeyboardMode mode) {
 
     uint8_t cmd = (mode == KeyboardMode::RAW) ? KBCommands::CMD_MODE_RAW : KBCommands::CMD_MODE_NORMAL;
 
+    // Issue the mode-switch command and trust the keyboard to honour
+    // it. We used to do a verify read here, but the C3's first post-
+    // switch read sometimes returns only partial bytes (it was still
+    // finishing the mode change), and treating that as failure left
+    // the host stuck in NORMAL even though the C3 had actually moved
+    // to RAW. Scans that happen before the C3 is truly ready just
+    // return no edges — the next scan self-heals.
     _wire->beginTransmission(KB_I2C_ADDR);
     _wire->write(cmd);
     uint8_t error = _wire->endTransmission();
-
     if (error != 0) {
-        Serial.printf("[Keyboard] Mode switch failed (error %d)\n", error);
+        Serial.printf("[Keyboard] Mode switch wire error %d\n", error);
         return false;
     }
 
-    // Verify raw mode actually works by trying a test read
-    if (mode == KeyboardMode::RAW) {
-        delay(10);  // Give keyboard time to switch modes
-
-        // Try to read matrix data
-        _wire->requestFrom((uint8_t)KB_I2C_ADDR, (uint8_t)MATRIX_COLS);
-        uint8_t available = _wire->available();
-
-        // Drain any data
-        while (_wire->available()) {
-            _wire->read();
-        }
-
-        if (available == 0) {
-            Serial.println("[Keyboard] Raw mode not supported by keyboard firmware");
-            // The keyboard doesn't support raw mode - stay in normal mode
-            _mode = KeyboardMode::NORMAL;
-            return false;
-        }
-    }
-
     _mode = mode;
-
-    // Clear cached matrix state when switching modes
     memset(_rawMatrix, 0, sizeof(_rawMatrix));
+    memset(_prevMatrix, 0, sizeof(_prevMatrix));
 
+    // Short settling delay so the first caller-initiated read after
+    // this doesn't race with the C3's mode swap.
+    delay(10);
     return true;
 }
 
@@ -690,7 +648,6 @@ void Keyboard::setTrackballMode(TrackballMode mode) {
     detachInterrupt(TRACKBALL_DOWN);
     detachInterrupt(TRACKBALL_LEFT);
     detachInterrupt(TRACKBALL_RIGHT);
-    detachInterrupt(TRACKBALL_CLICK);
 
     if (mode == TrackballMode::INTERRUPT_DRIVEN) {
         // Reset interrupt counters
@@ -700,12 +657,13 @@ void Keyboard::setTrackballMode(TrackballMode mode) {
         tb_int_right = 0;
         tb_int_click = false;
 
-        // Attach interrupts (falling edge = button pressed, active low)
+        // Attach directional interrupts only. Click is handled via debounced
+        // polling in both modes because the stuck-pin workaround re-asserts
+        // INPUT_PULLUP, which would disable an attached interrupt on ESP32.
         attachInterrupt(digitalPinToInterrupt(TRACKBALL_UP), ISR_trackball_up, FALLING);
         attachInterrupt(digitalPinToInterrupt(TRACKBALL_DOWN), ISR_trackball_down, FALLING);
         attachInterrupt(digitalPinToInterrupt(TRACKBALL_LEFT), ISR_trackball_left, FALLING);
         attachInterrupt(digitalPinToInterrupt(TRACKBALL_RIGHT), ISR_trackball_right, FALLING);
-        attachInterrupt(digitalPinToInterrupt(TRACKBALL_CLICK), ISR_trackball_click, FALLING);
 
         Serial.println("[Keyboard] Trackball mode: INTERRUPT");
     } else {
@@ -718,4 +676,126 @@ void Keyboard::setTrackballMode(TrackballMode mode) {
     _trackballY = 0;
 
     _trackballMode = mode;
+}
+
+// ---------------------------------------------------------------------------
+// Matrix-based key scanner.
+// ---------------------------------------------------------------------------
+//
+// Runs every read() that finds the event queue empty. Samples the 5-byte
+// matrix, diffs against _prevMatrix to find rising edges, looks each edge
+// up in the keymap (applying Shift/Sym layer as needed), and queues a
+// KeyEvent per press. Modifier bits update state only — they don't emit
+// their own events.
+
+// Build a KeyEvent for the character or special key at (col, row) given
+// the current modifier/layer state. Returns an invalid event if the
+// position is a modifier or unused.
+static KeyEvent eventForPosition(uint8_t col, uint8_t row,
+                                 bool shift, bool alt, bool sym,
+                                 bool ctrl, bool fn) {
+    if (kb_matrix::isModifierPosition(col, row)) return KeyEvent::invalid();
+    if (col == kb_matrix::ENTER_COL && row == kb_matrix::ENTER_ROW)
+        return KeyEvent::fromSpecial(SpecialKey::ENTER, shift, ctrl, alt, fn);
+    if (col == kb_matrix::BACKSPACE_COL && row == kb_matrix::BACKSPACE_ROW)
+        return KeyEvent::fromSpecial(SpecialKey::BACKSPACE, shift, ctrl, alt, fn);
+    char c = sym ? kb_matrix::SYM[col][row] : kb_matrix::BASE[col][row];
+    if (!c) return KeyEvent::invalid();
+    if (shift && c >= 'a' && c <= 'z') c = c - 'a' + 'A';
+    return KeyEvent::fromChar(c, shift, ctrl, alt, fn);
+}
+
+void Keyboard::scanMatrix() {
+    uint8_t matrix[MATRIX_COLS];
+    if (!readRawMatrix(matrix)) return;
+
+    // Track modifier / layer state from the freshly-sampled bits.
+    bool shift = (matrix[kb_matrix::SHIFT1_COL] & (1 << kb_matrix::SHIFT1_ROW)) != 0
+              || (matrix[kb_matrix::SHIFT2_COL] & (1 << kb_matrix::SHIFT2_ROW)) != 0;
+    bool alt   = (matrix[kb_matrix::ALT_COL]    & (1 << kb_matrix::ALT_ROW))    != 0;
+    bool sym   = (matrix[kb_matrix::SYM_COL]    & (1 << kb_matrix::SYM_ROW))    != 0;
+    _shiftHeld = shift;
+    _altHeld   = alt;
+    _symHeld   = sym;
+
+    // Rising-edge bits per column: new AND NOT previous.
+    for (uint8_t col = 0; col < kb_matrix::COLS; col++) {
+        uint8_t rising = matrix[col] & ~_prevMatrix[col];
+        if (rising == 0) continue;
+
+        for (uint8_t row = 0; row < kb_matrix::ROWS; row++) {
+            if ((rising & (1 << row)) == 0) continue;
+            KeyEvent evt = eventForPosition(col, row, shift, alt, sym,
+                                            _ctrlHeld, _fnHeld);
+            if (!evt.valid) continue;
+            pushEvent(evt);
+
+            // Start/replace repeat tracking with this key.
+            _heldCol         = col;
+            _heldRow         = row;
+            _heldPressTime   = millis();
+            _heldLastRepeat  = _heldPressTime;
+            _heldRepeating   = false;
+        }
+    }
+
+    // Repeat: if the tracked key is still down, fire synthetic press
+    // events on the delay/rate schedule. If it's released, drop tracking.
+    if (_heldCol >= 0) {
+        bool stillHeld = (matrix[_heldCol] & (1 << _heldRow)) != 0;
+        if (!stillHeld) {
+            _heldCol = -1;
+            _heldRepeating = false;
+        } else if (_keyRepeatEnabled) {
+            uint32_t now = millis();
+            if (!_heldRepeating) {
+                if (now - _heldPressTime >= _keyRepeatDelay) {
+                    _heldRepeating = true;
+                    _heldLastRepeat = now;
+                    pushEvent(eventForPosition(_heldCol, _heldRow,
+                                               shift, alt, sym,
+                                               _ctrlHeld, _fnHeld));
+                }
+            } else if (now - _heldLastRepeat >= _keyRepeatRate) {
+                _heldLastRepeat = now;
+                pushEvent(eventForPosition(_heldCol, _heldRow,
+                                           shift, alt, sym,
+                                           _ctrlHeld, _fnHeld));
+            }
+        }
+    }
+
+    // Snapshot for next scan.
+    memcpy(_prevMatrix, matrix, kb_matrix::COLS);
+}
+
+bool Keyboard::pushEvent(const KeyEvent& e) {
+    uint8_t next = (_eventHead + 1) % MATRIX_EVENT_QUEUE;
+    if (next == _eventTail) return false;  // queue full — drop
+    _eventQueue[_eventHead] = e;
+    _eventHead = next;
+    return true;
+}
+
+bool Keyboard::popEvent(KeyEvent& out) {
+    if (_eventTail == _eventHead) return false;
+    out = _eventQueue[_eventTail];
+    _eventTail = (_eventTail + 1) % MATRIX_EVENT_QUEUE;
+    return true;
+}
+
+bool Keyboard::isHeld(char c) {
+    // Find the character's matrix position in either layer. Case-insensitive
+    // for alpha keys so is_held('w') and is_held('W') both work.
+    char lc = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+    for (uint8_t col = 0; col < kb_matrix::COLS; col++) {
+        for (uint8_t row = 0; row < kb_matrix::ROWS; row++) {
+            char k = kb_matrix::BASE[col][row];
+            if (!k) k = kb_matrix::SYM[col][row];
+            if (k && k == lc) {
+                return (_prevMatrix[col] & (1 << row)) != 0;
+            }
+        }
+    }
+    return false;
 }

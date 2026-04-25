@@ -269,16 +269,52 @@ static int l_gps_get_stats(lua_State* L) {
     lua_pushinteger(L, gps.getCharsProcessed());
     lua_setfield(L, -2, "chars");
 
+    lua_pushinteger(L, gps.getPassedChecksums());
+    lua_setfield(L, -2, "passed");
+
     lua_pushinteger(L, gps.getSentencesWithFix());
     lua_setfield(L, -2, "sentences");
 
     lua_pushinteger(L, gps.getFailedChecksums());
     lua_setfield(L, -2, "failed");
 
+    lua_pushinteger(L, gps.getSatsInView());
+    lua_setfield(L, -2, "sats_in_view");
+
+    lua_pushinteger(L, gps.getFixMode());
+    lua_setfield(L, -2, "fix_mode");
+
+    lua_pushinteger(L, gps.getFixQuality());
+    lua_setfield(L, -2, "fix_quality");
+
+    uint32_t age = gps.getLastByteAge();
+    if (age == UINT32_MAX) {
+        lua_pushnil(L);
+    } else {
+        lua_pushinteger(L, age);
+    }
+    lua_setfield(L, -2, "last_byte_age");
+
+    lua_pushstring(L, gps.getTalkerIds());
+    lua_setfield(L, -2, "talkers");
+
     lua_pushboolean(L, gps.isInitialized());
     lua_setfield(L, -2, "initialized");
 
     return 1;
+}
+
+// @lua ez.gps.reset_stats()
+// @brief Zero the diagnostics counters and clear cached fix state
+// @description Useful when debugging: snapshot the current running totals
+// so subsequent get_stats() calls start from zero again. Also forgets the
+// last position/satellite numbers so stale values don't linger on screen
+// until the next NMEA arrives. The underlying parser keeps running; only
+// the reported counters are rebased.
+// @end
+static int l_gps_reset_stats(lua_State* L) {
+    GPS::instance().resetCounters();
+    return 0;
 }
 
 // @lua ez.gps.is_valid() -> boolean
@@ -300,16 +336,131 @@ static int l_gps_is_valid(lua_State* L) {
     return 1;
 }
 
+// @lua ez.gps.send_command(body) -> boolean
+// @brief Send a proprietary NMEA command to the GPS module
+// @description Accepts the body of an NMEA sentence — everything between
+// '$' and '*'. The XOR checksum and CRLF terminator are appended automatically.
+// Used to send vendor-specific configuration commands (e.g. $PCAS04 to select
+// constellations on a Quectel L76K). Fire-and-forget; any response from the
+// module shows up in get_last_info_sentence() once the line completes.
+// @return true if the UART is open and the command was written
+// @example
+// ez.gps.send_command("PCAS06,0")  -- query firmware version
+// ez.gps.send_command("PCAS04,7")  -- enable GPS+BDS+GLONASS on L76K
+// @end
+static int l_gps_send_command(lua_State* L) {
+    const char* body = luaL_checkstring(L, 1);
+    bool ok = GPS::instance().sendCommand(body);
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+// @lua ez.gps.get_last_info_sentence() -> string
+// @brief Most recently captured proprietary or TXT NMEA sentence
+// @description Returns the verbatim text of the last "$P..." or "$GxTXT"
+// sentence the module emitted. These are typically responses to commands
+// sent via send_command(), or vendor status messages. Empty string if the
+// module hasn't emitted one since boot (or since reset_stats()).
+// @return Sentence string, e.g. "$GPTXT,01,01,02,SW=URANUS5,V5.1.0.0*1D"
+// @end
+static int l_gps_get_last_info_sentence(lua_State* L) {
+    lua_pushstring(L, GPS::instance().getLastInfoSentence());
+    return 1;
+}
+
+// @lua ez.gps.query_chip([timeout_ms]) -> table|nil
+// @brief Identify the GNSS chip via UBX-MON-VER
+// @description Sends UBX-MON-VER and blocks (up to timeout_ms, default 800)
+// for the receiver's reply. On success returns { sw = "...", hw = "..." }
+// with the firmware/hardware version strings. Returns nil on timeout or
+// when the chip doesn't speak UBX (the L76K variant won't respond).
+// @example
+// local info = ez.gps.query_chip()
+// if info then print("Chip:", info.hw, "FW:", info.sw) end
+// @end
+static int l_gps_query_chip(lua_State* L) {
+    uint32_t timeout = (uint32_t)luaL_optinteger(L, 1, 800);
+    GPS& gps = GPS::instance();
+    bool ok = gps.queryVersion(timeout);
+    if (!ok) { lua_pushnil(L); return 1; }
+    lua_newtable(L);
+    lua_pushstring(L, gps.getSwVersion()); lua_setfield(L, -2, "sw");
+    lua_pushstring(L, gps.getHwVersion()); lua_setfield(L, -2, "hw");
+    return 1;
+}
+
+// @lua ez.gps.get_chip_info() -> table|nil
+// @brief Cached chip identification (last successful query_chip())
+// @description Same fields as query_chip() but reads the cached result
+// without re-querying. nil until query_chip() has succeeded once.
+// @end
+static int l_gps_get_chip_info(lua_State* L) {
+    GPS& gps = GPS::instance();
+    if (!gps.hasVersion()) { lua_pushnil(L); return 1; }
+    lua_newtable(L);
+    lua_pushstring(L, gps.getSwVersion()); lua_setfield(L, -2, "sw");
+    lua_pushstring(L, gps.getHwVersion()); lua_setfield(L, -2, "hw");
+    return 1;
+}
+
+// @lua ez.gps.set_signal_enabled(key_id, enabled, [timeout_ms]) -> boolean
+// @brief Toggle a UBX CFG-SIGNAL-* key
+// @description Sends UBX-CFG-VALSET writing the L1-typed key to RAM, BBR
+// and Flash so the change persists across reboots. Blocks until UBX-ACK
+// arrives or timeout fires. Returns true on ACK, false on NAK / timeout.
+// Common key IDs (u-blox M10):
+//   0x1031001F GPS, 0x10310020 SBAS, 0x10310021 Galileo,
+//   0x10310022 BeiDou, 0x10310024 QZSS, 0x10310025 GLONASS
+// @end
+static int l_gps_set_signal_enabled(lua_State* L) {
+    lua_Integer keyId  = luaL_checkinteger(L, 1);
+    bool enabled       = lua_toboolean(L, 2);
+    uint32_t timeout   = (uint32_t)luaL_optinteger(L, 3, 800);
+    bool ok = GPS::instance().setSignalEnabled((uint32_t)keyId, enabled, timeout);
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+// @lua ez.gps.get_signal_enabled(key_id, [timeout_ms]) -> boolean|nil
+// @brief Read a UBX CFG-SIGNAL-* key from the chip
+// @description Sends UBX-CFG-VALGET for the key and blocks for the
+// reply. Returns true / false for the boolean value, or nil on timeout.
+// @end
+static int l_gps_get_signal_enabled(lua_State* L) {
+    lua_Integer keyId  = luaL_checkinteger(L, 1);
+    uint32_t timeout   = (uint32_t)luaL_optinteger(L, 2, 800);
+    int v = GPS::instance().queryConfigKey((uint32_t)keyId, timeout);
+    if (v < 0) { lua_pushnil(L); }
+    else       { lua_pushboolean(L, v != 0); }
+    return 1;
+}
+
 static const luaL_Reg gps_funcs[] = {
-    {"init",           l_gps_init},
-    {"update",         l_gps_update},
-    {"get_location",   l_gps_get_location},
-    {"get_time",       l_gps_get_time},
-    {"get_movement",   l_gps_get_movement},
-    {"get_satellites", l_gps_get_satellites},
-    {"sync_time",      l_gps_sync_time},
-    {"get_stats",      l_gps_get_stats},
-    {"is_valid",       l_gps_is_valid},
+    {"init",                   l_gps_init},
+    {"update",                 l_gps_update},
+    {"get_location",           l_gps_get_location},
+    {"get_time",               l_gps_get_time},
+    {"get_movement",           l_gps_get_movement},
+    {"get_satellites",         l_gps_get_satellites},
+    {"sync_time",              l_gps_sync_time},
+    {"get_stats",              l_gps_get_stats},
+    {"reset_stats",            l_gps_reset_stats},
+    {"is_valid",               l_gps_is_valid},
+    {"send_command",           l_gps_send_command},
+    {"get_last_info_sentence", l_gps_get_last_info_sentence},
+    {"query_chip",             l_gps_query_chip},
+    {"get_chip_info",          l_gps_get_chip_info},
+    {"set_signal_enabled",     l_gps_set_signal_enabled},
+    {"get_signal_enabled",     l_gps_get_signal_enabled},
+    {"_get_last_ack",          [](lua_State* L) -> int {
+        GPS& gps = GPS::instance();
+        lua_newtable(L);
+        lua_pushboolean(L, gps.hasAck());     lua_setfield(L, -2, "received");
+        lua_pushinteger(L, gps.getLastAckCls()); lua_setfield(L, -2, "cls");
+        lua_pushinteger(L, gps.getLastAckId());  lua_setfield(L, -2, "id");
+        lua_pushboolean(L, gps.getLastAckOk());  lua_setfield(L, -2, "ok");
+        return 1;
+    }},
     {nullptr, nullptr}
 };
 

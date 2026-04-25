@@ -6,7 +6,7 @@
 // Font file paths relative to the simulator directory
 // From tools/simulator/ we need ../../ to reach project root
 const FONT_PATHS = {
-    tiny: '../../src/fonts/FreeMono5pt7b.h',
+    tiny: '../../src/fonts/FreeSans7pt7b.h',
     small: '../../.pio/libdeps/t-deck-plus/LovyanGFX/src/lgfx/Fonts/GFXFF/FreeMono9pt7b.h',
     medium: '../../.pio/libdeps/t-deck-plus/LovyanGFX/src/lgfx/Fonts/GFXFF/FreeMono12pt7b.h',
     large: '../../.pio/libdeps/t-deck-plus/LovyanGFX/src/lgfx/Fonts/GFXFF/FreeMono18pt7b.h'
@@ -15,7 +15,7 @@ const FONT_PATHS = {
 // Font metrics (charWidth, charHeight, yAdvance)
 // charWidth and charHeight must match device firmware FONT_METRICS in display.cpp
 const FONT_METRICS = {
-    tiny: { charWidth: 6, charHeight: 10, yAdvance: 10 },
+    tiny: { charWidth: 7, charHeight: 12, yAdvance: 15 },
     small: { charWidth: 6, charHeight: 12, yAdvance: 18 },
     medium: { charWidth: 7, charHeight: 16, yAdvance: 24 },
     large: { charWidth: 11, charHeight: 24, yAdvance: 32 }
@@ -35,7 +35,7 @@ let loadingPromise = null;
 
 /**
  * Parse a C++ header file containing GFX font data
- * Handles format: FreeMono5pt7bBitmaps[], FreeMono5pt7bGlyphs[]
+ * Handles format: FreeSans7pt7bBitmaps[], FreeSans7pt7bGlyphs[], etc.
  */
 function parseGFXFont(headerContent, name) {
     const font = {

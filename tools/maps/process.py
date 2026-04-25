@@ -168,6 +168,25 @@ def rle_compress(data: bytes) -> bytes:
     return bytes(result)
 
 
+def zlib_compress(data: bytes, level: int = 9) -> bytes:
+    """
+    Deflate + zlib header. The device decodes this via ESP32 ROM's miniz
+    (``tinfl_decompress_mem_to_mem`` with TINFL_FLAG_PARSE_ZLIB_HEADER).
+
+    Level 9 costs a few seconds per 1000 tiles at build time but cuts file
+    size 2.5–7× versus RLE. Device-side decode is effectively free (sub-ms
+    per tile from ROM).
+    """
+    import zlib
+    return zlib.compress(data, level)
+
+
+def zlib_decompress(data: bytes) -> bytes:
+    """Inverse of ``zlib_compress`` — used by the desktop viewer and tests."""
+    import zlib
+    return zlib.decompress(data)
+
+
 def rle_decompress(data: bytes) -> bytes:
     """
     Decompress RLE-encoded data.

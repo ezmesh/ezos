@@ -59,17 +59,23 @@ def rgb_to_rgb565(r, g, b):
     return (r5 << 11) | (g6 << 5) | b5
 
 
-# Pre-computed RGB565 palette for TDMAP archive
-PALETTE_RGB565 = [rgb_to_rgb565(*color) for color in PALETTE_RGB]
-
 # Standard web mercator tile size
 TILE_SIZE = 256
 
-# TDMAP archive format version
-TDMAP_VERSION = 4  # v4: geographic labels with lat/lon, no tile index, deduped
+# TDMAP archive format version. v6 stores 3-bit semantic indices per tile;
+# colors live in the renderer's theme so a single archive serves both light
+# and dark modes. palette_count=0 in the header. Pre-v6 archives are no
+# longer supported by either the writer or the on-device reader.
+TDMAP_VERSION = 6
 
-# Compression type for tile data
-COMPRESSION_RLE = 1
+# Compression type for tile data (written to the archive header).
+# COMPRESSION_ZLIB is the only value the writer emits; the byte is kept
+# in the header for forward-compat with future codecs.
+COMPRESSION_ZLIB = 2  # raw deflate stream wrapped in zlib header (RFC 1950)
+
+# Default compressor for new archives. ESP32 ROM miniz decodes zlib natively
+# in sub-millisecond per tile.
+DEFAULT_COMPRESSION = COMPRESSION_ZLIB
 
 # Label types (rendered with different font sizes in Lua)
 LABEL_TYPE_CITY = 0       # Large cities (population > 100k)
