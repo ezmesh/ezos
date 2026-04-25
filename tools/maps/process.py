@@ -1,5 +1,5 @@
 """
-Tile processing: grayscale conversion, dithering, and RLE compression.
+Tile processing: grayscale conversion, dithering, and zlib compression.
 Converts PNG tiles to 3-bit indexed format for T-Deck display.
 """
 
@@ -124,58 +124,14 @@ def pack_3bit_pixels(indices: List[int]) -> bytes:
     return bytes(result)
 
 
-def rle_compress(data: bytes) -> bytes:
-    """
-    Run-length encode byte data.
-
-    Format: For each run:
-    - If count == 1: just output the byte (unless it's the escape byte 0xFF)
-    - If count > 1 or byte is 0xFF: output [0xFF, count, byte]
-    - Maximum count per run is 255
-
-    Args:
-        data: Raw bytes to compress
-
-    Returns:
-        RLE compressed bytes
-    """
-    if not data:
-        return b""
-
-    result = bytearray()
-    i = 0
-
-    while i < len(data):
-        byte = data[i]
-        count = 1
-
-        # Count consecutive identical bytes
-        while i + count < len(data) and data[i + count] == byte and count < 255:
-            count += 1
-
-        if count > 2 or byte == 0xFF:
-            # Use RLE encoding: escape byte, count, value
-            result.extend([0xFF, count, byte])
-        elif count == 2:
-            # Two bytes: cheaper to output directly (unless it's escape byte)
-            result.extend([byte, byte])
-        else:
-            # Single byte
-            result.append(byte)
-
-        i += count
-
-    return bytes(result)
-
-
 def zlib_compress(data: bytes, level: int = 9) -> bytes:
     """
     Deflate + zlib header. The device decodes this via ESP32 ROM's miniz
     (``tinfl_decompress_mem_to_mem`` with TINFL_FLAG_PARSE_ZLIB_HEADER).
 
-    Level 9 costs a few seconds per 1000 tiles at build time but cuts file
-    size 2.5–7× versus RLE. Device-side decode is effectively free (sub-ms
-    per tile from ROM).
+    Level 9 costs a few seconds per 1000 tiles at build time but compresses
+    typical tile content 3–11×. Device-side decode is effectively free
+    (sub-ms per tile from ROM).
     """
     import zlib
     return zlib.compress(data, level)
@@ -185,66 +141,6 @@ def zlib_decompress(data: bytes) -> bytes:
     """Inverse of ``zlib_compress`` — used by the desktop viewer and tests."""
     import zlib
     return zlib.decompress(data)
-
-
-def rle_decompress(data: bytes) -> bytes:
-    """
-    Decompress RLE-encoded data.
-
-    Args:
-        data: RLE compressed bytes
-
-    Returns:
-        Decompressed bytes
-    """
-    result = bytearray()
-    i = 0
-
-    while i < len(data):
-        if data[i] == 0xFF and i + 2 < len(data):
-            count = data[i + 1]
-            value = data[i + 2]
-            result.extend([value] * count)
-            i += 3
-        else:
-            result.append(data[i])
-            i += 1
-
-    return bytes(result)
-
-
-def process_tile(png_data: bytes) -> bytes:
-    """
-    Full processing pipeline for a single tile.
-
-    1. Load PNG and convert to grayscale
-    2. Apply Floyd-Steinberg dithering to 8-color palette
-    3. Pack to 3 bits per pixel
-    4. RLE compress
-
-    Args:
-        png_data: Raw PNG image data
-
-    Returns:
-        Compressed tile data
-    """
-    # Load and convert to grayscale
-    img = load_tile_image(png_data)
-
-    # Resize if not standard tile size
-    if img.size != (TILE_SIZE, TILE_SIZE):
-        img = img.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
-
-    # Dither to 8-color palette
-    indices = floyd_steinberg_dither(img)
-
-    # Pack to 3 bits per pixel
-    packed = pack_3bit_pixels(indices)
-
-    # RLE compress
-    compressed = rle_compress(packed)
-
-    return compressed
 
 
 def get_raw_tile_size() -> int:
