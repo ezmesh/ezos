@@ -383,7 +383,7 @@ LUA_FUNCTION(l_system_get_total_psram) {
     return 1;
 }
 
-// @lua ez.system.log(message)
+// @lua ez.log(message)
 // @brief Log message to serial output
 // @description Sends a log message to the serial console. Messages are prefixed
 // with #LOG#[Lua] for easy filtering. Use for debugging during development.

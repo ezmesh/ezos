@@ -616,6 +616,9 @@ try:
     cpp_defines = env.get("CPPDEFINES", [])
     build_flags = env.get("BUILD_FLAGS", [])
 
+    version = env.GetProjectOption("custom_version") or "0.0.0"
+    env.Append(CPPDEFINES=[("EZOS_VERSION", env.StringifyMacro(version))])
+
     skip_embedding = False
     for d in cpp_defines:
         if isinstance(d, tuple):

@@ -7,6 +7,13 @@ on:
     paths:
       - 'src/lua/bindings/**'
       - 'tools/generate_lua_docs.py'
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'src/lua/bindings/**'
+      - 'tools/generate_lua_docs.py'
+      - 'docs/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -34,19 +41,31 @@ jobs:
       - name: Generate Lua API documentation
         run: python tools/generate_lua_docs.py
 
+      - name: Verify committed docs match generator output
+        run: |
+          if ! git diff --exit-code --stat -- docs/; then
+            echo "::error::Generated docs differ from the committed tree."
+            echo "Run 'python tools/generate_lua_docs.py' locally and commit the result."
+            exit 1
+          fi
+
       - name: Setup Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v4
 
       - name: Create root redirect
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=manual/"></head><body><a href="manual/">ezOS Manual</a></body></html>' > docs/index.html
 
       - name: Upload artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs
 
   deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

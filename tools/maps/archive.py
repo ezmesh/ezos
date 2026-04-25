@@ -2,7 +2,10 @@
 TDMAP archive format writer and reader.
 Custom format optimized for ESP32 reading of map tiles from SD card.
 
-Version 4: Geographic labels with lat/lon coordinates, deduped at build time.
+Version 6: 3-bit semantic-index tiles (renderer owns the palette), TLV
+metadata block, geographic labels with lat/lon coordinates deduped at
+build time. v4/v5 reader support was removed when no v4/v5 archives
+existed outside the dev machine — every release ships v6.
 """
 
 import hashlib
@@ -12,46 +15,35 @@ from pathlib import Path
 from typing import List, Tuple, BinaryIO, Optional, Dict, Any
 
 from config import (TILE_SIZE, TDMAP_VERSION,
-                    COMPRESSION_RLE, COMPRESSION_ZLIB, DEFAULT_COMPRESSION)
+                    COMPRESSION_ZLIB, DEFAULT_COMPRESSION)
 
-# v5 metadata TLV tags (2 bytes each, ASCII). Values are little-endian.
+# Metadata TLV tags (2 bytes each, ASCII). Values are little-endian.
 META_TAG_REGION     = b"RG"  # UTF-8 region name
 META_TAG_BOUNDS     = b"BB"  # 16 bytes: 4× int32_le (min_lat_e6, min_lon_e6, max_lat_e6, max_lon_e6)
 META_TAG_SRC_HASH   = b"SH"  # Arbitrary bytes (typically SHA-256 digest of source PMTiles)
 META_TAG_TIMESTAMP  = b"TS"  # 8 bytes: uint64_le UNIX epoch seconds
 META_TAG_TOOL_VER   = b"TV"  # UTF-8 tool/generator version
 
-# Supported reader versions. Newer writers always emit the latest.
-# v6 dropped the in-archive palette; readers still accept v4/v5 archives by
-# skipping the legacy 16-byte block before metadata/index.
-SUPPORTED_VERSIONS = (4, 5, 6)
 
-
-# Archive header format v4 (33 bytes total)
-# All multi-byte integers are little-endian
+# Archive header (33 bytes total). All multi-byte integers are little-endian.
 # Magic(6) + version(1) + compression(1) + tile_size(2) + palette_count(1) +
 # tile_count(4) + index_offset(4) + data_offset(4) + min_zoom(1) + max_zoom(1) +
-# label_data_offset(4) + label_count(4) = 33 bytes
+# label_data_offset(4) + label_count(4)
+# palette_count is always 0 in v6; the byte is kept for header-shape stability.
 HEADER_FORMAT = "<6sBBHBIIIbbII"
-HEADER_SIZE = 33  # 6+1+1+2+1+4+4+4+1+1+4+4 = 33 bytes
-
-# Legacy palette block: 8 RGB565 values (16 bytes). v4/v5 archives carried
-# this between the header and the metadata/index; v6 omits it entirely.
-LEGACY_PALETTE_FORMAT = "<8H"
-LEGACY_PALETTE_SIZE = 16
+HEADER_SIZE = 33
 
 # Tile index entry format (11 bytes per tile)
 # zoom(1) + x(2) + y(2) + offset(4) + size(2) = 11 bytes
 INDEX_ENTRY_FORMAT = "<BHHIH"  # zoom, x, y, offset, compressed_size
 INDEX_ENTRY_SIZE = 11
 
-# Label entry format v4 (variable size) - geographic coords, no tile index
-# lat_e6(4) + lon_e6(4) + zoom_min(1) + zoom_max(1) + label_type(1) + text_len(1) + text(variable)
-# = 12 + text_len bytes
-# lat_e6/lon_e6 are latitude/longitude multiplied by 1,000,000 stored as int32
-# Labels are deduped by (text, lat_e6, lon_e6) at build time - no runtime dedup needed
-LABEL_FORMAT_V4 = "<iiBBB"  # lat_e6, lon_e6, zoom_min, zoom_max, label_type
-LABEL_SIZE_V4 = 11  # Fixed part before text_len
+# Label entry: lat_e6(4) + lon_e6(4) + zoom_min(1) + zoom_max(1) +
+# label_type(1) + text_len(1) + text(variable). lat_e6/lon_e6 are degrees ×
+# 1,000,000 stored as int32. Labels are deduped at build time by
+# (text, label_type, lat bucket, lon bucket).
+LABEL_FORMAT = "<iiBBB"
+LABEL_FIXED_SIZE = 11  # Fixed part before text_len
 
 
 class TileEntry:
@@ -69,10 +61,9 @@ class TileEntry:
 
 
 class LabelEntry:
-    """Represents a text label in the archive.
-
-    v4 format: Uses lat/lon coordinates directly (geographic).
-    Labels are deduped by (text, lat_e6, lon_e6) at build time.
+    """Represents a text label in the archive. Coordinates are geographic
+    (lat/lon); labels are deduped by (text, label_type, lat bucket, lon
+    bucket) at build time.
     """
 
     def __init__(
@@ -102,10 +93,9 @@ class LabelEntry:
         return int(self.lon * 1_000_000)
 
     def pack(self) -> bytes:
-        """Pack label to v4 binary format."""
         text_bytes = self.text.encode('utf-8')[:255]
         return struct.pack(
-            LABEL_FORMAT_V4,
+            LABEL_FORMAT,
             self.lat_e6,
             self.lon_e6,
             self.zoom_min,
@@ -115,15 +105,14 @@ class LabelEntry:
 
     @classmethod
     def unpack(cls, data: bytes, offset: int = 0) -> Tuple['LabelEntry', int]:
-        """Unpack label from v4 format, returns (entry, bytes_consumed)."""
-        lat_e6, lon_e6, zoom_min, zoom_max, label_type = struct.unpack_from(LABEL_FORMAT_V4, data, offset)
-        text_len = data[offset + LABEL_SIZE_V4]
-        text_start = offset + LABEL_SIZE_V4 + 1
+        lat_e6, lon_e6, zoom_min, zoom_max, label_type = struct.unpack_from(LABEL_FORMAT, data, offset)
+        text_len = data[offset + LABEL_FIXED_SIZE]
+        text_start = offset + LABEL_FIXED_SIZE + 1
         text = data[text_start:text_start + text_len].decode('utf-8', errors='replace')
         lat = lat_e6 / 1_000_000
         lon = lon_e6 / 1_000_000
         entry = cls(lat, lon, zoom_min, zoom_max, label_type, text)
-        return entry, LABEL_SIZE_V4 + 1 + text_len
+        return entry, LABEL_FIXED_SIZE + 1 + text_len
 
     # Dedup bucket in degrees: 1° (~110 km). Large enough that a city label
     # that OSM anchors in several adjacent MVT tiles lands in a single bucket,
@@ -164,12 +153,12 @@ class TDMAPWriter:
         self.min_zoom = 255
         self.max_zoom = 0
         self.compression = compression
-        # Optional v5 metadata. Left unset → empty metadata block; readers see
-        # no tags and the archive is functionally identical to v4 with a
-        # version byte of 5.
+        # TLV metadata. Left unset → empty metadata block (length-prefixed
+        # placeholder, no tags) so readers always find the tile index at the
+        # same offset regardless of whether the writer set any tags.
         self._metadata: Dict[bytes, bytes] = {}
 
-    # ------------------------------------------------------------------ v5 metadata
+    # ------------------------------------------------------------------ metadata
     def set_region_name(self, name: str):
         self._metadata[META_TAG_REGION] = name.encode("utf-8")
 
@@ -264,20 +253,13 @@ class TDMAPWriter:
         # Sort labels by (zoom_min, lat, lon) for predictable output
         self.labels.sort(key=lambda l: (l.zoom_min, l.lat_e6, l.lon_e6))
 
-        # v5+ metadata block: 4-byte length prefix + TLV chunks. Always present
-        # in v5+ output even when empty so readers don't need a second version
-        # check to locate the tile index.
-        metadata_payload = self._pack_metadata() if TDMAP_VERSION >= 5 else b""
-        metadata_block = (
-            struct.pack("<I", len(metadata_payload)) + metadata_payload
-            if TDMAP_VERSION >= 5 else b""
-        )
+        # Metadata block: 4-byte length prefix + TLV chunks. Always present
+        # (even when empty) so readers don't need a version check to locate
+        # the tile index.
+        metadata_payload = self._pack_metadata()
+        metadata_block = struct.pack("<I", len(metadata_payload)) + metadata_payload
 
-        # v6 dropped the in-archive palette; older versions still need the
-        # 16-byte slot between header and metadata/index.
-        legacy_palette_block = LEGACY_PALETTE_SIZE if TDMAP_VERSION < 6 else 0
-
-        index_offset = HEADER_SIZE + legacy_palette_block + len(metadata_block)
+        index_offset = HEADER_SIZE + len(metadata_block)
         data_offset = index_offset + len(self.tiles) * INDEX_ENTRY_SIZE
 
         # Calculate data offsets for each tile
@@ -286,32 +268,23 @@ class TDMAPWriter:
             entry.offset = current_data_offset
             current_data_offset += len(data)
 
-        # Label data comes directly after tile data (no index in v4)
+        # Label data comes directly after tile data (no separate index)
         label_data_offset = current_data_offset
         label_count = len(self.labels)
 
         # Pack all labels
         label_data = b''.join(label.pack() for label in self.labels)
 
-        # v6+ archives don't carry a palette; older versions still serialize
-        # one for back-compat with readers that expect the slot.
-        if TDMAP_VERSION < 6:
-            from config import PALETTE_RGB565
-            palette_bytes = struct.pack(LEGACY_PALETTE_FORMAT, *PALETTE_RGB565)
-            palette_count = len(PALETTE_RGB565)
-        else:
-            palette_bytes = b""
-            palette_count = 0
-
         with open(self.output_path, "wb") as f:
-            # Write header
+            # Write header. palette_count is fixed at 0; the slot is kept
+            # for header-shape stability with the v4/v5 layout.
             header = struct.pack(
                 HEADER_FORMAT,
                 self.MAGIC,                    # magic (6 bytes)
                 TDMAP_VERSION,                 # version (1 byte)
                 self.compression,              # compression type (1 byte)
                 TILE_SIZE,                     # tile size (2 bytes)
-                palette_count,                 # palette count (1 byte; 0 on v6)
+                0,                             # palette count (1 byte; always 0 in v6)
                 len(self.tiles),               # tile count (4 bytes)
                 index_offset,                  # index offset (4 bytes)
                 data_offset,                   # data offset (4 bytes)
@@ -322,12 +295,8 @@ class TDMAPWriter:
             )
             f.write(header)
 
-            if palette_bytes:
-                f.write(palette_bytes)
-
-            # Write v5+ metadata block (length prefix + TLV payload)
-            if metadata_block:
-                f.write(metadata_block)
+            # Write metadata block (length prefix + TLV payload)
+            f.write(metadata_block)
 
             # Write tile index
             for entry, _ in self.tiles:
@@ -366,15 +335,14 @@ class TDMAPReader:
         self.archive_path = Path(archive_path)
         self.tiles: List[TileEntry] = []
         self.labels: List[LabelEntry] = []
-        self.palette: List[int] = []
         self.min_zoom = 0
         self.max_zoom = 0
         self.tile_size = 256
         self.version = 0
         self.label_data_offset = 0
         self.label_count = 0
-        # v5 metadata, populated on load when present. Unknown tags are
-        # collected under their raw 2-byte key so `inspect` can surface them.
+        # Metadata, populated on load. Unknown tags are collected under
+        # their raw 2-byte key so `inspect` can surface them.
         self.metadata: Dict[bytes, bytes] = {}
         self.region_name: Optional[str] = None
         self.bounds: Optional[Tuple[float, float, float, float]] = None  # (west, south, east, north)
@@ -397,10 +365,11 @@ class TDMAPReader:
 
             if magic != self.MAGIC:
                 raise ValueError(f"Invalid TDMAP magic: {magic}")
-            if version not in SUPPORTED_VERSIONS:
+            if version != TDMAP_VERSION:
                 raise ValueError(
-                    f"Unsupported TDMAP version: {version} "
-                    f"(supported: {SUPPORTED_VERSIONS})")
+                    f"Unsupported TDMAP version: {version} (this build only "
+                    f"reads v{TDMAP_VERSION}; pre-v6 archives are no longer "
+                    f"supported — regenerate with the current writer)")
 
             self.version = version
             self.tile_size = tile_size
@@ -409,24 +378,13 @@ class TDMAPReader:
             self.label_data_offset = label_data_offset
             self.label_count = label_count
 
-            # v4/v5 archives carry an 8×RGB565 palette here; v6 dropped it.
-            # We surface the legacy palette on the reader for older inspect
-            # output, but the bytes are not used by the firmware renderer.
-            if version < 6:
-                palette_data = f.read(LEGACY_PALETTE_SIZE)
-                self.palette = list(struct.unpack(LEGACY_PALETTE_FORMAT, palette_data))
-            else:
-                self.palette = []
-
-            # v5+ metadata block sits between the palette slot (or right
-            # after the header on v6) and the tile index. The 4-byte length
-            # prefix describes the TLV payload that follows.
-            if version >= 5:
-                meta_len_bytes = f.read(4)
-                if len(meta_len_bytes) == 4:
-                    meta_len = struct.unpack("<I", meta_len_bytes)[0]
-                    meta_payload = f.read(meta_len)
-                    self._parse_metadata(meta_payload)
+            # Metadata block (4-byte length + TLV payload) sits between the
+            # header and the tile index.
+            meta_len_bytes = f.read(4)
+            if len(meta_len_bytes) == 4:
+                meta_len = struct.unpack("<I", meta_len_bytes)[0]
+                meta_payload = f.read(meta_len)
+                self._parse_metadata(meta_payload)
 
             # Read tile index
             f.seek(index_offset)
@@ -435,7 +393,7 @@ class TDMAPReader:
                 zoom, x, y, offset, size = struct.unpack(INDEX_ENTRY_FORMAT, entry_data)
                 self.tiles.append(TileEntry(zoom, x, y, offset, size))
 
-            # Read labels (v4: sequential list, no index)
+            # Read labels (sequential list, no separate index)
             if self.label_count > 0 and self.label_data_offset > 0:
                 f.seek(self.label_data_offset)
                 labels_data = f.read()
@@ -448,7 +406,7 @@ class TDMAPReader:
                     offset += consumed
 
     def _parse_metadata(self, payload: bytes):
-        """Walk the v5 TLV metadata block. Unknown tags are preserved so
+        """Walk the TLV metadata block. Unknown tags are preserved so
         inspect can surface them, but don't populate any named attribute."""
         offset = 0
         n = len(payload)
@@ -600,7 +558,6 @@ def inspect_archive(archive_path: Path, first_n_labels: int = 5) -> int:
       * Tile count per zoom + compression stats per zoom
       * Label count by type
       * First N labels per zoom (for eyeballing positions)
-      * Palette as '#rrggbb' swatches
     """
     reader = TDMAPReader(archive_path)
     info = reader.get_info()
@@ -613,27 +570,26 @@ def inspect_archive(archive_path: Path, first_n_labels: int = 5) -> int:
     print(f"  tile count    : {info['tile_count']}")
     print(f"  label count   : {info['label_count']}")
 
-    if reader.version >= 5:
-        print("\n  Metadata:")
-        if reader.region_name:
-            print(f"    region      : {reader.region_name}")
-        if reader.bounds:
-            w, s, e, n = reader.bounds
-            print(f"    bounds      : W={w:+8.3f} S={s:+7.3f} E={e:+8.3f} N={n:+7.3f}")
-        if reader.build_timestamp:
-            import datetime
-            ts = datetime.datetime.utcfromtimestamp(reader.build_timestamp)
-            print(f"    built       : {ts.isoformat()}Z")
-        if reader.tool_version:
-            print(f"    tool        : {reader.tool_version}")
-        if reader.source_hash:
-            print(f"    source hash : {reader.source_hash[:16].hex()}… ({len(reader.source_hash)} bytes)")
-        # Surface unknown tags (forward-compat aid)
-        known = {META_TAG_REGION, META_TAG_BOUNDS, META_TAG_SRC_HASH,
-                 META_TAG_TIMESTAMP, META_TAG_TOOL_VER}
-        for tag, value in reader.metadata.items():
-            if tag not in known:
-                print(f"    {tag.decode('ascii', errors='replace')} (unknown): {len(value)} bytes")
+    print("\n  Metadata:")
+    if reader.region_name:
+        print(f"    region      : {reader.region_name}")
+    if reader.bounds:
+        w, s, e, n = reader.bounds
+        print(f"    bounds      : W={w:+8.3f} S={s:+7.3f} E={e:+8.3f} N={n:+7.3f}")
+    if reader.build_timestamp:
+        import datetime
+        ts = datetime.datetime.utcfromtimestamp(reader.build_timestamp)
+        print(f"    built       : {ts.isoformat()}Z")
+    if reader.tool_version:
+        print(f"    tool        : {reader.tool_version}")
+    if reader.source_hash:
+        print(f"    source hash : {reader.source_hash[:16].hex()}… ({len(reader.source_hash)} bytes)")
+    # Surface unknown tags (forward-compat aid)
+    known = {META_TAG_REGION, META_TAG_BOUNDS, META_TAG_SRC_HASH,
+             META_TAG_TIMESTAMP, META_TAG_TOOL_VER}
+    for tag, value in reader.metadata.items():
+        if tag not in known:
+            print(f"    {tag.decode('ascii', errors='replace')} (unknown): {len(value)} bytes")
 
     # Per-zoom distribution. Report size on disk and compression ratio against
     # the uncompressed 3bpp baseline (tile_size^2 * 3 / 8 bytes per tile).
@@ -672,19 +628,6 @@ def inspect_archive(archive_path: Path, first_n_labels: int = 5) -> int:
             for lbl in group:
                 name = _LABEL_TYPE_NAMES.get(lbl.label_type, str(lbl.label_type))
                 print(f"      ({lbl.lat:+8.4f},{lbl.lon:+9.4f}) {name:<7} {lbl.text}")
-
-    # Palette swatches. Print as RGB hex so it's readable in any terminal; ANSI
-    # color blocks would require detecting truecolor support. v6 archives no
-    # longer ship a palette — colors live in the renderer's theme module.
-    if reader.palette:
-        print("\n  Palette (8 × RGB565):")
-        for i, rgb565 in enumerate(reader.palette):
-            r = ((rgb565 >> 11) & 0x1F) << 3
-            g = ((rgb565 >> 5) & 0x3F) << 2
-            b = (rgb565 & 0x1F) << 3
-            print(f"    [{i}]  0x{rgb565:04X}  #{r:02x}{g:02x}{b:02x}")
-    else:
-        print("\n  Palette: (none — v6 archives delegate colors to the renderer theme)")
 
     print()
     return 0

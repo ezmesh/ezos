@@ -55,13 +55,11 @@ from config import (
     LABEL_TYPE_ROAD, LABEL_TYPE_WATER, LABEL_TYPE_PARK, LABEL_TYPE_POI,
     LABEL_MIN_ZOOM
 )
-from process import pack_3bit_pixels, rle_compress, zlib_compress
+from process import pack_3bit_pixels, zlib_compress
 from archive import TDMAPWriter, verify_archive
 from land_mask import get_land_mask, LandMask
 
-# Imported here to keep the codec-dispatch table in one place; process_tile_image
-# picks a compressor based on the active COMPRESSION constant.
-from config import COMPRESSION_RLE, COMPRESSION_ZLIB, DEFAULT_COMPRESSION
+from config import COMPRESSION_ZLIB, DEFAULT_COMPRESSION
 
 # Rendering primitives + label extraction live in dedicated modules so they
 # can be tested in isolation (see tools/maps/tests/). `render_vector_tile`
@@ -493,13 +491,13 @@ def _process_tile_worker(args: Tuple[int, int, int]) -> Optional[Dict[str, Any]]
         return {"status": "failed", "z": z, "x": x, "y": y, "error": str(e)}
 
 
-def process_tile_image(img: Image.Image, compression: int = DEFAULT_COMPRESSION) -> bytes:
+def process_tile_image(img: Image.Image) -> bytes:
     """
     Process an indexed image through the TDMAP pipeline.
 
     Pixels are already feature indices (0-7), so no dithering needed.
     1. Pack to 3 bits per pixel
-    2. Compress using the chosen codec (RLE or zlib)
+    2. zlib-compress the packed bytes
     """
     if img.size != (TILE_SIZE, TILE_SIZE):
         img = img.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.NEAREST)
@@ -509,10 +507,7 @@ def process_tile_image(img: Image.Image, compression: int = DEFAULT_COMPRESSION)
     indices = np.array(img, dtype=np.uint8)
     indices = np.clip(indices, 0, 7)
     packed = pack_3bit_pixels(indices.flatten().tolist())
-
-    if compression == COMPRESSION_ZLIB:
-        return zlib_compress(packed)
-    return rle_compress(packed)
+    return zlib_compress(packed)
 
 
 def compute_render_fingerprint(pmtiles_path: Optional[Path] = None) -> str:
@@ -526,14 +521,14 @@ def compute_render_fingerprint(pmtiles_path: Optional[Path] = None) -> str:
     changing palette/priorities shouldn't invalidate the cache.
     """
     import hashlib
-    from config import (PALETTE_RGB, TILE_SIZE, TDMAP_VERSION, COMPRESSION_RLE,
-                        LABEL_MIN_ZOOM)
+    from config import (PALETTE_RGB, TILE_SIZE, TDMAP_VERSION,
+                        DEFAULT_COMPRESSION, LABEL_MIN_ZOOM)
 
     h = hashlib.sha256()
     h.update(repr(PALETTE_RGB).encode())
     h.update(repr(TILE_SIZE).encode())
     h.update(repr(TDMAP_VERSION).encode())
-    h.update(repr(COMPRESSION_RLE).encode())
+    h.update(repr(DEFAULT_COMPRESSION).encode())
     h.update(repr(sorted(LABEL_MIN_ZOOM.items())).encode())
     if pmtiles_path is not None and pmtiles_path.exists():
         st = pmtiles_path.stat()

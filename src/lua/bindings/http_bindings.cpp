@@ -434,13 +434,16 @@ static int l_post(lua_State* L) {
     lua_setfield(L, -2, "Content-Type");
     lua_setfield(L, -2, "headers");
 
-    // Call fetch with url and options
+    // Call fetch with url and options. Capture the top before the call
+    // so we can return only the values fetch pushed — using lua_gettop()
+    // directly would also return the original args still on the stack.
+    int top_before_call = lua_gettop(L);
     lua_pushcfunction(L, l_fetch);
     lua_pushstring(L, url);
     lua_pushvalue(L, -3);  // options table
     lua_call(L, 2, LUA_MULTRET);
 
-    return lua_gettop(L);
+    return lua_gettop(L) - top_before_call;
 }
 
 /**

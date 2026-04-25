@@ -92,7 +92,7 @@ void setup() {
     Serial.println();
     Serial.println("=====================================");
     Serial.println("  T-Deck Plus MeshCore");
-    Serial.println("  Version 0.2.0 (Lua Shell)");
+    Serial.println("  Version " EZOS_VERSION " (Lua Shell)");
     Serial.println("=====================================");
     Serial.printf("PSRAM: %d KB free / %d KB total\n", ESP.getFreePsram() / 1024, ESP.getPsramSize() / 1024);
     Serial.printf("Heap:  %d KB free / %d KB total\n", ESP.getFreeHeap() / 1024, ESP.getHeapSize() / 1024);
