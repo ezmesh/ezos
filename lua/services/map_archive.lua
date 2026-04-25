@@ -6,8 +6,8 @@
 --   * get_tile() returns cached bytes, "pending" while an async load is in flight,
 --     or nil when the tile is known-absent. The async load is driven by a
 --     coroutine spawn()-ed on the first miss.
---   * Calls that block on disk use `async_read_bytes` (yields the coroutine on
---     device; runs synchronously in the simulator).
+--   * Calls that block on disk use `async_read_bytes`, which yields the
+--     calling coroutine until the SD driver finishes the read.
 --
 -- Memory budget:
 --   * Tile cache: 16 tiles × 24,576 bytes ≈ 384 KB of PSRAM (matches old viewer).
@@ -95,11 +95,7 @@ end
 -- ignored — the writer only ever emits zlib in v6, and pre-v6 archives
 -- are rejected at open() time.
 local function decompress_tile(_compression, data)
-    if ez.compression and ez.compression.inflate then
-        return ez.compression.inflate(data, PACKED_TILE_BYTES)
-    end
-    -- Simulator / host tests don't have the C binding; caller must polyfill.
-    return nil
+    return ez.compression.inflate(data, PACKED_TILE_BYTES)
 end
 
 -- ---------------------------------------------------------------------------

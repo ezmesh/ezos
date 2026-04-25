@@ -10,10 +10,6 @@ end
 -- @param context Optional string describing why GC is being called
 -- @param arg Optional argument for step mode
 function _G.run_gc(mode, context, arg)
-    -- Skip GC in simulator (Wasmoon has issues with collectgarbage + JS interop)
-    if __SIMULATOR__ then
-        return
-    end
     local before = mem()
     if mode == "step" then
         collectgarbage("step", arg or 10)
@@ -77,33 +73,23 @@ function _G.unload_module(path)
     end
 end
 
--- Spawn a coroutine and immediately resume it
--- Use this to run async code (like load_module) from event handlers
--- In simulator mode, runs the function directly (no coroutine) since Wasmoon
--- has issues with JS calls from coroutines
+-- Spawn a coroutine and immediately resume it.
+-- Use this to run async code (like load_module) from event handlers — the
+-- coroutine yields on async I/O and the runtime resumes it when the I/O
+-- completes.
 -- @param fn Function to run in the coroutine
--- @return The coroutine object (or nil in simulator mode)
+-- @return The coroutine object
 function _G.spawn(fn)
-    if __SIMULATOR__ then
-        -- Simulator: run directly (no coroutine needed, async_read is synchronous)
-        local ok, err = pcall(fn)
-        if not ok then
-            ez.log("[spawn] Error: " .. tostring(err))
-        end
-        return nil
-    else
-        -- Real hardware: use coroutine for async I/O
-        local co = coroutine.create(fn)
-        coroutine.resume(co)
-        return co
-    end
+    local co = coroutine.create(fn)
+    coroutine.resume(co)
+    return co
 end
 
 -- Spawn and push a screen to the ScreenManager
 -- Handles async module loading, error handling, and ScreenManager.push
 -- @param path Path to the screen module file
 -- @param ... Arguments passed to the screen's :new() constructor
--- @return The coroutine object (or nil in simulator mode)
+-- @return The coroutine object
 -- @example spawn_screen("$ui/screens/settings.lua")
 -- @example spawn_screen("$ui/screens/node_details.lua", node)
 function _G.spawn_screen(path, ...)
@@ -130,7 +116,7 @@ end
 -- @param path Path to the module file
 -- @param method Method name to call (default "main")
 -- @param ... Arguments passed to the method
--- @return The coroutine object (or nil in simulator mode)
+-- @return The coroutine object
 -- @example spawn_module("$services/sync.lua", "start")
 -- @example spawn_module("$tools/export.lua", "run", filename)
 function _G.spawn_module(path, method, ...)
