@@ -1,9 +1,11 @@
 # PlatformIO build directory
 .pio/
 
-# Auto-generated embedded Lua scripts (regenerated on each build)
+# Auto-generated embedded Lua scripts + docs (regenerated on each build)
 src/lua/embedded_lua_scripts.cpp
 src/lua/embedded_lua_scripts.h
+src/lua/embedded_docs.cpp
+src/lua/embedded_docs.h
 
 # IDE settings
 .idea/

@@ -268,7 +268,7 @@ end
 local icon_defs = {
     { label = "Messages", icon = icons.mail,    screen = "$screens/chat/messages.lua" },
     { label = "Contacts", icon = icons.users,   mod = "screens.chat.contacts" },
-    { label = "Map",      icon = icons.globe,   mod = "screens.tools.map" },
+    { label = "Map",      icon = icons.globe,   mod = "screens.tools.map_loader" },
     { label = "More",     icon = icons.more_horiz, screen = "$screens/menu.lua" },
 }
 

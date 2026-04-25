@@ -1051,6 +1051,28 @@ function dm.clear_return_path(pub_key_hex)
     return_paths[pub_key_hex] = nil
 end
 
+-- Raw-bytes accessor for sibling services (custom_packets) that want
+-- to route their own datagrams through the same cached path. Returns
+-- the byte string for ez.mesh.build_packet's `path` argument, or nil
+-- if no path is cached.
+function dm.get_return_path_bytes(pub_key_hex)
+    local rp = return_paths[pub_key_hex]
+    return rp and rp.bytes or nil
+end
+
+-- Internal helpers exposed for sibling services (notably the
+-- custom_packets layer) that need the same crypto + candidate search.
+-- Sharing the same get_enc_key means secret_cache is a single table
+-- across DM and custom packets — first-contact X25519 only happens
+-- once per peer. Prefixed with underscore to signal "not for app use".
+dm._internal = {
+    hex_to_bytes     = hex_to_bytes,
+    get_enc_key      = get_enc_key,
+    encrypt_then_mac = encrypt_then_mac,
+    mac_then_decrypt = mac_then_decrypt,
+    build_candidates = build_candidates,
+}
+
 -- Group the pending buffer by src_hash for UI display. Returns a list of
 -- { src_hash, count, latest_ms } sorted by most recent first. The src_hash
 -- is a single byte — far from unique across the mesh, but it's the only

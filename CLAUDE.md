@@ -65,29 +65,33 @@ ezos/
 │   ├── hardware/          # Display, keyboard, radio, GPS drivers
 │   ├── mesh/              # MeshCore implementation (identity, routing, crypto)
 │   ├── lua/               # Lua runtime and bindings
-│   │   └── bindings/      # C++ wrappers for Lua APIs
+│   │   └── bindings/      # C++ wrappers for Lua APIs (@lua-annotated)
 │   └── remote/            # USB remote control protocol
 ├── lua/                    # Lua scripts (embedded into firmware)
 │   ├── boot.lua           # Entry point (services init, apply settings)
 │   ├── core/              # Module infrastructure (modules.lua)
+│   ├── engine/            # Long-lived helpers (audio_engine, highscores)
 │   ├── ezui/              # Declarative UI framework
 │   │   ├── init.lua       # Public API, main loop
 │   │   ├── screen.lua     # Screen stack manager
 │   │   ├── node.lua       # Node tree system
 │   │   ├── layout.lua     # Layout nodes (vbox, hbox, scroll, etc.)
 │   │   ├── widgets.lua    # Widget constructors (button, list_item, etc.)
+│   │   ├── widgets/       # Composite widgets (map_view, etc.)
 │   │   ├── focus.lua      # Focus/navigation manager
 │   │   ├── text.lua       # Text measurement and wrapping
-│   │   ├── theme.lua      # Colors, fonts, dimensions
+│   │   ├── theme.lua      # Palettes, map palette, fonts, dimensions
 │   │   ├── icons.lua      # PNG icon definitions
 │   │   └── async.lua      # Async file I/O helpers
-│   ├── screens/           # Screen definitions
-│   └── services/          # Background services (channels, contacts, DMs)
-├── tools/                  # Development utilities
-│   ├── maps/              # Offline map generation
-│   ├── simulator/         # Browser-based simulator
-│   └── remote/            # Remote control client
-└── docs/                   # Documentation
+│   ├── screens/           # Screen definitions (about, chat, dialog,
+│   │                      #   games, settings, tools)
+│   └── services/          # Background services (apps registry, channels,
+│                          #   contacts, direct_messages, file_transfer,
+│                          #   gps, map_archive, prefs_registry, ui_sounds)
+├── scripts/                # Build-time generators (Lua embedder)
+├── tools/                  # Host utilities (map gen, simulator, remote
+│                          #   control, doc generator, font/icon/sound gen)
+└── docs/                   # User manual + Lua API reference (see below)
 ```
 
 ## UI System Architecture (ezui)
@@ -124,9 +128,17 @@ Timers and bus messages are processed by C++ `LuaRuntime::update()` before the L
 ### Services
 
 Services are initialized in order in `lua/boot.lua`:
-1. **contacts** - Contact list CRUD with persistence
-2. **channels** - Channel management, GRP_TXT decryption
-3. **direct_messages** - Encrypted DMs via TXT_MSG packets
+1. **contacts** — Contact list CRUD with persistence
+2. **channels** — Channel management, GRP_TXT decryption
+3. **direct_messages** — Encrypted DMs via TXT_MSG packets
+4. **custom_packets** — Custom (non-MeshCore) packet handlers
+5. **file_transfer** — Mesh-based file send/receive
+6. **ui_sounds** — UI sound effects via the audio engine
+7. **apps** — Registered file-type → screen handlers (used by the file manager)
+8. **gps** — Started lazily based on the user pref
+
+Other modules under `lua/services/` (e.g. `map_archive`, `prefs_registry`)
+are loaded on demand by the screens that need them.
 
 ### Module Loading
 
@@ -149,10 +161,10 @@ Convert OpenStreetMap vector tiles to optimized TDMAP format for offline viewing
 
 | File | Purpose |
 |------|---------|
-| `pmtiles_to_tdmap.py` | Main converter - PMTiles to TDMAP |
-| `config.py` | Tile sources, regions, 8-color semantic palette |
-| `process.py` | Grayscale conversion, dithering, RLE compression |
-| `archive.py` | TDMAP format writer/reader |
+| `pmtiles_to_tdmap.py` | Main converter — PMTiles to TDMAP |
+| `config.py` | Tile sources, regions, semantic-index → grayscale lookup used by the rasterizer |
+| `process.py` | Grayscale conversion, dithering, RLE/zlib tile compression |
+| `archive.py` | TDMAP format writer/reader/inspector |
 | `land_mask.py` | Natural Earth land polygon downloader |
 | `viewer.html` | Browser-based TDMAP viewer |
 
@@ -165,16 +177,29 @@ python pmtiles_to_tdmap.py input.pmtiles -o output.tdmap
 python pmtiles_to_tdmap.py input.pmtiles --bounds 4.0,52.0,5.5,52.5 --zoom 10,14 -o region.tdmap
 ```
 
-### TDMAP Format (v4)
+Copy generated `.tdmap` files to `/sd/maps/` on the device. The Map app
+opens a loader screen (`screens/tools/map_loader.lua`) that lists every
+archive there; "Set as default" via the M-key actions menu skips the
+picker on subsequent opens.
 
-Optimized archive format for ESP32:
-- **Header** (33 bytes): Magic, version, compression type, tile/label counts, offsets
-- **Palette** (16 bytes): 8 RGB565 colors for semantic features
+### TDMAP Format (v6)
+
+Optimized archive format for ESP32. Readers accept v4..v6; the writer
+always emits v6.
+
+- **Header** (33 bytes): Magic, version, compression type, tile/label counts, offsets, zoom range
+- **Metadata block** (v5+, optional): TLV tags — region name, bounds, build timestamp, tool version, source hash
 - **Tile Index**: Sorted by (zoom, x, y) for binary search
-- **Tile Data**: RLE-compressed 3-bit indexed pixels
+- **Tile Data**: zlib-compressed 3-bit indexed pixels (legacy v4 used RLE)
 - **Labels**: Geographic coordinates (lat_e6, lon_e6), zoom ranges, label types
 
-Semantic feature indices (0-7): Land, Water, Park, Building, RoadMinor, RoadMajor, Highway, Railway
+Semantic feature indices (0-7): Land, Water, Park, Building, RoadMinor, RoadMajor, Highway, Railway.
+
+Tile colors are **not** stored in the archive; v6 dropped the 16-byte
+palette block. The on-device renderer maps indices to RGB565 via
+`ezui.theme.map_palette()`, which returns a per-theme palette plus
+matching label inks. v4/v5 archives still load — the reader skips the
+legacy palette block and ignores its contents.
 
 ### Resume Support
 
@@ -406,6 +431,26 @@ After making a fix:
 - `!RF` indicator means radio failed to initialize
 - Check LoRa module wiring if this appears
 
+## Theming
+
+`lua/ezui/theme.lua` is the single source of truth for colors and fonts.
+
+- Built-in palettes: `dark` (default) and `light`. Selected via
+  `theme.set("dark"|"light")`, persisted under the `theme` pref, and
+  restored at boot.
+- Accent color is independent of the dark/light choice. Stored under
+  `accent_color`, picked from `theme.ACCENT_PRESETS`. Settings → Display
+  → Accent colour.
+- **Map palette**: `theme.map_palette()` returns the 8-color tile palette
+  + label inks/halo for the active theme. The map renderer reads this
+  every frame, so a theme switch repaints tiles without invalidating the
+  cache. See `lua/ezui/widgets/map_view.lua`.
+- User entry points: Settings → Display → Theme → Dark mode toggle. The
+  Map screen also accepts `T` as a legacy shortcut.
+
+When adding new theme tokens, use `theme.color("NAME")` rather than raw
+RGB565 literals so the value can flow through both palettes.
+
 ## C++ Binding Safety Rules
 
 ### Dangling lua_State* Pointer Bug
@@ -438,6 +483,82 @@ void myCallback() {
 When writing new C++ bindings that register callbacks, audit every `lua_State*` that
 outlives the current function call. If it's stored for later use, it must come from
 `LUA_STATE`, not from the `L` parameter.
+
+## Documentation
+
+Two doc surfaces live under `docs/`:
+
+- `docs/manual/` — User-facing manual (Markdown + generated HTML).
+  Hand-written prose covering what the device does, how to use each
+  app, and where to find settings.
+- `docs/api/` — Lua API reference, **generated from C++ binding
+  annotations** by `tools/generate_lua_docs.py`. Do not hand-edit;
+  changes are overwritten on the next regen.
+
+### Annotation conventions (C++ bindings)
+
+Every Lua binding under `src/lua/bindings/` is documented inline with
+structured comments. The generator parses these into `docs/api/`. See
+the docstring at the top of `tools/generate_lua_docs.py` for the full
+grammar; the common cases:
+
+```cpp
+// @module ez.display
+// @brief Display drawing and rendering functions
+// @description ...
+// @end
+
+// @lua ez.display.draw_text(x, y, text, color) -> nil
+// @brief Draw a string at (x, y)
+// @param x  X coordinate (pixels)
+// @param y  Y coordinate (pixels)
+// @param text  UTF-8 string (ASCII-only on default fonts)
+// @param color  RGB565 color
+// @example
+// ez.display.draw_text(8, 8, "hello", 0xFFFF)
+// @end
+
+// @bus key/down
+// @brief Posted on every keypress (before per-screen handling)
+// @payload { key: string, special: bool, ctrl: bool, shift: bool }
+```
+
+Bus topics (`@bus`), parameters (`@param`), return values (`@return`),
+and code samples (`@example`) all flow into the published API page.
+
+### Regenerating docs
+
+```bash
+python tools/generate_lua_docs.py
+```
+
+The script writes both Markdown and HTML to `docs/api/` and `docs/manual/`.
+There is **no** "watch" mode; run it manually after touching annotations.
+
+### Maintenance contract
+
+- **Adding or modifying a Lua binding**: update the C++ annotation in
+  the same diff. Don't ship undocumented surface — `@brief` at minimum.
+- **Adding or removing a Lua-only API** (something that doesn't go
+  through a C++ binding, e.g. a service or ezui module): document it
+  under `docs/manual/` if it's user-visible, or in CLAUDE.md if it's
+  developer-only context.
+- **Adding a new screen / app / settings panel**: add or update the
+  matching page under `docs/manual/<area>/index.md`.
+- **Changing on-disk formats** (TDMAP, prefs, transfer protocol): keep
+  CLAUDE.md's Key Components / TDMAP / MeshCore sections honest. Bump
+  the version constant *and* the prose in the same commit.
+- **CLAUDE.md itself is a living doc**: when a section becomes wrong
+  (renamed module, deleted screen, format bump), fix the section in the
+  same change set rather than letting drift accumulate.
+
+The on-device docs reader (browse `docs/manual/` from the T-Deck) is a
+planned addition; until it ships, `docs/manual/index.html` is the
+canonical user-facing form. The annotation conventions above stay valid
+either way — the generator is the source of truth. When the reader
+arrives, `lua/ezui/markdown.lua` (already used by the About screen) is
+the rendering backend; the open question is just whether the manual
+ships embedded in firmware, on `/sd/docs/`, or both.
 
 ## MeshCore Protocol Reference
 

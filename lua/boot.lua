@@ -127,6 +127,20 @@ local function boot_sequence()
     local dm_svc = require("services.direct_messages")
     dm_svc.init()
 
+    -- Custom packets: P2P extension layer on RAW_CUSTOM. Subscribes
+    -- after dm_svc so the DM internals it borrows are ready.
+    -- register_demos() installs PING / PONG / GPS\0 handlers; remove
+    -- that call to strip the demo subtypes in a production build.
+    local custom = require("services.custom_packets")
+    custom.init()
+    custom.register_demos()
+
+    -- File transfer rides on custom_packets+ACK. Registers its "FILE"
+    -- subtype and listens for delivered/undelivered events so the
+    -- sender pipeline advances chunk by chunk.
+    local file_transfer = require("services.file_transfer")
+    file_transfer.init()
+
     local ui_sounds = require("services.ui_sounds")
     ui_sounds.init()
 

@@ -203,6 +203,24 @@ local function show_file_menu(mgr, path, file)
             end,
         })
 
+        -- Transfer over mesh. Opens a contact picker; the picked
+        -- contact becomes the recipient. On a fresh device with no
+        -- contacts, show a disabled row with a hint so the user
+        -- knows why it's greyed out.
+        local contacts_svc = require("services.contacts")
+        local has_contacts = contacts_svc.count() > 0
+        actions[#actions + 1] = ui.list_item({
+            title    = "Transfer",
+            subtitle = has_contacts and "Send over mesh"
+                       or "Add a contact first",
+            disabled = not has_contacts,
+            on_press = function()
+                screen_mod.pop()
+                require("screens.tools.file_manager_xfer_picker")
+                    .show(full_path, file.size)
+            end,
+        })
+
         -- Delete
         actions[#actions + 1] = ui.list_item({
             title = "Delete",
@@ -458,6 +476,37 @@ end
 
 function FileMgr:on_exit()
     clear_preview()
+end
+
+-- Global menu (Alt+M). Keeps menu items tied to the file-manager's
+-- current folder, so "Receive file here" lands the incoming file
+-- in whichever directory is visible.
+function FileMgr:menu()
+    local path = self._state.path or "/fs/"
+    local ft = require("services.file_transfer")
+    local armed, armed_path = ft.is_armed()
+    local armed_here = armed and armed_path == path
+
+    local items = {}
+    items[#items + 1] = {
+        title    = armed_here and "Stop receiving" or "Receive file here",
+        subtitle = armed_here and armed_path
+                   or "Accept one incoming transfer into " .. path,
+        on_press = function()
+            if armed_here then
+                ft.arm_receive(nil)
+            else
+                ft.arm_receive(path)
+                -- Push a receiver screen so the user sees progress
+                -- when the offer arrives. The screen subscribes to
+                -- file/offer and updates from there.
+                local FT = require("screens.tools.file_transfer")
+                screen_mod.push(screen_mod.create(FT,
+                    FT.initial_state("rx", nil, {})))
+            end
+        end,
+    }
+    return items
 end
 
 function FileMgr:handle_key(key)

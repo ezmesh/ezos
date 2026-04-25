@@ -69,8 +69,11 @@ TILE_SIZE = 256
 # v4: geographic labels with lat/lon, no tile index, deduped
 # v5: adds optional TLV metadata block between palette and tile index
 #     (region name, bounds, source hash, build timestamp, tool version).
-#     Readers accept both v4 and v5.
-TDMAP_VERSION = 5
+# v6: drops the in-archive palette. Tiles still store 3-bit semantic indices,
+#     but renderers (e.g. ezui.theme.map_palette) own the colors so a single
+#     archive serves both light and dark themes. palette_count=0 in the
+#     header. Readers accept v4..v6.
+TDMAP_VERSION = 6
 
 # Compression type for tile data (written to the archive header).
 # Readers dispatch on this byte to pick a decompressor.

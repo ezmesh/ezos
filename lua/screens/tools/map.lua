@@ -8,8 +8,10 @@ local map_archive = require("services.map_archive")
 local map_view    = require("ezui.widgets.map_view").map_view
 local gps_svc     = require("services.gps")
 
-local PREF_KEY     = "map_last_view"
-local ARCHIVE_PATH = "/sd/maps/world.tdmap"
+-- Last-view prefs are keyed per archive so switching between, say, a world
+-- overview and a city detail archive doesn't strand you outside the new
+-- archive's bounds.
+local PREF_PREFIX  = "map_last_view:"
 -- Fallback center when no saved view exists. Roughly central Netherlands at a
 -- zoom that shows the whole country on a 320×240 viewport.
 local DEFAULT_VIEW = { lat = 52.1, lon = 5.3, zoom = 6 }
@@ -20,6 +22,12 @@ local THEMES = { "dark", "light" }
 
 local Map = { title = "Map" }
 
+-- Per-archive pref key. Falls back to a generic key for callers that didn't
+-- supply a path (e.g. ad-hoc ui.push_screen during dev).
+local function pref_key(path)
+    return PREF_PREFIX .. (path or "default")
+end
+
 -- Parse the last-view pref blob: "lat,lon,zoom". Returns nil on any failure so
 -- the caller falls back to DEFAULT_VIEW.
 local function parse_saved_view(raw)
@@ -29,10 +37,16 @@ local function parse_saved_view(raw)
     return { lat = tonumber(lat), lon = tonumber(lon), zoom = tonumber(z) }
 end
 
-function Map.initial_state()
-    local saved = parse_saved_view(ez.storage.get_pref(PREF_KEY, nil))
+-- initial_state(path): the loader screen passes the archive path so the
+-- restored view, title, and on-disk pref are all scoped to that archive.
+-- A bare call (no path) keeps the legacy /sd/maps/world.tdmap default so
+-- direct ui.push_screen invocations during development still work.
+function Map.initial_state(archive_path)
+    archive_path = archive_path or "/sd/maps/world.tdmap"
+    local saved = parse_saved_view(ez.storage.get_pref(pref_key(archive_path), nil))
     local v = saved or DEFAULT_VIEW
     return {
+        archive_path    = archive_path,
         archive         = nil,
         loading         = true,
         error           = nil,
@@ -49,11 +63,12 @@ function Map:on_enter()
     local s = self._state
     if s.archive or s.error then return end
     local inst = self
+    local path = s.archive_path or "/sd/maps/world.tdmap"
     -- async.task wraps spawn with begin()/done() so the status-bar
     -- spinner reflects this load and clears even if something errors.
     local async = require("ezui.async")
     async.task(function()
-        local arc, err = map_archive.open(ARCHIVE_PATH)
+        local arc, err = map_archive.open(path)
         if not arc then
             inst:set_state({ loading = false, error = err or "failed to open archive" })
             return
@@ -63,13 +78,16 @@ function Map:on_enter()
         if z < arc.header.min_zoom then z = arc.header.min_zoom end
         if z > arc.header.max_zoom then z = arc.header.max_zoom end
 
-        -- If the user has no saved view and the archive ships v5 bounds,
-        -- snap to the archive's center. Avoids the "blank screen outside
-        -- archive bounds" footgun on fresh installs.
+        -- Snap to archive center when there's no saved view OR when the
+        -- saved view sits outside the archive's bounds (e.g. you panned
+        -- around in a Netherlands archive and then opened a Spain one).
         local center_lat = inst._state.center_lat
         local center_lon = inst._state.center_lon
-        if not inst._state.used_saved_view and arc.header.bounds then
-            local b = arc.header.bounds
+        local b = arc.header.bounds
+        local saved_outside = b and (
+            (center_lat or 0) < b.south or (center_lat or 0) > b.north
+            or (center_lon or 0) < b.west  or (center_lon or 0) > b.east)
+        if (not inst._state.used_saved_view and b) or saved_outside then
             center_lat = (b.north + b.south) / 2
             center_lon = (b.east  + b.west ) / 2
         end
@@ -91,7 +109,7 @@ end
 function Map:on_exit()
     local s = self._state
     if s.archive then
-        ez.storage.set_pref(PREF_KEY, string.format(
+        ez.storage.set_pref(pref_key(s.archive_path), string.format(
             "%.6f,%.6f,%d", s.center_lat or 0, s.center_lon or 0, s.zoom or DEFAULT_VIEW.zoom))
         s.archive:close()
         s.archive = nil
@@ -260,13 +278,14 @@ function Map:build(state)
     -- loading so callers that push us with an empty state (e.g. direct
     -- ui.push_screen without initial_state) still see a spinner instead
     -- of the map_view's bare "No map archive loaded" placeholder.
+    local path = state.archive_path or "/sd/maps/world.tdmap"
     if state.loading or (not state.archive and not state.error) then
         return ui.vbox({ gap = 0 }, {
             ui.title_bar("Map", { back = true }),
             ui.padding({ 60, 20, 20, 20 },
                 ui.hbox({ gap = 8 }, {
                     { type = "spinner", size = 16 },
-                    ui.text_widget("Loading " .. ARCHIVE_PATH .. "...", { color = "TEXT_SEC" }),
+                    ui.text_widget("Loading " .. path .. "...", { color = "TEXT_SEC" }),
                 })
             ),
         })
@@ -282,7 +301,7 @@ function Map:build(state)
             ),
             ui.padding({ 12, 16, 16, 16 },
                 ui.text_widget(
-                    "Copy a .tdmap archive to " .. ARCHIVE_PATH .. " and reopen this screen.",
+                    "Could not open " .. path .. ".",
                     { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
             ),
         })

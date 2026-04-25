@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import List, Tuple, BinaryIO, Optional, Dict, Any
 
-from config import (PALETTE_RGB565, TILE_SIZE, TDMAP_VERSION,
+from config import (TILE_SIZE, TDMAP_VERSION,
                     COMPRESSION_RLE, COMPRESSION_ZLIB, DEFAULT_COMPRESSION)
 
 # v5 metadata TLV tags (2 bytes each, ASCII). Values are little-endian.
@@ -22,7 +22,9 @@ META_TAG_TIMESTAMP  = b"TS"  # 8 bytes: uint64_le UNIX epoch seconds
 META_TAG_TOOL_VER   = b"TV"  # UTF-8 tool/generator version
 
 # Supported reader versions. Newer writers always emit the latest.
-SUPPORTED_VERSIONS = (4, 5)
+# v6 dropped the in-archive palette; readers still accept v4/v5 archives by
+# skipping the legacy 16-byte block before metadata/index.
+SUPPORTED_VERSIONS = (4, 5, 6)
 
 
 # Archive header format v4 (33 bytes total)
@@ -33,9 +35,10 @@ SUPPORTED_VERSIONS = (4, 5)
 HEADER_FORMAT = "<6sBBHBIIIbbII"
 HEADER_SIZE = 33  # 6+1+1+2+1+4+4+4+1+1+4+4 = 33 bytes
 
-# Palette entry format: 8 RGB565 values (16 bytes)
-PALETTE_FORMAT = "<8H"
-PALETTE_SIZE = 16
+# Legacy palette block: 8 RGB565 values (16 bytes). v4/v5 archives carried
+# this between the header and the metadata/index; v6 omits it entirely.
+LEGACY_PALETTE_FORMAT = "<8H"
+LEGACY_PALETTE_SIZE = 16
 
 # Tile index entry format (11 bytes per tile)
 # zoom(1) + x(2) + y(2) + offset(4) + size(2) = 11 bytes
@@ -261,8 +264,8 @@ class TDMAPWriter:
         # Sort labels by (zoom_min, lat, lon) for predictable output
         self.labels.sort(key=lambda l: (l.zoom_min, l.lat_e6, l.lon_e6))
 
-        # v5 metadata block: 4-byte length prefix + TLV chunks. Always present
-        # in v5 output even when empty so readers don't need a second version
+        # v5+ metadata block: 4-byte length prefix + TLV chunks. Always present
+        # in v5+ output even when empty so readers don't need a second version
         # check to locate the tile index.
         metadata_payload = self._pack_metadata() if TDMAP_VERSION >= 5 else b""
         metadata_block = (
@@ -270,8 +273,11 @@ class TDMAPWriter:
             if TDMAP_VERSION >= 5 else b""
         )
 
-        # Calculate offsets (metadata sits between palette and tile index)
-        index_offset = HEADER_SIZE + PALETTE_SIZE + len(metadata_block)
+        # v6 dropped the in-archive palette; older versions still need the
+        # 16-byte slot between header and metadata/index.
+        legacy_palette_block = LEGACY_PALETTE_SIZE if TDMAP_VERSION < 6 else 0
+
+        index_offset = HEADER_SIZE + legacy_palette_block + len(metadata_block)
         data_offset = index_offset + len(self.tiles) * INDEX_ENTRY_SIZE
 
         # Calculate data offsets for each tile
@@ -287,6 +293,16 @@ class TDMAPWriter:
         # Pack all labels
         label_data = b''.join(label.pack() for label in self.labels)
 
+        # v6+ archives don't carry a palette; older versions still serialize
+        # one for back-compat with readers that expect the slot.
+        if TDMAP_VERSION < 6:
+            from config import PALETTE_RGB565
+            palette_bytes = struct.pack(LEGACY_PALETTE_FORMAT, *PALETTE_RGB565)
+            palette_count = len(PALETTE_RGB565)
+        else:
+            palette_bytes = b""
+            palette_count = 0
+
         with open(self.output_path, "wb") as f:
             # Write header
             header = struct.pack(
@@ -295,7 +311,7 @@ class TDMAPWriter:
                 TDMAP_VERSION,                 # version (1 byte)
                 self.compression,              # compression type (1 byte)
                 TILE_SIZE,                     # tile size (2 bytes)
-                len(PALETTE_RGB565),           # palette count (1 byte)
+                palette_count,                 # palette count (1 byte; 0 on v6)
                 len(self.tiles),               # tile count (4 bytes)
                 index_offset,                  # index offset (4 bytes)
                 data_offset,                   # data offset (4 bytes)
@@ -306,11 +322,10 @@ class TDMAPWriter:
             )
             f.write(header)
 
-            # Write palette
-            palette = struct.pack(PALETTE_FORMAT, *PALETTE_RGB565)
-            f.write(palette)
+            if palette_bytes:
+                f.write(palette_bytes)
 
-            # Write v5 metadata block (length prefix + TLV payload)
+            # Write v5+ metadata block (length prefix + TLV payload)
             if metadata_block:
                 f.write(metadata_block)
 
@@ -394,14 +409,18 @@ class TDMAPReader:
             self.label_data_offset = label_data_offset
             self.label_count = label_count
 
-            # Read palette
-            palette_data = f.read(PALETTE_SIZE)
-            self.palette = list(struct.unpack(PALETTE_FORMAT, palette_data))
+            # v4/v5 archives carry an 8×RGB565 palette here; v6 dropped it.
+            # We surface the legacy palette on the reader for older inspect
+            # output, but the bytes are not used by the firmware renderer.
+            if version < 6:
+                palette_data = f.read(LEGACY_PALETTE_SIZE)
+                self.palette = list(struct.unpack(LEGACY_PALETTE_FORMAT, palette_data))
+            else:
+                self.palette = []
 
-            # v5 metadata block sits between the palette and the tile index.
-            # The 4-byte length prefix describes the TLV payload that follows.
-            # We never need to trust index_offset for size; we just parse up
-            # to the declared length and then seek to index_offset anyway.
+            # v5+ metadata block sits between the palette slot (or right
+            # after the header on v6) and the tile index. The 4-byte length
+            # prefix describes the TLV payload that follows.
             if version >= 5:
                 meta_len_bytes = f.read(4)
                 if len(meta_len_bytes) == 4:
@@ -655,13 +674,17 @@ def inspect_archive(archive_path: Path, first_n_labels: int = 5) -> int:
                 print(f"      ({lbl.lat:+8.4f},{lbl.lon:+9.4f}) {name:<7} {lbl.text}")
 
     # Palette swatches. Print as RGB hex so it's readable in any terminal; ANSI
-    # color blocks would require detecting truecolor support.
-    print("\n  Palette (8 × RGB565):")
-    for i, rgb565 in enumerate(reader.palette):
-        r = ((rgb565 >> 11) & 0x1F) << 3
-        g = ((rgb565 >> 5) & 0x3F) << 2
-        b = (rgb565 & 0x1F) << 3
-        print(f"    [{i}]  0x{rgb565:04X}  #{r:02x}{g:02x}{b:02x}")
+    # color blocks would require detecting truecolor support. v6 archives no
+    # longer ship a palette — colors live in the renderer's theme module.
+    if reader.palette:
+        print("\n  Palette (8 × RGB565):")
+        for i, rgb565 in enumerate(reader.palette):
+            r = ((rgb565 >> 11) & 0x1F) << 3
+            g = ((rgb565 >> 5) & 0x3F) << 2
+            b = (rgb565 & 0x1F) << 3
+            print(f"    [{i}]  0x{rgb565:04X}  #{r:02x}{g:02x}{b:02x}")
+    else:
+        print("\n  Palette: (none — v6 archives delegate colors to the renderer theme)")
 
     print()
     return 0

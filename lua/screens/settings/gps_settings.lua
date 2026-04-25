@@ -24,7 +24,30 @@ function GPS.initial_state()
     return {
         enabled    = gps_svc.is_enabled(),
         sync_index = sync_mode_index(),
+        chip       = nil,            -- filled in on_enter via UBX-MON-VER
+        constellations = nil,        -- map of id -> bool, filled in on_enter
+        toggle_error = nil,          -- transient "couldn't apply" message
     }
+end
+
+-- Background-load chip identification + per-constellation state. Each
+-- VALGET is a synchronous round-trip (~150ms), so doing six in a row
+-- on the build path would freeze the UI. We do them in on_enter while
+-- the screen is settling and rebuild once the data lands.
+function GPS:on_enter()
+    spawn(function()
+        local chip = gps_svc.identify_chip(800)
+        if not chip then
+            self:set_state({ chip = { unsupported = true } })
+            return
+        end
+        local caps = chip.capabilities
+        local cmap = {}
+        for _, c in ipairs(caps.constellations) do
+            cmap[c.id] = ez.gps.get_signal_enabled(c.key, 300)
+        end
+        self:set_state({ chip = chip, constellations = cmap })
+    end)
 end
 
 function GPS:build(state)
@@ -72,6 +95,102 @@ function GPS:build(state)
             .. "The GPS clock is satellite-accurate, useful when no NTP server is available.",
             { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
     )
+
+    -- Section: Chip + constellations
+    --
+    -- Chip identification comes from UBX-MON-VER (cached after the
+    -- first probe). Constellation toggles drive UBX-CFG-VALSET writes
+    -- to RAM + BBR; ACK / NAK from the chip is the source of truth, so
+    -- on NAK we revert the local UI state to whatever the chip
+    -- reports back. The chip gates which constellations are even
+    -- shown — the MIA-M10Q's capability table doesn't list GLONASS,
+    -- so its row never appears.
+    content[#content + 1] = ui.padding({ 12, 8, 4, 8 },
+        ui.text_widget("Chip", { color = "ACCENT", font = "small_aa" })
+    )
+    if state.chip == nil then
+        content[#content + 1] = ui.padding({ 2, 8, 2, 8 },
+            ui.text_widget("Detecting...", { font = "small_aa", color = "TEXT_MUTED" })
+        )
+    elseif state.chip.unsupported then
+        content[#content + 1] = ui.padding({ 2, 8, 2, 8 },
+            ui.text_widget("No UBX response (L76K variant?)",
+                { font = "small_aa", color = "TEXT_MUTED" })
+        )
+    else
+        local caps = state.chip.capabilities or {}
+        content[#content + 1] = ui.padding({ 2, 8, 0, 8 },
+            ui.text_widget(string.format("%s  (hw %s)",
+                caps.name or "Unknown",
+                state.chip.hw or "?"),
+                { font = "small_aa", color = "TEXT_SEC" })
+        )
+        content[#content + 1] = ui.padding({ 0, 8, 2, 8 },
+            ui.text_widget(state.chip.sw or "",
+                { font = "tiny_aa", color = "TEXT_MUTED" })
+        )
+        if caps.unknown then
+            content[#content + 1] = ui.padding({ 2, 8, 4, 8 },
+                ui.text_widget(
+                    "Unknown chip — toggles below are best-effort. "
+                    .. "If a toggle won't stick, the chip doesn't support that signal.",
+                    { wrap = true, font = "tiny_aa", color = "WARNING" })
+            )
+        end
+
+        -- Per-constellation toggles
+        if state.constellations and caps.constellations then
+            content[#content + 1] = ui.padding({ 8, 8, 4, 8 },
+                ui.text_widget("Constellations", { color = "ACCENT", font = "small_aa" })
+            )
+            for _, c in ipairs(caps.constellations) do
+                local cur = state.constellations[c.id]
+                if c.locked then
+                    -- Render locked rows as text instead of an
+                    -- interactive toggle so the user can't bump them.
+                    content[#content + 1] = ui.padding({ 2, 8, 0, 8 },
+                        ui.text_widget(
+                            string.format("%s — always on", c.label),
+                            { font = "medium_aa", color = "TEXT" })
+                    )
+                else
+                    content[#content + 1] = ui.padding({ 2, 8, 0, 8 },
+                        ui.toggle(c.label, cur and true or false, {
+                            on_change = function(val)
+                                -- Optimistically flip the UI; if
+                                -- VALSET NAKs we revert and surface
+                                -- a transient error message.
+                                state.constellations[c.id] = val
+                                state.toggle_error = nil
+                                self:set_state({})
+                                spawn(function()
+                                    local ok = gps_svc.write_constellation(c.id, val)
+                                    if not ok then
+                                        state.constellations[c.id] = not val
+                                        state.toggle_error = c.label
+                                            .. ": chip rejected change"
+                                        self:set_state({})
+                                    end
+                                end)
+                            end,
+                        })
+                    )
+                end
+                if c.hint then
+                    content[#content + 1] = ui.padding({ 0, 8, 4, 8 },
+                        ui.text_widget(c.hint,
+                            { wrap = true, font = "tiny_aa", color = "TEXT_MUTED" })
+                    )
+                end
+            end
+            if state.toggle_error then
+                content[#content + 1] = ui.padding({ 4, 8, 4, 8 },
+                    ui.text_widget(state.toggle_error,
+                        { wrap = true, font = "small_aa", color = "WARNING" })
+                )
+            end
+        end
+    end
 
     -- Section: Status (live)
     content[#content + 1] = ui.padding({ 12, 8, 4, 8 },
@@ -150,6 +269,13 @@ function GPS:build(state)
             string.format("Mode: %s  |  Quality: %s", mode_str, quality_str))
         content[#content + 1] = hint_line(
             "Fix dimensionality and source (GPS / DGPS / RTK).")
+
+        if stats.talkers and stats.talkers ~= "" then
+            content[#content + 1] = stat_line(
+                string.format("Talkers: %s", stats.talkers))
+            content[#content + 1] = hint_line(
+                "NMEA prefixes seen. GN=combined, GP=GPS, GL=GLONASS, GA=Galileo, GB=BeiDou, GQ=QZSS.")
+        end
     end
 
     content[#content + 1] = ui.list_item({

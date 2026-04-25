@@ -27,10 +27,14 @@ void registerAudioModule(lua_State* L);
 void registerStorageModule(lua_State* L);
 void registerCryptoModule(lua_State* L);
 void registerCompressionModule(lua_State* L);
+// On-device documentation (embedded markdown)
+void registerDocsModule(lua_State* L);
 // GPS module
 #include "bindings/gps_bindings.h"
 // WiFi module
 void registerWifiModule(lua_State* L);
+// Net module (generic TCP + UDP sockets)
+void registerNetModule(lua_State* L);
 // Message bus module
 #include "bindings/bus_bindings.h"
 // HTTP module
@@ -176,6 +180,7 @@ void LuaRuntime::registerAllModules() {
     registerStorageModule(_state);
     registerCryptoModule(_state);
     registerCompressionModule(_state);
+    registerDocsModule(_state);
 
     // GPS module
     gps_bindings::registerBindings(_state);
@@ -188,6 +193,9 @@ void LuaRuntime::registerAllModules() {
 
     // WiFi module
     registerWifiModule(_state);
+
+    // Net module (socket-style TCP + UDP)
+    registerNetModule(_state);
 
     // HTTP module
     http_bindings::registerBindings(_state);

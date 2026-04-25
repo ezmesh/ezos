@@ -75,6 +75,22 @@ function Display:build(state)
     local content = {}
 
     content[#content + 1] = ui.padding({ 8, 8, 4, 8 },
+        ui.text_widget("Theme", { color = "ACCENT", font = "small_aa" })
+    )
+
+    content[#content + 1] = ui.padding({ 2, 6, 4, 6 },
+        ui.toggle("Dark mode", theme.name == "dark", {
+            on_change = function(on)
+                local name = on and "dark" or "light"
+                theme.set(name)
+                ez.storage.set_pref("theme", name)
+                -- Repaint so the surrounding rows pick up the new palette.
+                self:set_state({})
+            end,
+        })
+    )
+
+    content[#content + 1] = ui.padding({ 12, 8, 4, 8 },
         ui.text_widget("Backlights", { color = "ACCENT", font = "small_aa" })
     )
 

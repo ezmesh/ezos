@@ -24,31 +24,23 @@ local TILE_SIZE = map_archive.TILE_SIZE
 -- feel glacial. The old viewer used 0.1 tile units ≈ 26 pixels; we match that.
 local PAN_STEP_PIXELS = 26
 
--- Map tiles always use the light semantic palette (white land, blue water, etc.)
--- regardless of the active ezui theme, so label colors are hardcoded for
--- contrast against that fixed palette rather than theme.color() tokens.
-local LABEL_INK       = 0x0000  -- Black
-local LABEL_HALO      = 0xFFFF  -- White — 2px halo around every glyph
-local LABEL_INK_WATER = 0x18C3  -- Dark navy for place names sitting on water
-local LABEL_INK_PARK  = 0x1A40  -- Dark green for park labels
-
--- Font + ink picker by label type id (matches config.py: 0=city, 1=town,
--- 2=village, 3=suburb, 4=road, 5=water). Ink choice accounts for the
--- background each label type usually sits on.
-local LABEL_STYLE = {
-    [0] = { font = "medium", ink = LABEL_INK },        -- City
-    [1] = { font = "small",  ink = LABEL_INK },        -- Town
-    [2] = { font = "small",  ink = LABEL_INK },        -- Village
-    [3] = { font = "tiny_aa",   ink = LABEL_INK },        -- Suburb
-    [4] = { font = "tiny_aa",   ink = LABEL_INK },        -- Road
-    [5] = { font = "small",  ink = LABEL_INK_WATER },  -- Water body
+-- Label fonts by type id (matches config.py: 0=city, 1=town, 2=village,
+-- 3=suburb, 4=road, 5=water). Inks are resolved per-frame from the active
+-- theme's map palette so a T-toggle from light to dark flips both the
+-- tile colors and the labels in the same frame.
+local LABEL_FONT = {
+    [0] = "medium",   -- City
+    [1] = "small",    -- Town
+    [2] = "small",    -- Village
+    [3] = "tiny_aa",  -- Suburb
+    [4] = "tiny_aa",  -- Road
+    [5] = "small",    -- Water body
 }
-local DEFAULT_STYLE = LABEL_STYLE[2]
+local DEFAULT_FONT = "small"
 
 -- 4-direction halo: cardinal neighbours only. Drops diagonal passes (4 fewer
 -- draw_text calls per label) for ~45% less label-render time, at the cost of
--- slightly weaker corner contrast. In practice the tile palette is always
--- light so the diagonal pixels aren't the limiting factor for legibility.
+-- slightly weaker corner contrast.
 local HALO_OFFSETS = { {0,-1},{-1,0},{1,0},{0,1} }
 local HALO_COUNT   = 4
 
@@ -120,9 +112,14 @@ node.register("map_view", {
 
         d.set_clip_rect(x, y, w, h)
 
+        -- Tile palette and label inks come from the active ezui theme. Tiles
+        -- store semantic indices only — colors are decided here at draw time
+        -- so a theme switch repaints without invalidating the tile cache.
+        local map_style = theme.map_palette()
+        local palette   = map_style.tiles
+
         -- Background wipe uses palette index 1 (land) so borders blend.
-        local palette = arc.palette
-        d.fill_rect(x, y, w, h, palette[1] or theme.color("BG"))
+        d.fill_rect(x, y, w, h, palette[1])
 
         local z = n.zoom or arc.header.min_zoom
         local project, origin_tile_x, origin_tile_y = make_projector(n, x, y, w, h)
@@ -187,10 +184,17 @@ node.register("map_view", {
             local drawn = {}
             local seen_text = {}
 
+            local label_halo  = map_style.label_halo
+            local label_water = map_style.label_water
+            local label_ink   = map_style.label_ink
+
             for _, lbl in ipairs(visible) do
                 if not seen_text[lbl.text] then
-                    local style = LABEL_STYLE[lbl.type] or DEFAULT_STYLE
-                    theme.set_font(style.font)
+                    local font = LABEL_FONT[lbl.type] or DEFAULT_FONT
+                    theme.set_font(font)
+                    -- Type 5 is water bodies; pick the themed water ink so
+                    -- the name reads cleanly against the water tile color.
+                    local ink = (lbl.type == 5) and label_water or label_ink
                     local px, py = project(lbl.lat, lbl.lon)
                     local tw = theme.text_width(lbl.text)
                     local lh = theme.font_height()
@@ -212,16 +216,15 @@ node.register("map_view", {
                         if not overlaps then
                             for i = 1, HALO_COUNT do
                                 local o = HALO_OFFSETS[i]
-                                d.draw_text(lx + o[1], ly + o[2], lbl.text, LABEL_HALO)
+                                d.draw_text(lx + o[1], ly + o[2], lbl.text, label_halo)
                             end
-                            d.draw_text(lx, ly, lbl.text, style.ink)
+                            d.draw_text(lx, ly, lbl.text, ink)
                             drawn[#drawn + 1] = { x = lx, y = ly, w = tw, h = lh }
                             seen_text[lbl.text] = true
                         end
                     end
                 end
             end
-
             -- Restore medium font so the surrounding UI doesn't inherit ours.
             theme.set_font("medium")
         end
@@ -237,15 +240,16 @@ node.register("map_view", {
         if n.show_crosshair ~= false then
             local cx = x + math.floor(w / 2)
             local cy = y + math.floor(h / 2)
-            d.draw_hline(cx - 4, cy, 9, LABEL_HALO)
-            d.draw_hline(cx - 4, cy, 9, LABEL_INK)
-            d.fill_rect(cx - 4, cy, 9, 1, LABEL_INK)
-            d.fill_rect(cx, cy - 4, 1, 9, LABEL_INK)
-            -- White highlight pixels on the tips for contrast against any palette.
-            d.fill_rect(cx - 4, cy - 1, 1, 3, LABEL_HALO)
-            d.fill_rect(cx + 4, cy - 1, 1, 3, LABEL_HALO)
-            d.fill_rect(cx - 1, cy - 4, 3, 1, LABEL_HALO)
-            d.fill_rect(cx - 1, cy + 4, 3, 1, LABEL_HALO)
+            local ink  = map_style.label_ink
+            local halo = map_style.label_halo
+            d.fill_rect(cx - 4, cy, 9, 1, ink)
+            d.fill_rect(cx, cy - 4, 1, 9, ink)
+            -- Two-pixel highlights at each tip so the crosshair stays legible
+            -- whether the underlying tile is land, water, or a road.
+            d.fill_rect(cx - 4, cy - 1, 1, 3, halo)
+            d.fill_rect(cx + 4, cy - 1, 1, 3, halo)
+            d.fill_rect(cx - 1, cy - 4, 3, 1, halo)
+            d.fill_rect(cx - 1, cy + 4, 3, 1, halo)
         end
 
         -- Focus indicator: thin rectangle around the widget when focused.

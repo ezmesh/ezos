@@ -1,11 +1,18 @@
 -- Terminal: a tiny unix-style shell.
 --
 -- Supports cd / ls / pwd / cat / echo / rm / mkdir / mv / cp / clear /
--- run / ./file / mem / reboot / exit. File paths resolve against a
--- current working directory that starts at /fs. The `run` command
+-- run / ./file / mem / reboot / exit / lua. File paths resolve against
+-- a current working directory that starts at /fs. The `run` command
 -- (and the `./file` shorthand) loads a Lua file with `load()` and
 -- executes it, capturing stdout via a temporary `print` override and
 -- appending any return value to the transcript.
+--
+-- The `lua` command flips the prompt into a Lua REPL. Each input is
+-- evaluated in a per-session environment so assignments persist
+-- across turns (`x = 5` then `print(x)` works). `.exit` returns to
+-- the shell. Expression vs. statement is auto-detected — bare
+-- expressions get `return ` prepended so their value lands in the
+-- transcript without an explicit print.
 --
 -- UI: a title sub-bar, a scrollable transcript, and a single input
 -- prompt pinned at the bottom. Every keystroke goes to the prompt;
@@ -191,10 +198,51 @@ commands.help = function(_, state)
     append(state, "  cp <a> <b>   copy file")
     append(state, "  run <file>   execute a Lua file")
     append(state, "  ./<file>     execute (alias)")
+    append(state, "  lua          enter Lua REPL")
     append(state, "  mem          memory stats")
     append(state, "  clear        clear transcript")
     append(state, "  reboot       restart device")
     append(state, "  exit         close terminal")
+end
+
+-- Build a lazy namespace table: the first reference to e.g.
+-- `ezui.theme.save_accent` resolves the submodule via require() and
+-- caches it. `init.lua` exports (the table returned by require("ezui"))
+-- are surfaced first so `ezui.markdown(...)` keeps working.
+local function lazy_namespace(prefix)
+    local ok, root = pcall(require, prefix)
+    if not ok then root = nil end
+    return setmetatable({}, {
+        __index = function(t, k)
+            if root ~= nil then
+                local v = root[k]
+                if v ~= nil then rawset(t, k, v); return v end
+            end
+            local sub_ok, sub = pcall(require, prefix .. "." .. k)
+            if sub_ok then rawset(t, k, sub); return sub end
+            return nil
+        end,
+    })
+end
+
+commands.lua = function(_, state)
+    state.mode = "lua"
+    -- Lazily build the eval environment. Falls through to _G via __index
+    -- so `print`, `ez`, `require` etc. work; assignments land in this
+    -- table so they persist between turns without polluting globals.
+    if not state.lua_env then
+        local env = setmetatable({}, { __index = _G })
+        -- REPL convenience: typing `ezui.theme.save_accent(...)` should
+        -- not require an inline `require("ezui.theme")`. Lazy proxies
+        -- resolve submodules on first access. Restricted to the REPL
+        -- env so application code keeps using explicit requires (which
+        -- document the dependency graph clearly).
+        env.ezui     = lazy_namespace("ezui")
+        env.services = lazy_namespace("services")
+        env.screens  = lazy_namespace("screens")
+        state.lua_env = env
+    end
+    append(state, "lua REPL - .exit to return, .help for tips", MUTED_COLOR)
 end
 
 commands.pwd = function(_, state)
@@ -362,10 +410,74 @@ end
 -- Input execution
 -- ---------------------------------------------------------------------------
 
+-- Evaluate one Lua input in the persistent REPL environment. Tries
+-- "return <input>" first so a bare expression echoes its value (matches
+-- the stock `lua` REPL); if that fails to parse, retries the input as a
+-- statement so `x = 5` and `for i=1,3 do ... end` work too.
+local function eval_lua(state, raw)
+    if raw == ".exit" or raw == ".q" or raw == ".quit" then
+        state.mode = "shell"
+        append(state, "back to shell", MUTED_COLOR)
+        return
+    end
+    if raw == ".help" then
+        append(state, "lua REPL:", MUTED_COLOR)
+        append(state, "  bare expressions print their result")
+        append(state, "  assignments persist across turns")
+        append(state, "  .exit / .q     return to the shell")
+        append(state, "  .reset         drop the REPL env")
+        return
+    end
+    if raw == ".reset" then
+        state.lua_env = setmetatable({}, { __index = _G })
+        append(state, "env cleared", MUTED_COLOR)
+        return
+    end
+
+    local chunk, err = load("return " .. raw, "=stdin", "t", state.lua_env)
+    if not chunk then
+        chunk, err = load(raw, "=stdin", "t", state.lua_env)
+    end
+    if not chunk then
+        append(state, "error: " .. tostring(err), ERROR_COLOR)
+        return
+    end
+
+    -- Capture print() output so it lands in the transcript instead of
+    -- only on serial. Mirrors the run-command pattern.
+    local captured = {}
+    local orig_print = _G.print
+    _G.print = function(...)
+        local parts = {}
+        for i = 1, select("#", ...) do parts[i] = tostring(select(i, ...)) end
+        captured[#captured + 1] = table.concat(parts, "\t")
+    end
+    local results = { pcall(chunk) }
+    _G.print = orig_print
+
+    for _, line in ipairs(captured) do append(state, line) end
+
+    local ok = results[1]
+    if not ok then
+        append(state, "error: " .. tostring(results[2]), ERROR_COLOR)
+        return
+    end
+    -- Print every return value; `return 1, 2, 3` shows three lines.
+    for i = 2, #results do
+        append(state, tostring(results[i]), MUTED_COLOR)
+    end
+end
+
 local function execute(state, raw)
     raw = trim(raw)
-    append(state, state.cwd .. " $ " .. raw, PROMPT_COLOR)
+    local prompt = (state.mode == "lua") and "lua> " or (state.cwd .. " $ ")
+    append(state, prompt .. raw, PROMPT_COLOR)
     if raw == "" then return end
+
+    if state.mode == "lua" then
+        eval_lua(state, raw)
+        return
+    end
     -- Remember in history, deduping adjacent repeats.
     if state.history[#state.history] ~= raw then
         state.history[#state.history + 1] = raw
@@ -452,11 +564,13 @@ function Terminal:build(state)
         }
     end
 
+    local prompt = (state.mode == "lua") and "lua> " or "$ "
+    local right  = (state.mode == "lua") and "lua" or state.cwd
     return ui.vbox({ gap = 0, bg = "BG" }, {
-        ui.title_bar("Terminal", { back = true, right = state.cwd }),
+        ui.title_bar("Terminal", { back = true, right = right }),
         ui.scroll({ grow = 1 },
             ui.vbox({ gap = 0, padding = { 2, 6, 2, 6 } }, line_nodes)),
-        { type = "terminal_input", prompt = "$ ", value = state.input },
+        { type = "terminal_input", prompt = prompt, value = state.input },
     })
 end
 

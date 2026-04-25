@@ -71,6 +71,52 @@ theme.SCREEN_H = 240
 theme.STATUS_H = 20    -- Global status bar height (always rendered at top)
 theme.TITLE_H  = 14    -- In-screen sub-bar height (back hint / right action)
 
+-- Map tile palettes. Tiles store 3-bit semantic indices (0..7 = Land, Water,
+-- Park, Building, RoadMinor, RoadMajor, Highway, Railway); the renderer maps
+-- them to colors via `tiles` (1-indexed RGB565 array passed to
+-- draw_indexed_bitmap). Label inks travel with the palette so the map_view
+-- widget doesn't have to second-guess background luminance per theme.
+local MAP_PALETTES = {
+    light = {
+        tiles = {
+            0xFFFF,  -- 1: Land    — white
+            0xA69E,  -- 2: Water   — light blue
+            0xCF39,  -- 3: Park    — light green
+            0xD69A,  -- 4: Building— light gray
+            0x8C51,  -- 5: RoadMinor — medium gray
+            0x630C,  -- 6: RoadMajor — darker gray
+            0x4208,  -- 7: Highway — dark gray
+            0x3186,  -- 8: Railway — near black
+        },
+        label_ink   = 0x0000,  -- Black for default place names
+        label_halo  = 0xFFFF,  -- White halo
+        label_water = 0x18C3,  -- Dark navy on light water
+        label_park  = 0x1A40,  -- Dark green on light park
+    },
+    dark = {
+        tiles = {
+            0x2104,  -- 1: Land    — slate
+            0x19CB,  -- 2: Water   — deep blue
+            0x19C3,  -- 3: Park    — deep green
+            0x4A49,  -- 4: Building— mid gray
+            0x738E,  -- 5: RoadMinor — light-mid gray
+            0x9492,  -- 6: RoadMajor — lighter gray
+            0xB596,  -- 7: Highway — pale gray
+            0xD69A,  -- 8: Railway — near white
+        },
+        label_ink   = 0xFFFF,  -- White on dark land
+        label_halo  = 0x0000,  -- Black halo
+        label_water = 0xA65F,  -- Light blue on dark water
+        label_park  = 0xA6F4,  -- Light green on dark park
+    },
+}
+
+-- Returns the map palette/ink struct for the active theme. Falls back to dark
+-- when a custom theme has been registered without a matching map palette.
+function theme.map_palette()
+    return MAP_PALETTES[theme.name] or MAP_PALETTES.dark
+end
+
 -- Predefined accent color presets
 theme.ACCENT_PRESETS = {
     { name = "Blue",    color = 0x2C9F },

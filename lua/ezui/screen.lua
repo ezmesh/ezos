@@ -340,6 +340,24 @@ function screen.handle_input()
 
     local result = focus.handle_key(key, inst)
 
+    -- Global menu key: Alt+M. Runs AFTER focus / screen handle_key so
+    -- screens that need Alt+M for their own purposes (the script
+    -- editor's mode cycler) get first dibs — the global menu only
+    -- opens when nothing else claimed the chord and the active screen
+    -- exposes a `menu(self)` method.
+    if result == nil and key.alt and not key.shift and key.character
+            and (key.character == "m" or key.character == "M") then
+        if inst._def and type(inst._def.menu) == "function" then
+            local items = inst._def.menu(inst)
+            if items and #items > 0 then
+                local MenuDialog = require("screens.dialog.menu")
+                screen.push(screen.create(MenuDialog,
+                    MenuDialog.initial_state(items, inst.title)))
+                result = "handled"
+            end
+        end
+    end
+
     -- If a widget just released input (e.g. dropdown confirmed/cancelled)
     -- and set_state calls were buffered while editing, rebuild now so the
     -- tree reflects the stored state.

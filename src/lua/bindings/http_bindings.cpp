@@ -15,6 +15,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <WebServer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -491,6 +492,154 @@ static int l_post_json(lua_State* L) {
     return l_post(L);
 }
 
+// ---------------------------------------------------------------------------
+// HTTP server (Arduino WebServer wrapper)
+//
+// Single global server. Lua hands us one callback; every request goes
+// through it, and the callback is expected to return (status_code,
+// content_type, body). This matches the typical Lua web-framework
+// pattern (pattern-match on uri / method inside the handler) without
+// us having to expose the path-registration internals of WebServer.
+//
+// Lifecycle:
+//   ez.http.serve_start(port, handler_fn)
+//   ez.http.serve_update()   -- call from the main loop every tick
+//   ez.http.serve_stop()
+//
+// handler_fn signature:
+//   function(req) return 200, "text/html", "<body>" end
+//   req = { uri, method, args = { [name] = value } }
+// ---------------------------------------------------------------------------
+
+static WebServer* g_webServer = nullptr;
+static int g_serverCallbackRef = LUA_NOREF;
+
+// Called from WebServer for every request (we register it as the
+// onNotFound handler so it catches everything — we don't use
+// WebServer's per-path routing).
+static void webServerDispatch() {
+    if (g_serverCallbackRef == LUA_NOREF || !g_webServer) {
+        g_webServer->send(500, "text/plain", "no handler");
+        return;
+    }
+    lua_State* L = mainState;
+    if (!L) {
+        g_webServer->send(500, "text/plain", "no Lua");
+        return;
+    }
+
+    lua_rawgeti(L, LUA_REGISTRYINDEX, g_serverCallbackRef);
+    if (!lua_isfunction(L, -1)) {
+        lua_pop(L, 1);
+        g_webServer->send(500, "text/plain", "handler gone");
+        return;
+    }
+
+    // Build the request table.
+    lua_newtable(L);
+    lua_pushstring(L, g_webServer->uri().c_str());
+    lua_setfield(L, -2, "uri");
+
+    const char* method = "GET";
+    switch (g_webServer->method()) {
+        case HTTP_GET:    method = "GET";    break;
+        case HTTP_POST:   method = "POST";   break;
+        case HTTP_PUT:    method = "PUT";    break;
+        case HTTP_DELETE: method = "DELETE"; break;
+        case HTTP_PATCH:  method = "PATCH";  break;
+        case HTTP_HEAD:   method = "HEAD";   break;
+        default:          method = "?";      break;
+    }
+    lua_pushstring(L, method);
+    lua_setfield(L, -2, "method");
+
+    // Query / form args as a map. WebServer parses both GET query
+    // strings and application/x-www-form-urlencoded bodies into the
+    // same args table, which is what most dashboards need.
+    lua_newtable(L);
+    int nargs = g_webServer->args();
+    for (int i = 0; i < nargs; i++) {
+        lua_pushstring(L, g_webServer->arg(i).c_str());
+        lua_setfield(L, -2, g_webServer->argName(i).c_str());
+    }
+    lua_setfield(L, -2, "args");
+
+    // POST body (when the raw body matters). "plain" is WebServer's
+    // magic arg name for the raw POST body.
+    if (g_webServer->hasArg("plain")) {
+        lua_pushstring(L, g_webServer->arg("plain").c_str());
+        lua_setfield(L, -2, "body");
+    }
+
+    if (lua_pcall(L, 1, 3, 0) != LUA_OK) {
+        const char* err = lua_tostring(L, -1);
+        g_webServer->send(500, "text/plain",
+            String("handler error: ") + (err ? err : "unknown"));
+        lua_pop(L, 1);
+        return;
+    }
+
+    int code = (int)lua_tointeger(L, -3);
+    const char* ct = lua_tostring(L, -2);
+    size_t bodyLen = 0;
+    const char* body = lua_tolstring(L, -1, &bodyLen);
+    if (code <= 0) code = 200;
+    if (!ct) ct = "text/plain";
+
+    // WebServer.send(int, const char*, const String&) — the String
+    // constructor is the only safe path for binary-ish responses,
+    // though we're limited to what fits in a Lua string.
+    g_webServer->send(code, ct, String(body ? body : ""));
+    lua_pop(L, 3);
+}
+
+static int l_serve_start(lua_State* L) {
+    int port = (int)luaL_checkinteger(L, 1);
+    if (!lua_isfunction(L, 2)) {
+        return luaL_error(L, "serve_start: expected (port, handler_fn)");
+    }
+
+    // Tear down any prior server so repeated starts (e.g. on port
+    // change) don't stack sockets.
+    if (g_webServer) {
+        g_webServer->stop();
+        delete g_webServer;
+        g_webServer = nullptr;
+    }
+    if (g_serverCallbackRef != LUA_NOREF) {
+        luaL_unref(L, LUA_REGISTRYINDEX, g_serverCallbackRef);
+        g_serverCallbackRef = LUA_NOREF;
+    }
+
+    lua_pushvalue(L, 2);
+    g_serverCallbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    g_webServer = new WebServer(port);
+    g_webServer->onNotFound(webServerDispatch);
+    g_webServer->begin();
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+static int l_serve_update(lua_State* L) {
+    if (g_webServer) g_webServer->handleClient();
+    return 0;
+}
+
+static int l_serve_stop(lua_State* L) {
+    if (g_webServer) {
+        g_webServer->stop();
+        delete g_webServer;
+        g_webServer = nullptr;
+    }
+    if (g_serverCallbackRef != LUA_NOREF) {
+        luaL_unref(L, LUA_REGISTRYINDEX, g_serverCallbackRef);
+        g_serverCallbackRef = LUA_NOREF;
+    }
+    return 0;
+}
+
 void registerBindings(lua_State* L) {
     mainState = L;
 
@@ -518,10 +667,19 @@ void registerBindings(lua_State* L) {
     lua_pushcfunction(L, l_post_json);
     lua_setfield(L, -2, "post_json");
 
+    lua_pushcfunction(L, l_serve_start);
+    lua_setfield(L, -2, "serve_start");
+
+    lua_pushcfunction(L, l_serve_update);
+    lua_setfield(L, -2, "serve_update");
+
+    lua_pushcfunction(L, l_serve_stop);
+    lua_setfield(L, -2, "serve_stop");
+
     lua_setfield(L, -2, "http");
     lua_pop(L, 1);  // pop ez table
 
-    LOG("HTTP", "Bindings registered");
+    LOG("HTTP", "Bindings registered (client + server)");
 }
 
 void update(lua_State* L) {

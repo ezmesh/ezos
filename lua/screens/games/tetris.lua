@@ -1,0 +1,541 @@
+-- Classic Tetris.
+--
+-- Standard 10×20 playfield, seven tetrominoes (I, O, T, S, Z, J, L),
+-- rotation + hold-to-soft-drop, line clears with level speed-up. Top-5
+-- high scores persisted to NVS via ez.storage.set_pref so they survive
+-- reboots.
+--
+-- Scoring matches the classic NES-ish rules:
+--   1 line → 40 × (level+1)
+--   2 lines → 100 × (level+1)
+--   3 lines → 300 × (level+1)
+--   4 lines (tetris) → 1200 × (level+1)
+-- Plus a small bonus for a hard drop (2 pts per cell travelled).
+--
+-- Level bumps every 10 lines, each level shaves ~10% off the tick
+-- interval, capped at 16 frames for maximum speed (~0.5 s/cell at 30
+-- Hz). Play field fits in a 160-wide band left of the HUD.
+
+local ui         = require("ezui")
+local node_mod   = require("ezui.node")
+local theme      = require("ezui.theme")
+local screen_mod = require("ezui.screen")
+local highscores = require("engine.highscores")
+
+local HS_KEY = "tetris"
+
+local Game = { title = "Tetris", fullscreen = true }
+
+local floor = math.floor
+local function rgb(r, g, b) return ez.display.rgb(r, g, b) end
+
+---------------------------------------------------------------------------
+-- Geometry
+---------------------------------------------------------------------------
+
+local SW, SH = 320, 240
+local COLS, ROWS = 10, 20
+local CELL = 11                      -- cell size in pixels (10×20 board = 110×220)
+local BOARD_W = COLS * CELL
+local BOARD_H = ROWS * CELL
+-- Play board centred on the screen. HUD is tucked into the empty
+-- column on the right; there's symmetric margin on the left of the
+-- board so the focal point of the screen is the playfield itself.
+local BOARD_X = floor((SW - BOARD_W) / 2)
+local BOARD_Y = 12
+local HUD_GAP = 10
+local HUD_X   = BOARD_X + BOARD_W + HUD_GAP
+
+---------------------------------------------------------------------------
+-- Pieces. Each tetromino is listed as 4 rotations of 4 cells. Cells are
+-- {dx, dy} offsets from the piece origin. Using explicit rotations (vs
+-- computing on the fly) makes wall-kick / rotation edge cases trivial.
+---------------------------------------------------------------------------
+
+local PIECE_COLORS = {
+    I = rgb( 90, 200, 230),
+    O = rgb(230, 220,  80),
+    T = rgb(180, 100, 220),
+    S = rgb( 90, 210, 110),
+    Z = rgb(230,  90, 110),
+    J = rgb( 90, 130, 230),
+    L = rgb(230, 160,  70),
+}
+
+local PIECE_EDGE = {
+    I = rgb(170, 230, 250),
+    O = rgb(255, 240, 160),
+    T = rgb(230, 170, 250),
+    S = rgb(160, 250, 180),
+    Z = rgb(255, 160, 180),
+    J = rgb(160, 190, 250),
+    L = rgb(255, 200, 140),
+}
+
+local PIECES = {
+    I = {
+        { {0,1},{1,1},{2,1},{3,1} },
+        { {2,0},{2,1},{2,2},{2,3} },
+        { {0,2},{1,2},{2,2},{3,2} },
+        { {1,0},{1,1},{1,2},{1,3} },
+    },
+    O = {
+        { {1,0},{2,0},{1,1},{2,1} },
+        { {1,0},{2,0},{1,1},{2,1} },
+        { {1,0},{2,0},{1,1},{2,1} },
+        { {1,0},{2,0},{1,1},{2,1} },
+    },
+    T = {
+        { {1,0},{0,1},{1,1},{2,1} },
+        { {1,0},{1,1},{2,1},{1,2} },
+        { {0,1},{1,1},{2,1},{1,2} },
+        { {1,0},{0,1},{1,1},{1,2} },
+    },
+    S = {
+        { {1,0},{2,0},{0,1},{1,1} },
+        { {1,0},{1,1},{2,1},{2,2} },
+        { {1,1},{2,1},{0,2},{1,2} },
+        { {0,0},{0,1},{1,1},{1,2} },
+    },
+    Z = {
+        { {0,0},{1,0},{1,1},{2,1} },
+        { {2,0},{1,1},{2,1},{1,2} },
+        { {0,1},{1,1},{1,2},{2,2} },
+        { {1,0},{0,1},{1,1},{0,2} },
+    },
+    J = {
+        { {0,0},{0,1},{1,1},{2,1} },
+        { {1,0},{2,0},{1,1},{1,2} },
+        { {0,1},{1,1},{2,1},{2,2} },
+        { {1,0},{1,1},{0,2},{1,2} },
+    },
+    L = {
+        { {2,0},{0,1},{1,1},{2,1} },
+        { {1,0},{1,1},{1,2},{2,2} },
+        { {0,1},{1,1},{2,1},{0,2} },
+        { {0,0},{1,0},{1,1},{1,2} },
+    },
+}
+
+local PIECE_KEYS = { "I", "O", "T", "S", "Z", "J", "L" }
+
+---------------------------------------------------------------------------
+-- Runtime state
+---------------------------------------------------------------------------
+
+local board                    -- board[r][c] = piece_key or nil
+local piece, rot, px, py      -- current falling piece
+local next_piece
+local score, level, lines
+local drop_timer               -- remaining frames until auto-drop
+-- Soft-drop is "sticky" — the T-Deck keyboard doesn't fire release
+-- events, so a simple boolean would latch until the next spawn. We
+-- instead track a deadline: each DOWN press bumps `soft_drop_until`
+-- a short window into the future, and the tick/soft_drop check asks
+-- whether we're still inside it. Key-repeat during a hold re-arms the
+-- window; letting go stops it within SOFT_DROP_HOLD_MS.
+local SOFT_DROP_HOLD_MS = 140
+local soft_drop_until = 0
+local function soft_drop_active()
+    return ez.system.millis() < soft_drop_until
+end
+local game_state              -- "menu" | "playing" | "over"
+local status_text
+
+-- High scores are persisted through the shared engine.highscores
+-- module. We pass `lines` as the `extra` tag so the leaderboard can
+-- display both score and lines-cleared per entry.
+
+---------------------------------------------------------------------------
+-- Board helpers
+---------------------------------------------------------------------------
+
+local function new_board()
+    local b = {}
+    for r = 1, ROWS do
+        local row = {}
+        for c = 1, COLS do row[c] = nil end
+        b[r] = row
+    end
+    return b
+end
+
+local function piece_cells(key, rotation, cx, cy)
+    -- Returns iterator of absolute (col, row) cells for the piece.
+    local offsets = PIECES[key][((rotation - 1) % 4) + 1]
+    local i = 0
+    return function()
+        i = i + 1
+        if i > 4 then return nil end
+        local o = offsets[i]
+        return cx + o[1], cy + o[2]
+    end
+end
+
+local function valid_position(key, rotation, cx, cy)
+    for c, r in piece_cells(key, rotation, cx, cy) do
+        if c < 0 or c >= COLS or r < 0 or r >= ROWS then return false end
+        if board[r + 1] and board[r + 1][c + 1] then return false end
+    end
+    return true
+end
+
+local function lock_piece()
+    for c, r in piece_cells(piece, rot, px, py) do
+        if r >= 0 and r < ROWS and c >= 0 and c < COLS then
+            board[r + 1][c + 1] = piece
+        end
+    end
+end
+
+local function clear_lines()
+    local cleared = 0
+    local r = ROWS
+    while r >= 1 do
+        local full = true
+        for c = 1, COLS do
+            if not board[r][c] then full = false; break end
+        end
+        if full then
+            table.remove(board, r)
+            local new_row = {}
+            for c = 1, COLS do new_row[c] = nil end
+            table.insert(board, 1, new_row)
+            cleared = cleared + 1
+            -- Don't decrement r — same index is now a new row.
+        else
+            r = r - 1
+        end
+    end
+    return cleared
+end
+
+---------------------------------------------------------------------------
+-- Game flow
+---------------------------------------------------------------------------
+
+-- 7-bag randomizer. Standard fill for modern Tetris; gives each piece
+-- a guaranteed 1-in-7 appearance per bag, which keeps droughts short.
+local bag = {}
+local function next_bag_piece()
+    if #bag == 0 then
+        for _, k in ipairs(PIECE_KEYS) do bag[#bag + 1] = k end
+        -- Fisher-Yates shuffle.
+        for i = #bag, 2, -1 do
+            local j = math.random(i)
+            bag[i], bag[j] = bag[j], bag[i]
+        end
+    end
+    return table.remove(bag)
+end
+
+local function spawn_piece()
+    piece = next_piece or next_bag_piece()
+    next_piece = next_bag_piece()
+    rot = 1
+    -- Start in the middle-ish so 4-wide I-piece lands evenly.
+    px = 3
+    py = 0
+    if not valid_position(piece, rot, px, py) then
+        -- Can't even spawn — game over.
+        game_state = "over"
+        status_text = "Game over"
+        local rank = highscores.submit(HS_KEY, score, lines)
+        if rank then
+            status_text = "High score! #" .. rank
+        end
+    end
+end
+
+local function drop_interval_for_level(lvl)
+    -- 30 FPS tick, 48 frames base. Each level shaves 10% down to a 16-frame floor.
+    local base = 48
+    -- Lua 5.4 removed math.pow — `^` is the idiomatic alternative.
+    local f = base * (0.9 ^ lvl)
+    if f < 16 then f = 16 end
+    return floor(f)
+end
+
+local function award_clear(n_cleared)
+    if n_cleared == 0 then return end
+    local base = (n_cleared == 1) and 40
+              or (n_cleared == 2) and 100
+              or (n_cleared == 3) and 300
+              or 1200
+    score = score + base * (level + 1)
+    lines = lines + n_cleared
+    local new_level = floor(lines / 10)
+    if new_level > level then
+        level = new_level
+        status_text = "Level " .. (level + 1)
+    end
+end
+
+local function try_move(dx, dy, drot)
+    local nrot = rot + drot
+    local nx = px + dx
+    local ny = py + dy
+    if valid_position(piece, nrot, nx, ny) then
+        px = nx; py = ny; rot = nrot
+        return true
+    end
+    return false
+end
+
+local function lock_and_advance()
+    lock_piece()
+    local n = clear_lines()
+    award_clear(n)
+    spawn_piece()
+    drop_timer = drop_interval_for_level(level)
+end
+
+local function tick()
+    if game_state ~= "playing" then return end
+    drop_timer = drop_timer - 1
+    if drop_timer > 0 then return end
+    if try_move(0, 1, 0) then
+        if soft_drop_active() then score = score + 1 end
+    else
+        lock_and_advance()
+        return
+    end
+    drop_timer = drop_interval_for_level(level)
+                     // (soft_drop_active() and 6 or 1)
+end
+
+local function hard_drop()
+    local dropped = 0
+    while try_move(0, 1, 0) do dropped = dropped + 1 end
+    score = score + dropped * 2
+    lock_and_advance()
+end
+
+---------------------------------------------------------------------------
+-- Rendering
+---------------------------------------------------------------------------
+
+local BG        = rgb(12, 14, 26)
+local GRID      = rgb(40, 42, 60)
+local FRAME     = rgb(120, 120, 150)
+local TEXT_MAIN = rgb(230, 230, 240)
+local TEXT_DIM  = rgb(160, 160, 180)
+
+local function draw_cell(d, col, row, key)
+    local x = BOARD_X + col * CELL
+    local y = BOARD_Y + row * CELL
+    d.fill_rect(x, y, CELL, CELL, PIECE_COLORS[key])
+    d.draw_rect(x, y, CELL, CELL, PIECE_EDGE[key])
+end
+
+local function draw_board(d)
+    d.fill_rect(BOARD_X, BOARD_Y, BOARD_W, BOARD_H, BG)
+    -- Subtle column grid.
+    for c = 1, COLS - 1 do
+        local x = BOARD_X + c * CELL
+        d.fill_rect(x, BOARD_Y, 1, BOARD_H, GRID)
+    end
+    d.draw_rect(BOARD_X - 1, BOARD_Y - 1, BOARD_W + 2, BOARD_H + 2, FRAME)
+    for r = 1, ROWS do
+        for c = 1, COLS do
+            local k = board[r][c]
+            if k then draw_cell(d, c - 1, r - 1, k) end
+        end
+    end
+end
+
+local function draw_current_piece(d)
+    if game_state ~= "playing" then return end
+    for c, r in piece_cells(piece, rot, px, py) do
+        if r >= 0 then draw_cell(d, c, r, piece) end
+    end
+end
+
+local function draw_next_preview(d, x, y)
+    -- 4-cell preview box with the upcoming piece.
+    local box = 4 * CELL
+    d.fill_rect(x, y, box, box, BG)
+    d.draw_rect(x, y, box, box, FRAME)
+    if not next_piece then return end
+    -- Render the piece's first rotation in its own 4x4 space.
+    for _, off in ipairs(PIECES[next_piece][1]) do
+        local cx = x + off[1] * CELL
+        local cy = y + off[2] * CELL
+        d.fill_rect(cx, cy, CELL, CELL, PIECE_COLORS[next_piece])
+        d.draw_rect(cx, cy, CELL, CELL, PIECE_EDGE[next_piece])
+    end
+end
+
+local function draw_hud(d)
+    theme.set_font("small_aa")
+    d.draw_text(HUD_X, 10, "SCORE", TEXT_DIM)
+    theme.set_font("medium_aa", "bold")
+    d.draw_text(HUD_X, 22, tostring(score), TEXT_MAIN)
+
+    theme.set_font("small_aa")
+    d.draw_text(HUD_X, 46, "LEVEL", TEXT_DIM)
+    theme.set_font("medium_aa", "bold")
+    d.draw_text(HUD_X, 58, tostring(level + 1), TEXT_MAIN)
+
+    theme.set_font("small_aa")
+    d.draw_text(HUD_X, 82, "LINES", TEXT_DIM)
+    theme.set_font("medium_aa", "bold")
+    d.draw_text(HUD_X, 94, tostring(lines), TEXT_MAIN)
+
+    theme.set_font("small_aa")
+    d.draw_text(HUD_X, 118, "NEXT", TEXT_DIM)
+    draw_next_preview(d, HUD_X, 130)
+
+    if status_text and status_text ~= "" then
+        theme.set_font("tiny_aa")
+        d.draw_text(HUD_X, 182, status_text, TEXT_DIM)
+    end
+end
+
+local function draw_over(d)
+    -- Semi-transparent-ish overlay by simply drawing a solid panel.
+    local panel_x, panel_y = 36, 44
+    local panel_w, panel_h = SW - 72, SH - 80
+    d.fill_rect(panel_x, panel_y, panel_w, panel_h, rgb(10, 10, 20))
+    d.draw_rect(panel_x, panel_y, panel_w, panel_h, FRAME)
+
+    theme.set_font("medium_aa", "bold")
+    local title = "GAME OVER"
+    local tw = theme.text_width(title)
+    d.draw_text(floor((SW - tw) / 2), panel_y + 8, title, rgb(240, 120, 120))
+
+    theme.set_font("small_aa")
+    local sub = string.format("%d pts  ·  %d lines", score, lines)
+    local sw = theme.text_width(sub)
+    d.draw_text(floor((SW - sw) / 2), panel_y + 28, sub, TEXT_MAIN)
+
+    theme.set_font("tiny_aa")
+    d.draw_text(panel_x + 12, panel_y + 50, "HIGH SCORES", TEXT_DIM)
+    local rows = highscores.format(HS_KEY, function(i, h)
+        return string.format("%d.  %6d   %d lines", i, h.score, h.extra)
+    end)
+    for i, line in ipairs(rows) do
+        d.draw_text(panel_x + 12, panel_y + 62 + (i - 1) * 12, line, TEXT_MAIN)
+    end
+
+    theme.set_font("tiny_aa")
+    local hint = "R: retry · Q: menu"
+    local hw = theme.text_width(hint)
+    d.draw_text(floor((SW - hw) / 2), panel_y + panel_h - 14, hint, TEXT_DIM)
+end
+
+local function render(d)
+    d.fill_rect(0, 0, SW, SH, rgb(0, 0, 0))
+    draw_board(d)
+    draw_current_piece(d)
+    draw_hud(d)
+    if game_state == "over" then draw_over(d) end
+end
+
+if not node_mod.handler("tetris_view") then
+    node_mod.register("tetris_view", {
+        measure = function(_, _, _) return SW, SH end,
+        draw = function(_, d, _, _, _, _) render(d) end,
+    })
+end
+
+---------------------------------------------------------------------------
+-- Lifecycle
+---------------------------------------------------------------------------
+
+local function reset_world()
+    board = new_board()
+    score, level, lines = 0, 0, 0
+    bag = {}
+    next_piece = next_bag_piece()
+    spawn_piece()
+    drop_timer = drop_interval_for_level(level)
+    soft_drop_until = 0
+    status_text = ""
+    game_state = "playing"
+end
+
+function Game.initial_state() return {} end
+
+function Game:build(_state)
+    if game_state == "menu" then
+        return ui.vbox({ gap = 0, bg = "BG" }, {
+            ui.title_bar("Tetris", { back = true }),
+            ui.padding({ 24, 20, 10, 20 },
+                ui.text_widget("Classic tetris with top-5 high scores.",
+                    { font = "small_aa", color = "TEXT_SEC",
+                      text_align = "center", wrap = true })
+            ),
+            ui.padding({ 12, 40, 4, 40 },
+                ui.button("Start", { on_press = function()
+                    reset_world()
+                    self:set_state({})
+                    self._tick = ez.system.set_interval(math.floor(1000/30),
+                        function()
+                            tick()
+                            screen_mod.invalidate()
+                        end)
+                end })
+            ),
+            ui.padding({ 10, 20, 0, 20 },
+                ui.text_widget(
+                    "LEFT/RIGHT move · UP rotate · DOWN soft drop · SPACE hard drop · Q back",
+                    { font = "tiny_aa", color = "TEXT_MUTED",
+                      text_align = "center", wrap = true })
+            ),
+        })
+    end
+    return { type = "tetris_view" }
+end
+
+function Game:on_enter()
+    -- engine.highscores caches per-key lists internally; no explicit
+    -- load call needed here.
+    game_state = "menu"
+    status_text = ""
+    math.randomseed(ez.system.millis())
+end
+
+function Game:on_exit()
+    if self._tick then ez.system.cancel_timer(self._tick); self._tick = nil end
+end
+
+function Game:handle_key(key)
+    local s = key.special
+    local c = key.character
+    if c then c = c:lower() end
+
+    if game_state == "menu" then return nil end
+
+    if s == "BACKSPACE" or s == "ESCAPE" or c == "q" then
+        if self._tick then ez.system.cancel_timer(self._tick); self._tick = nil end
+        game_state = "menu"
+        self:set_state({})
+        return "handled"
+    end
+
+    if game_state == "over" then
+        if c == "r" then reset_world(); return "handled" end
+        if c == "m" then
+            if self._tick then ez.system.cancel_timer(self._tick); self._tick = nil end
+            game_state = "menu"; self:set_state({}); return "handled"
+        end
+        return "handled"
+    end
+
+    -- Gameplay keys.
+    if s == "LEFT"  or c == "a" then try_move(-1, 0, 0); return "handled" end
+    if s == "RIGHT" or c == "d" then try_move( 1, 0, 0); return "handled" end
+    if s == "UP"    or c == "w" then try_move( 0, 0, 1); return "handled" end
+    if s == "DOWN"  or c == "s" then
+        -- Each DOWN tap also nudges the piece down immediately so the
+        -- first press isn't eaten by the soft-drop timer reduction.
+        if try_move(0, 1, 0) then score = score + 1 end
+        soft_drop_until = ez.system.millis() + SOFT_DROP_HOLD_MS
+        return "handled"
+    end
+    if c == " " or s == "ENTER" then hard_drop(); return "handled" end
+    return nil
+end
+
+return Game

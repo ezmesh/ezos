@@ -7,6 +7,7 @@
 
 #include <Arduino.h>
 #include <LittleFS.h>
+#include "esp_heap_caps.h"
 #include "config.h"
 #include "hardware/display.h"
 #include "hardware/keyboard.h"
@@ -50,6 +51,30 @@ void setup() {
     // Initialize PSRAM (8MB OPI on T-Deck Plus)
     if (psramInit()) {
         // PSRAM initialized successfully
+
+        // Route non-DMA/non-internal allocations above the threshold to
+        // PSRAM so WiFi / LWIP / mesh state stops starving internal RAM.
+        // The ESP32-S3 WiFi driver asks for MALLOC_CAP_DMA or
+        // MALLOC_CAP_INTERNAL explicitly when it needs DMA-reachable
+        // memory, so those still come from internal as required.
+        //
+        // Threshold is deliberately low (128 B) because the WiFi + LWIP
+        // stacks issue huge numbers of small generic mallocs for LWIP
+        // pbufs, mbox entries, per-station state, scan results, and so
+        // on. At 256 B a fair chunk of LWIP's per-TCP-PCB / DHCP /
+        // per-station-state allocations (all sub-256 B) stayed in
+        // internal RAM, which capped us at 2 SoftAP clients before the
+        // per-station overhead ran internal heap dry. Dropping to 128 B
+        // catches those and frees ~8 kB of additional internal heap at
+        // steady state; the cost is that PSRAM's ~4× slower access now
+        // covers more of the LWIP hot path, but the user-visible effect
+        // (TCP blob throughput) is well within spec for our use case.
+        //
+        // Sub-128 B hot-path allocations (task stack frames, small
+        // esp-idf bookkeeping) stay on internal where latency matters,
+        // and DMA/internal-caps paths are untouched — those go through
+        // heap_caps_malloc() with explicit caps.
+        heap_caps_malloc_extmem_enable(128);
     }
 
     // Brief delay for power stabilization
@@ -290,6 +315,12 @@ void loop() {
     if (luaOk) {
         LuaRuntime::instance().update();
     }
+
+    // Pump the UDP echo server used by the WiFi test screen. No-op when
+    // the echo server isn't running, so the cost while WiFi testing is
+    // inactive is a single boolean check.
+    extern void wifiUdpPump();
+    wifiUdpPump();
 
     // Call Lua main loop (if defined)
     if (luaOk) {

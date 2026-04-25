@@ -73,6 +73,119 @@ function gps.get_satellites()
 end
 
 -- ---------------------------------------------------------------------------
+-- Chip identification + constellation control (UBX)
+-- ---------------------------------------------------------------------------
+--
+-- The T-Deck Plus ships with one of two GPS variants — u-blox MIA-M10Q or
+-- Quectel L76K. We probe via UBX-MON-VER on demand and look up the chip's
+-- capabilities in CHIP_TABLE. Constellation toggles are written via UBX-
+-- CFG-VALSET into RAM + BBR (the M10Q ROM variant won't accept Flash
+-- writes), so the change persists across warm boots — the chip's onboard
+-- VBAT keeps BBR alive.
+--
+-- The capability table lists, for each known chip, which constellations
+-- the silicon can actually decode. The MIA-M10Q is GPS / Galileo / BeiDou
+-- / QZSS / SBAS only — its single L1 RF front-end can't tune GLONASS L1
+-- (FDMA at 1602 MHz), so the chip NAKs any VALSET that tries to enable it.
+
+local CHIP_TABLE = {
+    -- hwVersion prefix -> capability bundle.
+    ["000A"] = {
+        name = "u-blox M10",
+        constellations = {
+            { id = "gps",     label = "GPS",     key = 0x1031001F,
+              locked = true,
+              hint = "Required for any fix. Can't be disabled." },
+            { id = "galileo", label = "Galileo", key = 0x10310021 },
+            { id = "beidou",  label = "BeiDou",  key = 0x10310022 },
+            { id = "qzss",    label = "QZSS",    key = 0x10310024,
+              hint = "Regional augmentation over Asia/Oceania." },
+            { id = "sbas",    label = "SBAS",    key = 0x10310020,
+              hint = "Wide-area corrections (WAAS/EGNOS). Needs GPS." },
+            -- No GLONASS entry: the MIA-M10Q variant on this board's
+            -- single L1 front-end can't decode GLONASS L1; VALSET to
+            -- enable GLO_ENA gets NAK'd. Other M10 variants (MAX-M10S
+            -- etc.) do support it — if we ever ship on those, split
+            -- the table by hwVersion + swVersion combo.
+        },
+    },
+}
+
+-- Fallback used when MON-VER doesn't match anything in CHIP_TABLE. We
+-- present the M10's constellation list with a warning flag the UI
+-- displays so the user knows the rows are best-effort.
+local UNKNOWN_CAPS = {
+    name = "Unknown",
+    unknown = true,
+    constellations = CHIP_TABLE["000A"].constellations,
+}
+
+local _chip_info = nil  -- last successful query_chip() result, with .capabilities attached
+
+-- Look the chip up in CHIP_TABLE by hwVersion prefix.
+local function match_caps(info)
+    if not info or not info.hw then return nil end
+    for prefix, caps in pairs(CHIP_TABLE) do
+        if info.hw:sub(1, #prefix) == prefix then return caps end
+    end
+    return nil
+end
+
+-- Probe the GPS via UBX-MON-VER and cache the result. Returns the table
+-- { hw, sw, capabilities } or nil if the module didn't reply (e.g. it's
+-- the L76K variant, which doesn't speak UBX).
+function gps.identify_chip(timeout_ms)
+    if _chip_info then return _chip_info end
+    local info = ez.gps.query_chip(timeout_ms or 1000)
+    if not info then return nil end
+    info.capabilities = match_caps(info) or UNKNOWN_CAPS
+    _chip_info = info
+    return info
+end
+
+-- Cached result without re-probing.
+function gps.get_chip_info()
+    return _chip_info or ez.gps.get_chip_info()
+end
+
+-- The capability table for the detected chip. Returns UNKNOWN_CAPS if
+-- detection has run but didn't recognise the chip, or nil if detection
+-- hasn't run yet.
+function gps.get_capabilities()
+    local info = _chip_info or gps.identify_chip(500)
+    if not info then return nil end
+    return info.capabilities
+end
+
+local function find_constellation(id)
+    local caps = gps.get_capabilities()
+    if not caps then return nil end
+    for _, c in ipairs(caps.constellations) do
+        if c.id == id then return c end
+    end
+    return nil
+end
+
+-- Read a constellation's current state from the chip. Returns true,
+-- false, or nil (timeout / unknown id).
+function gps.read_constellation(id)
+    local c = find_constellation(id)
+    if not c then return nil end
+    return ez.gps.get_signal_enabled(c.key, 300)
+end
+
+-- Toggle a constellation; returns true on ACK, false on NAK / timeout.
+-- Setting `gps` off is rejected at this layer because every fix
+-- depends on it — even an accidental toggle shouldn't kill the
+-- receiver until the user manually re-enables in u-center.
+function gps.write_constellation(id, on)
+    local c = find_constellation(id)
+    if not c then return false end
+    if c.locked and not on then return false end
+    return ez.gps.set_signal_enabled(c.key, on, 800)
+end
+
+-- ---------------------------------------------------------------------------
 -- Time sync background loop
 -- ---------------------------------------------------------------------------
 

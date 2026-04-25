@@ -6,6 +6,9 @@
 local theme      = require("ezui.theme")
 local node_mod   = require("ezui.node")
 local screen_mod = require("ezui.screen")
+local highscores = require("engine.highscores")
+
+local HS_KEY = "breakout"
 
 local Breakout = { title = "Breakout", fullscreen = true }
 
@@ -24,7 +27,7 @@ local PLAYFIELD_H      = PLAYFIELD_BOTTOM - PLAYFIELD_TOP
 local PADDLE_W   = 44
 local PADDLE_H   = 4
 local PADDLE_Y   = SCREEN_H - 15
-local PADDLE_SPEED = 5
+local PADDLE_SPEED = 9
 
 local BALL_SIZE  = 4
 local BALL_BASE_SPEED = 2.2  -- magnitude; components derived from angle
@@ -222,13 +225,15 @@ end
 
 local function score_hit(points)
     score = score + points
+    -- hiscore tracks the previous top entry from the leaderboard; we
+    -- update the in-memory "Best" HUD value when the current run
+    -- overtakes it. Persistence happens once on game_over via
+    -- engine.highscores.submit — no per-hit NVS writes.
     if not hiscore_beaten and score > hiscore then
         hiscore_beaten = true
         hiscore = score
-        ez.storage.set_pref("breakout_hiscore", hiscore)
     elseif hiscore_beaten then
         hiscore = score
-        ez.storage.set_pref("breakout_hiscore", hiscore)
     end
 end
 
@@ -266,6 +271,9 @@ local function step_simulation()
             if lives <= 0 then
                 mode = "game_over"
                 mode_timer = 0
+                -- Store the final score to the shared leaderboard.
+                -- `extra` = highest level reached during this run.
+                highscores.submit(HS_KEY, score, level_index)
             else
                 reset_ball_on_paddle()
                 mode = "ready"
@@ -402,6 +410,20 @@ if not node_mod.handler("breakout_view") then
                 draw_banner(d, "Game over",
                             "Score " .. score .. "  |  Best " .. hiscore
                             .. "  |  space restarts")
+                -- Top-5 board under the banner. Fits in the band below
+                -- the subtitle so the layout stays on-screen without
+                -- needing a separate dialog.
+                theme.set_font("tiny_aa")
+                local rows = highscores.format(HS_KEY, function(i, h)
+                    return string.format("%d.  %6d   L%d", i, h.score, h.extra)
+                end)
+                local fh = theme.font_height()
+                local base_y = PLAYFIELD_TOP + PLAYFIELD_H // 2 + 40
+                for i, line in ipairs(rows) do
+                    local lw = theme.text_width(line)
+                    d.draw_text((SCREEN_W - lw) // 2,
+                        base_y + (i - 1) * (fh + 2), line, HUD_DIM)
+                end
             end
         end,
     })
@@ -418,7 +440,8 @@ end
 function Breakout:on_enter()
     math.randomseed(ez.system.millis())
     init_colors()
-    hiscore = tonumber(ez.storage.get_pref("breakout_hiscore", 0)) or 0
+    local top = highscores.get(HS_KEY)[1]
+    hiscore = top and top.score or 0
     reset_game()
 end
 

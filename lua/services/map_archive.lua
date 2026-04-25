@@ -21,11 +21,15 @@ local map_archive = {}
 -- ---------------------------------------------------------------------------
 
 local HEADER_SIZE       = 33
-local PALETTE_SIZE      = 16
+-- v4/v5 wrote 8×RGB565 = 16 bytes immediately after the header. v6 drops the
+-- block entirely (palettes live in ezui.theme now), but the header field
+-- shape didn't change so we still skip the legacy bytes when version < 6.
+local LEGACY_PALETTE_SIZE = 16
 local INDEX_ENTRY_SIZE  = 11
 local LABEL_FIXED_SIZE  = 11
 local MIN_VERSION       = 4
-local MAX_VERSION       = 5  -- v5 adds optional TLV metadata after the palette
+-- v6 removes the in-archive palette; renderers now own the colors.
+local MAX_VERSION       = 6
 local TILE_SIZE         = 256
 local PACKED_TILE_BYTES = TILE_SIZE * TILE_SIZE * 3 // 8  -- 24,576
 local RLE_ESCAPE        = 0xFF
@@ -342,23 +346,18 @@ function map_archive.open(path)
         tool_version    = nil,
     }
 
-    -- Palette: 8 RGB565 values immediately after the header.
-    local pal_bytes = ez.storage.read_bytes(path, HEADER_SIZE, PALETTE_SIZE)
-    if not pal_bytes or #pal_bytes < PALETTE_SIZE then
-        return nil, "cannot read palette block"
-    end
-    -- Palette is passed to ez.display.draw_indexed_bitmap, which reads 1..8.
-    local palette = {}
-    for i = 1, 8 do
-        palette[i] = u16(pal_bytes, (i - 1) * 2 + 1)
-    end
+    -- v4/v5 archives ship an 8×RGB565 palette block right after the header;
+    -- v6 dropped it. We don't decode it either way — colors come from the
+    -- theme — but we still need the offset so the metadata/index reads land
+    -- in the right place.
+    local palette_block = (version <= 5) and LEGACY_PALETTE_SIZE or 0
 
-    -- v5 metadata block: 4-byte length + TLV tags. Parsed lazily into the
+    -- v5+ metadata block: 4-byte length + TLV tags. Parsed lazily into the
     -- header so screens can surface region/bounds without paying the cost
     -- when they don't care.
     local metadata = {}
     if version >= 5 then
-        local meta_offset = HEADER_SIZE + PALETTE_SIZE
+        local meta_offset = HEADER_SIZE + palette_block
         local meta_len_bytes = ez.storage.read_bytes(path, meta_offset, 4)
         if meta_len_bytes and #meta_len_bytes >= 4 then
             local meta_len = u32(meta_len_bytes, 1)
@@ -453,7 +452,6 @@ function map_archive.open(path)
     local archive = setmetatable({
         path        = path,
         header      = header,
-        palette     = palette,
         idx_bytes   = idx_bytes,
         labels      = labels,
         tile_cache  = {},

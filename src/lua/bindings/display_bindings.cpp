@@ -2022,6 +2022,1073 @@ LUA_FUNCTION(l_display_clear_clip_rect) {
 }
 
 // ============================================================================
+// Scene3D: batched software-rasterizer API
+// ----------------------------------------------------------------------------
+// Rationale: calling fill_triangle from Lua once per triangle pays the
+// Lua→C crossing cost ~150 times per frame, and the per-vertex transform
+// math in Lua is the hottest loop in simple 3D games like wasteland.lua.
+// Scene3D accepts world-space triangles once (or per frame for dynamic
+// sprites) and renders the whole set in a single render call, performing
+// transform, near-plane clip, back-face cull, painter's-algorithm sort,
+// and fillTriangle all in native code.
+//
+// Usage (Lua side):
+//   scene = ez.display.scene_new()
+//   ez.display.scene_add_tri(scene, x1,y1,z1, x2,y2,z2, x3,y3,z3, color)
+//   ... once per static triangle ...
+//   static_count = ez.display.scene_mark_static(scene)
+//
+//   -- each frame:
+//   ez.display.scene_reset_to(scene, static_count)
+//   ez.display.scene_add_tri(scene, ...)  -- for each dynamic sprite tri
+//   ez.display.scene_render(scene, px, py, pz, yaw_cos, yaw_sin,
+//                           focal, cx, cy, near, fog_k)
+// ============================================================================
+
+#include <vector>
+#include <algorithm>
+
+#define SCENE3D_METATABLE "ez.Scene3D"
+
+struct Scene3D {
+    // World-space triangles: 10 floats each (9 vertex coords + color).
+    std::vector<float> world_buf;
+    size_t tri_count = 0;
+
+    // Camera context used by the billboard helpers to orient quads
+    // toward the camera and apply a small forward nudge so billboards
+    // beat the ground tile they stand on in depth comparisons.
+    // Updated once per frame by ez.display.scene_set_camera().
+    float cam_px = 0.0f;
+    float cam_pz = 0.0f;
+    float cam_yc = 1.0f;   // cos(yaw)
+    float cam_ys = 0.0f;   // sin(yaw)
+    float cam_fwd = 0.0f;  // forward nudge distance (world units)
+};
+
+struct ProjTri {
+    int sx1, sy1, sx2, sy2, sx3, sy3;
+    uint16_t color;
+    float z;
+};
+
+// Scratch buffer reused across render calls to avoid allocating a new
+// vector every frame. Not thread-safe, but the Lua runtime is single-
+// threaded on this hardware.
+static std::vector<ProjTri> s_proj_buf;
+
+static Scene3D* checkScene3D(lua_State* L, int idx) {
+    Scene3D** pp = (Scene3D**)luaL_checkudata(L, idx, SCENE3D_METATABLE);
+    if (!pp || !*pp) {
+        luaL_error(L, "invalid Scene3D");
+        return nullptr;
+    }
+    return *pp;
+}
+
+// Darken an RGB565 color by factor 0..1. Mirrors the Lua shade() helper.
+static inline uint16_t shade_rgb565(uint16_t color, float f) {
+    if (f >= 1.0f) return color;
+    if (f <= 0.0f) return 0;
+    int r = (int)(((color >> 11) & 0x1F) * f);
+    int g = (int)(((color >> 5) & 0x3F) * f);
+    int b = (int)((color & 0x1F) * f);
+    return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+// Project a camera-space triangle (already past near-plane) and push it
+// into the scratch buffer if it passes back-face and off-screen checks.
+static inline void project_and_push(
+    float cx1, float cy1, float cz1,
+    float cx2, float cy2, float cz2,
+    float cx3, float cy3, float cz3,
+    uint16_t base_color,
+    float focal, float cx, float cy, float fog_k,
+    int screen_w, int screen_h)
+{
+    float i1 = focal / cz1;
+    float i2 = focal / cz2;
+    float i3 = focal / cz3;
+    float sx1 = cx + cx1 * i1;
+    float sy1 = cy - cy1 * i1;
+    float sx2 = cx + cx2 * i2;
+    float sy2 = cy - cy2 * i2;
+    float sx3 = cx + cx3 * i3;
+    float sy3 = cy - cy3 * i3;
+
+    // Back-face cull (CW on screen means facing away, since screen Y is
+    // inverted vs world Y — triangles authored CCW when viewed from
+    // outside remain CCW on screen here).
+    float area2 = (sx2 - sx1) * (sy3 - sy1) - (sx3 - sx1) * (sy2 - sy1);
+    if (area2 >= 0) return;
+
+    float minx = sx1 < sx2 ? (sx1 < sx3 ? sx1 : sx3) : (sx2 < sx3 ? sx2 : sx3);
+    float maxx = sx1 > sx2 ? (sx1 > sx3 ? sx1 : sx3) : (sx2 > sx3 ? sx2 : sx3);
+    if (maxx < 0 || minx > screen_w) return;
+    float miny = sy1 < sy2 ? (sy1 < sy3 ? sy1 : sy3) : (sy2 < sy3 ? sy2 : sy3);
+    float maxy = sy1 > sy2 ? (sy1 > sy3 ? sy1 : sy3) : (sy2 > sy3 ? sy2 : sy3);
+    if (maxy < 0 || miny > screen_h) return;
+
+    float avg_z = (cz1 + cz2 + cz3) * (1.0f / 3.0f);
+    float fog = 1.0f / (1.0f + avg_z * fog_k);
+
+    ProjTri t;
+    t.sx1 = (int)sx1; t.sy1 = (int)sy1;
+    t.sx2 = (int)sx2; t.sy2 = (int)sy2;
+    t.sx3 = (int)sx3; t.sy3 = (int)sy3;
+    t.color = shade_rgb565(base_color, fog);
+    t.z = avg_z;
+    s_proj_buf.push_back(t);
+}
+
+// @lua ez.display.scene_new() -> Scene3D
+// @brief Allocate a new 3D scene buffer
+LUA_FUNCTION(l_scene_new) {
+    Scene3D** pp = (Scene3D**)lua_newuserdata(L, sizeof(Scene3D*));
+    *pp = new Scene3D();
+    luaL_getmetatable(L, SCENE3D_METATABLE);
+    lua_setmetatable(L, -2);
+    return 1;
+}
+
+LUA_FUNCTION(l_scene_gc) {
+    Scene3D** pp = (Scene3D**)lua_touserdata(L, 1);
+    if (pp && *pp) {
+        delete *pp;
+        *pp = nullptr;
+    }
+    return 0;
+}
+
+// @lua ez.display.scene_add_tri(scene, x1,y1,z1, x2,y2,z2, x3,y3,z3, color)
+// @brief Append a world-space triangle. CCW winding when viewed from the
+// visible side; colour is the pre-shaded RGB565 base (fog is applied at
+// render time).
+LUA_FUNCTION(l_scene_add_tri) {
+    Scene3D* s = checkScene3D(L, 1);
+    float v[10];
+    for (int i = 0; i < 9; i++) v[i] = (float)lua_tonumber(L, 2 + i);
+    v[9] = (float)lua_tointeger(L, 11);
+    s->world_buf.insert(s->world_buf.end(), v, v + 10);
+    s->tri_count++;
+    return 0;
+}
+
+// Internal helper: push two triangles that together form a CCW-wound
+// quad from four corners. Callers pass vertices in order; the visible
+// side is the one that sees them wound counter-clockwise. Shared by
+// scene_add_quad, scene_add_aabb, and scene_add_road_strip so the
+// triangulation happens in exactly one place.
+static inline void push_quad(
+    Scene3D* s,
+    float x1, float y1, float z1,
+    float x2, float y2, float z2,
+    float x3, float y3, float z3,
+    float x4, float y4, float z4,
+    int color)
+{
+    float col = (float)color;
+    float v[20] = {
+        x1, y1, z1,   x2, y2, z2,   x3, y3, z3,   col,
+        x1, y1, z1,   x3, y3, z3,   x4, y4, z4,   col,
+    };
+    s->world_buf.insert(s->world_buf.end(), v, v + 20);
+    s->tri_count += 2;
+}
+
+// @lua ez.display.scene_add_quad(scene, x1,y1,z1, x2,y2,z2, x3,y3,z3, x4,y4,z4, color)
+// @brief Append a planar quad as two triangles in one call.
+// @description Convenience wrapper for the extremely common "submit a
+// flat surface" pattern (ground tiles, walls, roof panels, road
+// segments). Winding order is the same as the tris it expands to:
+// CCW as seen from the visible side. Saves 1 Lua→C crossing + 10 stack
+// reads per surface compared to two scene_add_tri calls; for a world
+// built from hundreds of quads this cuts build-time perceptibly.
+LUA_FUNCTION(l_scene_add_quad) {
+    Scene3D* s = checkScene3D(L, 1);
+    float v[12];
+    for (int i = 0; i < 12; i++) v[i] = (float)lua_tonumber(L, 2 + i);
+    int color = (int)lua_tointeger(L, 14);
+    push_quad(s,
+        v[0],  v[1],  v[2],
+        v[3],  v[4],  v[5],
+        v[6],  v[7],  v[8],
+        v[9],  v[10], v[11],
+        color);
+    return 0;
+}
+
+// @lua ez.display.scene_add_aabb(scene, x0,y0,z0, x1,y1,z1, side_color, top_color)
+// @brief Append an axis-aligned box (5 visible faces, bottom omitted).
+// @description The bottom face is skipped because every use so far has
+// the box resting on a floor surface that already covers it — drawing
+// it wastes triangle budget for no visible difference. `side_color` is
+// used for the four vertical faces; `top_color` for the top cap. Pass
+// the same colour for both if you want a monochrome box.
+//
+// Corners are given as two opposite points: (x0,y0,z0) and (x1,y1,z1).
+// The call normalises them so the caller doesn't have to care which is
+// min and which is max.
+LUA_FUNCTION(l_scene_add_aabb) {
+    Scene3D* s = checkScene3D(L, 1);
+    float x0 = (float)lua_tonumber(L, 2);
+    float y0 = (float)lua_tonumber(L, 3);
+    float z0 = (float)lua_tonumber(L, 4);
+    float x1 = (float)lua_tonumber(L, 5);
+    float y1 = (float)lua_tonumber(L, 6);
+    float z1 = (float)lua_tonumber(L, 7);
+    int side_color = (int)lua_tointeger(L, 8);
+    int top_color  = (int)lua_tointeger(L, 9);
+
+    // Normalise so lo / hi are always min / max.
+    if (x0 > x1) { float t = x0; x0 = x1; x1 = t; }
+    if (y0 > y1) { float t = y0; y0 = y1; y1 = t; }
+    if (z0 > z1) { float t = z0; z0 = z1; z1 = t; }
+
+    // Top (y = y1), viewed from above, CCW.
+    push_quad(s,
+        x0, y1, z0,   x1, y1, z0,   x1, y1, z1,   x0, y1, z1,
+        top_color);
+    // North face (+z), viewed from +z, CCW.
+    push_quad(s,
+        x1, y0, z1,   x0, y0, z1,   x0, y1, z1,   x1, y1, z1,
+        side_color);
+    // South face (-z), viewed from -z, CCW.
+    push_quad(s,
+        x0, y0, z0,   x1, y0, z0,   x1, y1, z0,   x0, y1, z0,
+        side_color);
+    // East face (+x), viewed from +x, CCW.
+    push_quad(s,
+        x1, y0, z0,   x1, y0, z1,   x1, y1, z1,   x1, y1, z0,
+        side_color);
+    // West face (-x), viewed from -x, CCW.
+    push_quad(s,
+        x0, y0, z1,   x0, y0, z0,   x0, y1, z0,   x0, y1, z1,
+        side_color);
+    return 0;
+}
+
+// @lua ez.display.scene_add_road_strip(scene, points_table, half_width, y, color)
+// @brief Append a ribbon of quads along a centerline, width held
+// constant (perpendicular-to-segment).
+// @description `points_table` is an array of {x, z} pairs — typically a
+// closed track ring, but works for open roads too. Consecutive points
+// define a segment; for each segment, this helper computes a
+// perpendicular direction (rotated 90° in the XZ plane) and emits a
+// flat quad of length=segment and width=2*half_width centred on the
+// segment, all at vertical `y`. No allocation per segment — the quads
+// append directly into the scene buffer.
+//
+// Use for: race tracks, footpaths, rivers, belt ribbons — anything
+// whose centerline is known and whose cross-section is a constant
+// horizontal width.
+LUA_FUNCTION(l_scene_add_road_strip) {
+    Scene3D* s = checkScene3D(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    float half_w = (float)lua_tonumber(L, 3);
+    float y      = (float)lua_tonumber(L, 4);
+    int color    = (int)lua_tointeger(L, 5);
+
+    size_t n = (size_t)lua_rawlen(L, 2);
+    if (n < 2) return 0;
+
+    // First point
+    lua_rawgeti(L, 2, 1);
+    lua_rawgeti(L, -1, 1);
+    float px = (float)lua_tonumber(L, -1);
+    lua_pop(L, 1);
+    lua_rawgeti(L, -1, 2);
+    float pz = (float)lua_tonumber(L, -1);
+    lua_pop(L, 2);
+
+    for (size_t i = 2; i <= n; i++) {
+        lua_rawgeti(L, 2, (lua_Integer)i);
+        lua_rawgeti(L, -1, 1);
+        float qx = (float)lua_tonumber(L, -1);
+        lua_pop(L, 1);
+        lua_rawgeti(L, -1, 2);
+        float qz = (float)lua_tonumber(L, -1);
+        lua_pop(L, 2);
+
+        // Perpendicular direction in XZ plane.
+        float dx = qx - px;
+        float dz = qz - pz;
+        float len = sqrtf(dx * dx + dz * dz);
+        if (len > 1e-6f) {
+            // Unit perpendicular: rotate (dx, dz) by 90° CCW in XZ.
+            // (px, pz) right side = +perp; left side = -perp.
+            float nx = -dz / len * half_w;
+            float nz =  dx / len * half_w;
+            // Four corners; winding CCW when viewed from +y (above).
+            push_quad(s,
+                px - nx, y, pz - nz,
+                qx - nx, y, qz - nz,
+                qx + nx, y, qz + nz,
+                px + nx, y, pz + nz,
+                color);
+        }
+        px = qx;
+        pz = qz;
+    }
+    return 0;
+}
+
+// @lua ez.display.scene_count(scene) -> int
+// @lua ez.display.scene_set_camera(scene, px, pz, yaw_cos, yaw_sin [, fwd_nudge])
+// @brief Update the billboard camera context.
+// @description The billboard helpers (scene_add_billboard,
+// scene_add_billboard_split) need to know where the camera is and which
+// way it faces to orient their quads. Call this once per frame before
+// submitting billboards — saves passing the parameters on every
+// primitive call and lets the C side do the right/forward math in
+// native code instead of Lua.
+// @param fwd_nudge optional world-space distance to shift billboards
+// toward the camera so they beat coincident ground tiles in the
+// painter's / z-buffer depth comparison.
+LUA_FUNCTION(l_scene_set_camera) {
+    Scene3D* s = checkScene3D(L, 1);
+    s->cam_px  = (float)lua_tonumber(L, 2);
+    s->cam_pz  = (float)lua_tonumber(L, 3);
+    s->cam_yc  = (float)lua_tonumber(L, 4);
+    s->cam_ys  = (float)lua_tonumber(L, 5);
+    s->cam_fwd = (float)luaL_optnumber(L, 6, 0.0);
+    return 0;
+}
+
+// Internal helper: compute the four billboard corners in world space
+// given the camera context on the Scene3D. Writes into the out[] array:
+// [tlx, tlz, trx, trz, ty, by] (Y values are the same for left/right).
+static inline void compute_billboard_corners(
+    const Scene3D* s,
+    float wx, float wy, float wz, float half_w, float full_h,
+    float out[6])
+{
+    float rx = s->cam_yc;   // right vector x in XZ plane
+    float rz = -s->cam_ys;  // right vector z in XZ plane
+
+    // Forward nudge toward camera: shift (wx, wz) a small distance
+    // along the camera→billboard direction. Skipped for degenerate
+    // cases or when fwd_nudge is zero.
+    if (s->cam_fwd > 0.0f) {
+        float fdx = wx - s->cam_px;
+        float fdz = wz - s->cam_pz;
+        float flen2 = fdx * fdx + fdz * fdz;
+        if (flen2 > 1e-6f) {
+            float scale = s->cam_fwd / sqrtf(flen2);
+            wx -= fdx * scale;
+            wz -= fdz * scale;
+        }
+    }
+
+    float tlx = wx - rx * half_w;
+    float tlz = wz - rz * half_w;
+    float trx = wx + rx * half_w;
+    float trz = wz + rz * half_w;
+    out[0] = tlx; out[1] = tlz;
+    out[2] = trx; out[3] = trz;
+    out[4] = wy + full_h * 0.5f;   // top y
+    out[5] = wy - full_h * 0.5f;   // bottom y
+}
+
+// @lua ez.display.scene_add_billboard(scene, wx, wy, wz, half_w, full_h, color)
+// @brief Append a camera-facing quad (2 triangles) at world position
+// (wx, wy, wz). `wy` is the vertical centre of the quad. Camera
+// context must be set via scene_set_camera first.
+LUA_FUNCTION(l_scene_add_billboard) {
+    Scene3D* s = checkScene3D(L, 1);
+    float wx = (float)lua_tonumber(L, 2);
+    float wy = (float)lua_tonumber(L, 3);
+    float wz = (float)lua_tonumber(L, 4);
+    float hw = (float)lua_tonumber(L, 5);
+    float fh = (float)lua_tonumber(L, 6);
+    float color = (float)lua_tointeger(L, 7);
+
+    float c[6];
+    compute_billboard_corners(s, wx, wy, wz, hw, fh, c);
+    float tlx = c[0], tlz = c[1], trx = c[2], trz = c[3];
+    float ty = c[4], by = c[5];
+
+    // Triangle 1: top-left, bottom-left, bottom-right
+    // Triangle 2: top-left, bottom-right, top-right
+    // Wound CCW as seen from camera so back-face cull keeps them visible.
+    float v[20] = {
+        tlx, ty, tlz,   tlx, by, tlz,   trx, by, trz,   color,
+        tlx, ty, tlz,   trx, by, trz,   trx, ty, trz,   color,
+    };
+    s->world_buf.insert(s->world_buf.end(), v, v + 20);
+    s->tri_count += 2;
+    return 0;
+}
+
+// @lua ez.display.scene_add_billboard_split(scene, wx, wy, wz, half_w,
+//                                            full_h, color_top, color_bot)
+// @brief Append a camera-facing quad split horizontally at its midline
+// with a different colour on each half (4 triangles total). Useful for
+// foliage / pickup sprites that want a simple vertical gradient without
+// a real lighting model.
+LUA_FUNCTION(l_scene_add_billboard_split) {
+    Scene3D* s = checkScene3D(L, 1);
+    float wx = (float)lua_tonumber(L, 2);
+    float wy = (float)lua_tonumber(L, 3);
+    float wz = (float)lua_tonumber(L, 4);
+    float hw = (float)lua_tonumber(L, 5);
+    float fh = (float)lua_tonumber(L, 6);
+    float ctop = (float)lua_tointeger(L, 7);
+    float cbot = (float)lua_tointeger(L, 8);
+
+    float c[6];
+    compute_billboard_corners(s, wx, wy, wz, hw, fh, c);
+    float tlx = c[0], tlz = c[1], trx = c[2], trz = c[3];
+    float ty = c[4], by = c[5];
+    float my = wy;  // midline
+
+    // Top half (ctop): 2 triangles
+    // Bottom half (cbot): 2 triangles
+    float v[40] = {
+        // top half
+        tlx, ty, tlz,   tlx, my, tlz,   trx, my, trz,   ctop,
+        tlx, ty, tlz,   trx, my, trz,   trx, ty, trz,   ctop,
+        // bottom half
+        tlx, my, tlz,   tlx, by, tlz,   trx, by, trz,   cbot,
+        tlx, my, tlz,   trx, by, trz,   trx, my, trz,   cbot,
+    };
+    s->world_buf.insert(s->world_buf.end(), v, v + 40);
+    s->tri_count += 4;
+    return 0;
+}
+
+LUA_FUNCTION(l_scene_count) {
+    Scene3D* s = checkScene3D(L, 1);
+    lua_pushinteger(L, (lua_Integer)s->tri_count);
+    return 1;
+}
+
+// @lua ez.display.scene_mark_static(scene) -> int
+// @brief Return the current triangle count so callers can later restore
+// the buffer to exactly these triangles (used as a static/dynamic split).
+LUA_FUNCTION(l_scene_mark_static) {
+    Scene3D* s = checkScene3D(L, 1);
+    lua_pushinteger(L, (lua_Integer)s->tri_count);
+    return 1;
+}
+
+// @lua ez.display.scene_reset_to(scene, count)
+// @brief Truncate the scene's triangle buffer back to `count` triangles.
+LUA_FUNCTION(l_scene_reset_to) {
+    Scene3D* s = checkScene3D(L, 1);
+    size_t n = (size_t)luaL_checkinteger(L, 2);
+    if (n > s->tri_count) n = s->tri_count;
+    s->tri_count = n;
+    s->world_buf.resize(n * 10);
+    return 0;
+}
+
+// @lua ez.display.scene_clear(scene)
+LUA_FUNCTION(l_scene_clear) {
+    Scene3D* s = checkScene3D(L, 1);
+    s->tri_count = 0;
+    s->world_buf.clear();
+    return 0;
+}
+
+// @lua ez.display.scene_render(scene, px, py, pz, yaw_cos, yaw_sin,
+//                              focal, cx, cy, near, fog_k [, far]) -> int drawn
+// @brief Transform, clip, sort, and fill every triangle in the scene.
+// Returns the number of triangles actually drawn (post-cull).
+//
+// Parameters:
+//   px, py, pz   — camera (player eye) position in world units
+//   yaw_cos/sin  — cos/sin of camera yaw (pre-computed to save Lua work)
+//   focal        — focal length in pixels
+//   cx, cy       — principal point (screen centre for the 3D view)
+//   near         — near clip plane distance
+//   fog_k        — fog coefficient: brightness = 1 / (1 + avg_z * fog_k)
+//   far          — (optional) far clip distance in world units. When
+//                  supplied, any triangle whose three vertices are all
+//                  beyond `far` is skipped before projection. Omit or
+//                  pass 0 to disable the far cull.
+LUA_FUNCTION(l_scene_render) {
+    Scene3D* s = checkScene3D(L, 1);
+    float px = (float)lua_tonumber(L, 2);
+    float py = (float)lua_tonumber(L, 3);
+    float pz = (float)lua_tonumber(L, 4);
+    float yc = (float)lua_tonumber(L, 5);
+    float ys = (float)lua_tonumber(L, 6);
+    float focal = (float)lua_tonumber(L, 7);
+    float cx = (float)lua_tonumber(L, 8);
+    float cy = (float)lua_tonumber(L, 9);
+    float nearp = (float)lua_tonumber(L, 10);
+    float fog_k = (float)lua_tonumber(L, 11);
+    float farp = (float)luaL_optnumber(L, 12, 0.0);
+    bool far_enabled = farp > 0.0f;
+
+    if (!display) { lua_pushinteger(L, 0); return 1; }
+    int screen_w = display->getWidth();
+    int screen_h = display->getHeight();
+
+    s_proj_buf.clear();
+    s_proj_buf.reserve(s->tri_count);
+
+    const float* buf = s->world_buf.data();
+    // Pre-computed squared far distance for the horizontal-plane check.
+    // We test the world-space horizontal distance from camera to each
+    // vertex; if all three vertices lie beyond `far`, the triangle
+    // can't possibly fall inside the view frustum in camera space.
+    // Cheaper than doing the full transform then checking cz > far.
+    float far_sq = far_enabled ? farp * farp : 0.0f;
+
+    for (size_t i = 0; i < s->tri_count; i++) {
+        const float* t = buf + i * 10;
+        float wx1 = t[0], wy1 = t[1], wz1 = t[2];
+        float wx2 = t[3], wy2 = t[4], wz2 = t[5];
+        float wx3 = t[6], wy3 = t[7], wz3 = t[8];
+        uint16_t color = (uint16_t)t[9];
+
+        if (far_enabled) {
+            float h1dx = wx1 - px, h1dz = wz1 - pz;
+            float d1 = h1dx * h1dx + h1dz * h1dz;
+            if (d1 > far_sq) {
+                float h2dx = wx2 - px, h2dz = wz2 - pz;
+                float d2 = h2dx * h2dx + h2dz * h2dz;
+                if (d2 > far_sq) {
+                    float h3dx = wx3 - px, h3dz = wz3 - pz;
+                    float d3 = h3dx * h3dx + h3dz * h3dz;
+                    if (d3 > far_sq) continue;
+                }
+            }
+        }
+
+        // World → camera (yaw-only rotation around Y)
+        float dx1 = wx1 - px, dz1 = wz1 - pz;
+        float cx1 = dx1 * yc - dz1 * ys;
+        float cy1 = wy1 - py;
+        float cz1 = dx1 * ys + dz1 * yc;
+
+        float dx2 = wx2 - px, dz2 = wz2 - pz;
+        float cx2 = dx2 * yc - dz2 * ys;
+        float cy2 = wy2 - py;
+        float cz2 = dx2 * ys + dz2 * yc;
+
+        float dx3 = wx3 - px, dz3 = wz3 - pz;
+        float cx3 = dx3 * yc - dz3 * ys;
+        float cy3 = wy3 - py;
+        float cz3 = dx3 * ys + dz3 * yc;
+
+        bool in1 = cz1 >= nearp;
+        bool in2 = cz2 >= nearp;
+        bool in3 = cz3 >= nearp;
+
+        int inside = (in1 ? 1 : 0) + (in2 ? 1 : 0) + (in3 ? 1 : 0);
+        if (inside == 0) continue;
+
+        if (inside == 3) {
+            project_and_push(cx1, cy1, cz1, cx2, cy2, cz2, cx3, cy3, cz3,
+                             color, focal, cx, cy, fog_k, screen_w, screen_h);
+            continue;
+        }
+
+        // Partial near-plane clip: walk edges and emit a 3- or 4-vertex
+        // polygon, then fan-triangulate. Sutherland-Hodgman style.
+        float pcx[4], pcy[4], pcz[4];
+        int n = 0;
+        auto clip_edge = [&](float ax, float ay, float az,
+                             float bx, float by, float bz,
+                             bool ain, bool bin) {
+            if (ain) {
+                pcx[n] = ax; pcy[n] = ay; pcz[n] = az; n++;
+            }
+            if (ain != bin) {
+                float t = (nearp - az) / (bz - az);
+                pcx[n] = ax + (bx - ax) * t;
+                pcy[n] = ay + (by - ay) * t;
+                pcz[n] = nearp;
+                n++;
+            }
+        };
+        clip_edge(cx1, cy1, cz1, cx2, cy2, cz2, in1, in2);
+        clip_edge(cx2, cy2, cz2, cx3, cy3, cz3, in2, in3);
+        clip_edge(cx3, cy3, cz3, cx1, cy1, cz1, in3, in1);
+
+        if (n < 3) continue;
+        // Fan-triangulate from vertex 0
+        for (int k = 1; k + 1 < n; k++) {
+            project_and_push(
+                pcx[0], pcy[0], pcz[0],
+                pcx[k], pcy[k], pcz[k],
+                pcx[k + 1], pcy[k + 1], pcz[k + 1],
+                color, focal, cx, cy, fog_k, screen_w, screen_h);
+        }
+    }
+
+    // Painter's sort: far first (descending z). stable_sort keeps the
+    // submission order for ties — important for coincident billboards
+    // (shadow flares, trunks, canopy clusters) that share the same avg_z
+    // and need to draw in the exact order the game submitted them.
+    std::stable_sort(s_proj_buf.begin(), s_proj_buf.end(),
+              [](const ProjTri& a, const ProjTri& b) { return a.z > b.z; });
+
+    for (const auto& t : s_proj_buf) {
+        display->fillTriangle(t.sx1, t.sy1, t.sx2, t.sy2, t.sx3, t.sy3, t.color);
+    }
+
+    lua_pushinteger(L, (lua_Integer)s_proj_buf.size());
+    return 1;
+}
+
+// ============================================================================
+// Scene3D + z-buffered rasterizer
+// ----------------------------------------------------------------------------
+// Alternative render path to scene_render that uses a per-pixel depth
+// buffer instead of a painter's-algorithm sort. The z-buffer lives in
+// internal SRAM (fast, no wait states) so per-pixel z-tests are cheap
+// next to the PSRAM colour writes they save. Triangles can be drawn in
+// any order without ordering artifacts, and overdraw early-outs before
+// touching the PSRAM framebuffer.
+//
+// Depth quantization: 8-bit linear in camera-space Z across [NEAR, FAR].
+// For our scene scale (hills ~1m, buildings ~3m, view ~30m) this is
+// more than enough precision — smaller than the billboard nudge we were
+// using to beat the painter's tie-breaker.
+// ============================================================================
+
+#define ZBUF_W 320
+#define ZBUF_H 240
+
+// Active viewport rectangle used by fill_tri_z / fill_span_z for
+// pixel-level clipping. Set by scene_render_z_run before rasterising so
+// callers can render into a sub-region of the screen (e.g. a square
+// viewport with HUD around it) without having triangles bleed out.
+// Defaults cover the full framebuffer.
+static int s_vp_x0 = 0;
+static int s_vp_y0 = 0;
+static int s_vp_x1 = ZBUF_W - 1;
+static int s_vp_y1 = ZBUF_H - 1;
+
+// Z-buffer allocated lazily on first scene_render_z call. Using a heap
+// pointer instead of a static .bss array avoids pushing ~77 KB out of
+// DRAM at link time, which was squeezing other init allocations on
+// this build. heap_caps_malloc with MALLOC_CAP_INTERNAL keeps it in
+// fast internal SRAM; if that fails we'll fall back to the default
+// allocator (may land in PSRAM — slower but functional).
+static uint8_t* z_buffer = nullptr;
+
+#include "esp_heap_caps.h"
+
+static inline bool zbuf_ensure() {
+    if (z_buffer) return true;
+    z_buffer = (uint8_t*)heap_caps_malloc(
+        (size_t)ZBUF_W * ZBUF_H,
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!z_buffer) {
+        z_buffer = (uint8_t*)malloc((size_t)ZBUF_W * ZBUF_H);
+    }
+    return z_buffer != nullptr;
+}
+
+static inline void zbuf_clear_far() {
+    memset(z_buffer, 0xFF, (size_t)ZBUF_W * ZBUF_H);
+}
+
+static inline uint16_t shade_565(uint16_t color, float f) {
+    if (f >= 1.0f) return color;
+    if (f <= 0.0f) return 0;
+    int r = (int)(((color >> 11) & 0x1F) * f);
+    int g = (int)(((color >> 5) & 0x3F) * f);
+    int b = (int)((color & 0x1F) * f);
+    return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+// Fill one horizontal span at scan-line y. xl/xr are integer endpoints
+// (inclusive); zl_fp/zr_fp are 16.16 fixed-point encoded depths. Per
+// pixel: read z-buffer (SRAM), compare, then only commit z + colour if
+// the new depth is nearer. LovyanGFX's sprite buffer stores RGB565 in
+// panel byte-order (big-endian for ST7789), so we bswap the colour
+// once per span before the inner loop.
+__attribute__((hot))
+static inline void fill_span_z(
+    uint16_t* __restrict fb, int y,
+    int xl, int xr, int32_t zl_fp, int32_t zr_fp,
+    uint16_t color_be)
+{
+    if (xl < s_vp_x0) {
+        // Clip against viewport left, advance z_fp by the clipped
+        // amount so interpolation stays correct.
+        int dx = xr - xl;
+        if (dx > 0) zl_fp += (int32_t)(((int64_t)(zr_fp - zl_fp) * (s_vp_x0 - xl)) / dx);
+        xl = s_vp_x0;
+    }
+    if (xr > s_vp_x1) xr = s_vp_x1;
+    if (xr < xl) return;
+
+    int count = xr - xl + 1;
+    int32_t dz_fp = (count > 1) ? (zr_fp - zl_fp) / (count - 1) : 0;
+
+    uint8_t* __restrict zp = &z_buffer[y * ZBUF_W + xl];
+    uint16_t* __restrict pp = &fb[y * ZBUF_W + xl];
+    int32_t z_fp = zl_fp;
+
+    // No per-pixel clamp: z_fp is guaranteed in [0, 255<<16] by the
+    // pre-clamped vertex depths + linear interpolation staying in range.
+    for (int i = 0; i < count; i++) {
+        uint8_t zb = (uint8_t)(z_fp >> 16);
+        if (zb < zp[i]) {
+            zp[i] = zb;
+            pp[i] = color_be;
+        }
+        z_fp += dz_fp;
+    }
+}
+
+// Flat-shaded z-buffered triangle fill. Screen coords are integers and
+// z per-vertex is pre-clamped to [0, 255]. Edge walking is done in
+// 16.16 fixed point so per-scanline advancement is one integer add
+// (no float ops, no float→int conversion). Inner span fill is also
+// integer-only fixed-point.
+//
+// Why fixed-point instead of pure Bresenham (LGFX-style err-accumulator):
+//   the pure-integer scheme needs two interleaved accumulators per
+//   edge (one for x, one for z) with branch-heavy inner whiles. A 16.16
+//   add matches Bresenham's throughput on the ESP32-S3 with far simpler
+//   setup and fewer branches.
+static void fill_tri_z(
+    uint16_t* fb,
+    int ax, int ay, int az,
+    int bx, int by, int bz,
+    int cx, int cy, int cz,
+    uint16_t color_be)
+{
+    // Sort vertices by y ascending (a.y <= b.y <= c.y).
+    if (by < ay) { int t=ax;ax=bx;bx=t; t=ay;ay=by;by=t; t=az;az=bz;bz=t; }
+    if (cy < ay) { int t=ax;ax=cx;cx=t; t=ay;ay=cy;cy=t; t=az;az=cz;cz=t; }
+    if (cy < by) { int t=bx;bx=cx;cx=t; t=by;by=cy;cy=t; t=bz;bz=cz;cz=t; }
+
+    if (cy == ay) return;  // Zero-height
+    if (ay > s_vp_y1 || cy < s_vp_y0) return;
+
+    // Long edge A→C: 16.16 step per scanline.
+    int32_t dx_ac_fp = (int32_t)(((int64_t)(cx - ax) << 16) / (cy - ay));
+    int32_t dz_ac_fp = (int32_t)(((int64_t)(cz - az) << 16) / (cy - ay));
+
+    // Top half: ay → by
+    if (by > ay) {
+        int32_t dx_ab_fp = (int32_t)(((int64_t)(bx - ax) << 16) / (by - ay));
+        int32_t dz_ab_fp = (int32_t)(((int64_t)(bz - az) << 16) / (by - ay));
+
+        int y_start = ay;
+        int y_end   = by - 1;
+        int clip_top = 0;
+        if (y_start < s_vp_y0) { clip_top = s_vp_y0 - y_start; y_start = s_vp_y0; }
+        if (y_end > s_vp_y1) y_end = s_vp_y1;
+
+        // Starting positions in 16.16 (shifted up, then advanced past
+        // any clipped scanlines).
+        int32_t xl_fp = ((int32_t)ax << 16) + dx_ac_fp * clip_top;
+        int32_t zl_fp = ((int32_t)az << 16) + dz_ac_fp * clip_top;
+        int32_t xr_fp = ((int32_t)ax << 16) + dx_ab_fp * clip_top;
+        int32_t zr_fp = ((int32_t)az << 16) + dz_ab_fp * clip_top;
+
+        for (int y = y_start; y <= y_end; y++) {
+            int ixl = xl_fp >> 16;
+            int ixr = xr_fp >> 16;
+            if (ixl <= ixr) {
+                fill_span_z(fb, y, ixl, ixr, zl_fp, zr_fp, color_be);
+            } else {
+                fill_span_z(fb, y, ixr, ixl, zr_fp, zl_fp, color_be);
+            }
+            xl_fp += dx_ac_fp; zl_fp += dz_ac_fp;
+            xr_fp += dx_ab_fp; zr_fp += dz_ab_fp;
+        }
+    }
+
+    // Bottom half: by → cy
+    if (cy > by) {
+        int32_t dx_bc_fp = (int32_t)(((int64_t)(cx - bx) << 16) / (cy - by));
+        int32_t dz_bc_fp = (int32_t)(((int64_t)(cz - bz) << 16) / (cy - by));
+
+        int y_start = by;
+        int y_end   = cy - 1;
+        // Continue long-edge accumulator from y=ay (no recompute).
+        int32_t xl_fp = ((int32_t)ax << 16) + dx_ac_fp * (y_start - ay);
+        int32_t zl_fp = ((int32_t)az << 16) + dz_ac_fp * (y_start - ay);
+        int32_t xr_fp = (int32_t)bx << 16;
+        int32_t zr_fp = (int32_t)bz << 16;
+
+        int clip_top = 0;
+        if (y_start < s_vp_y0) {
+            clip_top = s_vp_y0 - y_start;
+            y_start = s_vp_y0;
+            xl_fp += dx_ac_fp * clip_top;
+            zl_fp += dz_ac_fp * clip_top;
+            xr_fp += dx_bc_fp * clip_top;
+            zr_fp += dz_bc_fp * clip_top;
+        }
+        if (y_end > s_vp_y1) y_end = s_vp_y1;
+
+        for (int y = y_start; y <= y_end; y++) {
+            int ixl = xl_fp >> 16;
+            int ixr = xr_fp >> 16;
+            if (ixl <= ixr) {
+                fill_span_z(fb, y, ixl, ixr, zl_fp, zr_fp, color_be);
+            } else {
+                fill_span_z(fb, y, ixr, ixl, zr_fp, zl_fp, color_be);
+            }
+            xl_fp += dx_ac_fp; zl_fp += dz_ac_fp;
+            xr_fp += dx_bc_fp; zr_fp += dz_bc_fp;
+        }
+    }
+}
+
+// Project a camera-space triangle, cull back-faces, and z-fill.
+// Returns true if the triangle contributed at least one pixel-test.
+static inline bool project_and_fill_z(
+    uint16_t* fb,
+    float cx1, float cy1, float cz1,
+    float cx2, float cy2, float cz2,
+    float cx3, float cy3, float cz3,
+    uint16_t base_color,
+    float focal, float cx, float cy, float fog_k, float light,
+    int screen_w, int screen_h,
+    float inv_near, float inv_span)
+{
+    float i1 = focal / cz1;
+    float i2 = focal / cz2;
+    float i3 = focal / cz3;
+    float sx1 = cx + cx1 * i1;
+    float sy1 = cy - cy1 * i1;
+    float sx2 = cx + cx2 * i2;
+    float sy2 = cy - cy2 * i2;
+    float sx3 = cx + cx3 * i3;
+    float sy3 = cy - cy3 * i3;
+
+    // Back-face cull (same convention as scene_render)
+    float area2 = (sx2 - sx1) * (sy3 - sy1) - (sx3 - sx1) * (sy2 - sy1);
+    if (area2 >= 0) return false;
+
+    float minx = sx1 < sx2 ? (sx1 < sx3 ? sx1 : sx3) : (sx2 < sx3 ? sx2 : sx3);
+    float maxx = sx1 > sx2 ? (sx1 > sx3 ? sx1 : sx3) : (sx2 > sx3 ? sx2 : sx3);
+    if (maxx < s_vp_x0 || minx > s_vp_x1) return false;
+    float miny = sy1 < sy2 ? (sy1 < sy3 ? sy1 : sy3) : (sy2 < sy3 ? sy2 : sy3);
+    float maxy = sy1 > sy2 ? (sy1 > sy3 ? sy1 : sy3) : (sy2 > sy3 ? sy2 : sy3);
+    if (maxy < s_vp_y0 || miny > s_vp_y1) return false;
+    (void)screen_w; (void)screen_h;
+
+    // Sub-pixel triangle reject: the actual filled area is at most half
+    // the screen-space bounding box (signed area / 2 ≤ bbox / 2). A
+    // bbox area below ~4 px² yields a tri that contributes 0–2 pixels
+    // while still paying full setup cost — not worth the triangles.
+    // Dominant on dense distant foliage where trunks project to sub-
+    // pixel slivers.
+    if ((maxx - minx) * (maxy - miny) < 4.0f) return false;
+
+    // Hyperbolic depth encoding — 1/z mapped into [0, 255]. Pre-clamped
+    // so the inner loop can skip per-pixel clamping.
+    int z1i = (int)((inv_near - 1.0f / cz1) * inv_span * 255.0f);
+    int z2i = (int)((inv_near - 1.0f / cz2) * inv_span * 255.0f);
+    int z3i = (int)((inv_near - 1.0f / cz3) * inv_span * 255.0f);
+    if (z1i < 0) z1i = 0; else if (z1i > 255) z1i = 255;
+    if (z2i < 0) z2i = 0; else if (z2i > 255) z2i = 255;
+    if (z3i < 0) z3i = 0; else if (z3i > 255) z3i = 255;
+
+    float avg_z = (cz1 + cz2 + cz3) * (1.0f / 3.0f);
+    float fog = light / (1.0f + avg_z * fog_k);
+    uint16_t col = shade_565(base_color, fog);
+    uint16_t col_be = (uint16_t)__builtin_bswap16(col);
+
+    // Screen-space vertex rounding: +0.5 then truncate is a cheap
+    // integer-round that matches LGFX's convention for pixel-centre.
+    fill_tri_z(fb,
+               (int)(sx1 + 0.5f), (int)(sy1 + 0.5f), z1i,
+               (int)(sx2 + 0.5f), (int)(sy2 + 0.5f), z2i,
+               (int)(sx3 + 0.5f), (int)(sy3 + 0.5f), z3i,
+               col_be);
+    return true;
+}
+
+// @lua ez.display.scene_render_z(scene, px, py, pz, yaw_cos, yaw_sin,
+//                                focal, cx, cy, near, fog_k, far) -> int drawn
+// @brief Z-buffered alternative to scene_render.
+// Clears the z-buffer, then transforms, clips, and z-fills every
+// triangle with no painter's-algorithm sort. Colour writes to the
+// PSRAM framebuffer only happen for pixels that win the z-test, so
+// heavy overdraw (forest, overlapping foliage) costs mostly SRAM
+// reads.
+// Parameters passed to the scene-render loop. Packaged as a struct so
+// the same implementation can be called synchronously from Lua or
+// dispatched to the render task on the other core.
+struct RenderCtx {
+    Scene3D* scene;
+    float px, py, pz;
+    float yc, ys;
+    float focal, cx, cy;
+    float nearp, fog_k;
+    float farp;
+    float light;
+    int vp_x, vp_y, vp_w, vp_h;  // clip rect within the framebuffer
+    int drawn;  // output
+};
+
+// Core of scene_render_z: takes a RenderCtx, runs the full transform →
+// clip → z-fill pipeline, writes the triangle count back into the ctx.
+// Self-contained so it can run on any core — callers are responsible
+// for ensuring zbuf_ensure() was called and the display framebuffer is
+// valid before invoking.
+static void scene_render_z_run(RenderCtx* ctx)
+{
+    Scene3D* s = ctx->scene;
+    float px = ctx->px, py = ctx->py, pz = ctx->pz;
+    float yc = ctx->yc, ys = ctx->ys;
+    float focal = ctx->focal, cx = ctx->cx, cy = ctx->cy;
+    float nearp = ctx->nearp, fog_k = ctx->fog_k;
+    float farp = ctx->farp, light = ctx->light;
+
+    int screen_w = display->getWidth();
+    int screen_h = display->getHeight();
+
+    // Push viewport rect into the per-frame globals that fill_tri_z and
+    // fill_span_z consult for pixel clipping. Clamp the caller's rect
+    // to the physical framebuffer so we can't write out-of-bounds.
+    s_vp_x0 = ctx->vp_x;
+    s_vp_y0 = ctx->vp_y;
+    s_vp_x1 = ctx->vp_x + ctx->vp_w - 1;
+    s_vp_y1 = ctx->vp_y + ctx->vp_h - 1;
+    if (s_vp_x0 < 0) s_vp_x0 = 0;
+    if (s_vp_y0 < 0) s_vp_y0 = 0;
+    if (s_vp_x1 > screen_w - 1) s_vp_x1 = screen_w - 1;
+    if (s_vp_y1 > screen_h - 1) s_vp_y1 = screen_h - 1;
+
+    zbuf_clear_far();
+
+    uint16_t* fb = (uint16_t*)display->getBuffer().getBuffer();
+    if (!fb) { ctx->drawn = 0; return; }
+
+    // Hyperbolic (1/z) depth quantisation — see scene_render_z() Lua
+    // docstring for the mapping and rationale.
+    float inv_near = 1.0f / nearp;
+    float inv_span = 1.0f / (inv_near - 1.0f / farp);
+    int drawn = 0;
+
+    const float* buf = s->world_buf.data();
+    float far_sq = farp * farp;
+
+    for (size_t i = 0; i < s->tri_count; i++) {
+        const float* t = buf + i * 10;
+        float wx1 = t[0], wy1 = t[1], wz1 = t[2];
+        float wx2 = t[3], wy2 = t[4], wz2 = t[5];
+        float wx3 = t[6], wy3 = t[7], wz3 = t[8];
+        uint16_t color = (uint16_t)t[9];
+
+        // Two-stage frustum pre-cull: do the cheapest rejection first
+        // and skip full camera-space transform for geometry that can't
+        // contribute pixels.
+        float dx1 = wx1 - px, dz1 = wz1 - pz;
+        float dx2 = wx2 - px, dz2 = wz2 - pz;
+        float dx3 = wx3 - px, dz3 = wz3 - pz;
+
+        // Stage 1: world far-cull. Squared horizontal distance from
+        // camera — if every vertex is beyond `far_sq` the tri is gone.
+        float d1 = dx1 * dx1 + dz1 * dz1;
+        float d2 = dx2 * dx2 + dz2 * dz2;
+        float d3 = dx3 * dx3 + dz3 * dz3;
+        if (d1 > far_sq && d2 > far_sq && d3 > far_sq) continue;
+
+        // Stage 2: compute camera-space z only (cheaper than full
+        // transform — skips the cx rotation). Reject if every vertex
+        // is behind the near plane or beyond the far plane.
+        float cz1 = dx1 * ys + dz1 * yc;
+        float cz2 = dx2 * ys + dz2 * yc;
+        float cz3 = dx3 * ys + dz3 * yc;
+
+        if (cz1 >= farp && cz2 >= farp && cz3 >= farp) continue;
+        if (cz1 < nearp && cz2 < nearp && cz3 < nearp) continue;
+
+        // Remaining transform: cx and cy only now that we know the tri
+        // might be visible.
+        float cx1 = dx1 * yc - dz1 * ys;
+        float cy1 = wy1 - py;
+        float cx2 = dx2 * yc - dz2 * ys;
+        float cy2 = wy2 - py;
+        float cx3 = dx3 * yc - dz3 * ys;
+        float cy3 = wy3 - py;
+
+        bool in1 = cz1 >= nearp;
+        bool in2 = cz2 >= nearp;
+        bool in3 = cz3 >= nearp;
+        int inside = (in1 ? 1 : 0) + (in2 ? 1 : 0) + (in3 ? 1 : 0);
+
+        if (inside == 3) {
+            if (project_and_fill_z(fb,
+                    cx1, cy1, cz1, cx2, cy2, cz2, cx3, cy3, cz3,
+                    color, focal, cx, cy, fog_k, light, screen_w, screen_h,
+                    inv_near, inv_span)) {
+                drawn++;
+            }
+            continue;
+        }
+
+        // Partial near-plane clip (same Sutherland-Hodgman as scene_render)
+        float pcx[4], pcy[4], pcz[4];
+        int n = 0;
+        auto emit = [&](float x, float y, float z) {
+            pcx[n] = x; pcy[n] = y; pcz[n] = z; n++;
+        };
+        auto edge = [&](float ax,float ay,float az, float bx,float by,float bz,
+                         bool ain, bool bin) {
+            if (ain) emit(ax, ay, az);
+            if (ain != bin) {
+                float tt = (nearp - az) / (bz - az);
+                emit(ax + (bx - ax) * tt, ay + (by - ay) * tt, nearp);
+            }
+        };
+        edge(cx1, cy1, cz1, cx2, cy2, cz2, in1, in2);
+        edge(cx2, cy2, cz2, cx3, cy3, cz3, in2, in3);
+        edge(cx3, cy3, cz3, cx1, cy1, cz1, in3, in1);
+        if (n < 3) continue;
+        for (int k = 1; k + 1 < n; k++) {
+            if (project_and_fill_z(fb,
+                    pcx[0], pcy[0], pcz[0],
+                    pcx[k], pcy[k], pcz[k],
+                    pcx[k+1], pcy[k+1], pcz[k+1],
+                    color, focal, cx, cy, fog_k, light, screen_w, screen_h,
+                    inv_near, inv_span)) {
+                drawn++;
+            }
+        }
+    }
+
+    ctx->drawn = drawn;
+}
+
+// Synchronous entry point — unpacks Lua args into a RenderCtx and runs
+// the pipeline on the calling thread.
+LUA_FUNCTION(l_scene_render_z) {
+    RenderCtx ctx;
+    ctx.scene = checkScene3D(L, 1);
+    ctx.px    = (float)lua_tonumber(L, 2);
+    ctx.py    = (float)lua_tonumber(L, 3);
+    ctx.pz    = (float)lua_tonumber(L, 4);
+    ctx.yc    = (float)lua_tonumber(L, 5);
+    ctx.ys    = (float)lua_tonumber(L, 6);
+    ctx.focal = (float)lua_tonumber(L, 7);
+    ctx.cx    = (float)lua_tonumber(L, 8);
+    ctx.cy    = (float)lua_tonumber(L, 9);
+    ctx.nearp = (float)lua_tonumber(L, 10);
+    ctx.fog_k = (float)lua_tonumber(L, 11);
+    ctx.farp  = (float)luaL_optnumber(L, 12, 40.0);
+    ctx.light = (float)luaL_optnumber(L, 13, 1.0);
+    ctx.vp_x  = (int)luaL_optinteger(L, 14, 0);
+    ctx.vp_y  = (int)luaL_optinteger(L, 15, 0);
+    ctx.vp_w  = (int)luaL_optinteger(L, 16, display ? display->getWidth() : 320);
+    ctx.vp_h  = (int)luaL_optinteger(L, 17, display ? display->getHeight() : 240);
+    ctx.drawn = 0;
+
+    if (!display) { lua_pushinteger(L, 0); return 1; }
+    if (!zbuf_ensure()) { lua_pushinteger(L, 0); return 1; }
+    scene_render_z_run(&ctx);
+    lua_pushinteger(L, ctx.drawn);
+    return 1;
+}
+
+// ============================================================================
 // Display module function table
 // ============================================================================
 
@@ -2077,6 +3144,20 @@ static const luaL_Reg display_funcs[] = {
     {"draw_jpeg",         l_display_draw_jpeg},
     {"draw_png",          l_display_draw_png},
     {"get_image_size",    l_display_get_image_size},
+    {"scene_new",                 l_scene_new},
+    {"scene_add_tri",             l_scene_add_tri},
+    {"scene_add_quad",            l_scene_add_quad},
+    {"scene_add_aabb",            l_scene_add_aabb},
+    {"scene_add_road_strip",      l_scene_add_road_strip},
+    {"scene_add_billboard",       l_scene_add_billboard},
+    {"scene_add_billboard_split", l_scene_add_billboard_split},
+    {"scene_set_camera",          l_scene_set_camera},
+    {"scene_count",               l_scene_count},
+    {"scene_mark_static",         l_scene_mark_static},
+    {"scene_reset_to",            l_scene_reset_to},
+    {"scene_clear",               l_scene_clear},
+    {"scene_render",              l_scene_render},
+    {"scene_render_z",            l_scene_render_z},
     {nullptr, nullptr}
 };
 
@@ -2088,6 +3169,13 @@ void registerDisplayModule(lua_State* L) {
     lua_setfield(L, -2, "__index");  // metatable.__index = metatable
     luaL_setfuncs(L, sprite_methods, 0);
     lua_pushcfunction(L, l_sprite_gc);
+    lua_setfield(L, -2, "__gc");
+    lua_pop(L, 1);
+
+    // Register Scene3D metatable (just a GC finalizer — methods are
+    // accessed via ez.display.scene_*, not via method-call syntax).
+    luaL_newmetatable(L, SCENE3D_METATABLE);
+    lua_pushcfunction(L, l_scene_gc);
     lua_setfield(L, -2, "__gc");
     lua_pop(L, 1);
 

@@ -41,9 +41,13 @@ function Menu:build(state)
     )
 
     local tool_entries = {
-        { title = "Map",       subtitle = "Offline maps",         icon = icons.map,      mod = "screens.tools.map" },
-        { title = "Files",     subtitle = "Flash & SD browser",   icon = icons.folder,   mod = "screens.tools.file_manager" },
-        { title = "Terminal",  subtitle = "Shell: cd, ls, run",   icon = icons.terminal, mod = "screens.tools.terminal" },
+        { title = "Help",        subtitle = "On-device manual + API",icon = icons.info,     mod = "screens.tools.help" },
+        { title = "Map",         subtitle = "Offline maps",          icon = icons.map,      mod = "screens.tools.map_loader" },
+        { title = "Files",       subtitle = "Flash & SD browser",    icon = icons.folder,   mod = "screens.tools.file_manager" },
+        { title = "Terminal",    subtitle = "Shell: cd, ls, run",    icon = icons.terminal, mod = "screens.tools.terminal" },
+        { title = "Signal Test", subtitle = "RSSI pingpong vs time", icon = icons.grid,     mod = "screens.tools.signal_test" },
+        { title = "WiFi Test",   subtitle = "SoftAP host + join UDP RTT", icon = icons.grid, mod = "screens.tools.wifi_test" },
+        { title = "HTTP Test",   subtitle = "Host a status page on :80", icon = icons.grid, mod = "screens.tools.http_test" },
     }
 
     for _, entry in ipairs(tool_entries) do
@@ -77,17 +81,10 @@ function Menu:build(state)
     })
 
     content_items[#content_items + 1] = self:_make_item({
-        title = "Sand",
-        subtitle = "Falling sand toy",
+        title = "Wasteland",
+        subtitle = "Outdoor zombie 3D shooter",
         icon = icons.grid,
-        mod = "screens.games.sand",
-    })
-
-    content_items[#content_items + 1] = self:_make_item({
-        title = "Raycaster",
-        subtitle = "FPS dungeon shooter",
-        icon = icons.grid,
-        mod = "screens.games.raycaster",
+        mod = "screens.games.wasteland",
     })
 
     content_items[#content_items + 1] = self:_make_item({
@@ -95,6 +92,27 @@ function Menu:build(state)
         subtitle = "Paddle bricks across 5 levels",
         icon = icons.grid,
         mod = "screens.games.breakout",
+    })
+
+    content_items[#content_items + 1] = self:_make_item({
+        title = "Tetris",
+        subtitle = "Top-5 high scores (local)",
+        icon = icons.grid,
+        mod = "screens.games.tetris",
+    })
+
+    content_items[#content_items + 1] = self:_make_item({
+        title = "Pong (2P WiFi)",
+        subtitle = "Head-to-head over SoftAP + UDP",
+        icon = icons.grid,
+        mod = "screens.games.pong",
+    })
+
+    content_items[#content_items + 1] = self:_make_item({
+        title = "Starshot",
+        subtitle = "Space shooter, guns+items (2P)",
+        icon = icons.grid,
+        mod = "screens.games.shooter",
     })
 
     -- Section: System
@@ -123,13 +141,6 @@ function Menu:build(state)
         subtitle = "Every widget on one screen",
         icon = icons.terminal,
         mod = "screens.dev.kitchen_sink",
-    })
-
-    content_items[#content_items + 1] = self:_make_item({
-        title = "Script Editor",
-        subtitle = "Lua editor with token palette",
-        icon = icons.terminal,
-        mod = "screens.dev.script_editor",
     })
 
     content_items[#content_items + 1] = self:_make_item({
