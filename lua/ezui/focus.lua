@@ -142,7 +142,15 @@ function focus._auto_scroll(item, scroll)
     -- way to 0 so any non-focusable header (section label, padding) above
     -- the item becomes visible again. Without this the viewport stops at
     -- the item's own top and clips whatever precedes it.
-    if focus.index == 1 and item._scroll_parent == scroll then
+    --
+    -- Skip the snap when the item itself doesn't fit in the viewport at
+    -- offset=0 (i.e. it lives below the fold on a long screen). Otherwise
+    -- this branch would undo the down-scroll computed above and leave
+    -- the focused item off-screen — the bug that surfaced on the
+    -- onboarding identity screen, where the only focusable item is a
+    -- Continue button below a multi-line public-key block.
+    if focus.index == 1 and item._scroll_parent == scroll
+            and content_bottom <= viewport_h then
         scroll.scroll_offset = 0
     end
 end

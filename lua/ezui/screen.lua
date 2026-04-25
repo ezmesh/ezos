@@ -268,6 +268,11 @@ function screen.push(inst)
 
     if inst.on_enter then inst:on_enter() end
     inst:_rebuild()
+    -- Auto-scroll relies on each node's _y, which is only populated during
+    -- node.draw. focus.rebuild already ran above and tried to scroll the
+    -- focused item into view, but bailed because _y was still nil. Defer a
+    -- single retry until after the first frame draws — see screen.render.
+    inst._pending_focus_scroll = true
     screen.dirty = true
     play_transition("transition_up")
 end
@@ -291,6 +296,7 @@ function screen.pop()
         focus.editing = false
         if current.on_enter then current:on_enter() end
         current:_rebuild()
+        current._pending_focus_scroll = true
     end
 
     screen.dirty = true
@@ -419,6 +425,25 @@ function screen.render()
     local ax, ay, aw, ah = screen.content_area(inst)
     if inst._tree then
         node.draw(inst._tree, d, ax, ay, aw, ah)
+    end
+
+    -- One-shot post-draw auto-scroll. focus.rebuild ran before _y was
+    -- populated, so a focused item below the fold (e.g. a Continue button
+    -- on a long form) wouldn't have scrolled into view. Now that draw has
+    -- set every node's _y, retry once and request a redraw if the offset
+    -- moved. Gated on the per-instance flag so subsequent set_state-driven
+    -- rebuilds (live clock ticks, GPS status updates) don't fight the
+    -- user's own manual scrolling.
+    if inst._pending_focus_scroll then
+        inst._pending_focus_scroll = false
+        local n = focus.current()
+        if n and n._scroll_parent then
+            local before = n._scroll_parent.scroll_offset or 0
+            focus._auto_scroll(n, n._scroll_parent)
+            if (n._scroll_parent.scroll_offset or 0) ~= before then
+                screen.dirty = true
+            end
+        end
     end
 
     -- Draw the global status bar on top (unless the screen opted out)
