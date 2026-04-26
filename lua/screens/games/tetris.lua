@@ -22,6 +22,16 @@ local theme      = require("ezui.theme")
 local screen_mod = require("ezui.screen")
 local highscores = require("engine.highscores")
 
+-- Forward-declare the difficulty so the hs_key() closure below can
+-- capture it as an upvalue. Without this declaration, `difficulty`
+-- inside hs_key() resolves to the global _ENV.difficulty (always
+-- nil), `HS_KEYS[nil]` is nil, the `or` falls through, and every
+-- run goes to the Hard leaderboard regardless of which button was
+-- pressed. The actual assignment lives at the bottom of the file
+-- where the difficulty profiles are defined; this is a forward
+-- decl so the closure picks up the same local.
+local difficulty
+
 -- Per-difficulty leaderboards. Mixing easy/hard scores on a single
 -- list would let easy runs (slower drop, drop preview) push hard
 -- scores off — separating them keeps each board honest.
@@ -133,6 +143,15 @@ local board                    -- board[r][c] = piece_key or nil
 local piece, rot, px, py      -- current falling piece
 local next_piece
 local score, level, lines
+-- start_lines is the level-progression offset for difficulties that
+-- begin past level 0. `lines` is the literal count of lines the
+-- player has cleared this run (for HUD + leaderboard); the level-up
+-- check in award_clear works against `lines + start_lines` so the
+-- math still bumps the level after every 10 *additional* cleared
+-- lines. Without this split, a Hard start at level 4 would show
+-- "LINES 30" in the HUD and submit 30 phantom lines to the
+-- leaderboard.
+local start_lines = 0
 local drop_timer               -- remaining frames until auto-drop
 -- Soft-drop is "sticky" — the T-Deck keyboard doesn't fire release
 -- events, so a simple boolean would latch until the next spawn. We
@@ -154,7 +173,10 @@ local status_text
 -- couple of levels behind hard mode so there's actual time to plan.
 -- Hard mode drops the visual aids and starts a few levels in for
 -- people who want the classic difficulty curve from the first piece.
-local difficulty = "hard"
+-- Plain assignment, not `local` — this writes to the upvalue
+-- declared at the top of the file so hs_key() and start_with()
+-- both see the same value.
+difficulty = "hard"
 
 -- Per-difficulty tuning. base_drop_frames is the starting drop
 -- interval at level 0 (subject to the 0.9^level decay in
@@ -297,7 +319,10 @@ local function award_clear(n_cleared)
               or 1200
     score = score + base * (level + 1)
     lines = lines + n_cleared
-    local new_level = floor(lines / 10)
+    -- Add the difficulty's pre-credit so a Hard start at level 4
+    -- still levels up after every 10 *additional* cleared lines.
+    -- `lines` itself is left as the user-visible count.
+    local new_level = floor((lines + start_lines) / 10)
     if new_level > level then
         level = new_level
         status_text = "Level " .. (level + 1)
@@ -543,13 +568,14 @@ end
 local function reset_world()
     board = new_board()
     score = 0
-    -- Start lines at the level threshold so the HUD shows the right
-    -- "next level at" math from the start. (level bumps every 10
-    -- lines via floor(lines / 10), so to start the player at level
-    -- N we need lines = N * 10.)
+    -- `lines` is the literal cleared count this run (HUD + leaderboard);
+    -- start_lines is the offset for the level-up math so a Hard run
+    -- starting at level N still bumps level after every 10
+    -- *additional* clears. Setting both here.
     local p = profile()
     level = p.start_level
-    lines = level * 10
+    lines = 0
+    start_lines = level * 10
     bag = {}
     next_piece = next_bag_piece()
     spawn_piece()
