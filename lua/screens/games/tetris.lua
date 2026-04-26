@@ -633,7 +633,7 @@ function Game:build(_state)
             ),
             ui.padding({ 8, 20, 0, 20 },
                 ui.text_widget(
-                    "LEFT/RIGHT move · UP rotate · DOWN soft drop · SPACE hard drop · Q back",
+                    "LEFT/RIGHT move | UP rotate | DOWN soft drop | SPACE hard drop | Q back",
                     { font = "tiny_aa", color = "TEXT_MUTED",
                       text_align = "center", wrap = true })
             ),
