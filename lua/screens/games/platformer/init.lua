@@ -374,8 +374,8 @@ if not node_mod.handler("platformer_view") then
             if role == "client" then
                 render_client(d)
                 if mode == "lost_link" then
-                    engine.draw_banner({ level = { palette = engine.colors("cave") } },
-                        nil, "Link lost", "Press SPACE to abort")
+                    engine.draw_banner(d, { level = { palette = engine.colors("cave") } },
+                        "Link lost", "Press SPACE to abort")
                 end
                 return
             end
@@ -460,16 +460,18 @@ local function start_join()
     role = "client"
     mode = "playing"  -- so render path goes to render_client
     screen_mod.invalidate()
-    local s, gw, err = net.client_start(6)
-    if not s then
-        ez.log("[platformer] client start failed: " .. tostring(err))
-        role = nil
-        mode = "lobby"
-        return
-    end
-    sock = s
-    host_ip = gw
-    last_state_ms = ez.system.millis()
+    spawn(function()
+        local s, gw, err = net.client_start(6)
+        if not s then
+            ez.log("[platformer] client start failed: " .. tostring(err))
+            role = nil
+            mode = "lobby"
+            return
+        end
+        sock = s
+        host_ip = gw
+        last_state_ms = ez.system.millis()
+    end)
 end
 
 -- ---------------------------------------------------------------------------
