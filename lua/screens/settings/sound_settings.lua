@@ -2,13 +2,18 @@
 
 local ui        = require("ezui")
 local ui_sounds = require("services.ui_sounds")
+local audio_eng = require("engine.audio_engine")
 
 local Sound = { title = "Sound" }
 
 function Sound.initial_state()
+    -- Read through the audio engine so this screen and the in-game
+    -- pause menu (games/shooter.lua) share a single source of truth
+    -- for master volume. Both writers go through set_master_volume,
+    -- both readers go through get_master_volume.
     return {
         enabled = ui_sounds.is_enabled(),
-        volume  = ez.audio.get_volume and ez.audio.get_volume() or 100,
+        volume  = audio_eng.get_master_volume() or 100,
     }
 end
 
@@ -48,8 +53,9 @@ function Sound:build(state)
             value = state.volume,
             min = 0, max = 100, step = 5,
             on_change = function(v)
-                if ez.audio.set_volume then ez.audio.set_volume(v) end
-                ez.storage.set_pref("audio_volume", v)
+                -- Single setter: persists to NVS and live-applies if
+                -- a sound happens to be playing (UI sample below).
+                audio_eng.set_master_volume(v)
                 state.volume = v
             end,
         })

@@ -144,8 +144,15 @@ local stars            -- background dots; {x, y, vy, color}
 local spawn_timer
 local wave
 local frame_no         -- counter for deterministic patterns
-local game_state = "menu"   -- "menu" | "playing" | "over"
+local game_state = "menu"   -- "menu" | "playing" | "paused" | "over"
 local status_text = ""
+
+-- Pause-menu cursor. 1 = Resume, 2 = Volume slider, 3 = Mute toggle,
+-- 4 = Quit. Stored at module scope so render+input share the index
+-- without round-tripping through screen state (which would force a
+-- full tree rebuild on every cursor move).
+local pause_idx = 1
+local PAUSE_ITEMS = 4
 
 ---------------------------------------------------------------------------
 -- Mode / net state
@@ -169,6 +176,11 @@ local function make_player(id, x, color)
     return {
         id = id,
         x = x, y = SH - 20,
+        -- Horizontal velocity. Replaces the constant-step movement so
+        -- holding LEFT/RIGHT ramps up to a higher max speed than the
+        -- previous fixed 3.5 px/frame; brief taps stay nimble because
+        -- friction kicks in the moment input releases.
+        vx = 0,
         hp = 5, lives = 3, score = 0,
         gun = GUN_BLASTER, cooldown = 0,
         shield_end_ms = 0, multi_end_ms = 0,
@@ -417,16 +429,49 @@ end
 -- Input + step (authoritative)
 ---------------------------------------------------------------------------
 
+-- Horizontal motion tunables. ACCEL is per-frame velocity gain while
+-- LEFT/RIGHT is held; MAX_VX caps the run; FRICTION decays vx when
+-- the player isn't pushing in either direction. The values were
+-- tuned so a sustained hold reaches MAX_VX in ~10 frames (1/3 s at
+-- 30 Hz) and a release takes about the same to settle — fast enough
+-- to dodge projectiles, slow enough that slight nudges still feel
+-- precise. Vertical motion stays the constant-step model since the
+-- top-down field is short and an accel curve there feels mushy.
+local PLAYER_ACCEL = 0.85
+local PLAYER_MAX_VX = 6.5
+local PLAYER_FRICTION = 0.55
+local PLAYER_VSPEED = 3.5
+
 local function apply_input(p, in_left, in_right, in_up, in_down, in_fire)
     if not p.alive or game_state ~= "playing" then return end
-    local spd = 3.5
-    if in_left  then p.x = p.x - spd end
-    if in_right then p.x = p.x + spd end
-    if in_up    then p.y = p.y - spd end
-    if in_down  then p.y = p.y + spd end
+
+    -- Horizontal: accelerate toward held direction, decay otherwise.
+    if in_left and not in_right then
+        p.vx = p.vx - PLAYER_ACCEL
+        if p.vx < -PLAYER_MAX_VX then p.vx = -PLAYER_MAX_VX end
+    elseif in_right and not in_left then
+        p.vx = p.vx + PLAYER_ACCEL
+        if p.vx > PLAYER_MAX_VX then p.vx = PLAYER_MAX_VX end
+    elseif math.abs(p.vx) <= PLAYER_FRICTION then
+        p.vx = 0
+    elseif p.vx > 0 then
+        p.vx = p.vx - PLAYER_FRICTION
+    else
+        p.vx = p.vx + PLAYER_FRICTION
+    end
+    p.x = p.x + p.vx
+
+    if in_up    then p.y = p.y - PLAYER_VSPEED end
+    if in_down  then p.y = p.y + PLAYER_VSPEED end
     -- Keep the player inside the bottom half of the field so they
-    -- can't rush up into the spawn line and be invincible.
-    p.x = math.max(PLAYER_HW, math.min(SW - PLAYER_HW, p.x))
+    -- can't rush up into the spawn line and be invincible. Hitting a
+    -- wall zeros vx so the ship doesn't slide away from the player's
+    -- input the instant they release the held key.
+    if p.x < PLAYER_HW then
+        p.x = PLAYER_HW; if p.vx < 0 then p.vx = 0 end
+    elseif p.x > SW - PLAYER_HW then
+        p.x = SW - PLAYER_HW; if p.vx > 0 then p.vx = 0 end
+    end
     p.y = math.max(SH / 2, math.min(SH - 8, p.y))
 
     if in_fire then
@@ -694,6 +739,73 @@ local function render(d)
     end
 
     draw_hud(d)
+
+    if game_state == "paused" then
+        -- Dim the playfield so the menu reads as the focused thing.
+        d.fill_rect(0, 0, SW, SH, rgb(0, 0, 0))
+        -- The render() pass above already drew the world; we layer the
+        -- darken on top by re-drawing it in fill mode. Since the chip
+        -- doesn't expose alpha, we paint a stipple of half-density
+        -- black dots — close enough to a vignette for an overlay.
+        for sy = 0, SH - 1, 2 do
+            for sx = (sy % 4 == 0 and 0 or 2), SW - 1, 4 do
+                d.draw_pixel(sx, sy, rgb(0, 0, 0))
+            end
+        end
+
+        local box_w, box_h = 220, 140
+        local box_x = floor((SW - box_w) / 2)
+        local box_y = floor((SH - box_h) / 2)
+        d.fill_rect(box_x, box_y, box_w, box_h, rgb(20, 24, 36))
+        d.draw_rect(box_x, box_y, box_w, box_h, rgb(150, 170, 220))
+
+        theme.set_font("medium_aa", "bold")
+        local title = "Paused"
+        local tw = theme.text_width(title)
+        d.draw_text(box_x + floor((box_w - tw) / 2),
+                    box_y + 8, title, rgb(220, 220, 240))
+
+        theme.set_font("small_aa")
+        local fh = theme.font_height()
+        local row_y = box_y + 36
+        local rows = {
+            { label = "Resume" },
+            { label = "Volume",  slider = true },
+            { label = audio.is_muted and audio.is_muted() and "Unmute" or "Mute" },
+            { label = "Quit to menu" },
+        }
+
+        for i, row in ipairs(rows) do
+            local y = row_y + (i - 1) * (fh + 8)
+            local fg = (i == pause_idx) and rgb(250, 230, 120)
+                                          or rgb(200, 200, 220)
+            d.draw_text(box_x + 14, y, row.label, fg)
+
+            if row.slider then
+                -- Volume bar to the right of the label.
+                local bar_x = box_x + 90
+                local bar_y = y + math.floor(fh / 2) - 3
+                local bar_w = box_w - 110
+                local bar_h = 6
+                d.draw_rect(bar_x, bar_y, bar_w, bar_h, rgb(120, 130, 160))
+                local v = audio.get_master_volume() or 100
+                local fill = math.floor(bar_w * (v / 100))
+                if fill > 0 then
+                    d.fill_rect(bar_x + 1, bar_y + 1, fill - 2, bar_h - 2,
+                        (i == pause_idx) and rgb(250, 230, 120)
+                                          or rgb(120, 200, 240))
+                end
+                local pct = string.format("%d%%", v)
+                d.draw_text(bar_x + bar_w + 6, y, pct, rgb(200, 200, 220))
+            end
+        end
+
+        theme.set_font("tiny_aa")
+        local hint = "UP/DOWN move  LEFT/RIGHT adjust  ENTER select"
+        local hw = theme.text_width(hint)
+        d.draw_text(box_x + floor((box_w - hw) / 2),
+                    box_y + box_h - 14, hint, rgb(160, 160, 180))
+    end
 
     if game_state == "over" then
         theme.set_font("medium_aa", "bold")
@@ -998,12 +1110,79 @@ function Game:_start(m)
     end
 end
 
+-- Pause-menu key dispatch. Returns "handled" for everything so the
+-- gameplay key path doesn't also fire while the menu is up. Volume
+-- changes are applied immediately (live audible) and persisted via
+-- audio.set_master_volume → NVS.
+local function pause_menu_key(self, s, c)
+    if s == "UP" then
+        pause_idx = pause_idx - 1
+        if pause_idx < 1 then pause_idx = PAUSE_ITEMS end
+        audio.play(sfx.ui_tick, 60)
+    elseif s == "DOWN" then
+        pause_idx = pause_idx + 1
+        if pause_idx > PAUSE_ITEMS then pause_idx = 1 end
+        audio.play(sfx.ui_tick, 60)
+    elseif s == "LEFT" or s == "RIGHT" then
+        if pause_idx == 2 then
+            local step = (s == "LEFT") and -10 or 10
+            local v = (audio.get_master_volume() or 100) + step
+            if v < 0 then v = 0 end
+            if v > 100 then v = 100 end
+            audio.set_master_volume(v)
+            -- Don't play a tick on every step so the slider doesn't
+            -- machine-gun the audio engine; only play when the value
+            -- actually moved (non-rail).
+            if step > 0 and v > 0 or step < 0 and v < 100 then
+                audio.play(sfx.ui_tick, 50)
+            end
+        end
+    elseif s == "ENTER" or c == " " then
+        if pause_idx == 1 then
+            game_state = "playing"
+            audio.play(sfx.ui_confirm, 70)
+        elseif pause_idx == 3 then
+            audio.toggle_muted()
+            audio.play(sfx.ui_confirm, 70)
+        elseif pause_idx == 4 then
+            tear_down(self); self:set_state({})
+        end
+    end
+    screen_mod.invalidate()
+    return "handled"
+end
+
 function Game:handle_key(key)
     local s = key.special
     local c = key.character
     if c then c = c:lower() end
 
     if mode == "menu" or game_state == "menu" then return nil end
+
+    -- Pause toggle works from playing or paused. Q/ESC out of paused
+    -- also resumes (so the user can back out without using the menu).
+    if c == "p" then
+        if game_state == "playing" then
+            game_state = "paused"
+            audio.play(sfx.ui_confirm, 60)
+            screen_mod.invalidate()
+            return "handled"
+        elseif game_state == "paused" then
+            game_state = "playing"
+            audio.play(sfx.ui_confirm, 60)
+            screen_mod.invalidate()
+            return "handled"
+        end
+    end
+
+    if game_state == "paused" then
+        if s == "BACKSPACE" or s == "ESCAPE" or c == "q" then
+            game_state = "playing"
+            screen_mod.invalidate()
+            return "handled"
+        end
+        return pause_menu_key(self, s, c)
+    end
 
     if s == "BACKSPACE" or s == "ESCAPE" or c == "q" then
         tear_down(self); self:set_state({}); return "handled"
