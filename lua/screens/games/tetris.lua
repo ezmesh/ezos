@@ -22,7 +22,13 @@ local theme      = require("ezui.theme")
 local screen_mod = require("ezui.screen")
 local highscores = require("engine.highscores")
 
-local HS_KEY = "tetris"
+-- Per-difficulty leaderboards. Mixing easy/hard scores on a single
+-- list would let easy runs (slower drop, drop preview) push hard
+-- scores off — separating them keeps each board honest.
+local HS_KEYS = { easy = "tetris_easy", hard = "tetris_hard" }
+local function hs_key()
+    return HS_KEYS[difficulty] or HS_KEYS.hard
+end
 
 local Game = { title = "Tetris", fullscreen = true }
 
@@ -142,6 +148,31 @@ end
 local game_state              -- "menu" | "playing" | "over"
 local status_text
 
+-- Picked from the menu. Easy mode draws a ghost-piece landing
+-- preview plus a faint lane highlight so the player can see exactly
+-- where the current piece will hit; it also runs the drop curve a
+-- couple of levels behind hard mode so there's actual time to plan.
+-- Hard mode drops the visual aids and starts a few levels in for
+-- people who want the classic difficulty curve from the first piece.
+local difficulty = "hard"
+
+-- Per-difficulty tuning. base_drop_frames is the starting drop
+-- interval at level 0 (subject to the 0.9^level decay in
+-- drop_interval_for_level); drop_floor is the cap so a long run
+-- can't reduce the interval below playable. start_level offsets the
+-- initial level so hard players don't have to suffer through the
+-- gentle early curve.
+local DIFFICULTY_PROFILES = {
+    easy = { base_drop_frames = 60, drop_floor = 22, start_level = 0,
+             show_ghost = true },
+    hard = { base_drop_frames = 40, drop_floor = 12, start_level = 3,
+             show_ghost = false },
+}
+
+local function profile()
+    return DIFFICULTY_PROFILES[difficulty] or DIFFICULTY_PROFILES.hard
+end
+
 -- High scores are persisted through the shared engine.highscores
 -- module. We pass `lines` as the `extra` tag so the leaderboard can
 -- display both score and lines-cleared per entry.
@@ -240,7 +271,7 @@ local function spawn_piece()
         -- Can't even spawn — game over.
         game_state = "over"
         status_text = "Game over"
-        local rank = highscores.submit(HS_KEY, score, lines)
+        local rank = highscores.submit(hs_key(), score, lines)
         if rank then
             status_text = "High score! #" .. rank
         end
@@ -248,11 +279,13 @@ local function spawn_piece()
 end
 
 local function drop_interval_for_level(lvl)
-    -- 30 FPS tick, 48 frames base. Each level shaves 10% down to a 16-frame floor.
-    local base = 48
-    -- Lua 5.4 removed math.pow — `^` is the idiomatic alternative.
-    local f = base * (0.9 ^ lvl)
-    if f < 16 then f = 16 end
+    -- 30 FPS tick. base / floor are difficulty-dependent so easy mode
+    -- gives noticeable thinking time and hard mode hits the speed cap
+    -- a few levels earlier. Lua 5.4 removed math.pow — `^` is the
+    -- idiomatic alternative.
+    local p = profile()
+    local f = p.base_drop_frames * (0.9 ^ lvl)
+    if f < p.drop_floor then f = p.drop_floor end
     return floor(f)
 end
 
@@ -320,6 +353,12 @@ local GRID      = rgb(40, 42, 60)
 local FRAME     = rgb(120, 120, 150)
 local TEXT_MAIN = rgb(230, 230, 240)
 local TEXT_DIM  = rgb(160, 160, 180)
+-- Easy-mode hint colours. LANE_BG is a subtle navy band to mark the
+-- columns the current piece occupies — only a couple of shades above
+-- BG so it doesn't compete with the locked blocks. The ghost outline
+-- reuses each tetromino's own edge colour so the hint visually ties
+-- back to the piece overhead.
+local LANE_BG   = rgb(30, 40, 70)
 
 local function draw_cell(d, col, row, key)
     local x = BOARD_X + col * CELL
@@ -328,8 +367,38 @@ local function draw_cell(d, col, row, key)
     d.draw_rect(x, y, CELL, CELL, PIECE_EDGE[key])
 end
 
+-- Compute the lowest valid landing row for the current piece. Used
+-- by the easy-mode ghost preview. Doesn't mutate state.
+local function ghost_y()
+    local gy = py
+    while valid_position(piece, rot, px, gy + 1) do
+        gy = gy + 1
+    end
+    return gy
+end
+
 local function draw_board(d)
     d.fill_rect(BOARD_X, BOARD_Y, BOARD_W, BOARD_H, BG)
+
+    -- Easy-mode lane highlight. Tints the full-height columns that the
+    -- piece currently spans so the player can see at a glance which
+    -- lanes are about to be occupied. Drawn on top of BG but under the
+    -- grid lines + locked blocks so it reads as a faint background
+    -- band, not a foreground element.
+    if profile().show_ghost and game_state == "playing" and piece then
+        local minc, maxc = COLS, -1
+        for c, _ in piece_cells(piece, rot, px, py) do
+            if c < minc then minc = c end
+            if c > maxc then maxc = c end
+        end
+        if minc <= maxc then
+            for cc = minc, maxc do
+                local x = BOARD_X + cc * CELL
+                d.fill_rect(x, BOARD_Y, CELL, BOARD_H, LANE_BG)
+            end
+        end
+    end
+
     -- Subtle column grid.
     for c = 1, COLS - 1 do
         local x = BOARD_X + c * CELL
@@ -340,6 +409,31 @@ local function draw_board(d)
         for c = 1, COLS do
             local k = board[r][c]
             if k then draw_cell(d, c - 1, r - 1, k) end
+        end
+    end
+end
+
+-- Easy mode only: outline the cells where the current piece will land
+-- if hard-dropped. Outline-only (no fill) so the live piece overhead
+-- always reads as the foreground element. Cells overlapping the
+-- current piece position are skipped to avoid a doubled border on the
+-- piece itself.
+local function draw_ghost(d)
+    if not profile().show_ghost then return end
+    if game_state ~= "playing" or not piece then return end
+    local gy = ghost_y()
+    if gy == py then return end  -- piece is already at landing row
+    -- Build a quick set of current-piece cells so we can skip them.
+    local cur = {}
+    for c, r in piece_cells(piece, rot, px, py) do
+        cur[r * COLS + c] = true
+    end
+    local edge = PIECE_EDGE[piece]
+    for c, r in piece_cells(piece, rot, px, gy) do
+        if r >= 0 and not cur[r * COLS + c] then
+            local x = BOARD_X + c * CELL
+            local y = BOARD_Y + r * CELL
+            d.draw_rect(x, y, CELL, CELL, edge)
         end
     end
 end
@@ -410,8 +504,10 @@ local function draw_over(d)
     d.draw_text(floor((SW - sw) / 2), panel_y + 28, sub, TEXT_MAIN)
 
     theme.set_font("tiny_aa")
-    d.draw_text(panel_x + 12, panel_y + 50, "HIGH SCORES", TEXT_DIM)
-    local rows = highscores.format(HS_KEY, function(i, h)
+    local board_label = (difficulty == "easy")
+        and "HIGH SCORES (EASY)" or "HIGH SCORES (HARD)"
+    d.draw_text(panel_x + 12, panel_y + 50, board_label, TEXT_DIM)
+    local rows = highscores.format(hs_key(), function(i, h)
         return string.format("%d.  %6d   %d lines", i, h.score, h.extra)
     end)
     for i, line in ipairs(rows) do
@@ -427,6 +523,7 @@ end
 local function render(d)
     d.fill_rect(0, 0, SW, SH, rgb(0, 0, 0))
     draw_board(d)
+    draw_ghost(d)
     draw_current_piece(d)
     draw_hud(d)
     if game_state == "over" then draw_over(d) end
@@ -445,13 +542,20 @@ end
 
 local function reset_world()
     board = new_board()
-    score, level, lines = 0, 0, 0
+    score = 0
+    -- Start lines at the level threshold so the HUD shows the right
+    -- "next level at" math from the start. (level bumps every 10
+    -- lines via floor(lines / 10), so to start the player at level
+    -- N we need lines = N * 10.)
+    local p = profile()
+    level = p.start_level
+    lines = level * 10
     bag = {}
     next_piece = next_bag_piece()
     spawn_piece()
     drop_timer = drop_interval_for_level(level)
     soft_drop_until = 0
-    status_text = ""
+    status_text = (difficulty == "easy") and "Easy" or "Hard"
     game_state = "playing"
 end
 
@@ -459,25 +563,49 @@ function Game.initial_state() return {} end
 
 function Game:build(_state)
     if game_state == "menu" then
+        -- Wraps reset_world + tick install so both menu buttons go
+        -- through the same launch path. Picks the difficulty into the
+        -- module-local `difficulty` first so reset_world sees the
+        -- right profile.
+        local function start_with(diff)
+            difficulty = diff
+            reset_world()
+            self:set_state({})
+            self._tick = ez.system.set_interval(math.floor(1000/30),
+                function()
+                    tick()
+                    screen_mod.invalidate()
+                end)
+        end
+
         return ui.vbox({ gap = 0, bg = "BG" }, {
             ui.title_bar("Tetris", { back = true }),
-            ui.padding({ 24, 20, 10, 20 },
+            ui.padding({ 18, 20, 6, 20 },
                 ui.text_widget("Classic tetris with top-5 high scores.",
                     { font = "small_aa", color = "TEXT_SEC",
                       text_align = "center", wrap = true })
             ),
-            ui.padding({ 12, 40, 4, 40 },
-                ui.button("Start", { on_press = function()
-                    reset_world()
-                    self:set_state({})
-                    self._tick = ez.system.set_interval(math.floor(1000/30),
-                        function()
-                            tick()
-                            screen_mod.invalidate()
-                        end)
-                end })
+            ui.padding({ 4, 40, 4, 40 },
+                ui.button("Easy",
+                    { on_press = function() start_with("easy") end })
             ),
-            ui.padding({ 10, 20, 0, 20 },
+            ui.padding({ 0, 20, 6, 20 },
+                ui.text_widget(
+                    "Drop preview + lane highlight. Slower start.",
+                    { font = "tiny_aa", color = "TEXT_MUTED",
+                      text_align = "center", wrap = true })
+            ),
+            ui.padding({ 4, 40, 4, 40 },
+                ui.button("Hard",
+                    { on_press = function() start_with("hard") end })
+            ),
+            ui.padding({ 0, 20, 6, 20 },
+                ui.text_widget(
+                    "No drop preview. Starts a few levels in.",
+                    { font = "tiny_aa", color = "TEXT_MUTED",
+                      text_align = "center", wrap = true })
+            ),
+            ui.padding({ 8, 20, 0, 20 },
                 ui.text_widget(
                     "LEFT/RIGHT move · UP rotate · DOWN soft drop · SPACE hard drop · Q back",
                     { font = "tiny_aa", color = "TEXT_MUTED",
