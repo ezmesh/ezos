@@ -156,8 +156,15 @@ local stars            -- background dots; {x, y, vy, color}
 local spawn_timer
 local wave
 local frame_no         -- counter for deterministic patterns
-local game_state = "menu"   -- "menu" | "playing" | "over"
+local game_state = "menu"   -- "menu" | "playing" | "paused" | "over"
 local status_text = ""
+
+-- Pause-menu cursor index. 1 = Resume, 2 = Volume slider, 3 = Quit.
+-- Stored at module scope so render() and the input dispatch share
+-- the cursor without forcing a full screen tree rebuild on every
+-- arrow-key press.
+local pause_idx = 1
+local PAUSE_ITEMS = 3
 
 ---------------------------------------------------------------------------
 -- Mode / net state
@@ -865,6 +872,68 @@ local function render(d)
 
     draw_hud(d)
 
+    if game_state == "paused" then
+        -- Stipple a half-density grid of black dots on top of the
+        -- already-drawn world. The chip doesn't expose alpha, so this
+        -- approximation is what we can afford for a "dim the playfield"
+        -- effect — close enough to a vignette to make the menu read
+        -- as the focused element without obscuring what's behind it.
+        for sy = 0, SH - 1, 2 do
+            for sx = (sy % 4 == 0 and 0 or 2), SW - 1, 4 do
+                d.draw_pixel(sx, sy, rgb(0, 0, 0))
+            end
+        end
+
+        local box_w, box_h = 220, 130
+        local box_x = floor((SW - box_w) / 2)
+        local box_y = floor((SH - box_h) / 2)
+        d.fill_rect(box_x, box_y, box_w, box_h, rgb(20, 24, 36))
+        d.draw_rect(box_x, box_y, box_w, box_h, rgb(150, 170, 220))
+
+        theme.set_font("medium_aa", "bold")
+        local title = "Paused"
+        local tw = theme.text_width(title)
+        d.draw_text(box_x + floor((box_w - tw) / 2),
+                    box_y + 8, title, rgb(220, 220, 240))
+
+        theme.set_font("small_aa")
+        local fh = theme.font_height()
+        local row_y = box_y + 36
+        local rows = {
+            { label = "Resume" },
+            { label = "Volume",  slider = true },
+            { label = "Quit to menu" },
+        }
+        for i, row in ipairs(rows) do
+            local y = row_y + (i - 1) * (fh + 8)
+            local fg = (i == pause_idx) and rgb(250, 230, 120)
+                                          or rgb(200, 200, 220)
+            d.draw_text(box_x + 14, y, row.label, fg)
+            if row.slider then
+                local bar_x = box_x + 90
+                local bar_y = y + math.floor(fh / 2) - 3
+                local bar_w = box_w - 110
+                local bar_h = 6
+                d.draw_rect(bar_x, bar_y, bar_w, bar_h, rgb(120, 130, 160))
+                local v = synth.get_master_pct() or 100
+                local fill = math.floor(bar_w * (v / 100))
+                if fill > 0 then
+                    d.fill_rect(bar_x + 1, bar_y + 1, fill - 2, bar_h - 2,
+                        (i == pause_idx) and rgb(250, 230, 120)
+                                          or rgb(120, 200, 240))
+                end
+                local pct = string.format("%d%%", v)
+                d.draw_text(bar_x + bar_w + 6, y, pct, rgb(200, 200, 220))
+            end
+        end
+
+        theme.set_font("tiny_aa")
+        local hint = "UP/DOWN move  LEFT/RIGHT adjust  ENTER select"
+        local hw = theme.text_width(hint)
+        d.draw_text(box_x + floor((box_w - hw) / 2),
+                    box_y + box_h - 14, hint, rgb(160, 160, 180))
+    end
+
     if game_state == "over" then
         theme.set_font("medium_aa", "bold")
         local t = "GAME OVER"
@@ -1185,12 +1254,78 @@ function Game:_start(m)
     end
 end
 
+-- Pause-menu key dispatch. Returns "handled" for everything so the
+-- gameplay key path doesn't double-fire while the menu is up.
+-- Volume changes are applied immediately and persisted via
+-- synth.set_master_pct → NVS.
+local function pause_menu_key(self, s, c)
+    if s == "UP" then
+        pause_idx = pause_idx - 1
+        if pause_idx < 1 then pause_idx = PAUSE_ITEMS end
+        synth.play("ui_tick")
+    elseif s == "DOWN" then
+        pause_idx = pause_idx + 1
+        if pause_idx > PAUSE_ITEMS then pause_idx = 1 end
+        synth.play("ui_tick")
+    elseif s == "LEFT" or s == "RIGHT" then
+        if pause_idx == 2 then
+            local step = (s == "LEFT") and -10 or 10
+            local before = synth.get_master_pct() or 100
+            local v = before + step
+            if v < 0 then v = 0 end
+            if v > 100 then v = 100 end
+            synth.set_master_pct(v)
+            -- Tick only when the value actually moved off the rail
+            -- — otherwise a held LEFT at 0% would machine-gun the
+            -- audio engine.
+            if v ~= before then synth.play("ui_tick") end
+        end
+    elseif s == "ENTER" or c == " " then
+        if pause_idx == 1 then
+            game_state = "playing"
+            synth.play("ui_confirm")
+        elseif pause_idx == 3 then
+            tear_down(self); self:set_state({})
+        end
+    end
+    screen_mod.invalidate()
+    return "handled"
+end
+
 function Game:handle_key(key)
     local s = key.special
     local c = key.character
     if c then c = c:lower() end
 
     if mode == "menu" or game_state == "menu" then return nil end
+
+    -- Pause toggle on `p`. Works from playing or paused so a second
+    -- press just resumes — same shape as standard arcade pause keys.
+    if c == "p" then
+        if game_state == "playing" then
+            game_state = "paused"
+            synth.play("ui_confirm")
+            screen_mod.invalidate()
+            return "handled"
+        elseif game_state == "paused" then
+            game_state = "playing"
+            synth.play("ui_confirm")
+            screen_mod.invalidate()
+            return "handled"
+        end
+    end
+
+    -- While paused, route everything through the menu dispatch.
+    -- ESC / BACKSPACE / Q resume rather than tearing down so the
+    -- user can back out of the menu without committing to Quit.
+    if game_state == "paused" then
+        if s == "BACKSPACE" or s == "ESCAPE" or c == "q" then
+            game_state = "playing"
+            screen_mod.invalidate()
+            return "handled"
+        end
+        return pause_menu_key(self, s, c)
+    end
 
     if s == "BACKSPACE" or s == "ESCAPE" or c == "q" then
         tear_down(self); self:set_state({}); return "handled"
