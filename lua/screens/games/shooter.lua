@@ -110,6 +110,11 @@ local E_SCOUT  = 1
 local E_ZIGZAG = 2
 local E_BOMBER = 3
 local E_HEAVY  = 4
+-- Drone is the new "swarmer" — small, fast, dives toward the player's
+-- last known X. Cheap (1 HP, 1 budget point in the encounter
+-- generator) so encounters can spam them in flocks at higher
+-- difficulty without blowing the budget.
+local E_DRONE  = 5
 
 local ENEMY_DEFS = {
     [E_SCOUT]  = { hp = 2,  speed = 1.6, size = 8,  points = 10,
@@ -126,6 +131,9 @@ local ENEMY_DEFS = {
                    color = rgb(80, 200, 140),
                    color2 = rgb(160, 240, 200),
                    drops_bombs = true },
+    [E_DRONE]  = { hp = 1,  speed = 2.4, size = 6,  points = 15,
+                   color = rgb(240, 200, 90),
+                   color2 = rgb(255, 240, 180) },
 }
 
 ---------------------------------------------------------------------------
@@ -136,12 +144,14 @@ local I_HEAL   = 1
 local I_SHIELD = 2
 local I_GUN    = 3     -- cycles weapon
 local I_MULTI  = 4     -- 2x score for N seconds
+local I_THRUST = 5     -- temporary movement boost (max speed + accel up)
 
 local ITEM_DEFS = {
     [I_HEAL]   = { color = rgb(230, 80, 80),  label = "+" },
     [I_SHIELD] = { color = rgb(100, 180, 240), label = "O" },
     [I_GUN]    = { color = rgb(240, 220, 80), label = "G" },
     [I_MULTI]  = { color = rgb(180, 240, 120), label = "2" },
+    [I_THRUST] = { color = rgb(120, 220, 240), label = ">" },
 }
 
 ---------------------------------------------------------------------------
@@ -153,11 +163,43 @@ local enemies          -- list
 local bullets          -- list { x, y, vx, vy, dmg, color, kind, home?, ttl? }
 local items            -- list { x, y, vy, kind }
 local stars            -- background dots; {x, y, vy, color}
+local particles        -- short-lived sparks: {x, y, vx, vy, life, color}
+local popups           -- score popups: {x, y, life, text, color}
+local asteroids        -- destructible obstacles: {x, y, vy, hp, size, rot, rot_speed}
 local spawn_timer
 local wave
 local frame_no         -- counter for deterministic patterns
 local game_state = "menu"   -- "menu" | "playing" | "paused" | "over"
 local status_text = ""
+
+-- Seed-based encounter plan. reset_world() picks a fresh seed (or
+-- reuses one passed in for replays / debug) and gen_run() expands it
+-- into a list of "encounters", each a {duration, entries=[{frame,
+-- kind, x}], title?} record. step_encounter_plan walks the entries
+-- in lockstep with frame_no while a single encounter is active,
+-- spawning one enemy per matching entry. When the encounter's
+-- duration elapses we advance to the next one.
+local run_seed
+local encounter_plan
+local encounter_idx
+local encounter_pos        -- frames since the current encounter started
+local next_entry_idx       -- index into the current encounter's entries
+local boss_announce_frames -- HUD banner timer ("BOSS — XYZ"), 0 = idle
+
+-- Forward declarations. reset_world() (defined further down) calls
+-- gen_run, and the kill-path closures refer to spawn_particle_burst
+-- and spawn_popup. Without these forward decls the closures
+-- capture them as globals that resolve to nil at call time.
+local gen_run
+local spawn_particle_burst
+local spawn_popup
+
+-- Generator difficulty envelope. The first ~30 encounters ramp from
+-- 0 → 1 (gentle on-ramp); past that, difficulty stays at 1 so the
+-- run keeps pressure constant rather than escalating into farce.
+local DIFF_RAMP_OVER = 30
+local BOSS_EVERY     = 5       -- every 5th encounter is a boss
+local N_ENCOUNTERS   = 60      -- generated up-front; ~10-15 minutes
 
 -- Pause-menu cursor index. 1 = Resume, 2 = Volume slider, 3 = Quit.
 -- Stored at module scope so render() and the input dispatch share
@@ -197,7 +239,10 @@ local function make_player(id, x, color)
         vx = 0,
         hp = 5, lives = 3, score = 0,
         gun = GUN_BLASTER, cooldown = 0,
-        shield_end_ms = 0, multi_end_ms = 0,
+        -- *_end_ms fields are timestamps in ms — the powerup is
+        -- active while ez.system.millis() < that value. Zero means
+        -- "off".
+        shield_end_ms = 0, multi_end_ms = 0, thrust_end_ms = 0,
         alive = true, color = color,
     }
 end
@@ -228,11 +273,63 @@ local function reset_world(n_players)
     enemies = {}
     bullets = {}
     items   = {}
+    particles = {}
+    popups    = {}
+    asteroids = {}
     wave = 1
     spawn_timer = 0
     frame_no = 0
     new_starfield()
     status_text = "Wave 1"
+
+    -- Build a fresh procedural run. Seeded from the system clock so
+    -- consecutive runs feel different, while keeping the door open
+    -- for "/run <seed>" replays later (the same seed yields the same
+    -- encounter list).
+    run_seed = ez.system.millis()
+    encounter_plan = gen_run(run_seed)
+    encounter_idx  = 1
+    encounter_pos  = 0
+    next_entry_idx = 1
+    boss_announce_frames = 0
+    -- Re-seed for the gameplay-side rand calls so the per-enemy
+    -- phase / drop-roll randomness doesn't repeat with the run seed.
+    -- Otherwise every run with the same seed would produce identical
+    -- bullet patterns + item drops, which is more "demo replay" than
+    -- "share your run".
+    math.randomseed(ez.system.millis())
+end
+
+-- Spawn N small spark particles flying out from (x, y) in random
+-- directions, tinted to match the source. Used for enemy deaths and
+-- bullet impacts. Particles are cheap (8 floats each), stepped in
+-- step_authoritative, and cleaned up when life hits 0.
+-- Plain assignment so the kill-path closures forward-declared at
+-- the top bind to the same upvalue.
+spawn_particle_burst = function(x, y, count, color, speed)
+    speed = speed or 2.5
+    for _ = 1, count do
+        local a = rand() * math.pi * 2
+        local s = speed * (0.4 + rand() * 0.8)
+        particles[#particles + 1] = {
+            x = x, y = y,
+            vx = math.cos(a) * s,
+            vy = math.sin(a) * s,
+            life = 25 + math.floor(rand() * 12),
+            color = color,
+        }
+    end
+end
+
+-- Floating score popup. Rises slowly from the kill site, fading as
+-- it goes. Cheap and a noticeable hit of feedback every time the
+-- player gets a kill.
+spawn_popup = function(x, y, text, color)
+    popups[#popups + 1] = {
+        x = x, y = y,
+        life = 32, max_life = 32,
+        text = text, color = color or rgb(255, 240, 180),
+    }
 end
 
 ---------------------------------------------------------------------------
@@ -251,28 +348,196 @@ local function spawn_enemy(kind, x)
     }
 end
 
-local function update_spawner()
-    spawn_timer = spawn_timer - 1
-    if spawn_timer > 0 then return end
-    -- Base cadence ~1.2s, tightens every wave.
-    spawn_timer = math.max(10, 36 - wave * 2)
+-- Per-enemy "budget cost" used by the encounter generator. A scout
+-- and a drone cost 1 each (cheap fodder); zigzag costs 2; bomber
+-- costs 3; a heavy is treated as a boss-tier cost so it almost
+-- never lands in a normal encounter. Tweak these to rebalance how
+-- thick a normal encounter feels at a given difficulty without
+-- touching the generator code.
+local ENEMY_COST = {
+    [E_SCOUT]  = 1,
+    [E_DRONE]  = 1,
+    [E_ZIGZAG] = 2,
+    [E_BOMBER] = 3,
+    [E_HEAVY]  = 8,
+}
 
-    -- Weighted pick, scaled by wave (later waves lean tougher).
-    local roll = rand()
-    local kind
-    if     roll < 0.55 - wave * 0.03 then kind = E_SCOUT
-    elseif roll < 0.80 - wave * 0.02 then kind = E_ZIGZAG
-    elseif roll < 0.95               then kind = E_BOMBER
-    else                                   kind = E_HEAVY
+-- Roll an enemy archetype using the difficulty (0..1) to bias the
+-- mix toward harder kinds. Pure data-table approach: each row is
+-- {threshold, kind}, the first row whose threshold > roll wins.
+-- The thresholds shift left as difficulty climbs so the harder
+-- archetypes appear more often without fully crowding out scouts.
+local function roll_enemy(diff)
+    if diff < 0.2 then
+        return E_SCOUT
+    elseif diff < 0.5 then
+        local r = rand()
+        if r < 0.55 then return E_SCOUT
+        elseif r < 0.85 then return E_DRONE
+        else return E_ZIGZAG end
+    elseif diff < 0.8 then
+        local r = rand()
+        if r < 0.30 then return E_SCOUT
+        elseif r < 0.60 then return E_DRONE
+        elseif r < 0.85 then return E_ZIGZAG
+        else return E_BOMBER end
+    else
+        local r = rand()
+        if r < 0.20 then return E_SCOUT
+        elseif r < 0.50 then return E_DRONE
+        elseif r < 0.75 then return E_ZIGZAG
+        else return E_BOMBER end
     end
-    spawn_enemy(kind)
+end
 
-    -- Wave up every 15 s of real time — tracked by frame_no at 30 Hz.
-    if frame_no % (15 * 30) == 0 and frame_no > 0 then
-        wave = wave + 1
+-- Generate a normal (non-boss) encounter for a given difficulty.
+-- Allocates a spawn budget proportional to difficulty, picks
+-- enemies, and spaces them out over a duration that also tightens
+-- with difficulty (later encounters arrive in faster bursts).
+local function gen_normal_encounter(diff)
+    local budget = math.floor(2 + diff * 10)
+    local entries = {}
+    local cursor = 0
+    -- Loop bound caps the worst case so a runaway random sequence
+    -- can't loop forever; in practice the budget exhausts well
+    -- before hitting it.
+    for _ = 1, 20 do
+        if budget <= 0 then break end
+        local kind = roll_enemy(diff)
+        local cost = ENEMY_COST[kind] or 1
+        if cost > budget then
+            -- Fallback to a cheap enemy so we don't drop the last
+            -- few budget points.
+            kind = E_SCOUT
+            cost = 1
+        end
+        budget = budget - cost
+        entries[#entries + 1] = {
+            frame = cursor,
+            kind  = kind,
+            x     = rand(),  -- 0..1 normalised; resolved in step_encounter_plan
+        }
+        -- Inter-spawn spacing: 24..56 frames at diff=0, narrowing
+        -- toward 12..28 frames at diff=1. Keeps the pace from
+        -- feeling like a constant stream at every difficulty.
+        local space = math.floor(rand(24, 56) * (1 - diff * 0.5))
+        if space < 8 then space = 8 end
+        cursor = cursor + space
+    end
+    return {
+        duration = cursor + 60,  -- short breather after the last spawn
+        entries  = entries,
+    }
+end
+
+-- Generate a boss encounter, parameterised by difficulty so the
+-- early bosses are dramatic but survivable. Each boss section also
+-- carries a `title` that the HUD banner reads when the encounter
+-- begins.
+local function gen_boss_encounter(diff)
+    if diff < 0.3 then
+        return {
+            duration = 540,
+            entries = {
+                { frame = 0,  kind = E_BOMBER, x = 0.5 },
+                { frame = 90, kind = E_DRONE,  x = 0.25 },
+                { frame = 90, kind = E_DRONE,  x = 0.75 },
+            },
+            title = "BOSS - Recon",
+        }
+    elseif diff < 0.65 then
+        return {
+            duration = 720,
+            entries = {
+                { frame = 0,   kind = E_BOMBER, x = 0.3 },
+                { frame = 0,   kind = E_BOMBER, x = 0.7 },
+                { frame = 60,  kind = E_ZIGZAG, x = 0.15 },
+                { frame = 60,  kind = E_ZIGZAG, x = 0.85 },
+                { frame = 180, kind = E_DRONE,  x = 0.5 },
+            },
+            title = "BOSS - Bomber Squadron",
+        }
+    else
+        return {
+            duration = 900,
+            entries = {
+                { frame = 0,   kind = E_HEAVY, x = 0.5 },
+                { frame = 120, kind = E_DRONE, x = 0.15 },
+                { frame = 120, kind = E_DRONE, x = 0.40 },
+                { frame = 120, kind = E_DRONE, x = 0.60 },
+                { frame = 120, kind = E_DRONE, x = 0.85 },
+                { frame = 360, kind = E_ZIGZAG, x = 0.3 },
+                { frame = 360, kind = E_ZIGZAG, x = 0.7 },
+            },
+            title = "BOSS - Heavy + Drones",
+        }
+    end
+end
+
+-- Generate the full encounter plan for a run. Deterministic given
+-- the seed: same seed always produces the same plan, which lets us
+-- show the seed on game-over for a "share your run" feel without
+-- adding any infrastructure.
+-- Plain assignment (not `local function`) — gen_run was forward-
+-- declared at the top so reset_world() can call it through the
+-- same upvalue.
+gen_run = function(seed)
+    math.randomseed(seed or ez.system.millis())
+    local plan = {}
+    for i = 1, N_ENCOUNTERS do
+        local diff = math.min(1.0, (i - 1) / DIFF_RAMP_OVER)
+        if i % BOSS_EVERY == 0 then
+            plan[i] = gen_boss_encounter(diff)
+        else
+            plan[i] = gen_normal_encounter(diff)
+        end
+    end
+    return plan
+end
+
+local function step_encounter_plan()
+    local enc = encounter_plan and encounter_plan[encounter_idx]
+    if not enc then return end
+    encounter_pos = encounter_pos + 1
+
+    -- Spawn every entry whose frame has been reached this tick. Loop
+    -- (rather than `if`) so multiple entries on the same frame all
+    -- fire — the boss generators stack drone swarms this way.
+    while next_entry_idx <= #enc.entries
+            and enc.entries[next_entry_idx].frame <= encounter_pos do
+        local e = enc.entries[next_entry_idx]
+        local margin = (ENEMY_DEFS[e.kind] and ENEMY_DEFS[e.kind].size or 8) + 2
+        local x = margin + e.x * (SW - margin * 2)
+        spawn_enemy(e.kind, x)
+        next_entry_idx = next_entry_idx + 1
+    end
+
+    -- Boss banner: countdown so the announcer text stays visible
+    -- for the first 90 frames (~3 s) of a boss encounter.
+    if boss_announce_frames > 0 then
+        boss_announce_frames = boss_announce_frames - 1
+    end
+
+    -- Encounter complete: advance, reset cursors, fire wave-up SFX.
+    if encounter_pos >= enc.duration then
+        encounter_idx = encounter_idx + 1
+        encounter_pos = 0
+        next_entry_idx = 1
+        wave = encounter_idx
         status_text = "Wave " .. wave
         play_sfx("wave_up", sfx.wave_up, 75)
+        local nxt = encounter_plan[encounter_idx]
+        if nxt and nxt.title then
+            boss_announce_frames = 90
+        end
     end
+end
+
+-- Backward-compat shim — step_authoritative still calls
+-- update_spawner(). Keeping the name routes the new plan executor
+-- through the existing per-frame callsite.
+local function update_spawner()
+    step_encounter_plan()
 end
 
 local function drop_item(x, y, enemy_kind)
@@ -282,12 +547,15 @@ local function drop_item(x, y, enemy_kind)
                or 0.18
     if roll > thresh then return end
 
-    -- Pick a type weighted by usefulness — heals + guns more common.
+    -- Pick a type weighted by usefulness — heals + guns most common,
+    -- thrust slotted between shield and multi as a sometimes-find
+    -- mobility boost.
     local r = rand()
     local kind
     if     r < 0.35 then kind = I_HEAL
-    elseif r < 0.7  then kind = I_GUN
-    elseif r < 0.9  then kind = I_SHIELD
+    elseif r < 0.65 then kind = I_GUN
+    elseif r < 0.80 then kind = I_SHIELD
+    elseif r < 0.93 then kind = I_THRUST
     else                 kind = I_MULTI end
     items[#items + 1] = {
         x = x, y = y, vy = 0.8, kind = kind,
@@ -332,6 +600,19 @@ local function step_enemy(e)
                 }
             end
         end
+    elseif e.kind == E_DRONE then
+        -- Track the (live) player horizontally with a soft chase —
+        -- drift toward the player x at a fraction of full speed so
+        -- the drone reads as deliberate, not glued. Vertical descent
+        -- is the full speed since the threat is "they get close, fast".
+        local target_p = players and players[1]
+        if target_p and target_p.alive then
+            local dx = target_p.x - e.x
+            if math.abs(dx) > 1 then
+                e.x = e.x + (dx > 0 and 1 or -1) * 0.6
+            end
+        end
+        e.y = e.y + def.speed
     end
     -- Keep bouncing off the horizontal walls so zigzag/heavy don't
     -- leave the field.
@@ -389,6 +670,33 @@ local function step_stars()
     end
 end
 
+-- Particles use Euler integration with a tiny drag so the bursts
+-- feel like physical sparks rather than constant-velocity tracers.
+-- Drag also bounds speed enough that long-lived particles don't
+-- drift fully off-screen by life=0.
+local function step_particles()
+    for i = #particles, 1, -1 do
+        local p = particles[i]
+        p.x = p.x + p.vx
+        p.y = p.y + p.vy
+        p.vx = p.vx * 0.92
+        p.vy = p.vy * 0.92
+        p.life = p.life - 1
+        if p.life <= 0 then table.remove(particles, i) end
+    end
+end
+
+-- Popups drift upward at a fixed slow rate; life ticks down each
+-- frame and the renderer fades the colour proportional to it.
+local function step_popups()
+    for i = #popups, 1, -1 do
+        local p = popups[i]
+        p.y = p.y - 0.6
+        p.life = p.life - 1
+        if p.life <= 0 then table.remove(popups, i) end
+    end
+end
+
 ---------------------------------------------------------------------------
 -- Collision / damage
 ---------------------------------------------------------------------------
@@ -419,6 +727,9 @@ local function apply_item(p, kind)
     elseif kind == I_MULTI then
         p.multi_end_ms = now + 10000
         if p.id == 1 then play_sfx("powerup", sfx.powerup, 80) end
+    elseif kind == I_THRUST then
+        p.thrust_end_ms = now + THRUST_DURATION
+        if p.id == 1 then play_sfx("powerup", sfx.powerup, 80) end
     end
 end
 
@@ -443,26 +754,35 @@ end
 -- Input + step (authoritative)
 ---------------------------------------------------------------------------
 
--- Horizontal motion tunables. Higher accel + max speed than the old
--- constant-3.5 step so a fast trackball flick or a held LEFT/RIGHT
--- builds real momentum, while friction keeps brief taps responsive.
--- The values reach max in ~7 frames (~0.23 s @ 30 Hz) and decay to
--- stop in ~6 frames after release.
-local PLAYER_ACCEL    = 1.10
-local PLAYER_MAX_VX   = 7.50
-local PLAYER_FRICTION = 0.55
+-- Horizontal motion tunables. Default values are slightly more
+-- conservative than the previous release so untrained players
+-- don't overshoot every dodge — the Thrust pickup multiplies them
+-- by THRUST_BOOST while active for the "wide-mode" feel.
+-- Values: reach max in ~10 frames (~0.33 s @ 30 Hz), decay to stop
+-- in ~10 frames after input release. With the thrust boost,
+-- max-out is ~7 frames and max speed is +50%.
+local PLAYER_ACCEL    = 0.85
+local PLAYER_MAX_VX   = 6.50
+local PLAYER_FRICTION = 0.50
 local PLAYER_VSPEED   = 3.50
+local THRUST_BOOST    = 1.50    -- accel + max-vx multiplier while thrust pickup active
+local THRUST_DURATION = 9000    -- ms — same shape as shield/multi
 
 local function apply_input(p, in_left, in_right, in_up, in_down, in_fire)
     if not p.alive or game_state ~= "playing" then return end
 
     -- Horizontal: accelerate toward held direction, decay otherwise.
+    -- Thrust pickup scales both the accel and the max VX so the
+    -- ship reaches a higher top speed and gets there sooner.
+    local boosted = p.thrust_end_ms and p.thrust_end_ms > ez.system.millis()
+    local accel  = boosted and PLAYER_ACCEL  * THRUST_BOOST or PLAYER_ACCEL
+    local max_vx = boosted and PLAYER_MAX_VX * THRUST_BOOST or PLAYER_MAX_VX
     if in_left and not in_right then
-        p.vx = p.vx - PLAYER_ACCEL
-        if p.vx < -PLAYER_MAX_VX then p.vx = -PLAYER_MAX_VX end
+        p.vx = p.vx - accel
+        if p.vx < -max_vx then p.vx = -max_vx end
     elseif in_right and not in_left then
-        p.vx = p.vx + PLAYER_ACCEL
-        if p.vx > PLAYER_MAX_VX then p.vx = PLAYER_MAX_VX end
+        p.vx = p.vx + accel
+        if p.vx > max_vx then p.vx = max_vx end
     elseif math.abs(p.vx) <= PLAYER_FRICTION then
         p.vx = 0
     elseif p.vx > 0 then
@@ -551,6 +871,8 @@ local function step_authoritative()
 
     step_items()
     step_stars()
+    step_particles()
+    step_popups()
 
     -- Collisions: bullets vs enemies (player-fired) and bullets vs
     -- players (enemy-fired). The `hostile` flag separates the two.
@@ -581,14 +903,24 @@ local function step_authoritative()
                         local p = players[1]
                         local mult = (p.multi_end_ms > ez.system.millis())
                             and 2 or 1
-                        p.score = p.score + def.points * mult
+                        local awarded = def.points * mult
+                        p.score = p.score + awarded
                         drop_item(e.x, e.y, e.kind)
-                        -- Big enemies (heavy boss, bomber) earn the
-                        -- full layered explosion patch (noise crackle
-                        -- + sub-bass thump + ringing pulse). Smaller
-                        -- enemies get the shorter "pop" patch.
+                        -- Visual feedback: particle burst tinted with
+                        -- the enemy's primary colour, plus a floating
+                        -- score popup so the kill registers.
                         local big = (e.kind == E_HEAVY
                                   or e.kind == E_BOMBER)
+                        spawn_particle_burst(e.x, e.y,
+                            big and 14 or 8,
+                            def.color2, big and 3.2 or 2.6)
+                        spawn_popup(e.x, e.y - def.size,
+                            "+" .. awarded,
+                            mult > 1 and rgb(180, 240, 120)
+                                      or rgb(255, 240, 180))
+                        -- Big enemies (heavy boss, bomber) earn the
+                        -- full layered explosion patch; smaller fry
+                        -- get the shorter pop patch.
                         if big then
                             play_sfx("explosion", sfx.explosion, 85)
                         else
@@ -596,8 +928,11 @@ local function step_authoritative()
                         end
                         table.remove(enemies, ei)
                     else
-                        -- Non-lethal hit: short crunch for feedback.
+                        -- Non-lethal hit: short crunch + a few
+                        -- sparks at the impact point for feedback.
                         play_sfx("enemy_hit", sfx.enemy_hit, 60)
+                        spawn_particle_burst(b.x, b.y, 4,
+                            def.color2, 1.6)
                     end
                     goto next_bullet
                 end
@@ -686,17 +1021,40 @@ local function draw_player(d, p)
     if not p.alive then return end
     local now = ez.system.millis()
     local shielded = p.shield_end_ms > now
-    -- Body as a small triangle — can't call fill_triangle on arbitrary
-    -- coords since we don't know the display binding's flavour; using
-    -- three filled boxes in a stack approximates a ship silhouette.
     local x = floor(p.x)
     local y = floor(p.y)
-    d.fill_rect(x - 6, y - 2, 13, 6, p.color)   -- body
-    d.fill_rect(x - 1, y - 8, 3, 8, p.color)    -- nose
-    d.fill_rect(x - 8, y + 2, 3, 3, p.color)    -- left fin
-    d.fill_rect(x + 5, y + 2, 3, 3, p.color)    -- right fin
+    -- Stealth-fighter silhouette built from rectangles + a triangle
+    -- nose. Brighter highlight rectangle along the leading edges
+    -- gives the hull a shaded look without needing a shader.
+    d.fill_triangle(x - 1, y - 9, x + 2, y - 9, x, y - 12, p.color)
+    d.fill_rect(x - 7, y - 4, 15, 7, p.color)         -- main hull
+    d.fill_rect(x - 1, y - 9, 3, 5, p.color)          -- forward fuselage
+    d.fill_rect(x - 10, y - 1, 3, 4, p.color)         -- left wing
+    d.fill_rect(x + 8, y - 1, 3, 4, p.color)          -- right wing
+    -- Highlight strip along the wing leading edges
+    d.fill_rect(x - 7, y - 4, 15, 1, rgb(255, 255, 255))
+    -- Cockpit canopy
+    d.fill_rect(x - 2, y - 7, 5, 3, rgb(140, 200, 255))
+    -- Animated engine glow at the rear. Thrust pickup paints it
+    -- brighter cyan + a longer flame trail so the boost reads
+    -- visually, not just kinetically.
+    local thrust_active = p.thrust_end_ms and p.thrust_end_ms > now
+    local glow_lo = thrust_active and rgb(120, 220, 255) or rgb(255, 160, 80)
+    local glow_hi = thrust_active and rgb(200, 250, 255) or rgb(255, 220, 120)
+    local glow = ((floor(now / 90) % 2) == 0) and glow_hi or glow_lo
+    d.fill_rect(x - 5, y + 3, 4, 2, glow)
+    d.fill_rect(x + 1, y + 3, 4, 2, glow)
+    if thrust_active then
+        -- Trail behind the ship, length flickers with the engine pulse.
+        local trail = ((floor(now / 60) % 2) == 0) and 4 or 2
+        d.fill_rect(x - 4, y + 5, 2, trail, glow_lo)
+        d.fill_rect(x + 2, y + 5, 2, trail, glow_lo)
+    end
     if shielded then
-        d.draw_circle(x, y, 12, rgb(120, 200, 240))
+        -- Shield: faint double ring so it reads as a force field
+        -- rather than a paint stripe.
+        d.draw_circle(x, y, 13, rgb(120, 200, 240))
+        d.draw_circle(x, y, 11, rgb(80, 160, 220))
     end
 end
 
@@ -802,6 +1160,29 @@ local function draw_heavy(d, x, y, def, fno)
     d.fill_rect(sx, y + s - 5, 3, 2, rgb(240, 80, 80))
 end
 
+-- Drone: tiny diamond hull with a glowing core. Visually distinct
+-- from the scout (small triangle) and zigzag (rotor) so a swarm
+-- reads correctly even when they all converge on the player.
+local function draw_drone(d, x, y, def, fno)
+    local s = def.size  -- 6
+    -- Diamond body
+    d.fill_triangle(x, y - s, x + s, y, x, y + s, def.color)
+    d.fill_triangle(x, y - s, x - s, y, x, y + s, def.color)
+    -- Outline
+    d.draw_line(x - s, y, x, y - s, def.color2)
+    d.draw_line(x, y - s, x + s, y, def.color2)
+    -- Pulsing core (the "brain") signals it's an active drone, not debris
+    if (fno // 4) % 2 == 0 then
+        d.fill_rect(x - 1, y - 1, 3, 3, rgb(255, 255, 255))
+    else
+        d.fill_rect(x - 1, y - 1, 3, 3, def.color2)
+    end
+    -- Twin antenna nubs at the top — separates it from the zigzag's
+    -- larger rotor footprint at a glance.
+    d.fill_rect(x - 3, y - s - 1, 2, 2, def.color2)
+    d.fill_rect(x + 1, y - s - 1, 2, 2, def.color2)
+end
+
 local function draw_enemy(d, e)
     local def = ENEMY_DEFS[e.kind]
     local x = floor(e.x); local y = floor(e.y)
@@ -818,19 +1199,72 @@ local function draw_enemy(d, e)
         draw_bomber(d, x, y, def, fno)
     elseif e.kind == E_HEAVY then
         draw_heavy(d, x, y, def, fno)
+    elseif e.kind == E_DRONE then
+        draw_drone(d, x, y, def, fno)
     end
+end
+
+-- Particle + popup renderers. Both are simple — particles are 2x2
+-- coloured pixels with a dim trail at low life; popups are short
+-- text strings that fade as they age.
+local function draw_particles(d)
+    if not particles then return end
+    for _, p in ipairs(particles) do
+        local px, py = floor(p.x), floor(p.y)
+        d.fill_rect(px, py, 2, 2, p.color)
+        if p.life > 18 then
+            -- Brighter core in the early phase so the spark "snaps"
+            -- before fading to match the death timing.
+            d.fill_rect(px, py, 1, 1, rgb(255, 255, 255))
+        end
+    end
+end
+
+local function draw_popups(d)
+    if not popups then return end
+    theme.set_font("tiny_aa")
+    for _, p in ipairs(popups) do
+        d.draw_text(floor(p.x) - 6, floor(p.y), p.text, p.color)
+    end
+end
+
+-- Boss-section banner. Drawn for the first ~3 s of any encounter
+-- whose template carries a `title`. Same shape as the wave-clear
+-- banner, slid below the HUD.
+local function draw_boss_banner(d)
+    if boss_announce_frames <= 0 then return end
+    local enc = encounter_plan and encounter_plan[encounter_idx]
+    if not (enc and enc.title) then return end
+    theme.set_font("medium_aa", "bold")
+    local t = enc.title
+    local tw = theme.text_width(t)
+    -- Fade alpha-ish via colour ramp: bright while >=60 frames left,
+    -- dim toward the end.
+    local alpha = math.min(1, boss_announce_frames / 30)
+    local fg = rgb(math.floor(255 * alpha + 200 * (1 - alpha)),
+                   math.floor(120 * alpha + 100 * (1 - alpha)),
+                   math.floor( 80 * alpha + 100 * (1 - alpha)))
+    d.fill_rect(0, HUD_H, SW, 22, rgb(0, 0, 0))
+    d.draw_hline(0, HUD_H + 21, SW, rgb(255, 80, 80))
+    d.draw_text(floor((SW - tw) / 2), HUD_H + 4, t, fg)
 end
 
 local function draw_bullet(d, b)
     if b.hostile then
         d.fill_circle(floor(b.x), floor(b.y), 3, b.color)
-    else
-        local w = (b.kind == "missile") and 3 or 2
-        local h = (b.kind == "missile") and 8 or 6
-        d.fill_rect(floor(b.x) - math.floor(w/2),
-                    floor(b.y) - math.floor(h/2),
-                    w, h, b.color)
+        return
     end
+    local w = (b.kind == "missile") and 3 or 2
+    local h = (b.kind == "missile") and 8 or 6
+    local bx = floor(b.x) - math.floor(w/2)
+    local by = floor(b.y) - math.floor(h/2)
+    -- Trail / glow: a couple of dimmer pixels stacked behind the
+    -- bullet so a fast volley reads as motion-blurred rather than
+    -- a static spray of dots. Separates from the hostile path
+    -- because hostile bullets travel slowly and don't need it.
+    d.fill_rect(bx, by + h, w, 2, b.color)
+    d.fill_rect(bx, by, w, h, rgb(255, 255, 255))   -- bright core
+    d.fill_rect(bx, by + 1, w, h - 2, b.color)      -- coloured body
 end
 
 local function draw_item(d, it)
@@ -868,9 +1302,14 @@ local function render(d)
         for _, b in ipairs(bullets or {}) do draw_bullet(d, b) end
         for _, it in ipairs(items   or {}) do draw_item(d, it) end
         for _, p in ipairs(players  or {}) do draw_player(d, p) end
+        -- Particles draw above ships so a tight burst reads as
+        -- being on top of the explosion site, not behind it.
+        draw_particles(d)
+        draw_popups(d)
     end
 
     draw_hud(d)
+    draw_boss_banner(d)
 
     if game_state == "paused" then
         -- Stipple a half-density grid of black dots on top of the
