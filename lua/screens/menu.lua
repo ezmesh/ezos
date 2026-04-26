@@ -115,6 +115,13 @@ function Menu:build(state)
         mod = "screens.games.shooter",
     })
 
+    content_items[#content_items + 1] = self:_make_item({
+        title = "Platformer",
+        subtitle = "12 levels, 4 environments (2P WiFi)",
+        icon = icons.grid,
+        mod = "screens.games.platformer",
+    })
+
     -- Section: System
     content_items[#content_items + 1] = ui.padding({ 10, 8, 2, 8 },
         ui.text_widget("System", { color = "TEXT_MUTED", font = "tiny_aa" })
