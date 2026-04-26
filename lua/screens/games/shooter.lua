@@ -181,6 +181,13 @@ local function make_player(id, x, color)
     return {
         id = id,
         x = x, y = SH - 20,
+        -- Horizontal velocity. Replaces the constant per-event step
+        -- model so a sustained LEFT/RIGHT (or a fast trackball spin
+        -- whose pulses arrive within HOLD_MS of each other) builds
+        -- real acceleration up to MAX_VX. Vertical motion stays the
+        -- constant-step model — the field is short and accel there
+        -- reads as mushy.
+        vx = 0,
         hp = 5, lives = 3, score = 0,
         gun = GUN_BLASTER, cooldown = 0,
         shield_end_ms = 0, multi_end_ms = 0,
@@ -429,16 +436,46 @@ end
 -- Input + step (authoritative)
 ---------------------------------------------------------------------------
 
+-- Horizontal motion tunables. Higher accel + max speed than the old
+-- constant-3.5 step so a fast trackball flick or a held LEFT/RIGHT
+-- builds real momentum, while friction keeps brief taps responsive.
+-- The values reach max in ~7 frames (~0.23 s @ 30 Hz) and decay to
+-- stop in ~6 frames after release.
+local PLAYER_ACCEL    = 1.10
+local PLAYER_MAX_VX   = 7.50
+local PLAYER_FRICTION = 0.55
+local PLAYER_VSPEED   = 3.50
+
 local function apply_input(p, in_left, in_right, in_up, in_down, in_fire)
     if not p.alive or game_state ~= "playing" then return end
-    local spd = 3.5
-    if in_left  then p.x = p.x - spd end
-    if in_right then p.x = p.x + spd end
-    if in_up    then p.y = p.y - spd end
-    if in_down  then p.y = p.y + spd end
+
+    -- Horizontal: accelerate toward held direction, decay otherwise.
+    if in_left and not in_right then
+        p.vx = p.vx - PLAYER_ACCEL
+        if p.vx < -PLAYER_MAX_VX then p.vx = -PLAYER_MAX_VX end
+    elseif in_right and not in_left then
+        p.vx = p.vx + PLAYER_ACCEL
+        if p.vx > PLAYER_MAX_VX then p.vx = PLAYER_MAX_VX end
+    elseif math.abs(p.vx) <= PLAYER_FRICTION then
+        p.vx = 0
+    elseif p.vx > 0 then
+        p.vx = p.vx - PLAYER_FRICTION
+    else
+        p.vx = p.vx + PLAYER_FRICTION
+    end
+    p.x = p.x + p.vx
+
+    if in_up   then p.y = p.y - PLAYER_VSPEED end
+    if in_down then p.y = p.y + PLAYER_VSPEED end
     -- Keep the player inside the bottom half of the field so they
-    -- can't rush up into the spawn line and be invincible.
-    p.x = math.max(PLAYER_HW, math.min(SW - PLAYER_HW, p.x))
+    -- can't rush up into the spawn line and be invincible. Hitting
+    -- a wall zeroes vx so the ship doesn't slide back the moment
+    -- the user releases the held key.
+    if p.x < PLAYER_HW then
+        p.x = PLAYER_HW; if p.vx < 0 then p.vx = 0 end
+    elseif p.x > SW - PLAYER_HW then
+        p.x = SW - PLAYER_HW; if p.vx > 0 then p.vx = 0 end
+    end
     p.y = math.max(SH / 2, math.min(SH - 8, p.y))
 
     if in_fire then
@@ -656,20 +693,124 @@ local function draw_player(d, p)
     end
 end
 
+-- Per-archetype enemy sprites.
+--
+-- Each archetype gets a distinct silhouette so the player can read
+-- the threat at a glance without matching colour to memory. The
+-- collision model still uses (e.x, e.y, def.size) as a circular hit
+-- bounds — only the visuals change, so tuning hit radius vs sprite
+-- detail stays a one-line edit on def.size.
+--
+-- All shapes are centred on (x, y). `frame_no` is captured by the
+-- caller so animations (zigzag rotor blink, heavy core pulse) tick
+-- on the gameplay clock rather than wall time.
+
+local function draw_scout(d, x, y, def, fno)
+    -- Small downward-pointing fighter. Triangle hull + two short
+    -- wing tips that flick to convey thrust direction.
+    local s = def.size
+    d.fill_triangle(x - s,     y - s + 2,
+                    x + s,     y - s + 2,
+                    x,         y + s,     def.color)
+    -- Wing tips
+    d.fill_rect(x - s - 2, y - s + 2, 3, 3, def.color2)
+    d.fill_rect(x + s,     y - s + 2, 3, 3, def.color2)
+    -- Cockpit glint
+    local glint = (fno // 6) % 2 == 0
+    d.fill_rect(x - 1, y - 2, 3, 3, glint and rgb(255, 255, 255) or def.color2)
+end
+
+local function draw_zigzag(d, x, y, def, fno)
+    -- Spinning four-pointed rotor. The main body is a small diamond;
+    -- four rotor arms flip orientation every couple of frames so the
+    -- enemy reads as actively spinning.
+    local s = def.size
+    -- Diamond hull
+    d.fill_triangle(x, y - s, x + s, y, x, y + s, def.color)
+    d.fill_triangle(x, y - s, x - s, y, x, y + s, def.color)
+    -- Rotor arms — alternate between "+" and "X" each ~5 frames.
+    local arm_color = def.color2
+    if (fno // 5) % 2 == 0 then
+        d.fill_rect(x - s - 3, y - 1, 3, 3, arm_color)
+        d.fill_rect(x + s,     y - 1, 3, 3, arm_color)
+        d.fill_rect(x - 1, y - s - 3, 3, 3, arm_color)
+        d.fill_rect(x - 1, y + s,     3, 3, arm_color)
+    else
+        d.fill_rect(x - s - 2, y - s - 2, 3, 3, arm_color)
+        d.fill_rect(x + s - 1, y - s - 2, 3, 3, arm_color)
+        d.fill_rect(x - s - 2, y + s - 1, 3, 3, arm_color)
+        d.fill_rect(x + s - 1, y + s - 1, 3, 3, arm_color)
+    end
+    -- Bright core
+    d.fill_rect(x - 2, y - 2, 5, 5, rgb(255, 255, 255))
+end
+
+local function draw_bomber(d, x, y, def, fno)
+    -- Wide hull with two engine pods. The engines pulse to sell the
+    -- "actively cruising" read; bomb-drop comes from elsewhere in
+    -- the simulation, not from this draw call.
+    local s = def.size
+    -- Main hull: wide rectangle with bevelled corners (drawn as
+    -- two stacked rects so we don't need a polygon primitive).
+    d.fill_rect(x - s,     y - 4, s * 2, 8, def.color)
+    d.fill_rect(x - s + 2, y - 6, s * 2 - 4, 4, def.color)
+    d.fill_rect(x - s + 2, y + 4, s * 2 - 4, 3, def.color)
+    -- Hull stripe
+    d.fill_rect(x - s + 1, y - 1, s * 2 - 2, 2, def.color2)
+    -- Two engine pods at the rear (top, since enemies face down).
+    local engine_pulse = ((fno // 4) % 2 == 0) and rgb(255, 200, 80)
+                                                or rgb(255, 130, 30)
+    d.fill_circle(x - s + 3, y - 6, 3, engine_pulse)
+    d.fill_circle(x + s - 3, y - 6, 3, engine_pulse)
+    -- Cockpit canopy at the front
+    d.fill_rect(x - 2, y + 3, 5, 4, rgb(40, 40, 60))
+end
+
+local function draw_heavy(d, x, y, def, fno)
+    -- Boss — octagonal armoured ship with internal lights. Cycles a
+    -- "scanning" beam across its lower edge to imply targeting.
+    local s = def.size
+    -- Octagon: stack of three rects of decreasing width.
+    d.fill_rect(x - s + 4, y - s,      s * 2 - 8, 4,         def.color)
+    d.fill_rect(x - s,     y - s + 4,  s * 2,     s * 2 - 8, def.color)
+    d.fill_rect(x - s + 4, y + s - 4,  s * 2 - 8, 4,         def.color)
+    -- Highlights along the leading edges
+    d.draw_line(x - s + 4, y - s,     x - s,     y - s + 4, def.color2)
+    d.draw_line(x + s - 4, y - s,     x + s,     y - s + 4, def.color2)
+    d.draw_line(x - s,     y + s - 4, x - s + 4, y + s,     def.color2)
+    d.draw_line(x + s,     y + s - 4, x + s - 4, y + s,     def.color2)
+    -- Cross-shaped armour plating
+    d.fill_rect(x - 2, y - s + 4, 5, s * 2 - 8, def.color2)
+    d.fill_rect(x - s + 4, y - 2, s * 2 - 8, 5, def.color2)
+    -- Two bright "windows" left and right of centre
+    local window_lit = ((fno // 8) % 2 == 0)
+    d.fill_rect(x - s + 6, y - 2, 3, 4,
+        window_lit and rgb(255, 240, 160) or rgb(180, 140, 60))
+    d.fill_rect(x + s - 9, y - 2, 3, 4,
+        window_lit and rgb(255, 240, 160) or rgb(180, 140, 60))
+    -- Scanning beam: a thin red line that sweeps across the lower
+    -- edge over ~24 frames. Reads as "the boss has a sensor".
+    local sweep = ((fno % 24) / 24)
+    local sx = x - s + 4 + math.floor(sweep * (s * 2 - 8))
+    d.fill_rect(sx, y + s - 5, 3, 2, rgb(240, 80, 80))
+end
+
 local function draw_enemy(d, e)
     local def = ENEMY_DEFS[e.kind]
     local x = floor(e.x); local y = floor(e.y)
-    d.fill_circle(x, y, def.size, def.color)
-    d.draw_circle(x, y, def.size, def.color2)
-    -- Eye / core detail so different tiers read at a glance.
+    -- frame_no is set by step_authoritative; the client uses the
+    -- host's last-snapshot tick instead but we don't currently mirror
+    -- that, so on the join side animations freeze between snapshots.
+    -- Acceptable since this is purely cosmetic.
+    local fno = frame_no or 0
     if e.kind == E_SCOUT then
-        d.fill_rect(x - 1, y - 1, 3, 3, rgb(255, 255, 255))
+        draw_scout(d, x, y, def, fno)
     elseif e.kind == E_ZIGZAG then
-        d.fill_rect(x - 3, y - 1, 7, 3, rgb(255, 255, 255))
+        draw_zigzag(d, x, y, def, fno)
     elseif e.kind == E_BOMBER then
-        d.fill_circle(x, y, 4, rgb(255, 220, 120))
+        draw_bomber(d, x, y, def, fno)
     elseif e.kind == E_HEAVY then
-        d.fill_rect(x - 6, y - 2, 13, 5, rgb(200, 250, 220))
+        draw_heavy(d, x, y, def, fno)
     end
 end
 
@@ -852,9 +993,25 @@ end
 -- Input state
 ---------------------------------------------------------------------------
 
+-- Trackball pulses arrive as short LEFT/RIGHT/UP/DOWN special-key
+-- events. To turn the discrete pulses into a held-direction signal
+-- we extend each event's "active" window by HOLD_MS so a continuous
+-- spin reads as a continuous press. handle_key bumps the deadline;
+-- input_flag() asks if we're still inside it.
 local HOLD_MS = 120
 local hold = { left = 0, right = 0, up = 0, down = 0, fire = 0 }
 local function input_flag(name)
+    -- Fire is special: it has both an event-based deadline (set on
+    -- KEY_DOWN, like the directional keys) AND a real "is held"
+    -- query for the spacebar. Either path firing keeps the gun
+    -- chugging while the user holds space, which is the standard
+    -- shoot-em-up expectation. Held check first is cheap when the
+    -- key isn't down (returns false immediately).
+    if name == "fire" then
+        if ez.keyboard.is_held and ez.keyboard.is_held(" ") then
+            return true
+        end
+    end
     return hold[name] > ez.system.millis()
 end
 
