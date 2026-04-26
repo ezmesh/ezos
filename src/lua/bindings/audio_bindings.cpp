@@ -3,6 +3,7 @@
 
 #include "../lua_bindings.h"
 #include "../../config.h"
+#include "../../audio/synth.h"
 #include <Arduino.h>
 #include <driver/i2s.h>
 #include <cmath>
@@ -40,8 +41,19 @@ static volatile uint8_t audioVolume = 100;  // 0-100 volume level
 // What the audio task should be doing each iteration.
 // `Off` parks the task; blocking play_wav/play_mp3/play_sample set this so
 // the task doesn't race the calling thread on the I2S bus.
-enum class AudioMode : uint8_t { Off = 0, Tone = 1, Sample = 2 };
+enum class AudioMode : uint8_t { Off = 0, Tone = 1, Sample = 2, Synth = 3 };
 static volatile AudioMode audioMode = AudioMode::Off;
+
+// `ensureAudioTask` exposed forward so synth bindings can hand off to
+// the same shared task without duplicating the I2S init dance.
+extern "C" void ezAudioEnsureTask();
+
+// Mode setters: keep `audioMode` file-static so other TUs can't poke
+// it directly, but expose narrow C-linkage shims so the synth bindings
+// (and any future audio source) can flip the active source without a
+// shared header.
+extern "C" void ezAudioSetSynthMode() { audioMode = AudioMode::Synth; }
+extern "C" void ezAudioSetOffMode()   { audioMode = AudioMode::Off;   }
 
 // Async sample playback state, populated by play_preloaded_async and drained
 // by audioTask.
@@ -157,11 +169,34 @@ static void audioTask(void* param) {
                 size_t written;
                 i2s_write(I2S_PORT, up, chunk * 4, &written, portMAX_DELAY);
             }
+        } else if (mode == AudioMode::Synth) {
+            // Render directly into the I2S DMA chunk and push it.
+            // synth::g manages voice state internally; this branch
+            // doesn't touch any audio_bindings state.
+            synth::g.render(samples, 256);
+            size_t written;
+            i2s_write(I2S_PORT, samples, sizeof(samples), &written, portMAX_DELAY);
+
+            // Auto-park: if every voice has gone Idle since the last
+            // buffer (e.g. a one-shot SFX finished its release), drop
+            // back to Off so the task isn't burning DMA frames on
+            // pure silence. A new ez.synth.note_on will flip mode
+            // back to Synth via the bindings.
+            if (!synth::g.any_active()) {
+                audioMode = AudioMode::Off;
+            }
         } else {
             vTaskDelay(10 / portTICK_PERIOD_MS);
         }
     }
 }
+
+// C-linkage shim used by ez.synth bindings to share the audio task.
+// Just forwards to the static helper below; we keep the static one
+// because it's how the rest of this file already calls into it.
+extern "C" void ezAudioEnsureTask();
+static void ensureAudioTask();
+extern "C" void ezAudioEnsureTask() { ensureAudioTask(); }
 
 static void ensureAudioTask() {
     if (!initI2S()) return;

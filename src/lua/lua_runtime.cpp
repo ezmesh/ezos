@@ -23,6 +23,7 @@ void registerKeyboardModule(lua_State* L);
 void registerRadioModule(lua_State* L);
 void registerMeshModule(lua_State* L);
 void registerAudioModule(lua_State* L);
+void registerSynthModule(lua_State* L);
 // Phase 4 modules
 void registerStorageModule(lua_State* L);
 void registerCryptoModule(lua_State* L);
@@ -175,6 +176,7 @@ void LuaRuntime::registerAllModules() {
     registerRadioModule(_state);
     registerMeshModule(_state);
     registerAudioModule(_state);
+    registerSynthModule(_state);
 
     // Phase 4 modules
     registerStorageModule(_state);

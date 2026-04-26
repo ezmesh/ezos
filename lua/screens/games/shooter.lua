@@ -18,7 +18,19 @@ local theme      = require("ezui.theme")
 local screen_mod = require("ezui.screen")
 local audio      = require("engine.audio_engine")
 local sfx        = audio.sounds
+local synth      = require("engine.synth")
 local highscores = require("engine.highscores")
+
+-- Route an effect through the multi-voice synth when available, else
+-- fall back to the legacy single-voice beeper. Centralised here so a
+-- future synth-only build just deletes the fallback branch.
+local function play_sfx(name, fallback_table, fallback_vol)
+    if ez.synth and synth and synth.sfx[name] then
+        synth.play(name)
+    elseif fallback_table then
+        audio.play(fallback_table, fallback_vol or 80)
+    end
+end
 
 local HS_KEY = "starshot"
 
@@ -245,7 +257,7 @@ local function update_spawner()
     if frame_no % (15 * 30) == 0 and frame_no > 0 then
         wave = wave + 1
         status_text = "Wave " .. wave
-        audio.play(sfx.wave_up, 75)
+        play_sfx("wave_up", sfx.wave_up, 75)
     end
 end
 
@@ -383,16 +395,16 @@ local function apply_item(p, kind)
     -- without looking at the HUD.
     if kind == I_HEAL then
         p.hp = math.min(5, p.hp + 2)
-        if p.id == 1 then audio.play(sfx.pickup, 80) end
+        if p.id == 1 then play_sfx("pickup", sfx.pickup, 80) end
     elseif kind == I_SHIELD then
         p.shield_end_ms = now + 8000
-        if p.id == 1 then audio.play(sfx.powerup, 80) end
+        if p.id == 1 then play_sfx("powerup", sfx.powerup, 80) end
     elseif kind == I_GUN then
         p.gun = (p.gun % #GUNS) + 1
-        if p.id == 1 then audio.play(sfx.gun_up, 80) end
+        if p.id == 1 then play_sfx("gun_up", sfx.gun_up, 80) end
     elseif kind == I_MULTI then
         p.multi_end_ms = now + 10000
-        if p.id == 1 then audio.play(sfx.powerup, 80) end
+        if p.id == 1 then play_sfx("powerup", sfx.powerup, 80) end
     end
 end
 
@@ -400,7 +412,7 @@ local function damage_player(p, dmg)
     local now = ez.system.millis()
     if p.shield_end_ms > now then return end
     p.hp = p.hp - dmg
-    if p.id == 1 then audio.play(sfx.hurt, 85) end
+    if p.id == 1 then play_sfx("hurt", sfx.hurt, 85) end
     if p.hp <= 0 then
         p.lives = p.lives - 1
         if p.lives <= 0 then
@@ -438,7 +450,19 @@ local function apply_input(p, in_left, in_right, in_up, in_down, in_fire)
             -- is always "us" both on host and join because the join
             -- side renders from a remote snapshot, not from local
             -- players state.
-            if p.id == 1 and g.sound then audio.play(g.sound, 70) end
+            -- Map gun number to a synth-bank name; falls back to the
+            -- legacy beeper sound table when the synth bindings are
+            -- absent. Keeping this lookup local so g.sound stays the
+            -- single source of truth for the legacy path.
+            if p.id == 1 then
+                local gun_names = {
+                    [GUN_BLASTER] = "blaster",
+                    [GUN_SPREAD]  = "spread",
+                    [GUN_RAPID]   = "rapid",
+                    [GUN_MISSILE] = "missile",
+                }
+                play_sfx(gun_names[p.gun] or "blaster", g.sound, 70)
+            end
         end
     end
 end
@@ -515,16 +539,21 @@ local function step_authoritative()
                             and 2 or 1
                         p.score = p.score + def.points * mult
                         drop_item(e.x, e.y, e.kind)
-                        -- Big enemies earn the longer "explosion"
-                        -- cue, small fry get the quicker pop.
-                        local snd = (e.kind == E_HEAVY
+                        -- Big enemies (heavy boss, bomber) earn the
+                        -- full layered explosion patch (noise crackle
+                        -- + sub-bass thump + ringing pulse). Smaller
+                        -- enemies get the shorter "pop" patch.
+                        local big = (e.kind == E_HEAVY
                                   or e.kind == E_BOMBER)
-                                    and sfx.explosion or sfx.enemy_pop
-                        audio.play(snd, 85)
+                        if big then
+                            play_sfx("explosion", sfx.explosion, 85)
+                        else
+                            play_sfx("enemy_pop", sfx.enemy_pop, 85)
+                        end
                         table.remove(enemies, ei)
                     else
                         -- Non-lethal hit: short crunch for feedback.
-                        audio.play(sfx.enemy_hit, 60)
+                        play_sfx("enemy_hit", sfx.enemy_hit, 60)
                     end
                     goto next_bullet
                 end
@@ -565,7 +594,7 @@ local function step_authoritative()
     for _, p in ipairs(players) do if p.alive then any_alive = true; break end end
     if not any_alive then
         if game_state ~= "over" then
-            audio.play(sfx.game_over, 90)
+            play_sfx("game_over", sfx.game_over, 90)
             -- Record high score once on transition. Solo runs get
             -- credited their own score; in MP the host records its
             -- own (player 1) score since there's no shared ranking.
@@ -841,6 +870,7 @@ local function tear_down(self)
     if mode == "host" then ez.wifi.stop_ap()
     elseif mode == "join" then ez.wifi.disconnect() end
     audio.stop()
+    if synth and synth.silence then synth.silence() end
     mode = "menu"; game_state = "menu"
     net_peer_ip, net_peer_port = nil, nil
     remote_snapshot = nil
