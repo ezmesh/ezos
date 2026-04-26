@@ -79,6 +79,16 @@ LUA_FUNCTION(l_synth_note_on) {
     if (vol < 0) vol = 0;
     if (vol > 255) vol = 255;
 
+    // Trigger the voice first, then apply opts. Order matters because
+    // synth::Engine::note_on() resets `sweeping = false` and rewinds
+    // the envelope to Attack — anything we wrote into the voice
+    // before that call would be wiped. Doing note_on first means
+    // set_sweep's `sweep_start_hz = v.freq_hz` capture sees the new
+    // freq we just stored, and the `sweeping = true` flag survives
+    // through render() so SFX patches with sweep_hz/sweep_ms actually
+    // sweep instead of playing flat.
+    synth::g.note_on(idx, hz, (uint8_t)vol);
+
     // Per-trigger overrides via opts table. Read each field if
     // present; missing fields leave the existing voice config alone.
     if (lua_istable(L, 4)) {
@@ -138,11 +148,6 @@ LUA_FUNCTION(l_synth_note_on) {
         }
     }
 
-    synth::g.note_on(idx, hz, (uint8_t)vol);
-
-    // The note_on call is what kicks the audio task into Synth mode
-    // — opts processing happens first so set_sweep's sweep_start_hz
-    // capture in note_on() sees the *new* freq.
     activate_synth_mode();
     return 0;
 }
