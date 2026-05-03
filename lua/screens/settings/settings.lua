@@ -18,6 +18,7 @@ end
 -- ordered list of categories shown in the picker.
 local CATEGORIES = {
     { title = "Display",   subtitle = "Brightness, accent colour",    icon = icons.settings,      mod = "screens.settings.display_settings" },
+    { title = "WiFi",      subtitle = "Scan, connect, save credentials", icon = icons.radio_tower, mod = "screens.settings.wifi_settings" },
     { title = "Wallpaper", subtitle = "Rotate, tile, auto-pan",       icon = icons.grid,          mod = "screens.settings.wallpaper_settings" },
     { title = "Keyboard",  subtitle = "Repeat, trackball",            icon = icons.grid,          mod = "screens.settings.keyboard_settings" },
     { title = "GPS",       subtitle = "Power, clock sync",            icon = icons.map,           mod = "screens.settings.gps_settings" },

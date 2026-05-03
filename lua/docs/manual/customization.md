@@ -129,10 +129,10 @@ to a registered palette or to the firmware-side `theme.lua`.
 `ez.storage.set_pref(key, value)` accepts strings, numbers, and
 booleans. `ez.storage.get_pref(key, default)` reads them back at any
 time. boot.lua applies a few prefs at startup (theme, accent_color,
-display_brightness, kb_backlight, gps_enabled, ...). Setting these
+screen_bright, kb_backlight, gps_enabled, ...). Setting these
 takes effect on the next boot:
 
-    ez.storage.set_pref("display_brightness", 60)
+    ez.storage.set_pref("screen_bright", 60)
     ez.system.restart()
 
 Prefs that target the running system (accent, theme) often have a

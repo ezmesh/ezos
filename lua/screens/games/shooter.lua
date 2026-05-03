@@ -142,9 +142,22 @@ local ENEMY_DEFS = {
 
 local I_HEAL   = 1
 local I_SHIELD = 2
-local I_GUN    = 3     -- cycles weapon
+local I_GUN    = 3     -- cycles weapon (also resets stackable modifiers)
 local I_MULTI  = 4     -- 2x score for N seconds
-local I_THRUST = 5     -- temporary movement boost (max speed + accel up)
+local I_THRUST = 5     -- temporary movement boost (max speed up)
+local I_RATE   = 6     -- stackable: +fire rate (cuts cooldown)
+local I_SPEED  = 7     -- stackable: +max ship speed
+local I_SLOW   = 8     -- stackable penalty: -speed, -fire rate
+
+-- Multiplicative step per pickup. 0.85/1.15 lets ~5 stacks reach a
+-- noticeable but not game-breaking floor/ceiling, and keeps the
+-- maths symmetric across positive / negative pickups.
+local MOD_STEP = 0.15
+
+-- Hard limits on stacked modifiers so a long run can't make the ship
+-- unplayably fast, slow, or fire rate go below one bullet per frame.
+local RATE_MIN, RATE_MAX   = 0.30, 3.00   -- cooldown multiplier
+local SPEED_MIN, SPEED_MAX = 0.40, 2.50   -- max-VX multiplier
 
 local ITEM_DEFS = {
     [I_HEAL]   = { color = rgb(230, 80, 80),  label = "+" },
@@ -152,6 +165,9 @@ local ITEM_DEFS = {
     [I_GUN]    = { color = rgb(240, 220, 80), label = "G" },
     [I_MULTI]  = { color = rgb(180, 240, 120), label = "2" },
     [I_THRUST] = { color = rgb(120, 220, 240), label = ">" },
+    [I_RATE]   = { color = rgb(255, 200, 60),  label = "R" },
+    [I_SPEED]  = { color = rgb(220, 120, 240), label = "S" },
+    [I_SLOW]   = { color = rgb(160, 40, 40),   label = "X" },
 }
 
 ---------------------------------------------------------------------------
@@ -243,6 +259,10 @@ local function make_player(id, x, color)
         -- active while ez.system.millis() < that value. Zero means
         -- "off".
         shield_end_ms = 0, multi_end_ms = 0, thrust_end_ms = 0,
+        -- Stackable modifiers (R / S / X pickups). Multipliers, not
+        -- counters: each positive pickup multiplies by (1 ± MOD_STEP)
+        -- and they reset to 1.0 on weapon swap.
+        rate_mod = 1.0, speed_mod = 1.0,
         alive = true, color = color,
     }
 end
@@ -547,16 +567,20 @@ local function drop_item(x, y, enemy_kind)
                or 0.18
     if roll > thresh then return end
 
-    -- Pick a type weighted by usefulness — heals + guns most common,
-    -- thrust slotted between shield and multi as a sometimes-find
-    -- mobility boost.
+    -- Pick a type weighted by usefulness. Heals + guns are most
+    -- common; the stackable R / S buffs are moderately common so a
+    -- run can build them up; X (slow) is a meaningful chunk of the
+    -- pool so the buffs don't trivialise late-game pacing.
     local r = rand()
     local kind
-    if     r < 0.35 then kind = I_HEAL
-    elseif r < 0.65 then kind = I_GUN
-    elseif r < 0.80 then kind = I_SHIELD
-    elseif r < 0.93 then kind = I_THRUST
-    else                 kind = I_MULTI end
+    if     r < 0.25 then kind = I_HEAL
+    elseif r < 0.43 then kind = I_GUN
+    elseif r < 0.53 then kind = I_SHIELD
+    elseif r < 0.61 then kind = I_THRUST
+    elseif r < 0.65 then kind = I_MULTI
+    elseif r < 0.77 then kind = I_RATE
+    elseif r < 0.89 then kind = I_SPEED
+    else                 kind = I_SLOW end
     items[#items + 1] = {
         x = x, y = y, vy = 0.8, kind = kind,
     }
@@ -711,6 +735,12 @@ local function circle_aabb(cx, cy, r, ax, ay, aw, ah)
     return dx * dx + dy * dy <= r * r
 end
 
+local function clamp(v, lo, hi)
+    if v < lo then return lo end
+    if v > hi then return hi end
+    return v
+end
+
 local function apply_item(p, kind)
     local now = ez.system.millis()
     -- Distinct audio per pickup so the player can tell them apart
@@ -723,6 +753,11 @@ local function apply_item(p, kind)
         if p.id == 1 then play_sfx("powerup", sfx.powerup, 80) end
     elseif kind == I_GUN then
         p.gun = (p.gun % #GUNS) + 1
+        -- New weapon = clean slate. Stackable modifiers reset so the
+        -- player can't carry a fully-juiced rate buff onto a Missile
+        -- (which would fire fast enough to spam-clear a screen).
+        p.rate_mod = 1.0
+        p.speed_mod = 1.0
         if p.id == 1 then play_sfx("gun_up", sfx.gun_up, 80) end
     elseif kind == I_MULTI then
         p.multi_end_ms = now + 10000
@@ -730,6 +765,21 @@ local function apply_item(p, kind)
     elseif kind == I_THRUST then
         p.thrust_end_ms = now + THRUST_DURATION
         if p.id == 1 then play_sfx("powerup", sfx.powerup, 80) end
+    elseif kind == I_RATE then
+        -- Faster fire rate = lower cooldown multiplier. Each stack
+        -- shaves 15 % off, capped at RATE_MIN.
+        p.rate_mod = clamp(p.rate_mod * (1 - MOD_STEP), RATE_MIN, RATE_MAX)
+        if p.id == 1 then play_sfx("pickup", sfx.pickup, 80) end
+    elseif kind == I_SPEED then
+        p.speed_mod = clamp(p.speed_mod * (1 + MOD_STEP), SPEED_MIN, SPEED_MAX)
+        if p.id == 1 then play_sfx("pickup", sfx.pickup, 80) end
+    elseif kind == I_SLOW then
+        -- One slow pickup undoes both buffs at once: max-VX multiplier
+        -- shrinks and the cooldown multiplier grows. Stackable, so a
+        -- player who's eaten three slows feels meaningfully sluggish.
+        p.speed_mod = clamp(p.speed_mod * (1 - MOD_STEP), SPEED_MIN, SPEED_MAX)
+        p.rate_mod  = clamp(p.rate_mod  * (1 + MOD_STEP), RATE_MIN, RATE_MAX)
+        if p.id == 1 then play_sfx("hurt", sfx.hurt, 60) end
     end
 end
 
@@ -756,27 +806,33 @@ end
 
 -- Horizontal motion tunables. Default values are slightly more
 -- conservative than the previous release so untrained players
--- don't overshoot every dodge — the Thrust pickup multiplies them
--- by THRUST_BOOST while active for the "wide-mode" feel.
+-- don't overshoot every dodge — the Thrust pickup raises the
+-- max-VX cap by THRUST_BOOST while active for the "wide-mode" feel.
 -- Values: reach max in ~10 frames (~0.33 s @ 30 Hz), decay to stop
--- in ~10 frames after input release. With the thrust boost,
--- max-out is ~7 frames and max speed is +50%.
+-- in ~10 frames after input release. With the thrust boost the
+-- accel stays the same; only the cap moves, so the player winds
+-- up to the new top speed naturally over a few frames instead of
+-- the ship visibly teleporting forward by ~3 px the moment the
+-- pickup is collected (which read as a frame skip).
 local PLAYER_ACCEL    = 0.85
 local PLAYER_MAX_VX   = 6.50
 local PLAYER_FRICTION = 0.50
 local PLAYER_VSPEED   = 3.50
-local THRUST_BOOST    = 1.50    -- accel + max-vx multiplier while thrust pickup active
+local THRUST_BOOST    = 1.50    -- max-vx multiplier while thrust pickup active
 local THRUST_DURATION = 9000    -- ms — same shape as shield/multi
 
 local function apply_input(p, in_left, in_right, in_up, in_down, in_fire)
     if not p.alive or game_state ~= "playing" then return end
 
     -- Horizontal: accelerate toward held direction, decay otherwise.
-    -- Thrust pickup scales both the accel and the max VX so the
-    -- ship reaches a higher top speed and gets there sooner.
+    -- Thrust pickup raises the max VX cap; the stackable speed/slow
+    -- modifiers stack on top of that. Both apply only to the cap so
+    -- the per-frame accel stays the same and the player winds up to
+    -- a higher (or lower) top speed naturally rather than jumping.
     local boosted = p.thrust_end_ms and p.thrust_end_ms > ez.system.millis()
-    local accel  = boosted and PLAYER_ACCEL  * THRUST_BOOST or PLAYER_ACCEL
-    local max_vx = boosted and PLAYER_MAX_VX * THRUST_BOOST or PLAYER_MAX_VX
+    local accel  = PLAYER_ACCEL
+    local max_vx = (boosted and PLAYER_MAX_VX * THRUST_BOOST or PLAYER_MAX_VX)
+                   * (p.speed_mod or 1.0)
     if in_left and not in_right then
         p.vx = p.vx - accel
         if p.vx < -max_vx then p.vx = -max_vx end
@@ -809,7 +865,11 @@ local function apply_input(p, in_left, in_right, in_up, in_down, in_fire)
         if p.cooldown <= 0 then
             local g = GUNS[p.gun]
             g.spawn(p.x, p.y, bullets)
-            p.cooldown = g.cooldown
+            -- Stackable rate modifier: lower rate_mod = shorter
+            -- cooldown = faster fire. Floor at 1 so we never hit a
+            -- zero-frame cooldown that lets the gun spam every tick.
+            local cd = g.cooldown * (p.rate_mod or 1.0)
+            p.cooldown = math.max(1, math.floor(cd + 0.5))
             -- Only the local listening device plays sounds — player 1
             -- is always "us" both on host and join because the join
             -- side renders from a remote snapshot, not from local
@@ -1014,6 +1074,11 @@ local function draw_hud(d)
         local tw = theme.text_width(status_text)
         d.draw_text(floor((SW - tw) / 2), 13, status_text,
             rgb(200, 200, 200))
+    end
+    if autofire then
+        local tag = "AUTO"
+        local tw = theme.text_width(tag)
+        d.draw_text(floor((SW - tw) / 2), 4, tag, rgb(240, 200, 80))
     end
 end
 
@@ -1508,6 +1573,14 @@ end
 -- input_flag() asks if we're still inside it.
 local HOLD_MS = 120
 local hold = { left = 0, right = 0, up = 0, down = 0, fire = 0 }
+
+-- Sticky-fire toggle. Alt+Space flips this; while true, input_flag(
+-- "fire") reports held without the user keeping a finger on space.
+-- Persists across game-overs so a player who mashed it on doesn't
+-- have to re-toggle every restart, but resets when the screen tears
+-- down (tear_down() clears it).
+local autofire = false
+
 local function input_flag(name)
     -- Fire is special: it has both an event-based deadline (set on
     -- KEY_DOWN, like the directional keys) AND a real "is held"
@@ -1516,6 +1589,7 @@ local function input_flag(name)
     -- shoot-em-up expectation. Held check first is cheap when the
     -- key isn't down (returns false immediately).
     if name == "fire" then
+        if autofire then return true end
         if ez.keyboard.is_held and ez.keyboard.is_held(" ") then
             return true
         end
@@ -1539,6 +1613,7 @@ local function tear_down(self)
     mode = "menu"; game_state = "menu"
     net_peer_ip, net_peer_port = nil, nil
     remote_snapshot = nil
+    autofire = false
 end
 
 function Game.initial_state() return {} end
@@ -1773,6 +1848,15 @@ function Game:handle_key(key)
         if mode == "solo" then reset_world(1)
         elseif mode == "host" then reset_world(2) end
         game_state = "playing"; return "handled"
+    end
+
+    -- Alt+Space toggles sticky fire. Caught before the plain-space
+    -- branch so the modifier'd press doesn't also queue a one-shot
+    -- bullet on top of the toggle.
+    if c == " " and key.alt then
+        autofire = not autofire
+        screen_mod.invalidate()
+        return "handled"
     end
 
     local now = ez.system.millis()

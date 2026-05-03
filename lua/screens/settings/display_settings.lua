@@ -66,7 +66,7 @@ local Display = { title = "Display" }
 
 function Display.initial_state()
     return {
-        brightness   = tonumber(ez.storage.get_pref("display_brightness", 200)) or 200,
+        brightness   = tonumber(ez.storage.get_pref("screen_bright", 200)) or 200,
         kb_backlight = tonumber(ez.storage.get_pref("kb_backlight", 0)) or 0,
     }
 end
@@ -101,7 +101,7 @@ function Display:build(state)
             min = 10, max = 255, step = 15,
             on_change = function(val)
                 ez.display.set_brightness(val)
-                ez.storage.set_pref("display_brightness", val)
+                ez.storage.set_pref("screen_bright", val)
                 state.brightness = val
             end,
         })

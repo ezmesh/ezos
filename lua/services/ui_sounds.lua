@@ -1,11 +1,17 @@
 -- services/ui_sounds: SND01 UI feedback sounds.
 --
+-- Pref key is `ui_sounds_on` (not the more obvious `ui_sounds_enabled`)
+-- because NVS caps key names at 15 chars. The longer name silently
+-- fails to persist -- nvs_set_*() rejects it but Preferences::putBool
+-- swallows the error, so the toggle in Settings appeared to work but
+-- forgot the choice on the next boot.
+--
 -- Samples ship in /sounds/snd01/*.pcm (22050 Hz mono s16le). On init() we
 -- preload every event sample into PSRAM via ez.audio.preload and remember
 -- its handle. play(event) fires the handle through the non-blocking
 -- play_preloaded_async binding so firing a sound never stalls the VM.
 --
--- The service is gated on the `ui_sounds_enabled` preference; when the
+-- The service is gated on the `ui_sounds_on` preference; when the
 -- user flips the toggle in Settings the pref is re-read and honoured on
 -- the next play() call. Preloading still happens at boot so enabling the
 -- toggle takes effect immediately without the latency of a filesystem
@@ -16,7 +22,7 @@
 
 local ui_sounds = {}
 
-local PREF_ENABLED = "ui_sounds_enabled"
+local PREF_ENABLED = "ui_sounds_on"
 local SOUND_DIR    = "snd01/"
 
 -- Map each UI event to either one sample file or a table of variants that

@@ -5,11 +5,13 @@ listed in each app's section.
 
 ## Global
 
-- Arrows / trackball: navigate menus and lists
-- Enter: select / confirm
-- Backspace or Escape: go back
-- Q: quit the current screen (alias for back)
-- LShift+RShift: open the app menu from any screen
+| Key             | Action                                  |
+|-----------------|-----------------------------------------|
+| Arrows / ball   | Navigate menus and lists                |
+| Enter           | Select / confirm                        |
+| Backspace / Esc | Go back                                 |
+| Q               | Quit the current screen (alias for back)|
+| LShift+RShift   | Open the app menu from any screen       |
 
 ## Lists and forms
 

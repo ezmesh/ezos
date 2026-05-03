@@ -24,7 +24,7 @@ local registry = {}
 
 local ENTRIES = {
     -- ---- Display ----------------------------------------------------
-    { key = "display_brightness", type = "int32", default = 200, min = 10, max = 255,
+    { key = "screen_bright", type = "int32", default = 200, min = 10, max = 255,
       description = "LCD backlight brightness (10-255)" },
     { key = "kb_backlight",       type = "int32", default = 0,   min = 0,  max = 255,
       description = "Keyboard backlight brightness (0-255)" },
@@ -64,7 +64,7 @@ local ENTRIES = {
     -- ---- Audio ------------------------------------------------------
     { key = "audio_volume",      type = "int32", default = 100, min = 0, max = 100,
       description = "Master audio volume (0-100)" },
-    { key = "ui_sounds_enabled", type = "int8",  default = 1,  min = 0, max = 1,
+    { key = "ui_sounds_on", type = "int8",  default = 1,  min = 0, max = 1,
       description = "UI feedback sounds (taps, toggles, transitions)" },
 
     -- ---- GPS --------------------------------------------------------
@@ -73,6 +73,15 @@ local ENTRIES = {
     { key = "gps_sync_mode", type = "string", default = "auto",
       options = { "auto", "manual", "off" },
       description = "How the system clock syncs from GPS" },
+
+    -- ---- NTP --------------------------------------------------------
+    { key = "ntp_on",        type = "int8",   default = 0, min = 0, max = 1,
+      description = "SNTP client enabled (clock-sync over WiFi)" },
+    { key = "ntp_preset",    type = "string", default = "pool",
+      options = { "pool", "google", "cloudflare", "nist", "windows", "custom" },
+      description = "Which NTP server preset to trust (or 'custom')" },
+    { key = "ntp_custom",    type = "string", default = "",
+      description = "Hostname when ntp_preset is 'custom'" },
 
     -- ---- Services / state -------------------------------------------
     { key = "theme",           type = "string", default = "",
