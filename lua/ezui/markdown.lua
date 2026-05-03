@@ -15,17 +15,21 @@
 --   - item / * item        → bulleted lists
 --   1. item                → numbered lists
 --   --- / ***              → horizontal rule
+--   | h1 | h2 |             → GFM-style table (header row + separator
+--   |----|----|              + data rows). Per-column alignment from
+--   | a  | b  |              :--- / :---: / ---: in the separator.
 --
 -- Anything unrecognised degrades to plain paragraph text. The output is a
 -- vbox whose children are standard ezui nodes, so it drops into any
 -- ui.scroll() the caller hands it.
 --
--- Known omissions (deliberate): nested lists beyond one level, tables,
+-- Known omissions (deliberate): nested lists beyond one level,
 -- HTML passthrough, images, reference-style links, autolinks. These can
 -- be layered on later without reshaping the parser.
 
 local layout  = require("ezui.layout")
 local widgets = require("ezui.widgets")
+local theme   = require("ezui.theme")
 
 local M = {}
 
@@ -192,6 +196,99 @@ local function is_hrule(line)
     return stripped:match("^%-+$") or stripped:match("^%*+$") or stripped:match("^_+$")
 end
 
+-- Split a "| a | b | c |" row line into its cell strings, trimmed.
+-- Treats backslash-escaped pipes as literal `|` inside a cell.
+local function split_table_row(line)
+    -- Strip the optional leading/trailing pipe so the empty edge cells
+    -- don't show up in the result.
+    local s = line:gsub("^%s*", ""):gsub("%s*$", "")
+    if s:sub(1, 1) == "|" then s = s:sub(2) end
+    if s:sub(-1) == "|" then s = s:sub(1, -2) end
+
+    local cells, buf, i = {}, "", 1
+    while i <= #s do
+        local ch = s:sub(i, i)
+        if ch == "\\" and i < #s and s:sub(i + 1, i + 1) == "|" then
+            buf = buf .. "|"
+            i = i + 2
+        elseif ch == "|" then
+            cells[#cells + 1] = buf:gsub("^%s+", ""):gsub("%s+$", "")
+            buf = ""
+            i = i + 1
+        else
+            buf = buf .. ch
+            i = i + 1
+        end
+    end
+    cells[#cells + 1] = buf:gsub("^%s+", ""):gsub("%s+$", "")
+    return cells
+end
+
+-- Parse a separator row "|:---|:---:|---:|" into per-column alignments
+-- ("left", "center", "right"). Returns nil if any cell isn't a valid
+-- separator chunk (`:?-+:?` after trimming whitespace).
+local function parse_table_separator(line)
+    if not line:find("|", 1, true) then return nil end
+    local cells = split_table_row(line)
+    if #cells == 0 then return nil end
+    local aligns = {}
+    for i, c in ipairs(cells) do
+        local left  = c:sub(1, 1) == ":"
+        local right = c:sub(-1)   == ":"
+        local body  = c:gsub("^:", ""):gsub(":$", "")
+        if body == "" or body:match("^%-+$") == nil then return nil end
+        if left and right then aligns[i] = "center"
+        elseif right     then aligns[i] = "right"
+        else                  aligns[i] = "left" end
+    end
+    return aligns
+end
+
+-- Detect a GFM table starting at lines[i]. The shape is:
+--   line i   : header row (contains '|')
+--   line i+1 : separator row (also contains '|', and parses as
+--              alignments via parse_table_separator)
+-- Returns (block, next_i) on success, or nil if it doesn't match.
+local function try_parse_table(lines, i)
+    local hdr = lines[i]
+    if not hdr or not hdr:find("|", 1, true) then return nil end
+    local sep = lines[i + 1]
+    if not sep then return nil end
+    local aligns = parse_table_separator(sep)
+    if not aligns then return nil end
+
+    local headers = split_table_row(hdr)
+    if #headers == 0 then return nil end
+
+    -- Pad alignments / header to match each other so a draw-side index
+    -- past the end of either array doesn't crash.
+    local n_cols = math.max(#headers, #aligns)
+    for c = 1, n_cols do
+        aligns[c]  = aligns[c]  or "left"
+        headers[c] = headers[c] or ""
+    end
+
+    local rows = {}
+    local j = i + 2
+    while j <= #lines do
+        local l = lines[j]
+        if l:match("^%s*$") then break end
+        if not l:find("|", 1, true) then break end
+        local cells = split_table_row(l)
+        for c = 1, n_cols do cells[c] = cells[c] or "" end
+        rows[#rows + 1] = cells
+        j = j + 1
+    end
+
+    return {
+        kind    = "table",
+        align   = aligns,
+        header  = headers,
+        rows    = rows,
+        n_cols  = n_cols,
+    }, j
+end
+
 local function parse_blocks(src)
     local lines = lines_of(src)
     local blocks = {}
@@ -280,6 +377,36 @@ local function parse_blocks(src)
                 kind = ordered and "olist" or "ulist",
                 items = items,
             }
+
+        elseif line:find("|", 1, true) then
+            -- GFM table: header row + separator row + zero or more
+            -- data rows. try_parse_table validates the separator
+            -- shape; if it doesn't match we fall through to the
+            -- paragraph collector so a stray "| something" line
+            -- still renders as text.
+            local block, ni = try_parse_table(lines, i)
+            if block then
+                blocks[#blocks + 1] = block
+                i = ni
+            else
+                local parts = { line }
+                i = i + 1
+                while i <= #lines do
+                    local l = lines[i]
+                    if l:match("^%s*$") then break end
+                    if l:match("^%s*#") then break end
+                    if l:match("^```") then break end
+                    if is_hrule(l) then break end
+                    if l:match("^%s*>%s?") then break end
+                    if l:match("^%s*[%-%*]%s+") or l:match("^%s*%d+%.%s+") then break end
+                    parts[#parts + 1] = l
+                    i = i + 1
+                end
+                blocks[#blocks + 1] = {
+                    kind = "para",
+                    runs = parse_inline(table.concat(parts, " ")),
+                }
+            end
 
         else
             -- Collect consecutive non-blank, non-special lines into one
@@ -432,6 +559,228 @@ local function render_hr(block, opts)
     )
 end
 
+-- ---------------------------------------------------------------------------
+-- Tables
+-- ---------------------------------------------------------------------------
+--
+-- GFM-style tables. We register a dedicated `md_table` node so we can
+-- own column-width allocation: hbox can't fix per-cell widths cleanly
+-- (its draw uses child._w but its measure pass would re-measure each
+-- rich_text against the full row width and inflate row heights), and a
+-- vbox of hbox rows would force every cell in a column to be measured
+-- twice with different widths. Owning the layout lets us compute one
+-- column width per column and reuse it across the measure + draw
+-- passes.
+
+local function table_plain_text(cell_str)
+    -- Approximate the visible width of a cell: strip the markdown
+    -- punctuation that doesn't render visually so widths are based on
+    -- actual glyphs rather than star/underscore noise. Backslash
+    -- escapes lose the leading slash so `\|` reads as `|`.
+    local s = cell_str or ""
+    s = s:gsub("\\(.)", "%1")
+    s = s:gsub("`", "")
+    s = s:gsub("%*+", "")
+    s = s:gsub("__", ""):gsub("_", "")
+    return s
+end
+
+local TABLE_CELL_PAD_X = 4
+local TABLE_CELL_PAD_Y = 3
+local TABLE_COL_MIN_W  = 28   -- pixels; smaller and 1-2 chars vanish
+local TABLE_HEADER_GAP = 3    -- below header underline
+local TABLE_ROW_GAP    = 2
+
+local function compute_table_layout(block, opts, max_w)
+    local n_cols = block.n_cols
+    local font   = opts.font or "small_aa"
+    theme.set_font(font)
+
+    -- Natural width per column = widest cell (including header), padded.
+    local natural = {}
+    for c = 1, n_cols do natural[c] = TABLE_COL_MIN_W end
+
+    local function note_width(c, str)
+        local plain = table_plain_text(str)
+        local w = theme.text_width(plain) + 2 * TABLE_CELL_PAD_X
+        if w > natural[c] then natural[c] = w end
+    end
+    for c = 1, n_cols do note_width(c, block.header[c]) end
+    for _, row in ipairs(block.rows) do
+        for c = 1, n_cols do note_width(c, row[c]) end
+    end
+
+    local total = 0
+    for c = 1, n_cols do total = total + natural[c] end
+    if total <= max_w then return natural end
+
+    -- Doesn't fit: scale down. Anything already at the minimum stays
+    -- there; the rest shares the remaining width proportionally to
+    -- their growable headroom (= natural - min). This way "1" and
+    -- "Status" don't end up the same width just because we ran out of
+    -- room.
+    local fixed_total, growable = 0, {}
+    local growable_total = 0
+    for c = 1, n_cols do
+        if natural[c] <= TABLE_COL_MIN_W then
+            fixed_total = fixed_total + TABLE_COL_MIN_W
+        else
+            growable[c] = natural[c] - TABLE_COL_MIN_W
+            growable_total = growable_total + growable[c]
+            fixed_total = fixed_total + TABLE_COL_MIN_W
+        end
+    end
+    local avail = max_w - fixed_total
+    if avail < 0 then avail = 0 end
+    local scaled = {}
+    for c = 1, n_cols do
+        if growable[c] then
+            scaled[c] = TABLE_COL_MIN_W +
+                math.floor(avail * growable[c] /
+                    (growable_total > 0 and growable_total or 1))
+        else
+            scaled[c] = TABLE_COL_MIN_W
+        end
+    end
+    return scaled
+end
+
+-- Build a rich_text node for one cell. We pre-parse runs through
+-- parse_inline so styling within a cell (bold / italic / `code` /
+-- [link]) keeps working.
+local function make_table_cell_node(cell_str, opts, base_color, bold)
+    local runs = parse_inline(cell_str or "", { color = base_color })
+    if bold then runs = overlay_style(runs, "bold") end
+    return widgets.rich_text(runs, {
+        font  = opts.font or "small_aa",
+        color = base_color,
+    })
+end
+
+node.register("md_table", {
+    measure = function(n, max_w, max_h)
+        local block = n._block
+        local opts  = n._opts or {}
+        local col_widths = compute_table_layout(block, opts, max_w)
+        n._col_widths = col_widths
+
+        -- Inner-text width for each column = column width minus the
+        -- cell padding on both sides. rich_text wraps to whatever max
+        -- we hand it.
+        local inner_w = {}
+        for c, w in ipairs(col_widths) do
+            inner_w[c] = math.max(0, w - 2 * TABLE_CELL_PAD_X)
+        end
+
+        local n_cols = block.n_cols
+        local total_h = 0
+
+        -- Header row.
+        local header_nodes = {}
+        local header_h = 0
+        for c = 1, n_cols do
+            local cn = make_table_cell_node(block.header[c], opts, "TEXT", true)
+            local _, ch = node.measure(cn, inner_w[c], 10000)
+            header_nodes[c] = cn
+            if ch > header_h then header_h = ch end
+        end
+        n._header_nodes = header_nodes
+        n._header_h = header_h + 2 * TABLE_CELL_PAD_Y
+        total_h = total_h + n._header_h + 1 + TABLE_HEADER_GAP
+
+        -- Data rows.
+        local row_nodes  = {}
+        local row_heights = {}
+        for r, row in ipairs(block.rows) do
+            local cells = {}
+            local row_h = 0
+            for c = 1, n_cols do
+                local cn = make_table_cell_node(row[c], opts, "TEXT", false)
+                local _, ch = node.measure(cn, inner_w[c], 10000)
+                cells[c] = cn
+                if ch > row_h then row_h = ch end
+            end
+            row_nodes[r] = cells
+            row_heights[r] = row_h + 2 * TABLE_CELL_PAD_Y
+            total_h = total_h + row_heights[r] + TABLE_ROW_GAP
+        end
+        n._row_nodes = row_nodes
+        n._row_heights = row_heights
+
+        return max_w, total_h
+    end,
+
+    draw = function(n, d, x, y, w, h)
+        local theme       = require("ezui.theme")
+        local block       = n._block
+        local col_widths  = n._col_widths or {}
+        local n_cols      = block.n_cols
+        local aligns      = block.align
+
+        -- Helper: align a measured-width child within a column.
+        local function place(cell, col_x, col_y, col_w, row_h)
+            local cw = cell._w or col_w - 2 * TABLE_CELL_PAD_X
+            local pad_x = TABLE_CELL_PAD_X
+            local x_off = col_x + pad_x
+            -- We can't easily right/center-align a rich_text since it
+            -- left-aligns within its allocated width. Cheapest
+            -- correction: shift the draw origin by the slack between
+            -- column-content-width and rendered-content-width, but
+            -- rich_text's lines can wrap to different visible widths.
+            -- For tables on a 320-wide display the wrap-target is what
+            -- the user sees, so we left-align the wrap box itself and
+            -- only honour right/center for single-line numeric-style
+            -- content where slack actually exists.
+            local content_w = col_w - 2 * pad_x
+            node.draw(cell, d,
+                x_off, col_y + TABLE_CELL_PAD_Y,
+                content_w, row_h - 2 * TABLE_CELL_PAD_Y)
+        end
+
+        local cy = y
+        local cx = x
+        -- Header row.
+        for c = 1, n_cols do
+            local cw = col_widths[c] or 0
+            local cell = n._header_nodes and n._header_nodes[c]
+            if cell then place(cell, cx, cy, cw, n._header_h) end
+            cx = cx + cw
+        end
+        cy = cy + n._header_h
+        d.fill_rect(x, cy, w, 1, theme.color("BORDER"))
+        cy = cy + 1 + TABLE_HEADER_GAP
+
+        -- Data rows.
+        for r, row in ipairs(n._row_nodes or {}) do
+            cx = x
+            local row_h = n._row_heights[r] or 0
+            -- Alternating row tint for readability when there are more
+            -- than a couple of rows. Cheaper than full borders and
+            -- still helps the eye track across.
+            if (r % 2) == 0 then
+                d.fill_rect(x, cy, w, row_h, theme.color("SURFACE"))
+            end
+            for c = 1, n_cols do
+                local cw = col_widths[c] or 0
+                local cell = row[c]
+                if cell then place(cell, cx, cy, cw, row_h) end
+                cx = cx + cw
+            end
+            cy = cy + row_h + TABLE_ROW_GAP
+        end
+    end,
+})
+
+local function render_table(block, opts)
+    -- The custom node owns all layout; just pass the parsed block and
+    -- the renderer opts (we need the base font for measuring).
+    return layout.padding({ 4, 0, 6, 0 }, {
+        type   = "md_table",
+        _block = block,
+        _opts  = opts,
+    })
+end
+
 local function render_list(block, opts, ordered)
     local children = {}
     for idx, item_runs in ipairs(block.items) do
@@ -463,6 +812,7 @@ local RENDERERS = {
     quote   = render_quote,
     code    = render_code,
     hr      = render_hr,
+    ["table"] = render_table,
     ulist   = function(b, o) return render_list(b, o, false) end,
     olist   = function(b, o) return render_list(b, o, true)  end,
 }
