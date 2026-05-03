@@ -70,6 +70,108 @@ end
 async.on_busy_change(function() screen.dirty = true end)
 
 -- ---------------------------------------------------------------------------
+-- Toast: brief overlay shown when a new notification is posted.
+--
+-- Rendered just below the global status bar, dismissed automatically
+-- after a few seconds (longer for sticky notifications) or sooner on
+-- the next user keypress. We only ever show one at a time -- a fresh
+-- post replaces the active toast, which matches how short-lived OS
+-- notifications behave on phones.
+-- ---------------------------------------------------------------------------
+
+screen.toast = nil  -- { title, body, expires_at_ms, source, action }
+
+local TOAST_DURATION_MS         = 4000
+local TOAST_STICKY_DURATION_MS  = 8000
+local TOAST_HEIGHT_DEFAULT      = 36
+
+function screen.show_toast(notif)
+    if not notif or not notif.title then return end
+    local now = ez.system.millis()
+    local dur = notif.sticky and TOAST_STICKY_DURATION_MS or TOAST_DURATION_MS
+    screen.toast = {
+        title         = notif.title,
+        body          = notif.body,
+        source        = notif.source,
+        action        = notif.action,
+        expires_at_ms = now + dur,
+    }
+    screen.dirty = true
+end
+
+function screen.dismiss_toast()
+    if screen.toast then
+        screen.toast = nil
+        screen.dirty = true
+    end
+end
+
+-- Subscribe to the notifications service via the bus. Lazy because
+-- ez.bus may not be ready at module-load time; the first update() call
+-- (after boot) is a safe place to wire it up.
+local _toast_subscribed = false
+local function ensure_toast_subscribed()
+    if _toast_subscribed then return end
+    if not (ez and ez.bus and ez.bus.subscribe) then return end
+    ez.bus.subscribe("notifications/changed", function(_topic, _data)
+        local ok, svc = pcall(require, "services.notifications")
+        if not ok then return end
+        local list = svc.list()
+        if list and list[1] then
+            screen.show_toast(list[1])
+        end
+    end)
+    _toast_subscribed = true
+end
+
+function screen._draw_toast(d)
+    local t = screen.toast
+    if not t then return end
+    local now = ez.system.millis()
+    if now >= t.expires_at_ms then
+        screen.toast = nil
+        return
+    end
+
+    -- Geometry: full width, just below status bar. Body wraps to a
+    -- second line if there's room.
+    theme.set_font("small_aa")
+    local fh = theme.font_height()
+    local pad = 4
+    local has_body = t.body and t.body ~= ""
+    local h = has_body and (fh * 2 + pad * 3) or (fh + pad * 2)
+    if h < TOAST_HEIGHT_DEFAULT then h = TOAST_HEIGHT_DEFAULT end
+    local y = theme.STATUS_H + 2
+    local w = theme.SCREEN_W - 8
+    local x = 4
+
+    d.fill_round_rect(x, y, w, h, 6, theme.color("SURFACE"))
+    d.draw_round_rect(x, y, w, h, 6, theme.color("ACCENT"))
+
+    local tx = x + 8
+    local ty = y + pad
+    d.draw_text(tx, ty, t.title, theme.color("TEXT"))
+    if has_body then
+        d.draw_text(tx, ty + fh + 2, t.body, theme.color("TEXT_MUTED"))
+    end
+
+    -- Action hint on the right edge so the user knows the toast is
+    -- not just informational. Drawn only when an action is attached.
+    -- The "ALT+ENTER" prefix matches the key gate in handle_input --
+    -- bare ENTER would dismiss the toast without invoking the action.
+    if t.action and t.action.label then
+        local hint = "ALT+ENTER " .. t.action.label
+        local hw = theme.text_width(hint)
+        d.draw_text(x + w - hw - 8, y + h - fh - pad, hint,
+            theme.color("ACCENT"))
+    end
+
+    -- Keep redrawing until the toast expires so it disappears on time
+    -- without needing other activity to trigger a frame.
+    screen.dirty = true
+end
+
+-- ---------------------------------------------------------------------------
 -- Status polling
 -- ---------------------------------------------------------------------------
 
@@ -335,6 +437,28 @@ function screen.handle_input()
     local key = ez.keyboard.read()
     if not key or not key.valid then return false end
 
+    -- Toast key handling: Alt+ENTER on a toast with an attached
+    -- action invokes it (and consumes the key so the underlying
+    -- screen doesn't also receive an Alt+ENTER chord). Bare ENTER --
+    -- and any other key -- just dismisses passively, letting the
+    -- press flow through. The Alt gate prevents an accidental ENTER
+    -- (e.g. confirming a dialog under the toast) from triggering a
+    -- destructive action like a reboot.
+    if screen.toast then
+        local t = screen.toast
+        if t.action and type(t.action.on_press) == "function"
+               and key.special == "ENTER" and key.alt then
+            local fn = t.action.on_press
+            screen.dismiss_toast()
+            local ok, err = pcall(fn)
+            if not ok then
+                ez.log("[Toast] action error: " .. tostring(err))
+            end
+            return true  -- consumed
+        end
+        screen.dismiss_toast()
+    end
+
     local inst = screen.peek()
     if not inst then return false end
 
@@ -427,6 +551,9 @@ function screen.render()
         screen._draw_status_bar(d, inst.title, translucent)
     end
 
+    -- Toast on top of everything else so it's visible from any screen.
+    screen._draw_toast(d)
+
     d.flush()
 end
 
@@ -435,6 +562,10 @@ end
 -- ---------------------------------------------------------------------------
 
 function screen.update()
+    -- Wire up the notifications -> toast subscription on the first
+    -- frame, when ez.bus is guaranteed to be live.
+    ensure_toast_subscribed()
+
     -- Drain all pending input
     while screen.handle_input() do end
 
