@@ -23,6 +23,25 @@ local Radio = { title = "Radio" }
 -- The same key is read in lua/boot.lua to apply the interval at boot.
 local PREF_ADV_INTERVAL = "adv_interval_ms"
 
+-- Radio band presets. Mirrors the four entries the onboarding wizard
+-- offers (screens/onboarding/region.lua) so changing the band post-
+-- onboarding doesn't require running the wizard again. Keep the two
+-- lists in sync if you add a new region; the wizard hard-codes them
+-- because it needs them before this screen module is loaded.
+local BAND_PRESETS = {
+    { label = "EU 869 MHz", mhz = 869.618 },
+    { label = "US 915 MHz", mhz = 906.875 },
+    { label = "AS 433 MHz", mhz = 433.000 },
+    { label = "AU 915 MHz", mhz = 915.000 },
+}
+
+local function band_index_for(mhz)
+    for i, p in ipairs(BAND_PRESETS) do
+        if math.abs(p.mhz - mhz) < 0.01 then return i end
+    end
+    return 1
+end
+
 -- Preset choices kept explicit so the UI label and stored ms value can't
 -- drift. Order matches the dropdown display order (shortest first).
 local INTERVAL_PRESETS = {
@@ -59,12 +78,17 @@ end
 
 function Radio.initial_state()
     local saved = tonumber(ez.storage.get_pref(PREF_ADV_INTERVAL, 0)) or 0
+    -- Stored as string -- ez.storage.set_pref(float) routes through
+    -- putFloat which lands as a NVS blob the read-back path can't
+    -- decode, so the wizard stringifies and we follow suit.
+    local saved_mhz = tonumber(ez.storage.get_pref("radio_freq_mhz", "")) or 0
     return {
         enabled     = saved > 0,
         -- If the toggle is off but the user previously picked a preset,
         -- we remember the choice so flipping the toggle back on restores
         -- the same interval rather than forcing a re-pick.
         preset_idx  = preset_index_for(saved),
+        band_idx    = (saved_mhz > 0) and band_index_for(saved_mhz) or 1,
         last_action = nil,  -- "Sent" / "Saved" transient feedback
     }
 end
@@ -77,6 +101,47 @@ end
 
 function Radio:build(state)
     local content = {}
+
+    -- Section: Band picker. Switching here applies the new frequency
+    -- to the radio immediately so the user gets feedback (mesh
+    -- briefly drops + re-tunes) and persists `radio_freq_mhz` so
+    -- boot.lua restores the choice on the next cold start.
+    content[#content + 1] = ui.padding({ 8, 8, 4, 8 },
+        ui.text_widget("Band", { color = "ACCENT", font = "small_aa" })
+    )
+
+    do
+        local band_labels = {}
+        for _, p in ipairs(BAND_PRESETS) do
+            band_labels[#band_labels + 1] = p.label
+        end
+        content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+            ui.dropdown(band_labels, {
+                value = state.band_idx,
+                on_change = function(idx)
+                    local preset = BAND_PRESETS[idx]
+                    if not preset then return end
+                    state.band_idx = idx
+                    if ez.radio and ez.radio.set_frequency then
+                        ez.radio.set_frequency(preset.mhz)
+                    end
+                    ez.storage.set_pref("radio_freq_mhz",
+                        tostring(preset.mhz))
+                    state.last_action = "Band: " .. preset.label
+                    self:set_state({})
+                end,
+            })
+        )
+    end
+
+    content[#content + 1] = ui.padding({ 2, 8, 8, 8 },
+        ui.text_widget(
+            "All nodes in your mesh must use the same band. " ..
+            "Switching here re-tunes the radio immediately and the " ..
+            "choice persists across reboots.",
+            { wrap = true, color = "TEXT_MUTED", font = "tiny_aa" }
+        )
+    )
 
     -- Section: Auto-advert toggle + interval picker
     content[#content + 1] = ui.padding({ 8, 8, 4, 8 },
