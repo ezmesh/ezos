@@ -126,6 +126,15 @@ local function boot_sequence()
 
     local ui = require("ezui")
 
+    -- Touch -> widget bridge. Subscribes to the touch/down/move/up
+    -- bus topics and turns single-finger taps into activations on
+    -- whichever focusable list_item / button the user pressed, plus
+    -- one-finger drag-to-scroll inside scroll containers. Loaded once
+    -- at boot so it covers every screen automatically; no-ops if the
+    -- GT911 didn't come up.
+    local touch_input_ok, touch_input = pcall(require, "ezui.touch_input")
+    if touch_input_ok then touch_input.init() end
+
     ez.log("[Boot] Framework loaded")
 
     -- Start background services
@@ -154,6 +163,35 @@ local function boot_sequence()
 
     local ui_sounds = require("services.ui_sounds")
     ui_sounds.init()
+
+    -- Notifications service + OTA hookup. The service is just an
+    -- in-memory queue; the toast overlay in ezui.screen subscribes to
+    -- "notifications/changed" and shows the latest one for a few
+    -- seconds. Hooking ota/progress here means a successful OTA push
+    -- announces itself wherever the user happens to be.
+    local notifications = require("services.notifications")
+    ez.bus.subscribe("ota/progress", function(_topic, data)
+        if type(data) ~= "table" then return end
+        if data.phase == "end" and not data.error then
+            notifications.dismiss_source("ota")
+            notifications.post({
+                title  = "Firmware ready",
+                body   = "Reboot to apply the new firmware.",
+                source = "ota",
+                sticky = true,
+                action = {
+                    label    = "Reboot",
+                    on_press = function() ez.system.restart() end,
+                },
+            })
+        elseif data.phase == "error" then
+            notifications.post({
+                title  = "OTA failed",
+                body   = data.error or "unknown error",
+                source = "ota",
+            })
+        end
+    end)
 
     -- Apps registry: file-type → handler for the file manager. Built-in
     -- handlers register themselves here; screens opened from the registry
@@ -195,10 +233,61 @@ local function boot_sequence()
     ez.log("[Boot] Services started")
 
     -- Apply saved display settings
-    local brightness = ez.storage.get_pref("display_brightness", 200)
+    local brightness = ez.storage.get_pref("screen_bright", 200)
     ez.display.set_brightness(brightness)
     local kb_backlight = ez.storage.get_pref("kb_backlight", 0)
     ez.keyboard.set_backlight(kb_backlight)
+
+    -- Apply saved audio volume. The settings screen persists this pref
+    -- when the slider moves, but the audio driver always boots at 100;
+    -- without this restore, every reboot resets the user's choice.
+    if ez.audio and ez.audio.set_volume then
+        local volume = tonumber(ez.storage.get_pref("audio_volume", 100)) or 100
+        ez.audio.set_volume(volume)
+    end
+
+    -- Auto-connect to the last successful WiFi network if one was saved
+    -- in Settings -> WiFi. Fire-and-forget: the connect call returns
+    -- immediately, the radio reassociates in the background. We don't
+    -- block boot waiting for it -- a network that's gone shouldn't keep
+    -- the user staring at the splash.
+    local saved_ssid = ez.storage.get_pref("wifi_ssid", "")
+    if saved_ssid and saved_ssid ~= "" and ez.wifi and ez.wifi.connect then
+        local saved_pass = ez.storage.get_pref("wifi_password", "")
+        ez.log("[Boot] Auto-connecting WiFi: " .. saved_ssid)
+        ez.wifi.connect(saved_ssid, saved_pass)
+    end
+
+    -- Kick the SNTP client once WiFi is up. Service polls the link
+    -- itself so we don't block boot waiting for an association.
+    do
+        local ok, ntp_svc = pcall(require, "services.ntp")
+        if ok and ntp_svc and ntp_svc.kick_after_wifi then
+            ntp_svc.kick_after_wifi()
+        end
+    end
+
+    -- Restore the Dev OTA push server if the user left it enabled.
+    -- WiFi association takes a few seconds after connect(), so poll
+    -- every 2s up to 30s; once the link is up we hand off to
+    -- dev_server_start which itself loads the persisted bearer token.
+    if pref_bool("dev_ota_enabled", false) and ez.ota and ez.ota.dev_server_start then
+        local attempts_left = 15
+        local function try_start()
+            if ez.wifi and ez.wifi.is_connected and ez.wifi.is_connected() then
+                ez.ota.dev_server_start()
+                ez.log("[Boot] Dev OTA auto-started (persisted toggle)")
+                return
+            end
+            attempts_left = attempts_left - 1
+            if attempts_left <= 0 then
+                ez.log("[Boot] Dev OTA: WiFi never came up, skipping auto-start")
+                return
+            end
+            ez.system.set_timer(2000, try_start)
+        end
+        ez.system.set_timer(2000, try_start)
+    end
 
     -- Load and push the desktop home screen
     local Desktop = require("screens.desktop")
@@ -220,6 +309,16 @@ local function boot_sequence()
     local theme_name = ez.storage.get_pref("theme", "dark")
     if theme_name ~= "dark" and theme_name ~= "light" then theme_name = "dark" end
     ui.start({ theme = theme_name })
+
+    -- After a fresh OTA the new image boots in the "pending verify"
+    -- state — the bootloader auto-rolls back if we crash too many
+    -- times before marking it good. Defer the mark_valid() by a few
+    -- seconds so we've actually rendered some frames before declaring
+    -- the new firmware healthy. A boot loop in main_loop will hit the
+    -- watchdog before this fires.
+    if ez.ota and ez.ota.mark_valid then
+        ez.system.set_timer(5000, function() ez.ota.mark_valid() end)
+    end
 
     ez.log("[Boot] Boot complete")
 end
