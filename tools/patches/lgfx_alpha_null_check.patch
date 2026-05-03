@@ -1,0 +1,33 @@
+From: ezOS firmware
+Subject: Null-check the LovyanGFX alpha-blend line buffer
+
+heap_alloc_dma() can return NULL when DMA-capable internal DRAM is
+exhausted -- this happens reliably on ESP32-S3 the moment WiFi opens
+a TCP socket during an HTTP fetch (LWIP claims a chunk of DMA RAM,
+LovyanGFX's per-row 1.3 KiB alpha buffer alloc fails). Upstream LGFX
+doesn't check the result, so the next bgra8888_t.set() null-derefs
+and crashes Core 1 hard, mid-frame, mid-fetch.
+
+This patch makes the alpha path bail out for that frame instead of
+crashing. The pixel row simply doesn't render -- a perfectly fine
+outcome for a transient memory squeeze.
+
+Applies to LovyanGFX v1 (any version that has this code shape; tested
+against 1.1.12 / 1.2.20). Idempotent: the apply script skips if the
+guard is already present.
+--- a/src/lgfx/v1/LGFXBase.cpp
++++ b/src/lgfx/v1/LGFXBase.cpp
+@@ -3174,6 +3174,15 @@
+         if (p->lineBuffer == nullptr)
+         {
+           p->lineBuffer = (bgra8888_t*)heap_alloc_dma(sizeof(bgra8888_t) * p->maxWidth);
+         }
++        // ezOS patch: heap_alloc_dma can return null when WiFi has
++        // claimed DMA-capable DRAM during a fetch. The upstream code
++        // doesn't null-check, which crashes the next line with a
++        // null-deref in bgra8888_t::set. Skip the alpha-blend pass
++        // entirely if we have no line buffer -- the row just doesn't
++        // render this frame, which is a far better outcome than a
++        // hard reset.
++        if (p->lineBuffer == nullptr) return;
+         p->gfx->readRect(p->x, p->y + y0, p->maxWidth, 1, p->lineBuffer);

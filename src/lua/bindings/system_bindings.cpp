@@ -6,6 +6,7 @@
 #include "../embedded_scripts.h"
 #include "../../hardware/usb_msc.h"
 #include "../../util/log.h"
+#include "ota_bindings.h"
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 #include <esp_partition.h>
@@ -412,9 +413,22 @@ LUA_FUNCTION(l_system_log) {
 // @end
 LUA_FUNCTION(l_system_restart) {
     LOG("Lua", "Restart requested");
-    delay(100);  // Allow serial to flush
-    ESP.restart();
-    return 0;  // Never reached
+    Serial.flush();
+    delay(100);
+
+    // ESP.restart() / esp_restart() try to clean up FreeRTOS tasks
+    // before rebooting, and if any of them are stuck (active socket
+    // write, blocking peripheral read) the call hangs. Tear down the
+    // dev OTA server first so its accept/write loops don't trap us.
+    ota_bindings::shutdown();
+
+    esp_restart();
+
+    // esp_restart() should never return. If it does (driver bug,
+    // wedged scheduler), busy-spin so the task-watchdog catches it
+    // and forces a hard reset -- guarantees we don't sit here forever.
+    while (true) { delay(100); }
+    return 0;
 }
 
 // @lua ez.system.uptime() -> integer

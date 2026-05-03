@@ -39,8 +39,26 @@ static void ensureWifiInit() {
         WiFi.mode(WIFI_STA);
         WiFi.setAutoConnect(false);
         WiFi.setAutoReconnect(true);
+
+        // Disable modem sleep. The Arduino-ESP32 default
+        // (WIFI_PS_MIN_MODEM) leaves the radio dozing between beacons,
+        // which on a weak link silently misses deauth frames and
+        // strands the device thinking it's still associated.
+        // Disabling power-save costs ~80 mA but fixes both chat
+        // hangs and the WiFi-disconnect-after-OTA pattern we hit on
+        // bench.
+        WiFi.setSleep(false);
+        esp_wifi_set_ps(WIFI_PS_NONE);
+
+        // Max TX power (~19.5 dBm). The default on Arduino-ESP32 is
+        // sometimes lower depending on board, and our T-Deck antenna
+        // tends to sit at -70 dBm RSSI in typical rooms -- a few extra
+        // dB on the way out makes a noticeable difference for symmetric
+        // packet loss.
+        WiFi.setTxPower(WIFI_POWER_19_5dBm);
+
         wifiInitialized = true;
-        Serial.println("[WiFi] Initialized in STA mode");
+        Serial.println("[WiFi] Initialized in STA mode (power-save off, TX max)");
     }
 }
 
@@ -110,6 +128,110 @@ LUA_FUNCTION(l_wifi_scan) {
         lua_rawseti(L, -2, i + 1);
     }
 
+    WiFi.scanDelete();
+    return 1;
+}
+
+// @lua ez.wifi.scan_start() -> boolean
+// @brief Kick off a non-blocking WiFi scan
+// @description Returns immediately; poll ez.wifi.scan_status() until it
+// stops returning "running", then read the result with
+// ez.wifi.scan_results(). The synchronous ez.wifi.scan() blocks the
+// Lua VM for 2-3 s while the radio sweeps every channel; this lets
+// the UI keep rendering during the sweep.
+// @return true if a scan was started (or one is already in flight)
+// @end
+LUA_FUNCTION(l_wifi_scan_start) {
+    ensureWifiInit();
+
+    int prev = WiFi.scanComplete();
+    if (prev == WIFI_SCAN_RUNNING) {
+        // Already scanning; let the caller poll status normally.
+        lua_pushboolean(L, true);
+        return 1;
+    }
+    if (prev >= 0) {
+        // Stale result still buffered from a previous scan -- drop it
+        // so scanComplete() goes back to "not yet" / "running" and the
+        // status check below isn't confused by leftover data.
+        WiFi.scanDelete();
+    }
+
+    Serial.println("[WiFi] Starting async scan...");
+    // max_ms_per_chan = 600 gives Arduino's internal scan timeout
+    // (`_scanTimeout = max_ms_per_chan * 20` in WiFiScan.cpp) 12 s
+    // of headroom. The default 300 ms per channel only buys a 6 s
+    // ceiling, which scanComplete() trips while the radio is busy
+    // staying associated to the current AP -- the user reported
+    // "Scan failed after a while" with that default. The actual
+    // per-channel dwell stays bounded by min/max in active mode, so
+    // the wider cap doesn't slow the typical 2-3 s sweep.
+    int started = WiFi.scanNetworks(true, true, false, 600);
+    // `started` is WIFI_SCAN_RUNNING (-1) on a successful kick-off
+    // or WIFI_SCAN_FAILED (-2) when the radio refused. Treat either
+    // negative-but-running as success; the caller polls status.
+    lua_pushboolean(L, started == WIFI_SCAN_RUNNING || started >= 0);
+    return 1;
+}
+
+// @lua ez.wifi.scan_status() -> string|integer
+// @brief Check the state of an in-flight scan
+// @description Returns "running" while the radio is still sweeping,
+// "failed" if the driver bailed, or an integer count when the scan is
+// done and results are ready to read.
+// @return "running", "failed", or integer count of networks
+// @end
+LUA_FUNCTION(l_wifi_scan_status) {
+    int n = WiFi.scanComplete();
+    if (n == WIFI_SCAN_RUNNING) {
+        lua_pushstring(L, "running");
+    } else if (n == WIFI_SCAN_FAILED) {
+        lua_pushstring(L, "failed");
+    } else {
+        lua_pushinteger(L, n);
+    }
+    return 1;
+}
+
+// @lua ez.wifi.scan_results() -> table
+// @brief Read the result of the most recent completed scan
+// @description Returns the same table shape as ez.wifi.scan() (one
+// entry per AP with ssid, rssi, channel, secure, bssid). The buffered
+// scan is cleared after read, so a second call returns an empty
+// table -- store the list if you need it twice.
+// @return Array of network tables: {ssid, rssi, channel, secure, bssid}
+// @end
+LUA_FUNCTION(l_wifi_scan_results) {
+    int n = WiFi.scanComplete();
+    lua_newtable(L);
+    if (n <= 0) {
+        // -1 (still running), -2 (failed), or 0 (no APs found) all
+        // produce an empty table; the caller can use scan_status()
+        // first if it needs to disambiguate.
+        if (n >= 0) WiFi.scanDelete();
+        return 1;
+    }
+    for (int i = 0; i < n; i++) {
+        lua_newtable(L);
+
+        lua_pushstring(L, WiFi.SSID(i).c_str());
+        lua_setfield(L, -2, "ssid");
+
+        lua_pushinteger(L, WiFi.RSSI(i));
+        lua_setfield(L, -2, "rssi");
+
+        lua_pushinteger(L, WiFi.channel(i));
+        lua_setfield(L, -2, "channel");
+
+        lua_pushboolean(L, WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+        lua_setfield(L, -2, "secure");
+
+        lua_pushstring(L, WiFi.BSSIDstr(i).c_str());
+        lua_setfield(L, -2, "bssid");
+
+        lua_rawseti(L, -2, i + 1);
+    }
+    lastScanCount = n;
     WiFi.scanDelete();
     return 1;
 }
@@ -895,6 +1017,9 @@ LUA_FUNCTION(l_wifi_tcp_fetch_blob) {
 // Function table for ez.wifi
 static const luaL_Reg wifi_funcs[] = {
     {"scan",           l_wifi_scan},
+    {"scan_start",     l_wifi_scan_start},
+    {"scan_status",    l_wifi_scan_status},
+    {"scan_results",   l_wifi_scan_results},
     {"connect",        l_wifi_connect},
     {"disconnect",     l_wifi_disconnect},
     {"is_connected",   l_wifi_is_connected},

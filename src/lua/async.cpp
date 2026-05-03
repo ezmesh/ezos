@@ -51,6 +51,24 @@ void AsyncIO::setX25519Handler(X25519Handler handler) {
     s_x25519_handler = std::move(handler);
 }
 
+// HTTP processor installed by http_bindings::registerBindings(). Same
+// thread-safety story as the X25519 handler -- written once on Core 1
+// at boot, read on Core 0 by the worker.
+static AsyncIO::HttpProcessor s_http_processor = nullptr;
+
+void AsyncIO::setHttpProcessor(HttpProcessor fn) {
+    s_http_processor = fn;
+}
+
+bool AsyncIO::queueHttpRequest(void* requestPtr, int coroRef) {
+    if (!_requestQueue) return false;
+    Request req = {};
+    req.type = OpType::HTTP_FETCH;
+    req.coroRef = coroRef;
+    req.data = (uint8_t*)requestPtr;
+    return xQueueSend(_requestQueue, &req, 0) == pdTRUE;
+}
+
 bool AsyncIO::init(lua_State* L) {
     _mainState = L;
 
@@ -62,9 +80,21 @@ bool AsyncIO::init(lua_State* L) {
         return false;
     }
 
-    // Worker task on Core 0 (Lua runs on Core 1)
+    // Worker task on Core 0 (Lua runs on Core 1).
+    //
+    // 8 KiB stack: trimmed from 12 KiB after profiling showed all
+    // heavy lifting (AES/HMAC/RLE/file buffers) heap-allocates.
+    // Stack high-water in steady state stays well under 4 KiB even
+    // through the now-merged HTTP fetch path (parsing buffers are
+    // short, String character storage is heap-side, WiFiClient call
+    // frames are shallow).
+    //
+    // Trimming 4 KiB matters: internal DRAM is the system's tightest
+    // resource, every KiB freed leaves more room for WiFi rx/tx
+    // buffers, LCD DMA descriptors, audio I2S DMA, and the two cores'
+    // FreeRTOS overhead.
     BaseType_t res = xTaskCreatePinnedToCore(
-        workerTask, "async_io", 12288, this, 1, &_workerTask, 0
+        workerTask, "async_io", 8192, this, 1, &_workerTask, 0
     );
 
     if (res != pdPASS) {
@@ -603,6 +633,23 @@ void AsyncIO::workerTask(void* param) {
                     break;
                 }
 
+                case OpType::HTTP_FETCH: {
+                    // The HTTP processor owns the result delivery
+                    // (it talks to http_bindings' own response queue).
+                    // We don't fill in `result.*` for this op type --
+                    // see processResults() below where HTTP_FETCH is a
+                    // no-op result so we don't try to resume the
+                    // coroutine twice.
+                    if (s_http_processor && req.data) {
+                        s_http_processor((void*)req.data, req.coroRef);
+                    }
+                    // Suppress the standard result-queue path. We mark
+                    // the coroRef unused so processResults won't touch
+                    // the (already resumed-by-http) coroutine.
+                    result.coroRef = LUA_NOREF;
+                    break;
+                }
+
                 case OpType::X25519_SHARED_SECRET: {
                     // Peer's 32-byte Ed25519 pubkey arrives in req.data.
                     // The handler does the Ed25519 → X25519 conversion
@@ -675,6 +722,13 @@ void AsyncIO::processResults() {
                 case OpType::JSON_WRITE:
                     lua_pushboolean(co, result.success);
                     break;
+
+                case OpType::HTTP_FETCH:
+                    // Should never land here -- the worker sets
+                    // coroRef = LUA_NOREF before sending so this op
+                    // gets dropped at the top of the loop. Defensive:
+                    // do nothing if it slips through.
+                    continue;
 
                 case OpType::JSON_READ:
                     if (result.success && result.jsonString) {

@@ -11,11 +11,14 @@
 
 #include "http_bindings.h"
 #include "../../util/log.h"
+#include "../async.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
-#include <WebServer.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -65,172 +68,426 @@ struct HttpResponse {
     bool success;
 };
 
-// Module state
-static QueueHandle_t requestQueue = nullptr;
+// Module state. requestQueue/workerTask are gone -- HTTP requests
+// flow through AsyncIO's queue and run on its worker thread now.
+// Only the response queue is still ours, since the response delivery
+// is HTTP-specific (we build a Lua table on the coroutine, not just
+// return bytes the way AsyncIO file/crypto ops do).
 static QueueHandle_t responseQueue = nullptr;
-static TaskHandle_t workerTask = nullptr;
 static lua_State* mainState = nullptr;
 
-// Worker task - runs HTTP requests on separate core
-static void httpWorkerTask(void* param) {
-    HttpRequest req;
+// ---------------------------------------------------------------------------
+// Worker task -- raw HTTP/1.1 over WiFiClient.
+//
+// We deliberately do NOT use Arduino-ESP32's HTTPClient. That binding
+// hangs in handleHeaderResponse / getString against several real
+// servers we hit (Python's BaseHTTPRequestHandler being the original
+// trigger); the same servers responded fine to a hand-rolled request
+// over WiFiClient. The benefit of HTTPClient (parsing redirects /
+// chunked / keep-alive) isn't worth the unreliability for our
+// development tooling, where everyone we talk to is a small bot we
+// control and a pure HTTP/1.1 + Connection: close shape is enough.
+//
+// Behaviour:
+//   * Always sends HTTP/1.1 + Host header + Connection: close.
+//   * Reads the response status + headers line by line.
+//   * Body is read by one of three strategies, in order:
+//       1. Content-Length: <N>     -- read exactly N bytes
+//       2. Transfer-Encoding: chunked -- de-chunk on the fly
+//       3. (neither)               -- read until peer closes
+//   * Caps the response body at MAX_RESPONSE_LEN; truncates above.
+//   * Timeout (req.timeout) covers the whole request including
+//     connect, write, and read.
+//
+// HTTPS uses WiFiClientSecure with setInsecure() -- same convenience
+// the previous binding offered for dev work. Use the bot's bearer
+// token, not TLS, as the trust boundary.
+// ---------------------------------------------------------------------------
 
+static bool parseUrl(const char* url, bool& isHttps, char* host, size_t hostLen,
+                     int& port, char* path, size_t pathLen) {
+    if (strncmp(url, "https://", 8) == 0) {
+        isHttps = true;
+        url += 8;
+        port = 443;
+    } else if (strncmp(url, "http://", 7) == 0) {
+        isHttps = false;
+        url += 7;
+        port = 80;
+    } else {
+        return false;
+    }
+
+    // host[:port] up to the first '/'
+    const char* slash = strchr(url, '/');
+    size_t authority_len = slash ? (size_t)(slash - url) : strlen(url);
+
+    char authority[160];
+    if (authority_len >= sizeof(authority)) return false;
+    memcpy(authority, url, authority_len);
+    authority[authority_len] = '\0';
+
+    char* colon = strchr(authority, ':');
+    if (colon) {
+        *colon = '\0';
+        port = atoi(colon + 1);
+        if (port <= 0 || port > 65535) return false;
+    }
+    strncpy(host, authority, hostLen - 1);
+    host[hostLen - 1] = '\0';
+
+    if (slash) {
+        strncpy(path, slash, pathLen - 1);
+        path[pathLen - 1] = '\0';
+    } else {
+        path[0] = '/'; path[1] = '\0';
+    }
+    return true;
+}
+
+// Read one line ending in CRLF (or LF), trim the \r, drop the \n.
+// Returns true on success, false on timeout or peer close.
+static bool readLine(WiFiClient* client, String& out, uint32_t deadline_ms) {
+    out = "";
     while (true) {
-        if (xQueueReceive(requestQueue, &req, portMAX_DELAY) == pdTRUE) {
-            HttpResponse resp = {};
-            resp.coroRef = req.coroRef;
-            resp.success = false;
-
-            // Check WiFi connection
-            if (WiFi.status() != WL_CONNECTED) {
-                resp.errorMsg = strdup("WiFi not connected");
-                xQueueSend(responseQueue, &resp, portMAX_DELAY);
-                if (req.body) free(req.body);
-                continue;
-            }
-
-            HTTPClient http;
-            WiFiClientSecure* secureClient = nullptr;
-            WiFiClient* client = nullptr;
-
-            // Determine if HTTPS
-            bool isHttps = strncmp(req.url, "https://", 8) == 0;
-
-            if (isHttps) {
-                secureClient = new WiFiClientSecure();
-                secureClient->setInsecure();  // Skip certificate verification for now
-                if (!http.begin(*secureClient, req.url)) {
-                    resp.errorMsg = strdup("Failed to begin HTTPS connection");
-                    delete secureClient;
-                    xQueueSend(responseQueue, &resp, portMAX_DELAY);
-                    if (req.body) free(req.body);
-                    continue;
+        if (client->available()) {
+            int c = client->read();
+            if (c < 0) return false;
+            if (c == '\n') {
+                if (out.length() > 0 && out[out.length() - 1] == '\r') {
+                    out.remove(out.length() - 1);
                 }
-            } else {
-                client = new WiFiClient();
-                if (!http.begin(*client, req.url)) {
-                    resp.errorMsg = strdup("Failed to begin HTTP connection");
-                    delete client;
-                    xQueueSend(responseQueue, &resp, portMAX_DELAY);
-                    if (req.body) free(req.body);
-                    continue;
-                }
+                return true;
             }
-
-            // Set timeout
-            http.setTimeout(req.timeout > 0 ? req.timeout : 10000);
-
-            // Set redirect handling
-            http.setFollowRedirects(req.followRedirects ? HTTPC_STRICT_FOLLOW_REDIRECTS : HTTPC_DISABLE_FOLLOW_REDIRECTS);
-
-            // Add custom headers
-            for (size_t i = 0; i < req.headerCount; i++) {
-                http.addHeader(req.headers[i][0], req.headers[i][1]);
-            }
-
-            // Make request based on method
-            int httpCode;
-            switch (req.method) {
-                case Method::GET:
-                    httpCode = http.GET();
-                    break;
-                case Method::POST:
-                    httpCode = http.POST((uint8_t*)req.body, req.bodyLen);
-                    break;
-                case Method::PUT:
-                    httpCode = http.PUT((uint8_t*)req.body, req.bodyLen);
-                    break;
-                case Method::DELETE_METHOD:
-                    httpCode = http.sendRequest("DELETE", (uint8_t*)req.body, req.bodyLen);
-                    break;
-                case Method::PATCH:
-                    httpCode = http.PATCH((uint8_t*)req.body, req.bodyLen);
-                    break;
-                case Method::HEAD:
-                    httpCode = http.sendRequest("HEAD");
-                    break;
-                default:
-                    httpCode = http.GET();
-            }
-
-            if (httpCode > 0) {
-                resp.statusCode = httpCode;
-                resp.success = true;
-
-                // Get response body (except for HEAD)
-                if (req.method != Method::HEAD) {
-                    String payload = http.getString();
-                    if (payload.length() > 0 && payload.length() <= MAX_RESPONSE_LEN) {
-                        resp.body = (char*)ps_malloc(payload.length() + 1);
-                        if (!resp.body) {
-                            resp.body = (char*)malloc(payload.length() + 1);
-                        }
-                        if (resp.body) {
-                            memcpy(resp.body, payload.c_str(), payload.length());
-                            resp.body[payload.length()] = '\0';
-                            resp.bodyLen = payload.length();
-                        }
-                    }
-                }
-
-                // Collect important response headers
-                const char* importantHeaders[] = {
-                    "Content-Type", "Content-Length", "Location",
-                    "Set-Cookie", "Cache-Control", "ETag",
-                    "Last-Modified", "X-Request-Id"
-                };
-                resp.headerCount = 0;
-                for (size_t i = 0; i < sizeof(importantHeaders)/sizeof(importantHeaders[0]) && resp.headerCount < MAX_HEADERS; i++) {
-                    if (http.hasHeader(importantHeaders[i])) {
-                        String value = http.header(importantHeaders[i]);
-                        if (value.length() > 0) {
-                            strncpy(resp.headers[resp.headerCount][0], importantHeaders[i], MAX_HEADER_LEN - 1);
-                            strncpy(resp.headers[resp.headerCount][1], value.c_str(), MAX_HEADER_LEN - 1);
-                            resp.headerCount++;
-                        }
-                    }
-                }
-            } else {
-                // Error
-                char errBuf[128];
-                snprintf(errBuf, sizeof(errBuf), "HTTP error: %s", http.errorToString(httpCode).c_str());
-                resp.errorMsg = strdup(errBuf);
-            }
-
-            http.end();
-            if (secureClient) delete secureClient;
-            if (client) delete client;
-            if (req.body) free(req.body);
-
-            xQueueSend(responseQueue, &resp, portMAX_DELAY);
+            out += (char)c;
+            if (out.length() > 1024) return false;  // sanity cap
+        } else {
+            if (millis() > deadline_ms) return false;
+            if (!client->connected() && !client->available()) return false;
+            delay(2);
         }
     }
 }
 
-// Initialize HTTP module
+static int readBytes(WiFiClient* client, char* buf, int wanted, uint32_t deadline_ms) {
+    int got = 0;
+    while (got < wanted) {
+        int avail = client->available();
+        if (avail > 0) {
+            int n = client->read((uint8_t*)buf + got, wanted - got);
+            if (n > 0) got += n;
+            else if (n < 0) return got;
+        } else {
+            if (millis() > deadline_ms) return got;
+            if (!client->connected() && !client->available()) return got;
+            delay(2);
+        }
+    }
+    return got;
+}
+
+static const char* methodName(Method m) {
+    switch (m) {
+        case Method::GET:    return "GET";
+        case Method::POST:   return "POST";
+        case Method::PUT:    return "PUT";
+        case Method::DELETE_METHOD: return "DELETE";
+        case Method::PATCH:  return "PATCH";
+        case Method::HEAD:   return "HEAD";
+    }
+    return "GET";
+}
+
+// One HTTP fetch run-to-completion. Called on the AsyncIO worker
+// thread (Core 0) -- there is intentionally no http-specific task,
+// because every extra FreeRTOS task burns scarce internal DRAM for
+// its stack and we already have a perfectly capable worker.
+//
+// Ownership rules:
+//   * l_fetch heap-allocs HttpRequest in PSRAM, hands the pointer to
+//     AsyncIO::queueHttpRequest.
+//   * This function frees the HttpRequest when done with it (always),
+//     heap-allocs an HttpResponse, queues it on responseQueue.
+//   * update() (Lua thread) reads HttpResponse and frees it.
+// If sending fails (queue full), the producer frees -- there's never a
+// case where the receiver doesn't take ownership of a successfully
+// dequeued pointer.
+static void processHttpRequest(void* requestPtr, int /*coroRef*/) {
+    HttpRequest* preq = (HttpRequest*)requestPtr;
+    if (!preq) return;
+    HttpRequest& req = *preq;
+
+        // Response also lives in PSRAM -- same reasoning as the request
+        // alloc in l_fetch. The body is allocated separately (also PSRAM
+        // when possible) and is what dominates the response footprint.
+        HttpResponse* presp = (HttpResponse*)heap_caps_calloc(
+            1, sizeof(HttpResponse), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!presp) presp = (HttpResponse*)calloc(1, sizeof(HttpResponse));
+        if (!presp) {
+            // Without a response slot we can't even report the failure;
+            // best we can do is drop the request.
+            if (req.body) free(req.body);
+            free(preq);
+            return;
+        }
+        HttpResponse& resp = *presp;
+        resp.coroRef = req.coroRef;
+        resp.success = false;
+
+        if (WiFi.status() != WL_CONNECTED) {
+            resp.errorMsg = strdup("WiFi not connected");
+            xQueueSend(responseQueue, &presp, portMAX_DELAY);
+            if (req.body) free(req.body);
+            free(preq);
+            return;
+        }
+
+        bool isHttps = false;
+        char host[160] = {0};
+        int  port = 0;
+        char path[512] = {0};
+        if (!parseUrl(req.url, isHttps, host, sizeof(host), port, path, sizeof(path))) {
+            resp.errorMsg = strdup("bad URL");
+            xQueueSend(responseQueue, &presp, portMAX_DELAY);
+            if (req.body) free(req.body);
+            free(preq);
+            return;
+        }
+
+        // One client, polymorphic via the WiFiClient base. Secure
+        // variant skips cert verification -- this is dev-tooling, the
+        // bearer token is the trust boundary.
+        WiFiClient* client = nullptr;
+        if (isHttps) {
+            auto* s = new WiFiClientSecure();
+            s->setInsecure();
+            client = s;
+        } else {
+            client = new WiFiClient();
+        }
+
+        uint32_t timeout = req.timeout > 0 ? (uint32_t)req.timeout : 10000;
+        client->setTimeout(timeout / 1000 + 1);  // setTimeout takes seconds in this lib
+        uint32_t deadline = millis() + timeout;
+
+        if (!client->connect(host, port)) {
+            resp.errorMsg = strdup("connect failed");
+            delete client;
+            xQueueSend(responseQueue, &presp, portMAX_DELAY);
+            if (req.body) free(req.body);
+            free(preq);
+            return;
+        }
+
+        // Build + send the request line, headers, body.
+        String headBuf = String(methodName(req.method)) + " " + path + " HTTP/1.1\r\n";
+        headBuf += "Host: ";
+        headBuf += host;
+        if ((isHttps && port != 443) || (!isHttps && port != 80)) {
+            headBuf += ":";
+            headBuf += String(port);
+        }
+        headBuf += "\r\n";
+        headBuf += "Connection: close\r\n";
+        bool sawCType = false, sawCLen = false;
+        for (size_t i = 0; i < req.headerCount; i++) {
+            headBuf += req.headers[i][0];
+            headBuf += ": ";
+            headBuf += req.headers[i][1];
+            headBuf += "\r\n";
+            if (strcasecmp(req.headers[i][0], "Content-Type")   == 0) sawCType = true;
+            if (strcasecmp(req.headers[i][0], "Content-Length") == 0) sawCLen  = true;
+        }
+        bool hasBody = req.body && req.bodyLen > 0 &&
+                       (req.method == Method::POST  ||
+                        req.method == Method::PUT   ||
+                        req.method == Method::PATCH ||
+                        req.method == Method::DELETE_METHOD);
+        if (hasBody && !sawCLen) {
+            headBuf += "Content-Length: ";
+            headBuf += String((unsigned)req.bodyLen);
+            headBuf += "\r\n";
+        }
+        if (hasBody && !sawCType) {
+            headBuf += "Content-Type: application/octet-stream\r\n";
+        }
+        headBuf += "\r\n";
+
+        client->print(headBuf);
+        if (hasBody) {
+            client->write((const uint8_t*)req.body, req.bodyLen);
+        }
+
+        // ----- Read status line ----------------------------------------
+        String statusLine;
+        if (!readLine(client, statusLine, deadline)) {
+            resp.errorMsg = strdup("no status line");
+            client->stop();
+            delete client;
+            xQueueSend(responseQueue, &presp, portMAX_DELAY);
+            if (req.body) free(req.body);
+            free(preq);
+            return;
+        }
+        // Format: "HTTP/1.1 200 OK"
+        int sp1 = statusLine.indexOf(' ');
+        if (sp1 < 0) {
+            resp.errorMsg = strdup("malformed status");
+            client->stop(); delete client;
+            xQueueSend(responseQueue, &presp, portMAX_DELAY);
+            if (req.body) free(req.body);
+            free(preq);
+            return;
+        }
+        resp.statusCode = atoi(statusLine.c_str() + sp1 + 1);
+
+        // ----- Read headers --------------------------------------------
+        long contentLength = -1;
+        bool chunked = false;
+        resp.headerCount = 0;
+        while (true) {
+            String line;
+            if (!readLine(client, line, deadline)) {
+                resp.errorMsg = strdup("header read timeout");
+                client->stop(); delete client;
+                xQueueSend(responseQueue, &presp, portMAX_DELAY);
+                if (req.body) free(req.body);
+                free(preq);
+                return;
+            }
+            if (line.length() == 0) break;  // end of headers
+            int colon = line.indexOf(':');
+            if (colon <= 0) continue;
+            String key = line.substring(0, colon);
+            String val = line.substring(colon + 1);
+            val.trim();
+
+            if (key.equalsIgnoreCase("Content-Length")) {
+                contentLength = val.toInt();
+            } else if (key.equalsIgnoreCase("Transfer-Encoding") &&
+                       val.indexOf("chunked") >= 0) {
+                chunked = true;
+            }
+
+            if (resp.headerCount < MAX_HEADERS) {
+                strncpy(resp.headers[resp.headerCount][0], key.c_str(), MAX_HEADER_LEN - 1);
+                resp.headers[resp.headerCount][0][MAX_HEADER_LEN - 1] = '\0';
+                strncpy(resp.headers[resp.headerCount][1], val.c_str(), MAX_HEADER_LEN - 1);
+                resp.headers[resp.headerCount][1][MAX_HEADER_LEN - 1] = '\0';
+                resp.headerCount++;
+            }
+        }
+
+        // ----- Read body -----------------------------------------------
+        if (req.method != Method::HEAD) {
+            char* body = nullptr;
+            size_t bodyLen = 0;
+
+            if (chunked) {
+                // Chunked transfer: <hex-size>\r\n<bytes>\r\n... then 0\r\n\r\n
+                size_t cap = 4096;
+                body = (char*)ps_malloc(cap);
+                if (!body) body = (char*)malloc(cap);
+                while (body) {
+                    String sizeLine;
+                    if (!readLine(client, sizeLine, deadline)) break;
+                    long chunkSize = strtol(sizeLine.c_str(), nullptr, 16);
+                    if (chunkSize <= 0) break;
+                    if (bodyLen + chunkSize > MAX_RESPONSE_LEN) break;
+                    if (bodyLen + chunkSize + 1 > cap) {
+                        size_t newCap = bodyLen + chunkSize + 1;
+                        char* nb = (char*)ps_malloc(newCap);
+                        if (!nb) nb = (char*)malloc(newCap);
+                        if (!nb) break;
+                        memcpy(nb, body, bodyLen);
+                        free(body);
+                        body = nb;
+                        cap = newCap;
+                    }
+                    int got = readBytes(client, body + bodyLen, chunkSize, deadline);
+                    bodyLen += got;
+                    if (got < chunkSize) break;
+                    String trailing;
+                    readLine(client, trailing, deadline);  // consume the CRLF
+                }
+            } else if (contentLength > 0) {
+                size_t want = (contentLength <= (long)MAX_RESPONSE_LEN)
+                              ? (size_t)contentLength : MAX_RESPONSE_LEN;
+                body = (char*)ps_malloc(want + 1);
+                if (!body) body = (char*)malloc(want + 1);
+                if (body) {
+                    int got = readBytes(client, body, want, deadline);
+                    bodyLen = got > 0 ? (size_t)got : 0;
+                }
+            } else {
+                // No length header -- read until close. Grow the buffer
+                // as we go, capped at MAX_RESPONSE_LEN.
+                size_t cap = 4096;
+                body = (char*)ps_malloc(cap);
+                if (!body) body = (char*)malloc(cap);
+                while (body && bodyLen < MAX_RESPONSE_LEN) {
+                    if (!client->connected() && !client->available()) break;
+                    if (millis() > deadline) break;
+                    int avail = client->available();
+                    if (avail <= 0) { delay(5); continue; }
+                    if (bodyLen + 1 > cap) {
+                        size_t newCap = cap * 2;
+                        if (newCap > MAX_RESPONSE_LEN + 1) newCap = MAX_RESPONSE_LEN + 1;
+                        char* nb = (char*)ps_malloc(newCap);
+                        if (!nb) nb = (char*)malloc(newCap);
+                        if (!nb) break;
+                        memcpy(nb, body, bodyLen);
+                        free(body);
+                        body = nb;
+                        cap = newCap;
+                    }
+                    int n = client->read((uint8_t*)body + bodyLen,
+                                         (cap - 1) - bodyLen);
+                    if (n > 0) bodyLen += n;
+                }
+            }
+
+            if (body) {
+                body[bodyLen < MAX_RESPONSE_LEN ? bodyLen : MAX_RESPONSE_LEN - 1] = '\0';
+            }
+            resp.body = body;
+            resp.bodyLen = bodyLen;
+        }
+        resp.success = true;
+
+    client->stop();
+    delete client;
+    if (req.body) free(req.body);
+    free(preq);
+    xQueueSend(responseQueue, &presp, portMAX_DELAY);
+}
+
+// Initialize HTTP module.
+//
+// We piggyback on the AsyncIO worker thread (Core 0) instead of
+// spawning our own task. Internal DRAM is the system's tightest
+// resource -- task stacks must live there, and adding even a 4 KiB
+// HTTP-specific stack on top of audio/async_io/WiFi pushed the
+// system over the cliff (LCD DMA descriptor allocs started failing
+// with null-pointer derefs). AsyncIO has a 12 KiB stack already, so
+// HTTP just queues a request and uses that thread.
+//
+// The only resource we still own is the response queue: it carries
+// HttpResponse* pointers from the AsyncIO worker back to the Lua
+// thread, where update() drains it and resumes the suspended fetch
+// coroutine. Plain pointers, ~4 bytes each, no real DRAM cost.
 static bool initModule() {
-    if (requestQueue != nullptr) return true;  // Already initialized
+    if (responseQueue) return true;  // Already initialized
 
-    requestQueue = xQueueCreate(REQUEST_QUEUE_SIZE, sizeof(HttpRequest));
-    responseQueue = xQueueCreate(RESPONSE_QUEUE_SIZE, sizeof(HttpResponse));
-
-    if (!requestQueue || !responseQueue) {
-        LOG("HTTP", "Failed to create queues");
+    responseQueue = xQueueCreate(RESPONSE_QUEUE_SIZE, sizeof(HttpResponse*));
+    if (!responseQueue) {
+        LOG("HTTP", "Failed to create response queue");
         return false;
     }
 
-    // Create worker task on Core 0 (Lua runs on Core 1)
-    // Stack size 32KB needed for HTTPS with WiFiClientSecure + TLS
-    BaseType_t res = xTaskCreatePinnedToCore(
-        httpWorkerTask, "http_worker", 32768, nullptr, 1, &workerTask, 0
-    );
+    AsyncIO::setHttpProcessor(processHttpRequest);
 
-    if (res != pdPASS) {
-        LOG("HTTP", "Failed to create worker task");
-        return false;
-    }
-
-    LOG("HTTP", "Module initialized");
+    LOG("HTTP", "Module initialized (worker shared with AsyncIO)");
     return true;
 }
 
@@ -285,7 +542,21 @@ static int l_fetch(lua_State* L) {
         return 2;
     }
 
-    HttpRequest req = {};
+    // Heap-alloc the request in PSRAM. It's ~8.7 KiB -- larger than
+    // free internal DRAM in the typical post-boot state -- and
+    // dominating the worker's stack budget would force a much bigger
+    // stack alloc. PSRAM is fine here because the worker only reads
+    // these fields once at the start of the request; nothing in the
+    // hot path touches them.
+    HttpRequest* preq = (HttpRequest*)heap_caps_calloc(
+        1, sizeof(HttpRequest), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!preq) preq = (HttpRequest*)calloc(1, sizeof(HttpRequest));
+    if (!preq) {
+        lua_pushnil(L);
+        lua_pushstring(L, "out of memory");
+        return 2;
+    }
+    HttpRequest& req = *preq;
     strncpy(req.url, url, MAX_URL_LEN - 1);
     req.method = Method::GET;
     req.timeout = 10000;
@@ -359,10 +630,12 @@ static int l_fetch(lua_State* L) {
     lua_pushthread(L);
     req.coroRef = luaL_ref(L, LUA_REGISTRYINDEX);
 
-    // Queue the request
-    if (xQueueSend(requestQueue, &req, 0) != pdTRUE) {
+    // Hand off to the AsyncIO worker. processHttpRequest takes
+    // ownership of preq from this point on.
+    if (!AsyncIO::instance().queueHttpRequest(preq, req.coroRef)) {
         luaL_unref(L, LUA_REGISTRYINDEX, req.coroRef);
         if (req.body) free(req.body);
+        free(preq);
         lua_pushnil(L);
         lua_pushstring(L, "Request queue full");
         return 2;
@@ -496,145 +769,270 @@ static int l_post_json(lua_State* L) {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP server (Arduino WebServer wrapper)
+// HTTP server (ESPAsyncWebServer wrapper)
 //
 // Single global server. Lua hands us one callback; every request goes
 // through it, and the callback is expected to return (status_code,
 // content_type, body). This matches the typical Lua web-framework
 // pattern (pattern-match on uri / method inside the handler) without
-// us having to expose the path-registration internals of WebServer.
+// us having to expose path-registration internals.
 //
-// Lifecycle:
-//   ez.http.serve_start(port, handler_fn)
-//   ez.http.serve_update()   -- call from the main loop every tick
-//   ez.http.serve_stop()
+// Why AsyncWebServer instead of ESP-IDF's esp_http_server: the latter
+// silently stalls multi-segment responses on Arduino-ESP32 2.0.17 /
+// IDF 4.4.x for this hardware. AsyncTCP runs requests through lwIP's
+// raw TCP API (tcp_write + tcp_sent), bypassing the broken socket
+// layer, and reliably ships the full body.
 //
-// handler_fn signature:
-//   function(req) return 200, "text/html", "<body>" end
-//   req = { uri, method, args = { [name] = value } }
+// Threading: AsyncWebServer fires handlers on the AsyncTCP worker
+// task. Lua is single-threaded so we can't call the user's callback
+// from there directly. We queue a stack-local LuaServeReq and BLOCK
+// the worker until update() (Lua main thread) fills in the response.
+// The AsyncTCP worker then sends the response synchronously.
+//
+// Bodies are passed through as Lua strings on both sides, so binary
+// payloads (PNGs, archives, raw uploads) round-trip without NUL
+// truncation.
 // ---------------------------------------------------------------------------
 
-static WebServer* g_webServer = nullptr;
+static AsyncWebServer* g_serveServer = nullptr;
 static int g_serverCallbackRef = LUA_NOREF;
 
-// Called from WebServer for every request (we register it as the
-// onNotFound handler so it catches everything — we don't use
-// WebServer's per-path routing).
-static void webServerDispatch() {
-    if (g_serverCallbackRef == LUA_NOREF || !g_webServer) {
-        g_webServer->send(500, "text/plain", "no handler");
-        return;
+struct LuaServeReq {
+    AsyncWebServerRequest* req;
+    String body;
+    volatile bool done;
+    int status;
+    String content_type;
+    String response_body;
+};
+
+static QueueHandle_t g_lua_serve_q = nullptr;
+
+static const char* http_method_name(int m) {
+    switch (m) {
+        case HTTP_GET:    return "GET";
+        case HTTP_POST:   return "POST";
+        case HTTP_PUT:    return "PUT";
+        case HTTP_DELETE: return "DELETE";
+        case HTTP_PATCH:  return "PATCH";
+        case HTTP_HEAD:   return "HEAD";
+        default:          return "?";
     }
+}
+
+// Called from update() on the Lua main thread. Builds the request
+// table, calls the user's callback, fills d->status etc, flips done.
+static void dispatchLuaServeOnMain(LuaServeReq* d) {
+    if (!d) return;
+    auto fill_error = [&](int code, const String& msg) {
+        d->status = code;
+        d->content_type = "text/plain";
+        d->response_body = msg;
+        d->done = true;
+    };
+    if (g_serverCallbackRef == LUA_NOREF) { fill_error(500, "no handler"); return; }
     lua_State* L = mainState;
-    if (!L) {
-        g_webServer->send(500, "text/plain", "no Lua");
-        return;
-    }
+    if (!L)                                { fill_error(500, "no Lua"); return; }
+    AsyncWebServerRequest* req = d->req;
+    if (!req)                              { fill_error(500, "no request"); return; }
 
     lua_rawgeti(L, LUA_REGISTRYINDEX, g_serverCallbackRef);
     if (!lua_isfunction(L, -1)) {
         lua_pop(L, 1);
-        g_webServer->send(500, "text/plain", "handler gone");
+        fill_error(500, "handler gone");
         return;
     }
 
-    // Build the request table.
     lua_newtable(L);
-    lua_pushstring(L, g_webServer->uri().c_str());
+    lua_pushstring(L, req->url().c_str());
     lua_setfield(L, -2, "uri");
 
-    const char* method = "GET";
-    switch (g_webServer->method()) {
-        case HTTP_GET:    method = "GET";    break;
-        case HTTP_POST:   method = "POST";   break;
-        case HTTP_PUT:    method = "PUT";    break;
-        case HTTP_DELETE: method = "DELETE"; break;
-        case HTTP_PATCH:  method = "PATCH";  break;
-        case HTTP_HEAD:   method = "HEAD";   break;
-        default:          method = "?";      break;
-    }
-    lua_pushstring(L, method);
+    lua_pushstring(L, http_method_name(req->method()));
     lua_setfield(L, -2, "method");
 
-    // Query / form args as a map. WebServer parses both GET query
-    // strings and application/x-www-form-urlencoded bodies into the
-    // same args table, which is what most dashboards need.
+    // Headers map. AsyncWebServer only retains headers that were
+    // explicitly collected via collectHeaders() at start-up time -- we
+    // collect the common set there, so this enumerates whatever's
+    // available without per-name lookups.
     lua_newtable(L);
-    int nargs = g_webServer->args();
-    for (int i = 0; i < nargs; i++) {
-        lua_pushstring(L, g_webServer->arg(i).c_str());
-        lua_setfield(L, -2, g_webServer->argName(i).c_str());
+    int hdrCount = req->headers();
+    for (int i = 0; i < hdrCount; i++) {
+        const AsyncWebHeader* h = req->getHeader(i);
+        if (!h) continue;
+        lua_pushstring(L, h->value().c_str());
+        lua_setfield(L, -2, h->name().c_str());
+    }
+    lua_setfield(L, -2, "headers");
+
+    if (req->hasHeader("Content-Type")) {
+        lua_pushstring(L, req->header("Content-Type").c_str());
+        lua_setfield(L, -2, "content_type");
+    }
+    if (req->hasHeader("Content-Length")) {
+        lua_pushinteger(L,
+            (lua_Integer)strtol(req->header("Content-Length").c_str(),
+                                nullptr, 10));
+        lua_setfield(L, -2, "content_length");
+    }
+
+    // args = parsed query string (?k=v&k=v). AsyncWebServer parses
+    // these for us into request params with isPost()==false; we
+    // only surface query args here, not form fields, so user can
+    // read req.body and parse if needed.
+    lua_newtable(L);
+    int paramCount = req->params();
+    for (int i = 0; i < paramCount; i++) {
+        const AsyncWebParameter* p = req->getParam(i);
+        if (!p || p->isPost() || p->isFile()) continue;
+        lua_pushstring(L, p->value().c_str());
+        lua_setfield(L, -2, p->name().c_str());
     }
     lua_setfield(L, -2, "args");
 
-    // POST body (when the raw body matters). "plain" is WebServer's
-    // magic arg name for the raw POST body.
-    if (g_webServer->hasArg("plain")) {
-        lua_pushstring(L, g_webServer->arg("plain").c_str());
+    if (d->body.length() > 0) {
+        lua_pushlstring(L, d->body.c_str(), d->body.length());
         lua_setfield(L, -2, "body");
     }
 
     if (lua_pcall(L, 1, 3, 0) != LUA_OK) {
         const char* err = lua_tostring(L, -1);
-        g_webServer->send(500, "text/plain",
-            String("handler error: ") + (err ? err : "unknown"));
+        fill_error(500, String("handler error: ") + (err ? err : "unknown"));
         lua_pop(L, 1);
         return;
     }
-
     int code = (int)lua_tointeger(L, -3);
     const char* ct = lua_tostring(L, -2);
     size_t bodyLen = 0;
     const char* body = lua_tolstring(L, -1, &bodyLen);
     if (code <= 0) code = 200;
     if (!ct) ct = "text/plain";
-
-    // WebServer.send(int, const char*, const String&) — the String
-    // constructor is the only safe path for binary-ish responses,
-    // though we're limited to what fits in a Lua string.
-    g_webServer->send(code, ct, String(body ? body : ""));
+    d->status = code;
+    d->content_type = String(ct);
+    if (body && bodyLen > 0) {
+        d->response_body = String();
+        d->response_body.concat((const char*)body, bodyLen);
+    } else {
+        d->response_body = "";
+    }
     lua_pop(L, 3);
+    d->done = true;
+}
+
+// Body accumulator hung off AsyncWebServerRequest::_tempObject. The
+// body callback streams chunks in; the completion handler reads them
+// out as a single contiguous String. AsyncWebServer free()s _tempObject
+// on request destruction so we don't have to track it manually.
+struct ServeBodyBuf {
+    size_t cap;
+    size_t len;
+    char data[];
+};
+
+static void serve_body_cb(AsyncWebServerRequest* req, uint8_t* data,
+                          size_t len, size_t index, size_t total) {
+    constexpr size_t MAX_BODY = 64 * 1024;
+    if (total == 0 || total > MAX_BODY) return;
+    auto* b = (ServeBodyBuf*)req->_tempObject;
+    if (index == 0 || !b) {
+        if (b) { free(b); req->_tempObject = nullptr; }
+        b = (ServeBodyBuf*)malloc(sizeof(ServeBodyBuf) + total);
+        if (!b) return;
+        b->cap = total;
+        b->len = 0;
+        req->_tempObject = b;
+    }
+    if (index + len > b->cap) return;
+    memcpy(b->data + index, data, len);
+    if (index + len > b->len) b->len = index + len;
+}
+
+// Catch-all completion handler. Pulls the accumulated body off
+// _tempObject, queues a stack LuaServeReq, blocks on the main thread
+// filling it in, sends the response.
+static void serve_dispatch_handler(AsyncWebServerRequest* req) {
+    auto* b = (ServeBodyBuf*)req->_tempObject;
+
+    LuaServeReq d;
+    d.req = req;
+    d.done = false;
+    d.status = 0;
+    if (b && b->len > 0) {
+        d.body.concat(b->data, b->len);
+    }
+
+    LuaServeReq* p = &d;
+    if (!g_lua_serve_q || xQueueSend(g_lua_serve_q, &p, 0) != pdTRUE) {
+        req->send(500, "text/plain", "queue full");
+        return;
+    }
+    // 10 s ceiling so a wedged main loop can't hold the AsyncTCP task
+    // forever. /lua serve handlers are dev-only; the bound is fine.
+    uint32_t deadline = millis() + 10000;
+    while (!d.done && millis() < deadline) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (!d.done) {
+        req->send(500, "text/plain", "main loop timeout");
+        return;
+    }
+
+    int code = d.status > 0 ? d.status : 200;
+    req->send(code, d.content_type, d.response_body);
 }
 
 static int l_serve_start(lua_State* L) {
     int port = (int)luaL_checkinteger(L, 1);
     if (!lua_isfunction(L, 2)) {
-        return luaL_error(L, "serve_start: expected (port, handler_fn)");
+        return luaL_error(L, "serve_start: expected (port, handler_fn, opts?)");
     }
 
-    // Tear down any prior server so repeated starts (e.g. on port
-    // change) don't stack sockets.
-    if (g_webServer) {
-        g_webServer->stop();
-        delete g_webServer;
-        g_webServer = nullptr;
+    if (g_serveServer) {
+        g_serveServer->end();
+        delete g_serveServer;
+        g_serveServer = nullptr;
     }
     if (g_serverCallbackRef != LUA_NOREF) {
         luaL_unref(L, LUA_REGISTRYINDEX, g_serverCallbackRef);
         g_serverCallbackRef = LUA_NOREF;
     }
+    if (!g_lua_serve_q) {
+        g_lua_serve_q = xQueueCreate(4, sizeof(LuaServeReq*));
+    }
 
     lua_pushvalue(L, 2);
     g_serverCallbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
 
-    g_webServer = new WebServer(port);
-    g_webServer->onNotFound(webServerDispatch);
-    g_webServer->begin();
+    g_serveServer = new AsyncWebServer(port);
+
+    // The mathieucarbou fork retains every request header by default,
+    // so we don't have to whitelist them. opts.collect_headers from
+    // older callers is accepted as a no-op for backwards compat.
+    (void)lua_istable(L, 3);
+
+    g_serveServer->onRequestBody(serve_body_cb);
+    g_serveServer->onNotFound(serve_dispatch_handler);
+
+    g_serveServer->begin();
+    LOG("HTTP", "serve_start listening on port %d", port);
 
     lua_pushboolean(L, true);
     return 1;
 }
 
 static int l_serve_update(lua_State* L) {
-    if (g_webServer) g_webServer->handleClient();
+    if (!g_lua_serve_q) return 0;
+    LuaServeReq* d = nullptr;
+    while (xQueueReceive(g_lua_serve_q, &d, 0) == pdTRUE) {
+        dispatchLuaServeOnMain(d);
+    }
     return 0;
 }
 
 static int l_serve_stop(lua_State* L) {
-    if (g_webServer) {
-        g_webServer->stop();
-        delete g_webServer;
-        g_webServer = nullptr;
+    if (g_serveServer) {
+        g_serveServer->end();
+        delete g_serveServer;
+        g_serveServer = nullptr;
     }
     if (g_serverCallbackRef != LUA_NOREF) {
         luaL_unref(L, LUA_REGISTRYINDEX, g_serverCallbackRef);
@@ -682,17 +1080,36 @@ void registerBindings(lua_State* L) {
     lua_setfield(L, -2, "http");
     lua_pop(L, 1);  // pop ez table
 
-    LOG("HTTP", "Bindings registered (client + server)");
+    // The actual response queue + AsyncIO processor registration
+    // happen lazily on the first ez.http.fetch call (initModule).
+    // We don't do it eagerly here because AsyncIO::init() runs AFTER
+    // registerAllModules() in lua_runtime.cpp -- AsyncIO::setHttpProcessor
+    // is fine to call early (it just stores a function pointer) but
+    // queueHttpRequest needs the worker queue to exist, so we let the
+    // first fetch trigger setup.
+    LOG("HTTP", "Bindings registered (client + server, worker shared)");
 }
 
 void update(lua_State* L) {
+    // Drain Lua-callback requests from the AsyncWebServer side so the
+    // Lua callback runs on this thread, not the AsyncTCP task.
+    if (g_lua_serve_q) {
+        LuaServeReq* d = nullptr;
+        while (xQueueReceive(g_lua_serve_q, &d, 0) == pdTRUE) {
+            dispatchLuaServeOnMain(d);
+        }
+    }
+
     if (!responseQueue) return;
 
-    HttpResponse resp;
-    while (xQueueReceive(responseQueue, &resp, 0) == pdTRUE) {
+    HttpResponse* presp = nullptr;
+    while (xQueueReceive(responseQueue, &presp, 0) == pdTRUE) {
+        if (!presp) continue;
+        HttpResponse& resp = *presp;
         if (resp.coroRef == LUA_NOREF) {
             if (resp.body) free(resp.body);
             if (resp.errorMsg) free(resp.errorMsg);
+            free(presp);
             continue;
         }
 
@@ -745,18 +1162,12 @@ void update(lua_State* L) {
         luaL_unref(L, LUA_REGISTRYINDEX, resp.coroRef);
         if (resp.body) free(resp.body);
         if (resp.errorMsg) free(resp.errorMsg);
+        free(presp);
     }
 }
 
 void shutdown() {
-    if (workerTask) {
-        vTaskDelete(workerTask);
-        workerTask = nullptr;
-    }
-    if (requestQueue) {
-        vQueueDelete(requestQueue);
-        requestQueue = nullptr;
-    }
+    AsyncIO::setHttpProcessor(nullptr);
     if (responseQueue) {
         vQueueDelete(responseQueue);
         responseQueue = nullptr;

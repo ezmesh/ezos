@@ -47,6 +47,20 @@
 #define KB_INT          46
 
 // -----------------------------------------------------------------------------
+// Touchscreen (Goodix GT911, capacitive 5-point)
+// Shares the keyboard's I2C bus (SDA=18, SCL=8). The GT911 reset is
+// tied to the board-wide power rail (BOARD_POWERON) rather than a
+// dedicated GPIO, so we can't drive the address-select dance from
+// firmware. On observed T-Deck Plus units the controller comes up at
+// the high I2C address (0x14); other revisions may report at 0x5D.
+// The driver probes 0x14 first and falls back to 0x5D so the same
+// firmware works across both wirings.
+// -----------------------------------------------------------------------------
+#define TOUCH_INT          16
+#define TOUCH_I2C_ADDR_H   0x14
+#define TOUCH_I2C_ADDR_L   0x5D
+
+// -----------------------------------------------------------------------------
 // Trackball (GPIO pins, directly read via polling/interrupts)
 // -----------------------------------------------------------------------------
 #define TRACKBALL_UP        3

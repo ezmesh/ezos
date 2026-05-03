@@ -896,6 +896,20 @@ LUA_FUNCTION(l_storage_set_pref) {
     LUA_CHECK_ARGC(L, 2);
     const char* key = luaL_checkstring(L, 1);
 
+    // NVS caps key names at 15 chars (NVS_KEY_NAME_MAX_SIZE - 1).
+    // Anything longer is rejected by nvs_set_*, but Arduino's
+    // Preferences library swallows the error and returns 0, so the
+    // setter looks like it worked while the value silently drops on
+    // the floor. We've been bitten by this twice (ui_sounds_enabled,
+    // display_brightness); fail loud here instead.
+    if (strlen(key) > 15) {
+        Serial.printf("[Storage] set_pref(\"%s\"): key too long for NVS "
+                      "(%u chars, max 15) -- value will not persist\n",
+                      key, (unsigned)strlen(key));
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
     ensurePrefs();
 
     bool ok = false;

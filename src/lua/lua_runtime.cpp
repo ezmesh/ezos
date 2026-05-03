@@ -40,6 +40,12 @@ void registerNetModule(lua_State* L);
 #include "bindings/bus_bindings.h"
 // HTTP module
 #include "bindings/http_bindings.h"
+// OTA module (firmware update push server + rollback helpers)
+#include "bindings/ota_bindings.h"
+// NTP module (SNTP client wrapper)
+#include "bindings/ntp_bindings.h"
+// Touch module (GT911 capacitive panel)
+#include "bindings/touch_bindings.h"
 
 LuaRuntime& LuaRuntime::instance() {
     static LuaRuntime runtime;
@@ -150,6 +156,7 @@ bool LuaRuntime::init() {
 void LuaRuntime::shutdown() {
     if (_state != nullptr) {
         http_bindings::shutdown();
+        ota_bindings::shutdown();
         lua_close(_state);
         _state = nullptr;
         _memoryUsed = 0;
@@ -201,6 +208,16 @@ void LuaRuntime::registerAllModules() {
 
     // HTTP module
     http_bindings::registerBindings(_state);
+
+    // OTA module (dev push server + rollback helpers)
+    ota_bindings::registerBindings(_state);
+
+    // NTP module (SNTP client wrapper)
+    ntp_bindings::registerBindings(_state);
+
+    // Touch module (GT911). Bus events are dispatched by
+    // touch_bindings::update() called from the main loop.
+    touch_bindings::registerBindings(_state);
 
     LOG("LuaRuntime", "Modules registered");
 }
@@ -542,6 +559,11 @@ void LuaRuntime::update() {
 
     // Process HTTP responses (resumes waiting coroutines)
     http_bindings::update(_state);
+
+    // Pump the dev OTA web server when it's running. Runs from the
+    // Lua update loop so the bus events it posts land on the same
+    // tick as everything else.
+    ota_bindings::update();
 
     // Process message bus (delivers queued messages to subscribers)
     MessageBus::instance().process(_state);

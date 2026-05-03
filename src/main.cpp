@@ -13,6 +13,8 @@
 #include "hardware/keyboard.h"
 #include "hardware/radio.h"
 #include "hardware/gps.h"
+#include "hardware/touch.h"
+#include "lua/bindings/touch_bindings.h"
 #include "mesh/meshcore.h"
 #include "lua/async.h"
 #include "settings.h"
@@ -116,6 +118,19 @@ void setup() {
         Serial.println("Keyboard OK");
     } else {
         Serial.println("WARNING: Keyboard init failed");
+    }
+
+    // Initialize touchscreen. The GT911 lives on the same Wire bus
+    // the keyboard just brought up, so this MUST run after the
+    // keyboard. Touch is optional: a failure here only logs a warning
+    // and leaves `touch->ready()` false; the rest of the OS stays
+    // fully usable via keyboard / trackball.
+    Serial.println("Initializing touchscreen...");
+    touch = new Touch();
+    if (touch->init()) {
+        Serial.println("Touch OK");
+    } else {
+        Serial.println("WARNING: Touch init failed");
     }
 
     // Load and apply saved settings
@@ -310,6 +325,11 @@ void loop() {
     if (gpsOk) {
         GPS::instance().update();
     }
+
+    // Poll the touch controller and dispatch touch/down, touch/move,
+    // touch/up bus events. Cheap when nothing is pressed (one I2C
+    // status read).
+    touch_bindings::update();
 
     // Process async I/O, timers, and GC
     if (luaOk) {

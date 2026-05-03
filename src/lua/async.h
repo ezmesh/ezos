@@ -52,6 +52,24 @@ public:
     static int l_async_hmac_sha256(lua_State* L);
     static int l_async_x25519_shared_secret(lua_State* L);
 
+    // Cross-module entry point: queue an HTTP request to be processed
+    // on the worker thread. The opaque pointer is forwarded verbatim to
+    // the registered HTTP processor (see setHttpProcessor). The caller
+    // (http_bindings) retains ownership; the processor is responsible
+    // for freeing the request after it produces a response.
+    // Returns false if the queue was full -- caller must clean up.
+    bool queueHttpRequest(void* requestPtr, int coroRef);
+
+    // Install the function that the worker calls to process an
+    // HTTP_FETCH op. http_bindings registers this at boot. Signature:
+    //   void(*)(void* requestPtr, int coroRef)
+    // The processor runs on the worker thread (Core 0); it must not
+    // touch the Lua state directly. It typically deposits a response
+    // struct on http_bindings' own response queue, which is drained by
+    // http_bindings::update() on the Lua thread.
+    using HttpProcessor = void (*)(void* requestPtr, int coroRef);
+    static void setHttpProcessor(HttpProcessor fn);
+
 private:
     AsyncIO() = default;
 
@@ -74,6 +92,12 @@ private:
         AES_DECRYPT,
         HMAC_SHA256,
         X25519_SHARED_SECRET,
+        // HTTP -- the request struct is opaque to AsyncIO. http_bindings
+        // hands us a pointer (req.data) to a heap-allocated HttpRequest
+        // and provides the actual processing routine. We reuse this
+        // worker thread rather than spawning a second one because
+        // internal DRAM is too tight to afford a separate task stack.
+        HTTP_FETCH,
     };
 
     // Max sizes
