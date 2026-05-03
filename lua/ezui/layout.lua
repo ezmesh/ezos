@@ -231,6 +231,12 @@ node.register("padding", {
 
     draw = function(n, d, x, y, w, h)
         local pt, pr, pb, pl = resolve_pad(n.pad)
+        -- Optional background. Useful for "pill" effects (active tab,
+        -- chip, badge) where the caller wants a coloured rectangle
+        -- that sizes to its child instead of stretching like vbox.
+        if n.bg then
+            d.fill_rect(x, y, w, h, theme.color(n.bg))
+        end
         local child = n.children and n.children[1]
         if child then
             node.draw(child, d, x + pl, y + pt, w - pl - pr, h - pt - pb)
@@ -361,8 +367,15 @@ function layout.zstack(props, children)
     return props
 end
 
-function layout.padding(pad, child)
-    return { type = "padding", pad = pad, children = { child } }
+function layout.padding(pad, child, opts)
+    -- Backwards-compatible signature: padding(pad, child) still works
+    -- and ignores any background; pass `{ bg = "ACCENT" }` as the
+    -- third arg to render a coloured pill that sizes to its child.
+    local n = { type = "padding", pad = pad, children = { child } }
+    if opts then
+        if opts.bg then n.bg = opts.bg end
+    end
+    return n
 end
 
 function layout.scroll(props, child)

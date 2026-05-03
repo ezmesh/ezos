@@ -36,20 +36,63 @@ from PIL import Image, ImageDraw, ImageFilter
 # -----------------------------------------------------------------------------
 
 # (lucide_name, lua_key, plate_tint_rgb)
+#
+# Tints intentionally vary across the catalogue rather than grouping by
+# category -- the desktop dock and the menu both interleave categories,
+# so similar tints next to each other made entries hard to scan. The
+# rule is "neighbouring rows in the menu shouldn't share a hue family".
 ICONS = [
-    ("mail",          "mail",        (58, 140, 220)),
-    ("users",         "users",       (220, 80, 70)),
-    ("map",           "map",         (210, 135, 60)),
-    ("grid-3x3",      "grid",        (120, 110, 180)),
-    ("hash",          "hash",        (180, 100, 200)),
-    ("radio-tower",   "radio_tower", (230, 110, 90)),
-    ("folder",        "folder",      (220, 180, 80)),
-    ("settings",      "settings",    (130, 140, 160)),
-    ("terminal",      "terminal",    (60, 170, 150)),
-    ("info",          "info",        (90, 150, 210)),
-    ("message-square", "message",    (100, 180, 200)),
-    ("globe",         "globe",       (60, 170, 90)),
-    ("ellipsis",      "more_horiz",  (255, 213, 0)),
+    # Communication
+    ("mail",            "mail",        (58, 140, 220)),
+    ("users",           "users",       (220, 80, 70)),
+    # Tools / utilities
+    ("bell",            "bell",        (240, 170, 60)),
+    ("bot",             "bot",         (140, 90, 220)),
+    ("circle-question-mark", "help",   (90, 180, 220)),
+    ("map",             "map",         (210, 135, 60)),
+    ("folder",          "folder",      (220, 180, 80)),
+    ("terminal",        "terminal",    (60, 170, 150)),
+    # Apps -- mini productivity bundle (Paint, Editor, ...). The pair
+    # of glyphs sit next to each other in the menu, so the tints are
+    # picked from opposite hue families to keep them easy to scan.
+    ("paintbrush",      "paintbrush",  (240, 110, 150)),
+    ("square-pen",      "square_pen",  (110, 200, 170)),
+    # Games (one icon per game where the silhouette is recognisable
+    # at 16/48 px; the rest fall back to a generic gamepad).
+    ("spade",           "spade",       (40, 40, 60)),
+    ("bomb",            "bomb",        (60, 60, 80)),
+    ("skull",           "skull",       (160, 160, 180)),
+    ("blocks",          "blocks",      (210, 90, 130)),
+    ("circle-dot",      "circle_dot",  (90, 200, 230)),
+    ("rocket",          "rocket",      (230, 110, 70)),
+    ("gamepad-2",       "gamepad",     (110, 90, 200)),
+    # Diagnostics / network
+    ("signal",          "signal",      (80, 200, 120)),
+    ("wifi",            "wifi",        (60, 160, 230)),
+    ("radio",           "radio",       (200, 100, 180)),
+    ("monitor",         "monitor",     (130, 140, 160)),
+    # System / settings
+    ("palette",         "palette",     (240, 130, 110)),
+    ("image",           "wallpaper",   (170, 110, 200)),
+    ("keyboard",        "keyboard",    (90, 130, 170)),
+    ("navigation",      "navigation",  (120, 200, 90)),
+    ("clock",           "clock",       (200, 180, 80)),
+    ("volume-2",        "volume",      (60, 200, 200)),
+    ("rotate-cw",       "rotate_cw",   (180, 120, 220)),
+    # Dev
+    ("cloud-upload",    "cloud_upload",(80, 160, 220)),
+    ("rotate-ccw",      "rotate_ccw",  (220, 120, 90)),
+    ("layers",          "layers",      (160, 130, 220)),
+    ("sliders-vertical","sliders",     (90, 150, 210)),
+    # Existing generic / catch-all
+    ("grid-3x3",        "grid",        (120, 110, 180)),
+    ("hash",            "hash",        (180, 100, 200)),
+    ("radio-tower",     "radio_tower", (230, 110, 90)),
+    ("settings",        "settings",    (130, 140, 160)),
+    ("info",            "info",        (90, 150, 210)),
+    ("message-square",  "message",     (100, 180, 200)),
+    ("globe",           "globe",       (60, 170, 90)),
+    ("ellipsis",        "more_horiz",  (255, 213, 0)),
 ]
 
 SVG_BASE_URL = "https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/{name}.svg"
