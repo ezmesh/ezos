@@ -306,7 +306,14 @@ node.register("button", {
         local tw = theme.text_width(n.label or "")
         local pad_x = 16
         local pad_y = 6
-        return math.min(tw + pad_x * 2, max_w), theme.font_height() + pad_y * 2
+        local h = theme.font_height() + pad_y * 2
+        -- Touch-mode height floor: a 21 px button is fine for the
+        -- trackball + ENTER but easy to miss with a fingertip.
+        local touch_input = require("ezui.touch_input")
+        if touch_input.touch_enabled() and h < touch_input.MIN_TARGET_H then
+            h = touch_input.MIN_TARGET_H
+        end
+        return math.min(tw + pad_x * 2, max_w), h
     end,
 
     draw = function(n, d, x, y, w, h)
@@ -346,6 +353,10 @@ node.register("toggle", {
         if n.label then label_w = theme.text_width(n.label) + 8 end
         local switch_w = 32
         local h = math.max(theme.font_height(), 16)
+        local touch_input = require("ezui.touch_input")
+        if touch_input.touch_enabled() and h < touch_input.MIN_TARGET_H then
+            h = touch_input.MIN_TARGET_H
+        end
         return math.min(label_w + switch_w, max_w), h
     end,
 
@@ -521,10 +532,16 @@ node.register("dropdown", {
     measure = function(n, max_w, max_h)
         theme.set_font("medium_aa")
         local h = theme.font_height() + 8
+        local touch_input = require("ezui.touch_input")
+        local touch_floor = touch_input.touch_enabled()
+            and touch_input.MIN_TARGET_H or 0
+        if h < touch_floor then h = touch_floor end
         if n._open then
             local items = n.options or {}
             local visible = math.min(#items, n.max_visible or 5)
-            h = h + visible * (theme.font_height() + 4)
+            local row_h = theme.font_height() + 4
+            if row_h < touch_floor then row_h = touch_floor end
+            h = h + visible * row_h
         end
         return max_w, h
     end,
@@ -535,7 +552,15 @@ node.register("dropdown", {
         local selected = n.value or 1
         theme.set_font("medium_aa")
         local fh = theme.font_height()
-        local row_h = fh + 8
+        local touch_input = require("ezui.touch_input")
+        local touch_floor = touch_input.touch_enabled()
+            and touch_input.MIN_TARGET_H or 0
+        local row_h = math.max(fh + 8, touch_floor)
+        -- Vertical text offset inside a row, used both for the header
+        -- and each option in the expanded list. Recomputed from row_h
+        -- so a touch-enlarged row centres its label instead of
+        -- pinning it to y+4.
+        local text_dy = math.floor((row_h - fh) / 2)
 
         -- Header
         local bg = theme.color("SURFACE")
@@ -545,17 +570,18 @@ node.register("dropdown", {
 
         local label = (options[selected] or "")
         if type(label) == "table" then label = label.label or "" end
-        d.draw_text(x + 4, y + 4, label, theme.color("TEXT"))
+        d.draw_text(x + 4, y + text_dy, label, theme.color("TEXT"))
 
         -- Arrow
         local arrow = n._open and "^" or "v"
-        d.draw_text(x + w - 12, y + 4, arrow, theme.color("TEXT_MUTED"))
+        d.draw_text(x + w - 12, y + text_dy, arrow, theme.color("TEXT_MUTED"))
 
         -- Expanded list
         if n._open then
             local ly = y + row_h
             local visible = math.min(#options, n.max_visible or 5)
-            local item_h = fh + 4
+            local item_h = math.max(fh + 4, touch_floor)
+            local item_dy = math.floor((item_h - fh) / 2)
             local cursor = n._cursor or selected
             local scroll = n._scroll or 0
 
@@ -572,7 +598,7 @@ node.register("dropdown", {
                 if idx == cursor then
                     d.fill_rect(x + 1, iy, w - 2, item_h, theme.color("SELECTION"))
                 end
-                d.draw_text(x + 4, iy + 2, lbl, theme.color("TEXT"))
+                d.draw_text(x + 4, iy + item_dy, lbl, theme.color("TEXT"))
             end
         end
     end,
@@ -595,6 +621,17 @@ node.register("dropdown", {
             focus_mod.enter_edit()
             play_sound("tap")
         end
+        -- Open/close changes the dropdown's measured height (closed:
+        -- one row; open: row + visible-options block). Force the host
+        -- screen to remeasure right now so the expanded list pushes
+        -- siblings (e.g. an underlying Continue button) downward
+        -- instead of being painted over them. screen._rebuild handles
+        -- the focus.editing case correctly because we've already
+        -- toggled enter_edit / exit_edit above.
+        local screen_mod = require("ezui.screen")
+        local cur = screen_mod.peek and screen_mod.peek()
+        if cur and cur._rebuild then cur:_rebuild() end
+        screen_mod.invalidate()
         return "handled"
     end,
 
@@ -629,10 +666,18 @@ node.register("dropdown", {
             focus_mod.exit_edit()
             play_sound("select")
             if n.on_change then n.on_change(n.value) end
+            local screen_mod = require("ezui.screen")
+            local cur = screen_mod.peek and screen_mod.peek()
+            if cur and cur._rebuild then cur:_rebuild() end
+            screen_mod.invalidate()
             return "handled"
         elseif key.special == "ESCAPE" then
             n._open = false
             focus_mod.exit_edit()
+            local screen_mod = require("ezui.screen")
+            local cur = screen_mod.peek and screen_mod.peek()
+            if cur and cur._rebuild then cur:_rebuild() end
+            screen_mod.invalidate()
             return "handled"
         end
         return nil
@@ -649,14 +694,29 @@ node.register("list_item", {
     measure = function(n, max_w, max_h)
         theme.set_font("medium_aa")
         local fh = theme.font_height()
+        local h
         -- Compact: title only, minimal padding (about half the default height).
         if n.compact then
-            return max_w, fh + 4
+            h = fh + 4
+        else
+            h = fh + 6  -- single line with padding
+            if n.subtitle then
+                theme.set_font("small_aa")
+                h = h + theme.font_height()
+            end
         end
-        local h = fh + 6  -- single line with padding
-        if n.subtitle then
-            theme.set_font("small_aa")
-            h = h + theme.font_height()
+
+        -- Touch-mode floor: when the GT911 came up, every row is a
+        -- hit target, so grow under-tall rows up to MIN_TARGET_H so
+        -- a finger has somewhere to land. Compact rows still grow
+        -- (a 14 px compact item is unreachable on touch) but the
+        -- caller can opt out by setting `n.touch_compact = true` --
+        -- useful for inside-a-card grids where we already know the
+        -- input is going through a different gesture.
+        local touch_input = require("ezui.touch_input")
+        if touch_input.touch_enabled() and not n.touch_compact then
+            local floor = touch_input.MIN_TARGET_H
+            if h < floor then h = floor end
         end
         return max_w, h
     end,
@@ -703,7 +763,25 @@ node.register("list_item", {
         -- Title
         theme.set_font("medium_aa")
         local fh = theme.font_height()
-        local ty = compact and (y + 2) or (y + 3)
+
+        -- Compute the vertical content block (title + optional
+        -- subtitle) and centre it inside the row. Touch mode bumps
+        -- rows past their natural height; without re-centring the
+        -- text would sit at the top with whitespace below, which
+        -- looks broken next to the focus highlight.
+        local sub_fh = 0
+        if n.subtitle and not compact then
+            theme.set_font("small_aa")
+            sub_fh = theme.font_height()
+            theme.set_font("medium_aa")
+        end
+        local content_h = fh + sub_fh
+        local ty
+        if compact then
+            ty = y + math.max(2, math.floor((h - fh) / 2))
+        else
+            ty = y + math.max(3, math.floor((h - content_h) / 2))
+        end
         local title = n.title or ""
         local avail = w - 8 - right_margin - icon_space
         if n.trailing then
@@ -774,6 +852,32 @@ node.register("progress", {
 -- Slider: horizontal value slider with LEFT/RIGHT control
 -- ---------------------------------------------------------------------------
 
+-- Helper used by both the draw (to record the track rect for hit
+-- testing) and the touch handlers (to map a touch x back to a value).
+local function _slider_apply_x(n, screen_x)
+    if not n._track_x or not n._track_w or n._track_w <= 0 then return end
+    local min_val = n.min or 0
+    local max_val = n.max or 255
+    local pct = (screen_x - n._track_x) / n._track_w
+    if pct < 0 then pct = 0 end
+    if pct > 1 then pct = 1 end
+    local value = min_val + pct * (max_val - min_val)
+    -- Snap to the slider's step so e.g. an integer-only volume
+    -- control doesn't end up at 73.41.
+    local step = n.step
+    if step and step > 0 then
+        value = math.floor((value / step) + 0.5) * step
+    else
+        value = math.floor(value + 0.5)
+    end
+    if value < min_val then value = min_val end
+    if value > max_val then value = max_val end
+    if n.value ~= value then
+        n.value = value
+        if n.on_change then n.on_change(value) end
+    end
+end
+
 node.register("slider", {
     focusable = true,
 
@@ -788,6 +892,15 @@ node.register("slider", {
         theme.set_font("small_aa")
         local val_w = theme.text_width("255") + 8
         local h = math.max(theme.font_height() + 8, 20)
+        -- A 20 px slider is fine with arrow keys but the 6 px track
+        -- and 5 px thumb are a tiny target on a finger. Bump under
+        -- touch so the whole row is grabbable -- the track stays the
+        -- same width but the surrounding hit area gets generous
+        -- vertical slack.
+        local touch_input = require("ezui.touch_input")
+        if touch_input.touch_enabled() and h < touch_input.MIN_TARGET_H then
+            h = touch_input.MIN_TARGET_H
+        end
         return max_w, h
     end,
 
@@ -824,6 +937,14 @@ node.register("slider", {
         local track_bg = theme.color("SURFACE_ALT")
         local track_fg = focused and theme.color("ACCENT") or theme.color("ACCENT_DIM")
 
+        -- Stash the track rect for the touch handlers. They run after
+        -- a draw has populated layout, so reading these in
+        -- on_touch_down is safe.
+        n._track_x = track_x
+        n._track_w = track_w
+        n._track_y = track_y
+        n._track_h = track_h
+
         d.fill_round_rect(track_x, track_y, track_w, track_h, 3, track_bg)
         local fill_w = math.floor(track_w * pct)
         if fill_w > 0 then
@@ -858,6 +979,18 @@ node.register("slider", {
             return "handled"
         end
         return nil
+    end,
+
+    -- Touch handlers consumed by the global touch_input bridge.
+    -- on_touch_down jumps the value to wherever the finger landed
+    -- (so a tap anywhere on the track snaps the thumb there);
+    -- on_touch_drag streams subsequent positions for continuous
+    -- adjustment.
+    on_touch_down = function(n, x, y)
+        _slider_apply_x(n, x)
+    end,
+    on_touch_drag = function(n, x, y, dx, dy)
+        _slider_apply_x(n, x)
     end,
 })
 
