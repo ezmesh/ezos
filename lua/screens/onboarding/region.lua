@@ -16,7 +16,7 @@ local M  = require("screens.onboarding")
 local PATH = "screens.onboarding.region"
 
 local PRESETS = {
-    { label = "EU 869 MHz", mhz = 869.525 },
+    { label = "EU 869 MHz", mhz = 869.618 },
     { label = "US 915 MHz", mhz = 906.875 },
     { label = "AS 433 MHz", mhz = 433.000 },
     { label = "AU 915 MHz", mhz = 915.000 },

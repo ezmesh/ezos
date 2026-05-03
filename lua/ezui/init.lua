@@ -118,6 +118,12 @@ function ui.start(opts)
             mesh_last = now
         end
 
+        -- Drain any pending coroutines that yielded via
+        -- coroutine.yield() since the last frame. Cooperative async
+        -- (manual HTTP, multi-step flows that wait_ms()) lives here.
+        -- Cheap no-op when nothing is pending.
+        if _G.tick_coroutines then _G.tick_coroutines() end
+
         -- Screen manager update (input + render)
         screen.update()
 

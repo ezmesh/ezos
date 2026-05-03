@@ -73,16 +73,78 @@ function _G.unload_module(path)
     end
 end
 
+-- Cooperative-yield scheduler.
+--
+-- IMPORTANT: this only resumes coroutines that explicitly opted in
+-- via wait_ms() below. Coroutines that yield via C-side bindings
+-- (ez.http.fetch, async I/O, defer()) are NOT added here -- those
+-- have their own resume drivers in C++, and resuming them from this
+-- scheduler too would either double-resume (causing
+-- "cannot resume dead coroutine" on the C side) or feed nil into a
+-- function that was waiting on a real response, corrupting state.
+-- Earlier this file did add every suspended coroutine; that broke
+-- ez.http.fetch and the OTA upload path among other things.
+local _pending_coros = {}
+
 -- Spawn a coroutine and immediately resume it.
--- Use this to run async code (like load_module) from event handlers — the
--- coroutine yields on async I/O and the runtime resumes it when the I/O
--- completes.
+-- Use this to run async code (like load_module, manual TCP work, or
+-- other multi-step flows) from event handlers.
+--   * If `fn` yields via a C-side binding (ez.http.fetch / async
+--     I/O / defer), that binding owns the resume.
+--   * If `fn` yields via wait_ms() (cooperative sleep), the
+--     scheduler below picks it up on the next tick.
 -- @param fn Function to run in the coroutine
 -- @return The coroutine object
 function _G.spawn(fn)
     local co = coroutine.create(fn)
-    coroutine.resume(co)
+    local ok, err = coroutine.resume(co)
+    if not ok and ez and ez.log then
+        ez.log("[spawn] error: " .. tostring(err))
+    end
     return co
+end
+
+-- Drain cooperatively-yielded coroutines once. Called from the main
+-- loop (see ezui/init.lua) every frame. A coroutine that wait_ms()es
+-- again is re-queued by the next wait call; a coroutine that finishes
+-- or errors is dropped.
+function _G.tick_coroutines()
+    if #_pending_coros == 0 then return end
+    local ready = _pending_coros
+    _pending_coros = {}
+    for _, co in ipairs(ready) do
+        if coroutine.status(co) == "suspended" then
+            local ok, err = coroutine.resume(co)
+            if not ok and ez and ez.log then
+                ez.log("[coro] error: " .. tostring(err))
+            end
+            -- Notice we don't re-queue here -- if the coroutine
+            -- yielded again via wait_ms it will have re-registered
+            -- itself before yielding (see _enqueue_self below).
+        end
+    end
+end
+
+-- Internal: register the running coroutine for the next tick. Used
+-- by wait_ms() before each yield so the scheduler knows to pick it
+-- up. Stays out of the public surface to discourage callers from
+-- bypassing wait_ms.
+local function _enqueue_self()
+    local co = coroutine.running()
+    if co then _pending_coros[#_pending_coros + 1] = co end
+end
+
+-- Cooperative sleep usable inside a spawn()'d coroutine. Yields the
+-- coroutine repeatedly until `ms` milliseconds have elapsed, so the
+-- main loop continues to render frames and process input while the
+-- caller waits. Replaces ez.system.delay() in async code paths --
+-- that one blocks the whole Lua runtime.
+function _G.wait_ms(ms)
+    local deadline = ez.system.millis() + (ms or 0)
+    while ez.system.millis() < deadline do
+        _enqueue_self()
+        coroutine.yield()
+    end
 end
 
 -- Spawn and push a screen to the ScreenManager
