@@ -41,6 +41,16 @@ MEMORY_PATH = os.path.expanduser("~/.cache/mesh_claude_bot.json")
 MAX_MEMORY_TURNS = 20  # Keep last N exchanges before compacting
 COMPACT_THRESHOLD = 30  # Compact when exceeding this many turns
 
+# Persistent cache for the OTA bearer token. Updated three ways:
+#   1. MESH_OTA_TOKEN env var seeds it on first run if missing
+#   2. The user can edit this file directly
+#   3. Inbound DM matching `token: XXXXXX` updates it (so they can
+#      send a new token over mesh after pressing "Regenerate" on the
+#      device's Dev OTA screen).
+TOKEN_CACHE_PATH = os.path.expanduser("~/.cache/mesh_claude_bot.token")
+import re as _re
+TOKEN_PATTERN = _re.compile(r"\btoken\s*[:=]\s*([A-Z0-9]{6})\b", _re.IGNORECASE)
+
 
 class ConversationMemory:
     """Persistent conversation memory with auto-compacting."""
@@ -116,7 +126,8 @@ class ConversationMemory:
 
 
 class MeshClaudeBot:
-    def __init__(self, port, baudrate, contact_filter=None, debug=False):
+    def __init__(self, port, baudrate, contact_filter=None, debug=False,
+                 project_root=None):
         self.port = port
         self.baudrate = baudrate
         self.contact_filter = contact_filter
@@ -127,6 +138,68 @@ class MeshClaudeBot:
         self._processing = asyncio.Lock()
         self._seen_msgs = {}  # (sender, text) -> timestamp for dedup
         self._dedup_window = 60  # ignore duplicate messages within this many seconds
+
+        # Project root the bot operates against. Defaults to the repo
+        # this script lives in -- the typical run is
+        # "python tools/mesh_claude_bot.py ..." from the project root.
+        # Claude is invoked with this as its working directory so its
+        # Read/Edit/Bash tools see the firmware source tree.
+        self.project_root = project_root or os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        )
+
+        # OTA target wired into Claude's system prompt so it can push
+        # firmware without asking. The token is read fresh on every
+        # message via _current_ota_token(), so a "token: XXX" DM (or
+        # an external edit of TOKEN_CACHE_PATH) propagates without a
+        # bot restart.
+        self.ota_host = os.environ.get("MESH_OTA_HOST", "").strip() or None
+        self._seed_token_cache()
+
+    def _seed_token_cache(self):
+        """Populate the token cache from MESH_OTA_TOKEN if the file is missing."""
+        if os.path.exists(TOKEN_CACHE_PATH):
+            return
+        env_token = os.environ.get("MESH_OTA_TOKEN", "").strip()
+        if not env_token:
+            return
+        try:
+            os.makedirs(os.path.dirname(TOKEN_CACHE_PATH), exist_ok=True)
+            with open(TOKEN_CACHE_PATH, "w") as f:
+                f.write(env_token)
+        except OSError as e:
+            logger.warning(f"Could not seed token cache: {e}")
+
+    def _current_ota_token(self):
+        """Read the latest token from disk on every call.
+
+        Reading per-message means the user can rotate the token (via
+        the device's "Regenerate token" button + a follow-up `token:
+        XXXXXX` DM, or a direct file edit) without having to bounce
+        the bot.
+        """
+        try:
+            with open(TOKEN_CACHE_PATH) as f:
+                t = f.read().strip()
+            return t or None
+        except (OSError, FileNotFoundError):
+            return None
+
+    def _maybe_capture_token(self, text):
+        """If the message contains `token: XXX`, persist it. Returns the captured token, or None."""
+        m = TOKEN_PATTERN.search(text)
+        if not m:
+            return None
+        new_token = m.group(1).upper()
+        try:
+            os.makedirs(os.path.dirname(TOKEN_CACHE_PATH), exist_ok=True)
+            with open(TOKEN_CACHE_PATH, "w") as f:
+                f.write(new_token)
+            logger.info(f"OTA token updated to {new_token}")
+            return new_token
+        except OSError as e:
+            logger.warning(f"Could not write token cache: {e}")
+            return None
 
     async def start(self):
         logger.info(f"Connecting to {self.port}...")
@@ -213,10 +286,31 @@ class MeshClaudeBot:
             return
 
         async with self._processing:
+            # Token rotation handshake: if the message contains
+            # `token: XXXXXX`, capture it before invoking Claude so
+            # the new value flows into the system prompt below.
+            captured = self._maybe_capture_token(text)
+            if captured:
+                await self._reply(f"Updated OTA token to {captured}.")
+                # Don't run Claude on what is effectively a config DM
+                # unless the user added other content beyond the token
+                # update. Most "token:" messages are just the rotation
+                # itself.
+                stripped = TOKEN_PATTERN.sub("", text).strip(" .,;-")
+                if not stripped:
+                    return
+                text = stripped  # let Claude see whatever else they wrote
+
             # Add to memory
             self.memory.add("user", text)
 
-            # Ask Claude
+            # Acknowledge receipt before kicking off Claude -- firmware
+            # work (read repo, edit, build, flash) routinely takes a
+            # minute or more, and the user should know we're on it
+            # rather than wondering if the DM got eaten.
+            await self._reply("Working on it...")
+
+            # Ask Claude with full repo + OTA tool access
             response = await asyncio.get_event_loop().run_in_executor(
                 None, self._ask_claude, text
             )
@@ -241,37 +335,142 @@ class MeshClaudeBot:
             except Exception as e:
                 logger.error(f"   Send failed: {e}")
 
+    async def _reply(self, text):
+        """Send a DM back to the target contact, truncating to mesh size."""
+        if not self.target_pubkey:
+            logger.warning(f"No target pubkey, can't reply: {text}")
+            return
+        if len(text) > MAX_MSG_LEN:
+            text = text[: MAX_MSG_LEN - 3] + "..."
+        try:
+            await self.mc.commands.send_msg(self.target_pubkey, text)
+            logger.info(f">> {text}")
+        except Exception as e:
+            logger.error(f"   Send failed: {e}")
+
+    # -----------------------------------------------------------------
+    # Claude invocation
+    #
+    # We shell out to the `claude` CLI in -p (print) mode, with the
+    # project root as cwd so its built-in Read/Edit/Bash tools see the
+    # firmware source tree. The system prompt tells Claude where the
+    # OTA push script is and (when configured) the target IP + token,
+    # so requests like "add a debug log to boot.lua and push it" work
+    # end-to-end -- Claude edits the file, runs `pio run`, runs
+    # push_ota.py, and replies with a short status.
+    #
+    # Memory continues to track turns so multi-message conversations
+    # ("rename that variable to FOO instead") stay coherent across DMs.
+    # -----------------------------------------------------------------
+
+    def _build_system_prompt(self):
+        """Compose the system prompt that tells Claude what it can do.
+
+        Re-built per call so the OTA token reflects whatever's on disk
+        right now (rotated via the device's regenerate button + a
+        `token: XXX` DM).
+        """
+        token = self._current_ota_token()
+        lines = [
+            "You are a firmware engineer's assistant operating over a LoRa "
+            "mesh DM channel. The user is on a T-Deck Plus and chats with "
+            "you to make changes to *this* firmware repo.",
+            "",
+            f"Project root: {self.project_root} (your cwd)",
+            "Target hardware: ESP32-S3 (LilyGo T-Deck Plus). C++ firmware "
+            "with Lua scripts for UI under lua/. CLAUDE.md in the project "
+            "root is authoritative -- read it first when making changes.",
+            "",
+            "Build:   pio run",
+            "Flash via OTA over WiFi:",
+            "  python tools/dev/push_ota.py <ip> <token> "
+            ".pio/build/t-deck-plus/firmware.bin",
+            "  push_ota.py exit code 0 = success; the device must be "
+            "rebooted to apply (the user can press Alt+Enter on the "
+            "'Firmware ready' toast).",
+        ]
+
+        if self.ota_host and token:
+            lines += [
+                "",
+                f"Default OTA target: {self.ota_host}",
+                f"OTA bearer token:   {token}",
+                "Use these unless the user names a different target. "
+                "The token is persistent on the device (survives "
+                "reboots) but the user can rotate it from "
+                "Settings -> System -> Dev OTA -> 'Regenerate token'. "
+                "If a push returns HTTP 401, ask the user to send the "
+                "new token as `token: XXXXXX` -- the bot picks it up "
+                "automatically and your next push will use it.",
+            ]
+        elif self.ota_host:
+            lines += [
+                "",
+                f"Default OTA host: {self.ota_host}",
+                "OTA token is not configured. Ask the user to send "
+                "the token shown on the device as `token: XXXXXX` "
+                "before attempting a push.",
+            ]
+        else:
+            lines += [
+                "",
+                "No OTA target is configured. Ask the user for the IP "
+                "and token (shown on the device's Dev OTA screen).",
+            ]
+
+        lines += [
+            "",
+            "Mesh constraint: every reply you make is sent verbatim as "
+            f"a single LoRa DM. Hard limit: {MAX_MSG_LEN} characters. "
+            "No markdown, no preamble, no bullet lists. State the result "
+            "and any next step the user needs to take. If something "
+            "failed, say what failed in one sentence.",
+        ]
+        return "\n".join(lines)
+
     def _ask_claude(self, message):
         context = self.memory.build_context()
 
-        prompt = (
-            f"You are a helpful assistant chatting over a LoRa mesh network. "
-            f"Keep ALL responses under {MAX_MSG_LEN} characters — this is a hard limit, "
-            f"not a suggestion. Be concise, direct, and conversational. "
-            f"No markdown, no bullet points, no headers. Just plain text.\n\n"
-        )
+        # The user's actual message is appended after any prior memory
+        # so Claude can resolve references like "make it 5 instead".
+        # The "Respond in <=NN chars" reminder is repeated here on top
+        # of the system prompt because the system prompt only sets
+        # behavioral guardrails -- the per-message reminder makes the
+        # truncation hit reliably.
+        prompt_parts = []
         if context:
-            prompt += f"Conversation so far:\n{context}\n\n"
-        prompt += f"Human: {message}\n\nRespond concisely:"
+            prompt_parts.append(f"Recent conversation:\n{context}\n")
+        prompt_parts.append(f"User: {message}")
+        prompt_parts.append(
+            f"\nRespond in <={MAX_MSG_LEN} characters, plain text only."
+        )
+        user_prompt = "\n".join(prompt_parts)
 
         try:
             result = subprocess.run(
-                ["claude", "-p", prompt],
+                [
+                    "claude", "-p", user_prompt,
+                    "--append-system-prompt", self._build_system_prompt(),
+                    "--permission-mode", "acceptEdits",
+                ],
+                cwd=self.project_root,
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=600,  # firmware build + flash can take ~1-2 min
             )
             if result.returncode == 0:
                 return result.stdout.strip()
-            else:
-                logger.error(f"Claude error: {result.stderr}")
-                return None
+            logger.error(f"Claude rc={result.returncode}, stderr={result.stderr}")
+            return f"Error (rc={result.returncode}): " + (
+                result.stderr.strip().splitlines()[-1][:120]
+                if result.stderr else "no detail"
+            )
         except subprocess.TimeoutExpired:
             logger.error("Claude timed out")
-            return "Sorry, thinking took too long."
+            return "Timed out (>10 min). Try a smaller change."
         except FileNotFoundError:
             logger.error("claude CLI not found")
-            return "Error: claude not installed"
+            return "Error: claude CLI not installed on the host."
 
 
 def main():
