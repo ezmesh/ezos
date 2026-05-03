@@ -135,6 +135,17 @@ function Time:build(state)
         end,
     })
 
+    content[#content + 1] = ui.list_item({
+        title = "NTP server",
+        subtitle = "Pick a network time source you trust",
+        on_press = function()
+            local screen_mod = require("ezui.screen")
+            local NTPScr = require("screens.settings.ntp_settings")
+            local init = NTPScr.initial_state and NTPScr.initial_state() or {}
+            screen_mod.push(screen_mod.create(NTPScr, init))
+        end,
+    })
+
     return ui.vbox({ gap = 0, bg = "BG" }, {
         ui.title_bar("Time", { back = true }),
         ui.scroll({ grow = 1, scroll_offset = state._scroll or 0 },
