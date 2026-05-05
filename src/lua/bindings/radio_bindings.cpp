@@ -588,6 +588,15 @@ static const luaL_Reg radio_funcs[] = {
     {nullptr, nullptr}
 };
 
+// @bus radio/raw_rx
+// @brief Posted on every received LoRa frame while a non-MeshCore profile is active
+// @description When the radio is parked on a foreign protocol (e.g. Meshtastic),
+// the MeshCore deserializer is bypassed and the raw frame plus reception
+// metadata is published here so a Lua-side decoder can interpret it. No events
+// are posted on this topic while the profile is "meshcore" -- those packets
+// flow through "mesh/packet" instead.
+// @payload { data: string, rssi: number, snr: number, timestamp: integer, profile: string }
+
 // Register the radio module
 void registerRadioModule(lua_State* L) {
     lua_register_module(L, "radio", radio_funcs);
