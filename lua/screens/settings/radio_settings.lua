@@ -23,6 +23,51 @@ local Radio = { title = "Radio" }
 -- The same key is read in lua/boot.lua to apply the interval at boot.
 local PREF_ADV_INTERVAL = "adv_interval_ms"
 
+-- Air-protocol profile. "meshcore" (default) or "meshtastic" -- the radio
+-- can only listen to one at a time, so this is a hard re-tune of the
+-- modulation params + sync word. Frequency stays put.
+local PREF_RADIO_PROFILE = "radio_profile"
+
+-- Queue TX spacing. Lower values send queued packets faster (more
+-- responsive, more channel usage); higher values back off so neighbours
+-- get a chance on the air. 50 ms is one step below the firmware default
+-- of 100; the rest are conservative steps above. The same key is read in
+-- lua/boot.lua and written by the onboarding step.
+local PREF_TX_THROTTLE = "tx_throttle_ms"
+
+local PROFILE_PRESETS = {
+    { label = "MeshCore",   id = "meshcore"   },
+    { label = "Meshtastic", id = "meshtastic" },
+}
+
+local function profile_index_for(id)
+    for i, p in ipairs(PROFILE_PRESETS) do
+        if p.id == id then return i end
+    end
+    return 1
+end
+
+-- Keep this list in sync with TX_THROTTLE_PRESETS in
+-- lua/screens/onboarding/tx_throttle.lua so the two pickers tell the
+-- same story. 100 ms is the firmware default; one step below, three
+-- steps above.
+local TX_THROTTLE_PRESETS = {
+    { label = "Fast (50 ms)",       ms =  50 },
+    { label = "Default (100 ms)",   ms = 100 },
+    { label = "Relaxed (200 ms)",   ms = 200 },
+    { label = "Polite (400 ms)",    ms = 400 },
+}
+
+local function tx_throttle_index_for(ms)
+    if not ms or ms <= 0 then return 2 end  -- treat 0/missing as default
+    local best_i, best_delta = 2, math.huge
+    for i, p in ipairs(TX_THROTTLE_PRESETS) do
+        local d = math.abs(p.ms - ms)
+        if d < best_delta then best_i, best_delta = i, d end
+    end
+    return best_i
+end
+
 -- Radio band presets. Mirrors the four entries the onboarding wizard
 -- offers (screens/onboarding/region.lua) so changing the band post-
 -- onboarding doesn't require running the wizard again. Keep the two
@@ -82,14 +127,18 @@ function Radio.initial_state()
     -- putFloat which lands as a NVS blob the read-back path can't
     -- decode, so the wizard stringifies and we follow suit.
     local saved_mhz = tonumber(ez.storage.get_pref("radio_freq_mhz", "")) or 0
+    local saved_profile = ez.storage.get_pref(PREF_RADIO_PROFILE, "meshcore")
+    local saved_tx = tonumber(ez.storage.get_pref(PREF_TX_THROTTLE, 0)) or 0
     return {
         enabled     = saved > 0,
         -- If the toggle is off but the user previously picked a preset,
         -- we remember the choice so flipping the toggle back on restores
         -- the same interval rather than forcing a re-pick.
-        preset_idx  = preset_index_for(saved),
-        band_idx    = (saved_mhz > 0) and band_index_for(saved_mhz) or 1,
-        last_action = nil,  -- "Sent" / "Saved" transient feedback
+        preset_idx   = preset_index_for(saved),
+        band_idx     = (saved_mhz > 0) and band_index_for(saved_mhz) or 1,
+        profile_idx  = profile_index_for(saved_profile),
+        tx_idx       = tx_throttle_index_for(saved_tx),
+        last_action  = nil,  -- "Sent" / "Saved" transient feedback
     }
 end
 
@@ -139,6 +188,84 @@ function Radio:build(state)
             "All nodes in your mesh must use the same band. " ..
             "Switching here re-tunes the radio immediately and the " ..
             "choice persists across reboots.",
+            { wrap = true, color = "TEXT_MUTED", font = "tiny_aa" }
+        )
+    )
+
+    -- Section: Air protocol. The SX1262 is single-tuner, so this is a
+    -- hard switch -- while Meshtastic is selected the device cannot see
+    -- MeshCore traffic and vice versa. Frequency is preserved.
+    content[#content + 1] = ui.padding({ 8, 8, 4, 8 },
+        ui.text_widget("Protocol", { color = "ACCENT", font = "small_aa" })
+    )
+
+    do
+        local profile_labels = {}
+        for _, p in ipairs(PROFILE_PRESETS) do
+            profile_labels[#profile_labels + 1] = p.label
+        end
+        content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+            ui.dropdown(profile_labels, {
+                value = state.profile_idx,
+                on_change = function(idx)
+                    local preset = PROFILE_PRESETS[idx]
+                    if not preset then return end
+                    state.profile_idx = idx
+                    if ez.radio and ez.radio.set_profile then
+                        ez.radio.set_profile(preset.id)
+                    end
+                    ez.storage.set_pref(PREF_RADIO_PROFILE, preset.id)
+                    state.last_action = "Protocol: " .. preset.label
+                    self:set_state({})
+                end,
+            })
+        )
+    end
+
+    content[#content + 1] = ui.padding({ 2, 8, 8, 8 },
+        ui.text_widget(
+            "MeshCore is the native ezOS protocol. Switching to " ..
+            "Meshtastic re-tunes the radio (SF11 / BW250 / sync 0x2B); " ..
+            "MeshCore traffic stops flowing until you switch back.",
+            { wrap = true, color = "TEXT_MUTED", font = "tiny_aa" }
+        )
+    )
+
+    -- Section: TX queue spacing. Persisted under tx_throttle_ms; the
+    -- onboarding wizard uses the same key so a value picked there shows
+    -- up here on first boot.
+    content[#content + 1] = ui.padding({ 8, 8, 4, 8 },
+        ui.text_widget("TX queue spacing", { color = "ACCENT", font = "small_aa" })
+    )
+
+    do
+        local tx_labels = {}
+        for _, p in ipairs(TX_THROTTLE_PRESETS) do
+            tx_labels[#tx_labels + 1] = p.label
+        end
+        content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+            ui.dropdown(tx_labels, {
+                value = state.tx_idx,
+                on_change = function(idx)
+                    local preset = TX_THROTTLE_PRESETS[idx]
+                    if not preset then return end
+                    state.tx_idx = idx
+                    if ez.mesh and ez.mesh.set_tx_throttle then
+                        ez.mesh.set_tx_throttle(preset.ms)
+                    end
+                    ez.storage.set_pref(PREF_TX_THROTTLE, preset.ms)
+                    state.last_action = "TX spacing: " .. preset.label
+                    self:set_state({})
+                end,
+            })
+        )
+    end
+
+    content[#content + 1] = ui.padding({ 2, 8, 8, 8 },
+        ui.text_widget(
+            "Minimum gap between queued transmissions. Faster = more " ..
+            "responsive but heavier on the channel; politer settings " ..
+            "leave more air-time for neighbours.",
             { wrap = true, color = "TEXT_MUTED", font = "tiny_aa" }
         )
     )

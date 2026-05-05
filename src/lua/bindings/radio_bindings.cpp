@@ -507,6 +507,61 @@ LUA_FUNCTION(l_radio_wake) {
     return 1;
 }
 
+// @lua ez.radio.set_profile(name) -> string
+// @brief Switch the air-protocol profile
+// @description Re-tunes the radio's modulation parameters and sync word
+// to match either MeshCore (the default) or Meshtastic. Frequency and
+// TX power are preserved -- those are user/region choices, not protocol.
+// Only one profile is active at a time (the SX1262 is single-tuner);
+// switching profiles is a hard re-tune that drops in-flight frames on
+// the previous protocol. While a non-MeshCore profile is active,
+// inbound frames are forwarded to the "radio/raw_rx" message bus
+// instead of being decoded by the MeshCore handler.
+// @param name "meshcore" or "meshtastic"
+// @return Result string (ok, error_init, error_param)
+// @example
+// ez.radio.set_profile("meshtastic")
+// ez.radio.set_profile("meshcore")
+// @end
+LUA_FUNCTION(l_radio_set_profile) {
+    LUA_CHECK_ARGC(L, 1);
+    const char* name = luaL_checkstring(L, 1);
+
+    if (!radio) {
+        lua_pushstring(L, "error_init");
+        return 1;
+    }
+
+    RadioProfile profile;
+    if (!radioProfileFromName(name, profile)) {
+        lua_pushstring(L, "error_param");
+        return 1;
+    }
+
+    pushRadioResult(L, radio->setProfile(profile));
+    return 1;
+}
+
+// @lua ez.radio.get_profile() -> string
+// @brief Return the active air-protocol profile name
+// @description Returns the name of the currently active profile,
+// either "meshcore" or "meshtastic". Defaults to "meshcore" when the
+// radio is not yet initialized.
+// @return Profile name string
+// @example
+// if ez.radio.get_profile() == "meshtastic" then
+//     -- subscribe to radio/raw_rx and decode Meshtastic frames
+// end
+// @end
+LUA_FUNCTION(l_radio_get_profile) {
+    if (!radio) {
+        lua_pushstring(L, "meshcore");
+        return 1;
+    }
+    lua_pushstring(L, radioProfileName(radio->getProfile()));
+    return 1;
+}
+
 // Function table for ez.radio
 static const luaL_Reg radio_funcs[] = {
     {"is_initialized",      l_radio_is_initialized},
@@ -528,8 +583,19 @@ static const luaL_Reg radio_funcs[] = {
     {"is_busy",             l_radio_is_busy},
     {"sleep",               l_radio_sleep},
     {"wake",                l_radio_wake},
+    {"set_profile",         l_radio_set_profile},
+    {"get_profile",         l_radio_get_profile},
     {nullptr, nullptr}
 };
+
+// @bus radio/raw_rx
+// @brief Posted on every received LoRa frame while a non-MeshCore profile is active
+// @description When the radio is parked on a foreign protocol (e.g. Meshtastic),
+// the MeshCore deserializer is bypassed and the raw frame plus reception
+// metadata is published here so a Lua-side decoder can interpret it. No events
+// are posted on this topic while the profile is "meshcore" -- those packets
+// flow through "mesh/packet" instead.
+// @payload { data: string, rssi: number, snr: number, timestamp: integer, profile: string }
 
 // Register the radio module
 void registerRadioModule(lua_State* L) {
