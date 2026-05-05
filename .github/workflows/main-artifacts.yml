@@ -57,7 +57,8 @@ jobs:
             ls .pio/libdeps/${{ matrix.env }} || true
             exit 1
           fi
-          (cd "$LUA_SRC" && cc -O2 -DLUA_32BITS=1 -o "$GITHUB_WORKSPACE/tools/bin/luac32" luac.c l*.c -lm)
+          (cd "$LUA_SRC" && cc -O2 -DLUA_32BITS=1 -o "$GITHUB_WORKSPACE/tools/bin/luac32" \
+              luac.c $(ls l*.c | grep -vE '^(lua|luac)\.c$') -lm)
           tools/bin/luac32 -v
 
       - name: Build firmware (${{ matrix.name }})
