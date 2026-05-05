@@ -44,94 +44,11 @@ local wallpaper_raw = nil
 local wallpaper_data = nil
 local wallpaper_index = 1
 
--- Runtime pan/tile/rotate state. Read from prefs in on_enter; re-read
--- on every reactivate so the settings screen's changes take effect
--- without having to reboot.
-local wp_tile_x    = false
-local wp_tile_y    = false
-local wp_pan       = "none"
-local wp_pan_speed = 3
-
--- Wander mode: we pick a random target offset every few seconds and
--- ease toward it. These are in wallpaper-pixel space.
-local wander_from_x, wander_from_y = 0, 0
-local wander_to_x,   wander_to_y   = 0, 0
-local wander_t0                    = 0
-local wander_dur                   = 6000  -- ms between random hops
-
--- Bools come back as integer 0/1 from NVS (Preferences stores bool as
--- U8). Lua considers 0 truthy, so `v and true or false` is a bug waiting
--- to happen — always compare to 0 explicitly.
-local function pref_bool(key, default)
-    local v = ez.storage.get_pref(key, default)
-    if type(v) == "number" then return v ~= 0 end
-    if type(v) == "boolean" then return v end
-    return default and true or false
-end
-
-local function refresh_wallpaper_prefs()
-    wp_tile_x    = pref_bool("wp_tile_x", false)
-    wp_tile_y    = pref_bool("wp_tile_y", false)
-    wp_pan       = ez.storage.get_pref("wp_pan", "none")
-    wp_pan_speed = tonumber(ez.storage.get_pref("wp_pan_speed", 3)) or 3
-end
-
--- Pan offset (in wallpaper-space) for the current animation mode and
--- time. Returned values are the amount the wallpaper is SHIFTED by;
--- the renderer draws the image at (-ox, -oy) plus wrap copies.
-local function compute_pan_offset()
-    local t_ms = ez.system.millis()
-    -- Speed factor: slow (1) = wide, slow motion; fast (10) = tight,
-    -- quick motion. Scale the period inversely to speed.
-    local speed = math.max(1, math.min(10, wp_pan_speed))
-    local W_, H_ = theme.SCREEN_W, theme.SCREEN_H
-
-    if wp_pan == "bounce_x" then
-        -- Ease back and forth across the full wallpaper width. Using a
-        -- sine keeps the reversal smooth instead of snapping.
-        local period = 12000 / speed
-        local t = (t_ms % period) / period
-        local ox = math.floor((math.sin(t * 2 * math.pi) * 0.5 + 0.5) * W_)
-        return ox, 0
-    elseif wp_pan == "bounce_y" then
-        local period = 12000 / speed
-        local t = (t_ms % period) / period
-        local oy = math.floor((math.sin(t * 2 * math.pi) * 0.5 + 0.5) * H_)
-        return 0, oy
-    elseif wp_pan == "drift_x" then
-        -- Constant one-way scroll; wrap via modulo in the draw code.
-        local period = 16000 / speed
-        local ox = math.floor((t_ms % period) / period * W_)
-        return ox, 0
-    elseif wp_pan == "drift_y" then
-        local period = 16000 / speed
-        local oy = math.floor((t_ms % period) / period * H_)
-        return 0, oy
-    elseif wp_pan == "wander" then
-        local dur = math.max(1500, math.floor(wander_dur / speed * 3))
-        if wander_t0 == 0 or (t_ms - wander_t0) > dur then
-            wander_from_x, wander_from_y = wander_to_x, wander_to_y
-            wander_to_x = math.random(0, W_ - 1)
-            wander_to_y = math.random(0, H_ - 1)
-            wander_t0 = t_ms
-        end
-        local tt = math.max(0, math.min(1, (t_ms - wander_t0) / dur))
-        -- Smooth-step easing so the random jumps don't look jerky.
-        local e = tt * tt * (3 - 2 * tt)
-        local ox = math.floor(wander_from_x + (wander_to_x - wander_from_x) * e)
-        local oy = math.floor(wander_from_y + (wander_to_y - wander_from_y) * e)
-        return ox, oy
-    end
-    return 0, 0
-end
-
--- Clamp the offset when tiling is disabled so we don't reveal empty
--- strips. Without tiling, pan simply does nothing on the locked axis.
-local function effective_offset(ox, oy)
-    if not wp_tile_x then ox = 0 end
-    if not wp_tile_y then oy = 0 end
-    return ox, oy
-end
+-- Stub kept so on_enter can call it without hauling around the old
+-- pan/tile prefs that were removed when the wallpaper-pan feature
+-- went away. If we ever bring back animated wallpapers this is the
+-- function that should re-fetch their prefs from NVS.
+local function refresh_wallpaper_prefs() end
 
 local function cache_path_for(name_or_path)
     -- Strip directory + extension to get a stable cache key.
@@ -284,36 +201,7 @@ node.register("wallpaper", {
         -- otherwise allocate the reduced content area and clip the image.
         -- Draw edge-to-edge; the opaque status bar covers the top strip.
         if wallpaper_raw then
-            local W_, H_ = theme.SCREEN_W, theme.SCREEN_H
-            local ox, oy = effective_offset(compute_pan_offset())
-
-            if ox == 0 and oy == 0 then
-                -- Fast path: no pan, single blit.
-                d.draw_bitmap(0, 0, W_, H_, wallpaper_raw)
-            else
-                -- Draw the wallpaper at (-ox, -oy) and, when tiling on
-                -- an axis is active, an extra copy shifted by one full
-                -- wallpaper width/height so the wrapped pixels cover
-                -- what would otherwise be a blank strip. LGFX clips any
-                -- draw that falls off-screen. Up to 4 blits per frame
-                -- at ~3 ms each = ~12 ms for full 2D pan + wrap.
-                d.draw_bitmap(-ox, -oy, W_, H_, wallpaper_raw)
-                if wp_tile_x and ox ~= 0 then
-                    d.draw_bitmap(W_ - ox, -oy, W_, H_, wallpaper_raw)
-                end
-                if wp_tile_y and oy ~= 0 then
-                    d.draw_bitmap(-ox, H_ - oy, W_, H_, wallpaper_raw)
-                end
-                if wp_tile_x and wp_tile_y and ox ~= 0 and oy ~= 0 then
-                    d.draw_bitmap(W_ - ox, H_ - oy, W_, H_, wallpaper_raw)
-                end
-            end
-
-            -- Panning modes animate continuously; request the next frame.
-            if wp_pan ~= "none" and (wp_tile_x or wp_tile_y) then
-                local screen_mod = require("ezui.screen")
-                screen_mod.invalidate()
-            end
+            d.draw_bitmap(0, 0, theme.SCREEN_W, theme.SCREEN_H, wallpaper_raw)
         elseif wallpaper_data then
             d.draw_jpeg(0, 0, wallpaper_data)
         else

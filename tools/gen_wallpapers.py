@@ -165,9 +165,9 @@ def main() -> None:
             stem = src.stem
         dst = args.dst / (stem + ".jpg")
         src_b, dst_b = process_one(src, dst, args.quality)
+        label = f"{src.name[:28]:<28s} -> {dst.name}"
         total_in += src_b
         total_out += dst_b
-        label = f"{src.name[:28]:<28s} -> {dst.name}"
         print(f"  [{i:2d}/{len(files)}] {label}  {src_b:>8d}B -> {dst_b:>6d}B")
 
     saved = total_in - total_out

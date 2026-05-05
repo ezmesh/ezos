@@ -39,15 +39,6 @@ local ENTRIES = {
     { key = "wp_rotate",      type = "string", default = "off",
       options = { "off", "boot", "shown" },
       description = "Auto-rotate trigger: off, once per boot, or every time shown" },
-    { key = "wp_tile_x",      type = "int8", default = 0, min = 0, max = 1,
-      description = "Tile wallpaper horizontally during pan (0=off, 1=on)" },
-    { key = "wp_tile_y",      type = "int8", default = 0, min = 0, max = 1,
-      description = "Tile wallpaper vertically during pan (0=off, 1=on)" },
-    { key = "wp_pan",         type = "string", default = "none",
-      options = { "none", "bounce_x", "bounce_y", "drift_x", "drift_y", "wander" },
-      description = "Auto-pan animation mode" },
-    { key = "wp_pan_speed",   type = "int32", default = 3, min = 1, max = 10,
-      description = "Pan speed factor (1=slow, 10=fast)" },
 
     -- ---- Keyboard ---------------------------------------------------
     { key = "kb_rep_enable", type = "string", default = "1",
@@ -94,6 +85,9 @@ local ENTRIES = {
       description = "Contact list blob (edit with care)" },
     { key = "tb_mode",         type = "string", default = "",
       description = "Trackball mode (arrow/pointer/scroll)" },
+    { key = "touch_mode",      type = "string", default = "direct",
+      options = { "direct", "mouse" },
+      description = "Touch input style: direct tap or relative cursor (mouse mode)" },
 }
 
 local by_key = {}
