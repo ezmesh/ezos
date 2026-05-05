@@ -23,6 +23,8 @@
 --   Alt+S       save (prompts for path on first save)
 --   Alt+O       open file (prompts for path)
 --   Alt+N       new (clears, drops the current path)
+--   Alt+Z       undo last edit (up to 100 steps; consecutive
+--               character inserts coalesce into one step)
 --   Back        close screen ONLY when there's nothing to delete and
 --               the buffer is unmodified (otherwise the back key
 --               doubles as the BACKSPACE delete-left)
@@ -56,12 +58,69 @@ local LINE_NUMBER_W = 28
 local PAD_X         = 4
 local PAD_Y         = 2
 
+-- Undo history depth. Each snapshot stores a shallow copy of the
+-- `lines` array (strings are immutable in Lua, so sharing the
+-- string entries is safe and cheap) plus cursor + scroll position.
+-- A 100-row buffer with 100 snapshots is ~80 KB of Lua table
+-- overhead; well within budget on a buffer this size.
+local UNDO_DEPTH    = 100
+
 local function ensure_state(n)
     if not n._lines then
         n._lines = { "" }
         n._row, n._col = 1, 1
         n._scroll_row  = 0
+        n._undo = {}
+        n._undo_last_kind = nil
     end
+end
+
+-- Shallow copy of the lines list. Lua strings are immutable so the
+-- entries are shared with the live buffer; only the wrapper table is
+-- duplicated. O(num_lines) per snapshot rather than O(total_chars).
+local function clone_lines(lines)
+    local out = {}
+    for i = 1, #lines do out[i] = lines[i] end
+    return out
+end
+
+-- Push a snapshot before a modification. `kind` is a coarse label
+-- ("insert" / "newline" / "delete" / "tab" / "paste") used to
+-- coalesce consecutive same-kind actions into one undo step --
+-- typing "hello" should rewind in one Undo, not five.
+local function push_undo(n, kind)
+    n._undo = n._undo or {}
+    if kind == "insert" and n._undo_last_kind == "insert" then
+        -- Already snapshotted at the start of this typing run; this
+        -- character is part of the same step.
+        return
+    end
+    n._undo[#n._undo + 1] = {
+        lines      = clone_lines(n._lines),
+        row        = n._row,
+        col        = n._col,
+        scroll_row = n._scroll_row,
+    }
+    while #n._undo > UNDO_DEPTH do
+        table.remove(n._undo, 1)
+    end
+    n._undo_last_kind = kind
+end
+
+-- Restore the most recent snapshot. The line table is replaced
+-- wholesale (cheap, since the entries are interned strings); cursor
+-- + scroll snap back to where they were captured.
+local function pop_undo(n)
+    if not n._undo or #n._undo == 0 then return false end
+    local snap = table.remove(n._undo)
+    n._lines      = snap.lines
+    n._row        = snap.row
+    n._col        = snap.col
+    n._scroll_row = snap.scroll_row or 0
+    -- Clear the coalesce tag so the next typing run starts a fresh
+    -- snapshot rather than merging into whatever we just popped.
+    n._undo_last_kind = nil
+    return true
 end
 
 if not node.handler("text_editor") then
@@ -150,7 +209,7 @@ if not node.handler("text_editor") then
             end
 
             -- Help line at the bottom.
-            local hint = "Alt+S save  Alt+O open  Alt+N new  Back to quit"
+            local hint = "Alt+S save  Alt+O open  Alt+N new  Alt+Z undo  Back quit"
             theme.set_font("tiny_aa")
             d.draw_text(x + 4, y + h - theme.font_height() - 1,
                 hint, num_color)
@@ -163,6 +222,14 @@ if not node.handler("text_editor") then
             local c   = key.character
             local lines = n._lines
 
+            -- Cursor moves end the current "typing run" so the next
+            -- character insert starts a fresh undo step instead of
+            -- merging into the previous one. Otherwise typing
+            -- "hello", arrowing left, and typing "world" would all
+            -- live in the same undo entry.
+            if s == "UP" or s == "DOWN" or s == "LEFT" or s == "RIGHT" then
+                n._undo_last_kind = nil
+            end
             -- Navigation -----------------------------------------------
             if s == "UP" then
                 if n._row > 1 then
@@ -196,6 +263,7 @@ if not node.handler("text_editor") then
 
             -- Editing --------------------------------------------------
             if s == "ENTER" then
+                push_undo(n, "newline")
                 local cur  = lines[n._row]
                 local left = cur:sub(1, n._col - 1)
                 local right = cur:sub(n._col)
@@ -207,11 +275,13 @@ if not node.handler("text_editor") then
                 return "handled"
             elseif s == "BACKSPACE" then
                 if n._col > 1 then
+                    push_undo(n, "delete")
                     local cur = lines[n._row]
                     lines[n._row] = cur:sub(1, n._col - 2) .. cur:sub(n._col)
                     n._col = n._col - 1
                     n._dirty = true
                 elseif n._row > 1 then
+                    push_undo(n, "delete")
                     local prev = lines[n._row - 1]
                     n._col = #prev + 1
                     lines[n._row - 1] = prev .. lines[n._row]
@@ -222,19 +292,34 @@ if not node.handler("text_editor") then
                     -- At buffer start with nothing left to delete --
                     -- the BACKSPACE key (the only "back" signal on
                     -- the T-Deck; there is no Esc) doubles as quit.
-                    -- We don't ask for confirmation if the buffer was
-                    -- never modified, otherwise we just consume the
-                    -- key and let the user save explicitly.
-                    if n._dirty then return "handled" end
+                    -- For a dirty buffer, push a confirm dialog so
+                    -- the user can decide whether to discard their
+                    -- edits; clean buffer pops straight out.
+                    if n._dirty then
+                        local dialog = require("ezui.dialog")
+                        dialog.confirm({
+                            title    = "Discard changes?",
+                            message  = "Unsaved edits will be lost. " ..
+                                       "Use Alt+S to save first if you want to keep them.",
+                            ok_label = "Discard",
+                            cancel_label = "Keep editing",
+                        }, function()
+                            n._dirty = false
+                            require("ezui.screen").pop()
+                        end)
+                        return "handled"
+                    end
                     return "pop"
                 end
                 return "handled"
             elseif s == "DELETE" then
                 local cur = lines[n._row]
                 if n._col <= #cur then
+                    push_undo(n, "delete")
                     lines[n._row] = cur:sub(1, n._col - 1) .. cur:sub(n._col + 1)
                     n._dirty = true
                 elseif n._row < #lines then
+                    push_undo(n, "delete")
                     lines[n._row] = cur .. lines[n._row + 1]
                     table.remove(lines, n._row + 1)
                     n._dirty = true
@@ -242,13 +327,19 @@ if not node.handler("text_editor") then
                 return "handled"
             end
 
-            -- Alt+S / Alt+O / Alt+N: file-shortcut dispatch.
+            -- Alt+S / Alt+O / Alt+N / Alt+Z: shortcut dispatch.
             -- The focus system swallows non-arrow keys when in
             -- editing mode (see focus.handle_key), so the screen's
             -- handle_key never sees these. We handle them inline
-            -- by calling callbacks the screen attaches to the node.
+            -- by calling callbacks the screen attaches to the node,
+            -- with the exception of undo which is purely node-local
+            -- and doesn't need a screen-level hook.
             if key.alt and c then
                 local lc = c:lower()
+                if lc == "z" then
+                    pop_undo(n)
+                    return "handled"
+                end
                 if (lc == "s" or lc == "o" or lc == "n") and n._on_shortcut then
                     n._on_shortcut(lc)
                     return "handled"
@@ -260,6 +351,7 @@ if not node.handler("text_editor") then
             -- advance, and editing Lua at 4-space indents matches the
             -- rest of this codebase.
             if s == "TAB" then
+                push_undo(n, "tab")
                 local cur = lines[n._row]
                 lines[n._row] = cur:sub(1, n._col - 1) .. "    " .. cur:sub(n._col)
                 n._col = n._col + 4
@@ -268,6 +360,7 @@ if not node.handler("text_editor") then
             end
 
             if c and not key.alt then
+                push_undo(n, "insert")
                 local cur = lines[n._row]
                 lines[n._row] = cur:sub(1, n._col - 1) .. c .. cur:sub(n._col)
                 n._col = n._col + 1
@@ -324,6 +417,11 @@ function Editor:_load(path)
         self._editor_node._row, self._editor_node._col = 1, 1
         self._editor_node._scroll_row = 0
         self._editor_node._dirty = false
+        -- Loading a new file is a hard cut: an undo from the freshly
+        -- loaded state shouldn't pop back into the previously open
+        -- file's history. Drop everything.
+        self._editor_node._undo = {}
+        self._editor_node._undo_last_kind = nil
     end
     self:set_state({})
 end
@@ -435,6 +533,8 @@ function Editor:on_enter()
                 me._editor_node._row, me._editor_node._col = 1, 1
                 me._editor_node._scroll_row = 0
                 me._editor_node._dirty = false
+                me._editor_node._undo = {}
+                me._editor_node._undo_last_kind = nil
                 me:set_state({})
             end
         end
