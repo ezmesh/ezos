@@ -13,14 +13,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - env: t-deck-plus
-            name: embedded
-          - env: t-deck-plus-sdcard
-            name: sdcard
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -40,38 +32,50 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pio-
 
-      - name: Install PlatformIO
+      - name: Install PlatformIO and esptool
         run: |
           python -m pip install --upgrade pip
-          pip install platformio
+          pip install platformio esptool
 
       - name: Fetch PlatformIO dependencies
-        run: pio pkg install -e ${{ matrix.env }}
+        run: pio pkg install -e t-deck-plus
 
       - name: Build 32-bit luac for bytecode embedding
         run: |
           mkdir -p tools/bin
-          LUA_SRC=".pio/libdeps/${{ matrix.env }}/Esp32Lua/src/lua"
+          LUA_SRC=".pio/libdeps/t-deck-plus/Esp32Lua/src/lua"
           if [ ! -d "$LUA_SRC" ]; then
             echo "Lua source not found at $LUA_SRC" >&2
-            ls .pio/libdeps/${{ matrix.env }} || true
+            ls .pio/libdeps/t-deck-plus || true
             exit 1
           fi
           (cd "$LUA_SRC" && cc -O2 -DLUA_32BITS=1 -o "$GITHUB_WORKSPACE/tools/bin/luac32" \
               luac.c $(ls l*.c | grep -vE '^(lua|luac)\.c$') -lm)
           tools/bin/luac32 -v
 
-      - name: Build firmware (${{ matrix.name }})
-        run: pio run -e ${{ matrix.env }}
+      - name: Build firmware
+        run: pio run -e t-deck-plus
+
+      - name: Create merged full image for fresh flashing
+        run: |
+          mkdir -p artifacts
+          cp .pio/build/t-deck-plus/firmware.bin    artifacts/firmware.bin
+          cp .pio/build/t-deck-plus/bootloader.bin  artifacts/bootloader.bin
+          cp .pio/build/t-deck-plus/partitions.bin  artifacts/partitions.bin
+          esptool.py --chip esp32s3 merge_bin \
+            -o artifacts/firmware-full.bin \
+            --flash_mode dio \
+            --flash_freq 80m \
+            --flash_size 16MB \
+            0x0000  artifacts/bootloader.bin \
+            0x8000  artifacts/partitions.bin \
+            0x10000 artifacts/firmware.bin
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.name }}-${{ github.sha }}
-          path: |
-            .pio/build/${{ matrix.env }}/firmware.bin
-            .pio/build/${{ matrix.env }}/bootloader.bin
-            .pio/build/${{ matrix.env }}/partitions.bin
+          name: firmware-${{ github.sha }}
+          path: artifacts/*
           retention-days: 90
 
   prune:
@@ -83,27 +87,25 @@ jobs:
         with:
           script: |
             const KEEP = 3;
-            const prefixes = ['firmware-embedded-', 'firmware-sdcard-'];
+            const PREFIX = 'firmware-';
 
             const artifacts = await github.paginate(
               github.rest.actions.listArtifactsForRepo,
               { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 }
             );
 
-            for (const prefix of prefixes) {
-              const matching = artifacts
-                .filter(a => a.name.startsWith(prefix) && !a.expired)
-                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            const matching = artifacts
+              .filter(a => a.name.startsWith(PREFIX) && !a.expired)
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-              const toDelete = matching.slice(KEEP);
-              core.info(`${prefix}: ${matching.length} artifacts, deleting ${toDelete.length}`);
+            const toDelete = matching.slice(KEEP);
+            core.info(`${matching.length} artifacts, deleting ${toDelete.length}`);
 
-              for (const artifact of toDelete) {
-                core.info(`Deleting ${artifact.name} (id=${artifact.id}, created=${artifact.created_at})`);
-                await github.rest.actions.deleteArtifact({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  artifact_id: artifact.id,
-                });
-              }
+            for (const artifact of toDelete) {
+              core.info(`Deleting ${artifact.name} (id=${artifact.id}, created=${artifact.created_at})`);
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+              });
             }
