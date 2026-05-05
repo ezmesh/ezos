@@ -26,6 +26,7 @@ local CATEGORIES = {
     { title = "Radio",     subtitle = "Mesh advert, announce cadence",icon = icons.radio_tower,   mod = "screens.settings.radio_settings" },
     { title = "Sound",     subtitle = "UI feedback, volume",          icon = icons.radio_tower,   mod = "screens.settings.sound_settings" },
     { title = "System",    subtitle = "Repeat onboarding",            icon = icons.settings,      mod = "screens.settings.system_settings" },
+    { title = "Firmware",  subtitle = "Check rolling-main update",    icon = icons.cloud_upload,  mod = "screens.settings.firmware_update" },
     { title = "About",     subtitle = "Version, credits",             icon = icons.info,          mod = "screens.about" },
 }
 

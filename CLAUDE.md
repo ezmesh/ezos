@@ -105,6 +105,41 @@ pio run
 pio run -t upload
 ```
 
+## Rolling-main OTA updates
+
+Every push to `main` triggers `.github/workflows/main-artifacts.yml`,
+which builds the firmware, generates a `manifest.json` describing the
+build (SHA, version, sha256, size, asset URL), signs it with an
+Ed25519 key from the `OTA_SIGNING_PRIVKEY` GitHub Actions secret, and
+republishes the `rolling-main` GitHub Release with the binaries +
+manifest + detached signature. Older builds are kept as run artefacts
+(prune step caps at 3) for short-term debugging.
+
+The on-device update screen (`lua/screens/settings/firmware_update.lua`)
+fetches `manifest.json` and `manifest.json.sig` from the rolling-main
+release, calls `ez.crypto.ed25519_verify` against the embedded
+`kOtaSigningPubkey` (`src/ota_pubkey.cpp`), and only on a valid
+signature passes the asset URL + sha256 into `ez.ota.apply_url`, which
+streams the firmware straight into the inactive OTA partition. Trust
+flows from the signature, not from TLS — the streamer uses
+`setInsecure()` and re-checks SHA-256 against the manifest while
+writing.
+
+**Setup ceremony** (do this once per project, not per release):
+
+1. `pip install pynacl && python tools/ota/gen_signing_key.py`
+2. Paste the printed private key into the GitHub repo secret
+   `OTA_SIGNING_PRIVKEY` (Settings → Secrets and variables → Actions).
+3. Paste the printed C-array form into `src/ota_pubkey.cpp`'s
+   `kOtaSigningPubkey` (replacing the all-zero placeholder).
+4. Build + flash. Devices flashed *before* this step won't accept
+   rolling-main updates — `ez.ota.signing_pubkey()` returns nil and
+   the screen shows "OTA signing not configured on this device".
+
+Key rotation is "burn a new firmware containing the new pubkey, then
+rotate the secret". Don't lose the private key — there's no recovery
+path other than reflashing every device manually.
+
 ## Project Structure
 
 ```

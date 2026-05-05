@@ -874,6 +874,16 @@ LUA_FUNCTION(l_system_get_firmware_info) {
     lua_pushinteger(L, ESP.getFlashChipSize());
     lua_setfield(L, -2, "flash_chip_size");
 
+#ifdef EZOS_VERSION
+    lua_pushstring(L, EZOS_VERSION);
+    lua_setfield(L, -2, "version");
+#endif
+
+#ifdef EZOS_BUILD_SHA
+    lua_pushstring(L, EZOS_BUILD_SHA);
+    lua_setfield(L, -2, "build_sha");
+#endif
+
     return 1;
 }
 

@@ -21,6 +21,9 @@
 #include "mbedtls/sha512.h"
 #include "mbedtls/base64.h"
 
+// Ed25519 from rweather/Crypto -- already linked for MeshCore identity.
+#include <Ed25519.h>
+
 // AES block size
 constexpr size_t AES_BLOCK_SIZE = 16;
 
@@ -573,6 +576,35 @@ LUA_FUNCTION(l_crypto_base64_decode) {
     return 1;
 }
 
+// @lua ez.crypto.ed25519_verify(pubkey, message, signature) -> boolean
+// @brief Verify an Ed25519 signature
+// @description Returns true when `signature` (64 bytes) is a valid
+// Ed25519 signature of `message` under the given 32-byte public key.
+// All inputs are raw binary strings -- pass `hex_to_bytes` output if
+// you have hex.
+// @param pubkey  32-byte Ed25519 public key
+// @param message  Arbitrary message bytes
+// @param signature  64-byte Ed25519 signature
+// @return true when the signature is valid, false otherwise
+// @example
+// local ok = ez.crypto.ed25519_verify(pub, manifest_text, sig)
+// @end
+static int l_crypto_ed25519_verify(lua_State* L) {
+    size_t pubLen = 0, msgLen = 0, sigLen = 0;
+    const uint8_t* pub = (const uint8_t*)luaL_checklstring(L, 1, &pubLen);
+    const uint8_t* msg = (const uint8_t*)luaL_checklstring(L, 2, &msgLen);
+    const uint8_t* sig = (const uint8_t*)luaL_checklstring(L, 3, &sigLen);
+
+    if (pubLen != 32 || sigLen != 64) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    bool ok = Ed25519::verify(sig, pub, msg, msgLen);
+    lua_pushboolean(L, ok ? 1 : 0);
+    return 1;
+}
+
 // Function table for ez.crypto
 static const luaL_Reg crypto_funcs[] = {
     {"sha256",              l_crypto_sha256},
@@ -588,6 +620,7 @@ static const luaL_Reg crypto_funcs[] = {
     {"hex_to_bytes",        l_crypto_hex_to_bytes},
     {"base64_encode",       l_crypto_base64_encode},
     {"base64_decode",       l_crypto_base64_decode},
+    {"ed25519_verify",      l_crypto_ed25519_verify},
     {nullptr, nullptr}
 };
 
