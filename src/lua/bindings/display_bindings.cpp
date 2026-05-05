@@ -1801,6 +1801,35 @@ LUA_FUNCTION(l_sprite_get_raw) {
     return 1;
 }
 
+// @lua sprite:set_raw(data)
+// @brief Overwrite the sprite's pixel buffer with raw RGB565 bytes
+// @description Inverse of get_raw(). Copies width*height*2 bytes from
+// `data` into the sprite's pixel buffer in LGFX byte order. Used by
+// the paint app's undo history to restore a previous canvas snapshot
+// without a per-pixel fill_rect loop. The data length must match the
+// sprite's exact buffer size; shorter strings are rejected so a
+// stray call can't read past the end of `data`.
+// @param data Raw bytes string previously returned by get_raw()
+LUA_FUNCTION(l_sprite_set_raw) {
+    Sprite* sprite = checkSprite(L, 1);
+    if (!sprite) return 0;
+    size_t inLen;
+    const char* in = luaL_checklstring(L, 2, &inLen);
+    size_t expected = sprite->rawBufferSize();
+    if (expected == 0) return 0;
+    if (inLen < expected) {
+        return luaL_error(L,
+            "sprite:set_raw: data too short -- got %zu bytes, expected %zu "
+            "(width*height*2)",
+            inLen, expected);
+    }
+    // rawBuffer() returns a const pointer for read-only consumers; the
+    // underlying LGFX buffer is mutable, so const_cast is safe here.
+    uint8_t* buf = const_cast<uint8_t*>(sprite->rawBuffer());
+    if (buf) memcpy(buf, in, expected);
+    return 0;
+}
+
 // Sprite __gc metamethod
 LUA_FUNCTION(l_sprite_gc) {
     Sprite** pp = (Sprite**)lua_touserdata(L, 1);
@@ -1830,6 +1859,7 @@ static const luaL_Reg sprite_methods[] = {
     {"draw_jpeg",            l_sprite_draw_jpeg},
     {"draw_png",             l_sprite_draw_png},
     {"get_raw",              l_sprite_get_raw},
+    {"set_raw",              l_sprite_set_raw},
     {nullptr, nullptr}
 };
 
