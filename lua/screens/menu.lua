@@ -117,6 +117,8 @@ local CATEGORIES = {
               icon = icons.globe, mod = "screens.tools.http_test" },
             { title = "Channel Sniffer", subtitle = "Live GRP_TXT channel hashes seen on the air",
               icon = icons.radio, mod = "screens.tools.channel_sniffer" },
+            { title = "Packet Sniffer", subtitle = "Every packet the radio decodes (ADVERT, DM, ACK, ...)",
+              icon = icons.signal, mod = "screens.tools.packet_sniffer" },
             { title = "Touch Test", subtitle = "GT911 multi-touch coordinates + trails",
               icon = icons.circle_dot, mod = "screens.tools.touch_test" },
             { title = "Pixel Fix", subtitle = "Clear screen ghosting",
@@ -612,6 +614,12 @@ function Menu:_set_tab(idx)
     if idx < 1 then idx = #CATEGORIES end
     if idx > #CATEGORIES then idx = 1 end
     if idx == (self._state and self._state.tab_idx) then return end
+    -- Click feedback. The same "tap" sound list_item plays on
+    -- activate so a tab switch sounds the same as a row tap. Lazy
+    -- require because the ui_sounds service may not be ready at
+    -- module-load order.
+    local ok, sounds = pcall(require, "services.ui_sounds")
+    if ok and sounds and sounds.play then sounds.play("tap") end
     -- Reset focus + scroll to the top of the new tab; keeping the old
     -- focus index would land us on a row that no longer exists once
     -- the entry list is replaced, and silently scrolled-down content
