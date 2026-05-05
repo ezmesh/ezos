@@ -619,6 +619,13 @@ try:
     version = env.GetProjectOption("custom_version") or "0.0.0"
     env.Append(CPPDEFINES=[("EZOS_VERSION", env.StringifyMacro(version))])
 
+    # Optional: short build identifier (e.g. git SHA) supplied by CI via
+    # the EZOS_BUILD_SHA env var. Used by the firmware-update screen to
+    # tell the running build apart from the latest rolling-main release.
+    build_sha = os.environ.get("EZOS_BUILD_SHA", "").strip()
+    if build_sha:
+        env.Append(CPPDEFINES=[("EZOS_BUILD_SHA", env.StringifyMacro(build_sha))])
+
     skip_embedding = False
     for d in cpp_defines:
         if isinstance(d, tuple):
