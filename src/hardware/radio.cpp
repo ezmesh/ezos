@@ -234,15 +234,25 @@ RadioResult Radio::setProfile(RadioProfile profile) {
     RadioConfig cfg = _config;
     applyRadioProfile(cfg, profile);
 
-    // Apply modulation params one at a time so a single bad value doesn't
-    // leave the radio half-configured. Frequency and TX power are already
-    // current; we don't re-touch them.
+    // Apply modulation params one at a time. Each setter writes its
+    // value into _config on success, so a mid-sequence failure would
+    // leave the radio in a mixed state with _config.profile still
+    // pointing at the old profile -- and the early-exit guard above
+    // would then block any rollback attempt. Snapshot _config first
+    // and restore it (plus re-arm RX) on any failure.
+    RadioConfig rollback = _config;
+    auto fail = [&](RadioResult r) {
+        _config = rollback;
+        startReceive();
+        return r;
+    };
+
     RadioResult r;
-    r = setBandwidth(cfg.bandwidth);            if (r != RadioResult::OK) return r;
-    r = setSpreadingFactor(cfg.spreadingFactor); if (r != RadioResult::OK) return r;
-    r = setCodingRate(cfg.codingRate);          if (r != RadioResult::OK) return r;
-    r = setSyncWord(cfg.syncWord);              if (r != RadioResult::OK) return r;
-    r = setPreambleLength(cfg.preambleLength);  if (r != RadioResult::OK) return r;
+    r = setBandwidth(cfg.bandwidth);             if (r != RadioResult::OK) return fail(r);
+    r = setSpreadingFactor(cfg.spreadingFactor); if (r != RadioResult::OK) return fail(r);
+    r = setCodingRate(cfg.codingRate);           if (r != RadioResult::OK) return fail(r);
+    r = setSyncWord(cfg.syncWord);               if (r != RadioResult::OK) return fail(r);
+    r = setPreambleLength(cfg.preambleLength);   if (r != RadioResult::OK) return fail(r);
 
     _config.profile = profile;
 
