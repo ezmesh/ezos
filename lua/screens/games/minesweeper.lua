@@ -196,7 +196,7 @@ if not node_mod.handler("minesweeper_view") then
             -- Bottom hint text
             theme.set_font("tiny_aa")
             if not game_over then
-                local hint = "Space:reveal  F:flag"
+                local hint = "Space/tap reveal  F flag  M mouse"
                 d.draw_text(x + floor((320 - theme.text_width(hint)) / 2), y + 228, hint, rgb(100, 100, 110))
             else
                 local hint = "R to restart"
@@ -210,8 +210,75 @@ function Minesweeper:build(state)
     return { type = "minesweeper_view" }
 end
 
+-- Map a screen coordinate back to a board (row, col), or nil if the
+-- point falls outside the playfield. Mirrors the gx/gy origin and
+-- CELL stride used in the draw call so the touch and the visual stay
+-- in sync if either ever moves.
+local function cell_at(sx, sy)
+    local gx = math.floor((320 - COLS * CELL) / 2)
+    local gy = 24
+    if sx < gx or sy < gy then return nil end
+    local c = math.floor((sx - gx) / CELL) + 1
+    local r = math.floor((sy - gy) / CELL) + 1
+    if r < 1 or r > ROWS or c < 1 or c > COLS then return nil end
+    return r, c
+end
+
+local function on_tap(_, data)
+    if game_over or type(data) ~= "table" then return end
+    local r, c = cell_at(data.x, data.y)
+    if not r then return end
+    cursor_r, cursor_c = r, c
+    if grid[r][c].flagged then return end
+    if first_reveal then
+        place_mines(r, c)
+        first_reveal = false
+    end
+    reveal(r, c)
+    if not game_over then check_win() end
+end
+
+local function on_long_press(_, data)
+    if game_over or type(data) ~= "table" then return end
+    local r, c = cell_at(data.x, data.y)
+    if not r then return end
+    cursor_r, cursor_c = r, c
+    local cell = grid[r][c]
+    if not cell.revealed then cell.flagged = not cell.flagged end
+end
+
+-- Mouse-mode hover: as the on-screen cursor crosses a cell, point
+-- the game cursor at it so the user can press F (flag) without
+-- needing a long-press. Only runs in mouse mode -- in direct touch
+-- mode a moving finger is a drag, not a hover, and following it
+-- would just whip the yellow cell highlight around the board
+-- between intentional clicks.
+local function on_touch_move(_, _data)
+    if game_over then return end
+    local ti = require("ezui.touch_input")
+    if not ti.mouse_mode then return end
+    local r, c = cell_at(ti.cursor_x, ti.cursor_y)
+    if r then cursor_r, cursor_c = r, c end
+end
+
 function Minesweeper:on_enter()
     init_grid()
+    -- Touch / mouse input. touch/tap = reveal, touch/long_press = flag.
+    -- Both events are synthesised by ezui.touch_input regardless of
+    -- whether the user is in direct or mouse mode, so the same
+    -- handlers work either way. The third subscription pulls the
+    -- cell highlight along under the mouse cursor so F flags
+    -- whatever's hovered.
+    self._sub_tap  = ez.bus.subscribe("touch/tap",        on_tap)
+    self._sub_long = ez.bus.subscribe("touch/long_press", on_long_press)
+    self._sub_move = ez.bus.subscribe("touch/move",       on_touch_move)
+end
+
+function Minesweeper:on_exit()
+    if self._sub_tap  then ez.bus.unsubscribe(self._sub_tap)  end
+    if self._sub_long then ez.bus.unsubscribe(self._sub_long) end
+    if self._sub_move then ez.bus.unsubscribe(self._sub_move) end
+    self._sub_tap, self._sub_long, self._sub_move = nil, nil, nil
 end
 
 function Minesweeper:update()
@@ -222,6 +289,15 @@ function Minesweeper:handle_key(key)
     if key.character == "q" or key.special == "ESCAPE" then return "pop" end
     if key.character == "r" then
         init_grid()
+        return "handled"
+    end
+    -- M toggles mouse mode in-game so the user can flip between
+    -- direct keyboard play and the cursor-aim-then-press-F flow
+    -- without leaving the board. Honoured even after game-over so
+    -- you can switch styles before starting a fresh round.
+    if key.character == "m" then
+        require("ezui.touch_input").toggle_mouse_mode()
+        screen_mod.invalidate()
         return "handled"
     end
     if game_over then return "handled" end

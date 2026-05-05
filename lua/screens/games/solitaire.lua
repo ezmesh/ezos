@@ -614,12 +614,66 @@ if not node_mod.handler("solitaire_view") then
     })
 end
 
+-- Map a screen coordinate to a Klondike location string ("stock",
+-- "waste", "foundation:N", "tableau:N") or nil if the touch fell on
+-- empty felt. Mirrors the layout constants the renderer uses, so a
+-- visual change in the deal layout reflects automatically here.
+local function location_at(sx, sy)
+    -- Top row: stock + waste + 4 foundations all share the same y.
+    if sy >= STOCK_Y and sy < STOCK_Y + CARD_H then
+        if sx >= STOCK_X and sx < STOCK_X + CARD_W then return "stock" end
+        if sx >= WASTE_X and sx < WASTE_X + CARD_W then return "waste" end
+        for i = 1, 4 do
+            local fx = FOUND_START_X + (i - 1) * FOUND_GAP
+            if sx >= fx and sx < fx + CARD_W then
+                return "foundation:" .. i
+            end
+        end
+    end
+    -- Tableau row. Each column is TAB_COL_W wide; cards stack
+    -- downward by FACEDOWN_STEP / FACEUP_STEP, so a touch anywhere
+    -- below TAB_Y in the column counts as "select that column" --
+    -- the column's top card (for the cursor / do_action) is what
+    -- gets manipulated regardless of which exact card was hit.
+    if sy >= TAB_Y then
+        local col_x = sx - TAB_START_X
+        if col_x < 0 then return nil end
+        local col = math.floor(col_x / TAB_COL_W) + 1
+        if col >= 1 and col <= TAB_COUNT then
+            return "tableau:" .. col
+        end
+    end
+    return nil
+end
+
+local function on_tap(_, data)
+    if game_won or type(data) ~= "table" then return end
+    local loc = location_at(data.x, data.y)
+    if not loc then return end
+    -- Tapping the same location twice while a selection is active
+    -- means "cancel my selection"; do_action handles that already
+    -- via the cursor == selection.source branch. So just point the
+    -- cursor at the tapped location and let do_action figure out
+    -- whether this is a select / place / draw / cancel.
+    cursor = loc
+    do_action()
+end
+
 function Solitaire:build(state)
     return { type = "solitaire_view" }
 end
 
 function Solitaire:on_enter()
     new_game()
+    -- One subscription on tap is enough: solitaire doesn't need a
+    -- long-press distinction, taps on the same / different locations
+    -- already encode select-then-place / draw-from-stock / cancel.
+    self._sub_tap = ez.bus.subscribe("touch/tap", on_tap)
+end
+
+function Solitaire:on_exit()
+    if self._sub_tap then ez.bus.unsubscribe(self._sub_tap) end
+    self._sub_tap = nil
 end
 
 function Solitaire:update()
