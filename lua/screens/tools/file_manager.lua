@@ -165,8 +165,12 @@ local function show_file_menu(mgr, path, file)
             })
         end
 
-        -- Set as wallpaper (for .jpg files)
-        if file.name:lower():match("%.jpe?g$") then
+        -- Set as wallpaper (for .jpg / .jpeg / .png files). The
+        -- desktop loader detects the format from the file's magic
+        -- bytes, so the file manager just needs to allow-list any
+        -- extension the loader can decode.
+        if file.name:lower():match("%.jpe?g$")
+           or file.name:lower():match("%.png$") then
             actions[#actions + 1] = ui.list_item({
                 title = "Set as Wallpaper",
                 subtitle = full_path,

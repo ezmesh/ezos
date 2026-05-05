@@ -295,7 +295,9 @@ function Minesweeper:handle_key(key)
     -- direct keyboard play and the cursor-aim-then-press-F flow
     -- without leaving the board. Honoured even after game-over so
     -- you can switch styles before starting a fresh round.
-    if key.character == "m" then
+    -- Plain M only -- Alt+M is reserved for the global action-menu
+    -- chord and screens may want to expose a :menu() in the future.
+    if key.character == "m" and not key.alt then
         require("ezui.touch_input").toggle_mouse_mode()
         screen_mod.invalidate()
         return "handled"

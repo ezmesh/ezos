@@ -1221,6 +1221,12 @@ function Paint:menu()
             on_press = function() me:_paste_at_cursor(); me:set_state({}) end }
     end
 
+    items[#items + 1] = { title = "Save...",
+        subtitle = self._state.last_save_path
+            and ("Last: " .. self._state.last_save_path)
+            or "Choose .png / .jpg / .bmp by extension",
+        on_press = function() me:_show_save_prompt() end }
+
     items[#items + 1] = { title = "Canvas size...",
         subtitle = string.format("Currently %dx%d", self._canvas_w, self._canvas_h),
         on_press = function() me:_show_size_picker() end }
@@ -1259,6 +1265,179 @@ function Paint:_show_size_picker()
     local MenuDef = require("screens.dialog.menu")
     screen_mod.push(screen_mod.create(MenuDef,
         MenuDef.initial_state(items, "Canvas size")))
+end
+
+-- ---------------------------------------------------------------------------
+-- Save to image (PNG / JPEG / BMP)
+--
+-- BMP is the original encoder, written in pure Lua. PNG and JPEG go
+-- through the C++ ez.image bindings (sprite:encode_png /
+-- encode_jpeg). The user picks the format by typing an extension in
+-- the save prompt; PNG is the default since the canvas is pixel art
+-- and JPEG's chroma subsampling damages 1-pixel features.
+-- ---------------------------------------------------------------------------
+
+-- Pack a 32-bit little-endian integer into 4 bytes.
+local function u32le(v)
+    return string.char(
+        v & 0xFF,
+        (v >> 8) & 0xFF,
+        (v >> 16) & 0xFF,
+        (v >> 24) & 0xFF)
+end
+
+-- Pack a 16-bit little-endian integer into 2 bytes.
+local function u16le(v)
+    return string.char(v & 0xFF, (v >> 8) & 0xFF)
+end
+
+-- Encode the canvas as a 24-bit BMP. We could pick a smaller format
+-- (BI_BITFIELDS RGB565 sets the on-disk size at 2 bpp instead of 3)
+-- but viewers / image-editing tools all handle 24-bit BGR cleanly,
+-- and the per-pixel conversion in Lua is cheap enough -- ~0.5 s on
+-- the largest 640x480 canvas. The expansion replicates each RGB565
+-- channel's high bits into the low bits (the standard lossless
+-- 5/6/5 -> 8/8/8 expansion) so the BMP is byte-identical to what
+-- the panel actually displays.
+function Paint:_encode_bmp()
+    if not self._canvas then return nil, "no canvas" end
+    local raw = self._canvas:get_raw()
+    if not raw then return nil, "get_raw failed" end
+    local w, h = self._canvas_w, self._canvas_h
+
+    -- Each BMP row is BGR888 padded out to a multiple of 4 bytes.
+    local row_size = w * 3
+    local padding = (4 - (row_size % 4)) % 4
+    local padded_row = row_size + padding
+    local pad_str = string.rep("\0", padding)
+
+    -- File + DIB headers.
+    local data_offset = 14 + 40
+    local image_size  = padded_row * h
+    local file_size   = data_offset + image_size
+
+    local file_hdr = "BM"
+        .. u32le(file_size)
+        .. u16le(0) .. u16le(0)            -- reserved
+        .. u32le(data_offset)
+    local dib_hdr  = u32le(40)             -- header size
+        .. u32le(w) .. u32le(h)            -- positive height = bottom-up
+        .. u16le(1)                        -- planes
+        .. u16le(24)                       -- bits per pixel
+        .. u32le(0)                        -- BI_RGB compression
+        .. u32le(image_size)
+        .. u32le(2835) .. u32le(2835)      -- ~72 dpi, x then y
+        .. u32le(0) .. u32le(0)            -- colours used / important
+
+    -- Pixel data, row by row from bottom to top (BMP convention).
+    -- Each scanline is one big concatenation; rows go into a top-
+    -- level table that we concat once at the end so we don't suffer
+    -- O(n^2) Lua string copies.
+    local rows  = {}
+    local stride = w * 2
+    for y = h - 1, 0, -1 do
+        local base = y * stride + 1   -- 1-indexed Lua string
+        local row = {}
+        for x = 0, w - 1 do
+            local i  = base + x * 2
+            local hi = raw:byte(i)
+            local lo = raw:byte(i + 1)
+            -- RGB565 -> BGR888 (BMP wants BGR per pixel).
+            local r5 = (hi >> 3) & 0x1F
+            local g6 = ((hi & 0x07) << 3) | (lo >> 5)
+            local b5 = lo & 0x1F
+            local r8 = (r5 << 3) | (r5 >> 2)
+            local g8 = (g6 << 2) | (g6 >> 4)
+            local b8 = (b5 << 3) | (b5 >> 2)
+            row[#row + 1] = string.char(b8, g8, r8)
+        end
+        row[#row + 1] = pad_str
+        rows[#rows + 1] = table.concat(row)
+    end
+
+    return file_hdr .. dib_hdr .. table.concat(rows)
+end
+
+-- Map a file path to (format_name, encode_fn). Unknown extensions
+-- default to PNG -- silently coercing seems friendlier than yelling
+-- at someone who typed "painting" without thinking about it.
+function Paint:_pick_format(path)
+    local ext = path:lower():match("%.([%w]+)$") or ""
+    if ext == "jpg" or ext == "jpeg" then
+        return "JPEG", function(me) return me:_encode_jpeg() end
+    elseif ext == "bmp" then
+        return "BMP", function(me) return me:_encode_bmp() end
+    end
+    return "PNG", function(me) return me:_encode_png() end
+end
+
+-- Encode via the C++ binding. Both encoders allocate sizable PSRAM
+-- buffers (canvas-w * canvas-h * 4 worst case for PNG) and run on
+-- the main task -- worst-case ~2 s on a 640x480 canvas, which is
+-- acceptable for a one-shot save action.
+function Paint:_encode_png()
+    if not self._canvas then return nil, "no canvas" end
+    return self._canvas:encode_png(6)
+end
+
+function Paint:_encode_jpeg()
+    if not self._canvas then return nil, "no canvas" end
+    -- Quality 1 = HIGH, 4:4:4 chroma. The pixel-art content in a
+    -- paint canvas is dominated by sharp single-pixel edges; the
+    -- HIGH preset keeps those crisp where MED/LOW would blur them.
+    return self._canvas:encode_jpeg(1)
+end
+
+function Paint:_save_image(path)
+    local fmt, encode = self:_pick_format(path)
+    local bytes, err = encode(self)
+    local dialog = require("ezui.dialog")
+    if not bytes then
+        dialog.confirm({
+            title = "Save failed",
+            message = "Couldn't encode canvas: " .. (err or "unknown"),
+            ok_label = "OK", cancel_label = "OK",
+        })
+        return
+    end
+    -- Make sure the directory exists. SD cards may have /sd/paint/
+    -- on first run; mkdir is idempotent so it's fine to call always.
+    local parent = path:match("^(.*)/")
+    if parent then
+        ez.storage.mkdir(parent)
+    end
+    local ok = ez.storage.write_file(path, bytes)
+    if ok then
+        self._state.last_save_path = path
+        dialog.confirm({
+            title    = "Saved",
+            message  = string.format("%dx%d %s -> %s (%d bytes)",
+                self._canvas_w, self._canvas_h, fmt, path, #bytes),
+            ok_label = "OK", cancel_label = "OK",
+        })
+    else
+        dialog.confirm({
+            title    = "Save failed",
+            message  = "Couldn't write " .. path
+                .. ".  Check the SD card is mounted and the path is writable.",
+            ok_label = "OK", cancel_label = "OK",
+        })
+    end
+end
+
+function Paint:_show_save_prompt()
+    local default_path = self._state.last_save_path
+        or "/sd/paint/painting.png"
+    local me = self
+    local dialog = require("ezui.dialog")
+    dialog.prompt({
+        title       = "Save canvas",
+        message     = "Path (.png / .jpg / .bmp)",
+        value       = default_path,
+        placeholder = "/sd/paint/painting.png",
+    }, function(path)
+        if path and path ~= "" then me:_save_image(path) end
+    end)
 end
 
 function Paint:_show_color_picker()
@@ -1389,11 +1568,14 @@ function Paint:handle_key(key)
             self:set_state({})
             return "handled"
         end
-        if c == "m" or c == "M" then
+        if (c == "m" or c == "M") and not key.alt then
             -- Toggle relative-cursor mode without leaving paint. The
             -- canvas cursor follows the mouse cursor on each drag,
             -- and toolbar buttons hit-test against the cursor too --
-            -- see _install_touch_handlers.click_point.
+            -- see _install_touch_handlers.click_point. The `not
+            -- key.alt` gate is critical: Alt+M is the global action
+            -- menu shortcut and must fall through to screen.lua so
+            -- this screen's Paint:menu() can populate it.
             require("ezui.touch_input").toggle_mouse_mode()
             self:set_state({})
             return "handled"

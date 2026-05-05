@@ -46,6 +46,8 @@ void registerNetModule(lua_State* L);
 #include "bindings/ntp_bindings.h"
 // Touch module (GT911 capacitive panel)
 #include "bindings/touch_bindings.h"
+// JPEG / PNG encode bindings + header peek helpers
+#include "bindings/image_bindings.h"
 
 LuaRuntime& LuaRuntime::instance() {
     static LuaRuntime runtime;
@@ -218,6 +220,11 @@ void LuaRuntime::registerAllModules() {
     // Touch module (GT911). Bus events are dispatched by
     // touch_bindings::update() called from the main loop.
     touch_bindings::registerBindings(_state);
+
+    // ez.image (JPEG/PNG encode + header peek). Must run after the
+    // display bindings have created the Sprite metatable -- this
+    // pass appends encode_jpeg/encode_png methods to it.
+    image_bindings::registerBindings(_state);
 
     LOG("LuaRuntime", "Modules registered");
 }

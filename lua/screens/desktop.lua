@@ -42,6 +42,10 @@ local wallpaper_names = {
 local CACHE_DIR = "/fs/cache/wallpapers"
 local wallpaper_raw = nil
 local wallpaper_data = nil
+-- Format of `wallpaper_data` for the fallback decode path: "jpeg" or
+-- "png". Only consulted when sprite alloc failed and we couldn't
+-- pre-decode into `wallpaper_raw`, so it stays nil on the happy path.
+local wallpaper_data_format = nil
 local wallpaper_index = 1
 
 -- Stub kept so on_enter can call it without hauling around the old
@@ -56,10 +60,29 @@ local function cache_path_for(name_or_path)
     return CACHE_DIR .. "/" .. stem .. ".rgb565"
 end
 
-local function decode_jpeg_to_raw(jpeg_data)
+-- Format detection from the first few bytes. Cheap enough to do on
+-- every load, and avoids forcing callers to thread a format hint.
+local function detect_image_format(bytes)
+    if not bytes or #bytes < 8 then return nil end
+    if bytes:byte(1) == 0xFF and bytes:byte(2) == 0xD8 then
+        return "jpeg"
+    end
+    if bytes:byte(1) == 0x89 and bytes:byte(2) == 0x50
+        and bytes:byte(3) == 0x4E and bytes:byte(4) == 0x47 then
+        return "png"
+    end
+    return nil
+end
+
+local function decode_image_to_raw(image_bytes, fmt)
     local sp = ez.display.create_sprite(theme.SCREEN_W, theme.SCREEN_H)
     if not sp then return nil end
-    local ok = sp:draw_jpeg(0, 0, jpeg_data)
+    local ok
+    if fmt == "png" then
+        ok = sp:draw_png(0, 0, image_bytes)
+    else
+        ok = sp:draw_jpeg(0, 0, image_bytes)
+    end
     if not ok then sp:destroy(); return nil end
     local raw = sp:get_raw()
     sp:destroy()
@@ -109,13 +132,17 @@ local function build_gradient()
     end
 end
 
-local function finish_load(jpeg_path, cache_path, jpeg_bytes)
-    -- Cache miss: decode the JPEG into a sprite, save the raw buffer
-    -- for next time, then switch the draw path to the raw blit.
-    local raw = decode_jpeg_to_raw(jpeg_bytes)
+local function finish_load(image_path, cache_path, image_bytes)
+    -- Cache miss: decode the JPEG/PNG into a sprite, save the raw
+    -- buffer for next time, then switch the draw path to the raw
+    -- blit. Both formats produce the same RGB565 output so the cache
+    -- is format-agnostic.
+    local fmt = detect_image_format(image_bytes) or "jpeg"
+    local raw = decode_image_to_raw(image_bytes, fmt)
     if raw then
         wallpaper_raw = raw
         wallpaper_data = nil
+        wallpaper_data_format = nil
         -- write_file requires the parent directory to exist. mkdir is
         -- idempotent so it's safe to call on every miss.
         ez.storage.mkdir("/fs/cache")
@@ -123,26 +150,30 @@ local function finish_load(jpeg_path, cache_path, jpeg_bytes)
         ez.storage.write_file(cache_path, raw)
         ez.log("[Desktop] Cached " .. cache_path .. " (" .. #raw .. " bytes)")
     else
-        -- Sprite alloc or decode failed — fall back to per-frame JPEG decode.
+        -- Sprite alloc or decode failed -- fall back to per-frame
+        -- decode. Stash the format alongside the bytes so the draw
+        -- path picks the right decoder.
         wallpaper_raw = nil
-        wallpaper_data = jpeg_bytes
-        ez.log("[Desktop] Raw cache unavailable, using JPEG decode path")
+        wallpaper_data = image_bytes
+        wallpaper_data_format = fmt
+        ez.log("[Desktop] Raw cache unavailable, using " .. fmt .. " decode path")
     end
     local screen_mod = require("ezui.screen")
     screen_mod.invalidate()
 end
 
-local function load_from(jpeg_path)
-    -- Stamp the pending pref *before* the async read starts. If the JPEG
-    -- decoder or sprite allocator crashes the device (native code, so
-    -- pcall can't catch it), the next boot sees this stamp and reverts
-    -- the wallpaper to the first built-in — otherwise we'd crash on the
-    -- same file every boot and the desktop would look like a bootloop.
-    ez.storage.set_pref("wp_load_pending", jpeg_path)
+local function load_from(image_path)
+    -- Stamp the pending pref *before* the async read starts. If the
+    -- decoder or sprite allocator crashes the device (native code,
+    -- so pcall can't catch it), the next boot sees this stamp and
+    -- reverts the wallpaper to the first built-in -- otherwise we'd
+    -- crash on the same file every boot and the desktop would look
+    -- like a bootloop.
+    ez.storage.set_pref("wp_load_pending", image_path)
 
     local async = require("ezui.async")
     async.task(function()
-        local cache_path = cache_path_for(jpeg_path)
+        local cache_path = cache_path_for(image_path)
 
         -- Fast path: use the cached raw blob if its size matches the
         -- panel. A short/corrupt file falls through to the decode path.
@@ -150,6 +181,7 @@ local function load_from(jpeg_path)
         if cached and #cached == theme.SCREEN_W * theme.SCREEN_H * 2 then
             wallpaper_raw = cached
             wallpaper_data = nil
+            wallpaper_data_format = nil
             ez.log("[Desktop] Raw wallpaper hit: " .. cache_path .. " (" .. #cached .. " bytes)")
             ez.storage.set_pref("wp_load_pending", "")
             local screen_mod = require("ezui.screen")
@@ -157,12 +189,12 @@ local function load_from(jpeg_path)
             return
         end
 
-        -- Slow path: decode JPEG once, cache the raw output.
-        local data = async_read(jpeg_path)
+        -- Slow path: decode the source once, cache the raw output.
+        local data = async_read(image_path)
         if data and #data > 0 then
-            finish_load(jpeg_path, cache_path, data)
+            finish_load(image_path, cache_path, data)
         else
-            ez.log("[Desktop] Wallpaper not found: " .. jpeg_path)
+            ez.log("[Desktop] Wallpaper not found: " .. image_path)
         end
         -- Clear the pending stamp once control returns here — either the
         -- raw cache was written successfully, or the decode silently fell
@@ -172,7 +204,16 @@ local function load_from(jpeg_path)
     end)
 end
 
+-- Look up a wallpaper by stem name. Built-in wallpapers ship as
+-- JPEGs, but the user can drop a same-named PNG into /fs/wallpapers
+-- (or save a paint canvas there) to override; PNG wins when both
+-- exist because it's the format the user explicitly chose.
 local function load_wallpaper(name)
+    local png_path = "/fs/wallpapers/" .. name .. ".png"
+    if ez.storage.exists and ez.storage.exists(png_path) then
+        load_from(png_path)
+        return
+    end
     load_from("/fs/wallpapers/" .. name .. ".jpg")
 end
 
@@ -203,7 +244,11 @@ node.register("wallpaper", {
         if wallpaper_raw then
             d.draw_bitmap(0, 0, theme.SCREEN_W, theme.SCREEN_H, wallpaper_raw)
         elseif wallpaper_data then
-            d.draw_jpeg(0, 0, wallpaper_data)
+            if wallpaper_data_format == "png" then
+                d.draw_png(0, 0, wallpaper_data)
+            else
+                d.draw_jpeg(0, 0, wallpaper_data)
+            end
         else
             build_gradient()
             for _, band in ipairs(gradient_bands) do
