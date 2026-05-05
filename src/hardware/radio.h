@@ -20,6 +20,16 @@ enum class RadioResult {
     NO_DATA
 };
 
+// Air-protocol profile. Selects LoRa modulation parameters and sync word
+// so the radio can listen to either a MeshCore mesh or a Meshtastic mesh.
+// The chip is single-tuner so only one profile is active at a time;
+// switching is a hard re-tune. Frequency is orthogonal and selected by
+// the user via the band picker (see lua/screens/settings/radio_settings.lua).
+enum class RadioProfile {
+    MESHCORE = 0,    // Default: SF8 / BW62.5 / CR4/8 / sync 0x12
+    MESHTASTIC = 1,  // Meshtastic "LongFast" preset: SF11 / BW250 / CR4/5 / sync 0x2B
+};
+
 // Queued packet for transmission
 struct QueuedTxPacket {
     uint8_t data[256];
@@ -36,7 +46,16 @@ struct RadioConfig {
     uint8_t syncWord = LORA_SYNC_DEFAULT;
     int8_t txPower = LORA_POWER_DEFAULT;       // dBm
     uint16_t preambleLength = LORA_PREAMBLE_DEFAULT;
+    RadioProfile profile = RadioProfile::MESHCORE;
 };
+
+// Apply a profile's modulation params to a config, leaving frequency
+// and txPower untouched (those are user/region choices, not protocol).
+void applyRadioProfile(RadioConfig& cfg, RadioProfile profile);
+
+// Convert profile <-> name for prefs / Lua bindings.
+const char* radioProfileName(RadioProfile profile);
+bool        radioProfileFromName(const char* name, RadioProfile& out);
 
 // Received packet metadata
 struct RxMetadata {
@@ -69,6 +88,12 @@ public:
 
     // Apply full configuration
     RadioResult configure(const RadioConfig& config);
+
+    // Apply a protocol profile (modulation + sync word). Frequency and
+    // txPower are preserved. After this returns the radio is back in RX
+    // mode listening with the new params.
+    RadioResult setProfile(RadioProfile profile);
+    RadioProfile getProfile() const { return _config.profile; }
 
     // Get current configuration
     const RadioConfig& getConfig() const { return _config; }

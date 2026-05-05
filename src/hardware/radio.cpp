@@ -1,10 +1,49 @@
 #include "radio.h"
 #include <Arduino.h>
 #include <SPI.h>
+#include <cstring>
 
 // Static member initialization
 volatile bool Radio::_rxFlag = false;
 volatile bool Radio::_txDone = false;
+
+void applyRadioProfile(RadioConfig& cfg, RadioProfile profile) {
+    cfg.profile = profile;
+    switch (profile) {
+        case RadioProfile::MESHTASTIC:
+            // Meshtastic "LongFast" default channel preset. Matches the
+            // out-of-the-box config for stock Meshtastic firmware.
+            cfg.bandwidth        = 250.0f;
+            cfg.spreadingFactor  = 11;
+            cfg.codingRate       = 5;     // 4/5
+            cfg.syncWord         = 0x2B;  // LORA_PRIVATE_SYNCWORD per Meshtastic
+            cfg.preambleLength   = 16;
+            break;
+        case RadioProfile::MESHCORE:
+        default:
+            cfg.bandwidth        = LORA_BW_DEFAULT;
+            cfg.spreadingFactor  = LORA_SF_DEFAULT;
+            cfg.codingRate       = LORA_CR_DEFAULT;
+            cfg.syncWord         = LORA_SYNC_DEFAULT;
+            cfg.preambleLength   = LORA_PREAMBLE_DEFAULT;
+            break;
+    }
+}
+
+const char* radioProfileName(RadioProfile profile) {
+    switch (profile) {
+        case RadioProfile::MESHTASTIC: return "meshtastic";
+        case RadioProfile::MESHCORE:
+        default:                       return "meshcore";
+    }
+}
+
+bool radioProfileFromName(const char* name, RadioProfile& out) {
+    if (!name) return false;
+    if (strcmp(name, "meshcore")   == 0) { out = RadioProfile::MESHCORE;   return true; }
+    if (strcmp(name, "meshtastic") == 0) { out = RadioProfile::MESHTASTIC; return true; }
+    return false;
+}
 
 // Interrupt service routine for radio events (RX complete or TX complete)
 void IRAM_ATTR Radio::onInterrupt() {
@@ -186,6 +225,35 @@ RadioResult Radio::setPreambleLength(uint16_t len) {
         _config.preambleLength = len;
     }
     return translateStatus(state);
+}
+
+RadioResult Radio::setProfile(RadioProfile profile) {
+    if (!_initialized) return RadioResult::ERROR_INIT;
+    if (_config.profile == profile) return RadioResult::OK;
+
+    RadioConfig cfg = _config;
+    applyRadioProfile(cfg, profile);
+
+    // Apply modulation params one at a time so a single bad value doesn't
+    // leave the radio half-configured. Frequency and TX power are already
+    // current; we don't re-touch them.
+    RadioResult r;
+    r = setBandwidth(cfg.bandwidth);            if (r != RadioResult::OK) return r;
+    r = setSpreadingFactor(cfg.spreadingFactor); if (r != RadioResult::OK) return r;
+    r = setCodingRate(cfg.codingRate);          if (r != RadioResult::OK) return r;
+    r = setSyncWord(cfg.syncWord);              if (r != RadioResult::OK) return r;
+    r = setPreambleLength(cfg.preambleLength);  if (r != RadioResult::OK) return r;
+
+    _config.profile = profile;
+
+    // Re-arm RX with the new params; callers expect the radio to keep
+    // listening across a profile switch.
+    startReceive();
+
+    Serial.printf("[Radio] Profile -> %s (SF%d BW%.1f CR4/%d sync 0x%02X)\n",
+                  radioProfileName(profile), cfg.spreadingFactor,
+                  cfg.bandwidth, cfg.codingRate, cfg.syncWord);
+    return RadioResult::OK;
 }
 
 RadioResult Radio::configure(const RadioConfig& config) {
