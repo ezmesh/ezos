@@ -119,6 +119,8 @@ local CATEGORIES = {
               icon = icons.radio, mod = "screens.tools.channel_sniffer" },
             { title = "Packet Sniffer", subtitle = "Every packet the radio decodes (ADVERT, DM, ACK, ...)",
               icon = icons.signal, mod = "screens.tools.packet_sniffer" },
+            { title = "System Log", subtitle = "Persistent log tail (boot history, crashes, ez.log)",
+              icon = icons.info, mod = "screens.tools.logs" },
             { title = "Touch Test", subtitle = "GT911 multi-touch coordinates + trails",
               icon = icons.circle_dot, mod = "screens.tools.touch_test" },
             { title = "Pixel Fix", subtitle = "Clear screen ghosting",

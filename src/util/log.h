@@ -25,6 +25,31 @@ void log_buffer_appendf(const char* prefix, const char* fmt, ...);
 // HTTP handlers can pull it without racing the formatter.
 size_t log_buffer_snapshot(char* out, size_t cap);
 
+// Streaming variant: copies *only* the bytes appended since the last
+// call to this function (or since boot, for the first call), up to
+// `cap`. Returns how many bytes were written. Used by the Lua log-
+// persistence service to incrementally append to /fs/logs/system.log
+// without re-writing already-flushed history. If the producer wraps
+// the ring faster than the drain catches up, the gap is dropped --
+// the caller sees only the latest bytes still in memory, and the
+// cursor jumps forward to the oldest still-available byte.
+size_t log_buffer_drain(char* out, size_t cap);
+
+// Best-effort flush of the entire ring buffer to /fs/logs/system.log
+// from C++. Designed for the panic path: the Lua flusher runs every
+// FLUSH_INTERVAL_MS, leaving up to ~1 s of bytes in RAM when a
+// crash hits, and this function bypasses Lua entirely to get those
+// bytes onto flash before the device reboots / panics. Writes a
+// "==== panic flush <reason> ms=<ms> ====\n" marker followed by
+// the ring's current contents in chronological order. Returns
+// nothing because the only sensible failure mode (LittleFS dead,
+// disk full, mutex stuck) is to silently no-op.
+//
+// `reason` is a short tag like "lua_error", "shutdown", "panic" --
+// kept short because every byte of the marker line eats into the
+// already-tiny budget for whatever tipped the device over.
+void log_panic_flush(const char* reason);
+
 #if LOG_ENABLED
     // Tee every LOG call to both Serial and the ring buffer. The
     // do/while wrapping keeps the macro safe in `if` statements.

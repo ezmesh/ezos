@@ -8,7 +8,9 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 #include "esp_heap_caps.h"
+#include "esp_system.h"
 #include "config.h"
+#include "util/log.h"
 #include "hardware/display.h"
 #include "hardware/keyboard.h"
 #include "hardware/radio.h"
@@ -206,6 +208,19 @@ void setup() {
         Serial.println("LittleFS OK");
     } else {
         Serial.println("WARNING: LittleFS init failed");
+    }
+
+    // Register a shutdown handler that drains the in-memory log
+    // ring to /logs/system.log before reboot. Covers every code
+    // path that calls esp_restart() -- the OTA-apply flow, the
+    // shell `reboot` command, the brownout-recovery path. Genuine
+    // panics (null deref, stack smash, watchdog) skip the
+    // shutdown handlers entirely; those are caught by the
+    // coredump partition + the next-boot reset-reason marker.
+    if (littlefsOk) {
+        esp_register_shutdown_handler([]() {
+            log_panic_flush("shutdown");
+        });
     }
 
     // Initialize Lua runtime

@@ -115,6 +115,14 @@ void LuaRuntime::reportError(const char* error) {
     // Log to serial
     LOG("Lua Error", "%s", error);
 
+    // Force the full ring buffer to disk now. A caught Lua error
+    // often precedes a hang, a state-corruption crash, or a panic
+    // a few ticks later -- the periodic Lua flusher might never
+    // get another chance to run. Cheap (one mkdir + one append),
+    // and matches the persistence guarantees the user expects
+    // when they go check /fs/logs/system.log after a crash.
+    log_panic_flush("lua_error");
+
     // Call error callback if set
     if (_errorCallback) {
         _errorCallback(error);

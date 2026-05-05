@@ -10,6 +10,8 @@
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 #include <esp_partition.h>
+#include <esp_system.h>
+#include <esp_core_dump.h>
 #include <esp_ota_ops.h>
 #include <esp_sleep.h>
 #include <esp_mac.h>
@@ -399,7 +401,127 @@ LUA_FUNCTION(l_system_log) {
     const char* msg = luaL_checkstring(L, 1);
     // Prefix with #LOG# so remote control client can filter out log lines
     Serial.printf("#LOG#[Lua] %s\n", msg);
+    // Tee into the same in-memory ring that LOG() uses so Lua-side
+    // messages flow through the /logs endpoint and the persistent
+    // log file -- previously they only hit Serial and disappeared on
+    // reboot.
+    log_buffer_appendf("[Lua] ", "%s", msg);
     return 0;
+}
+
+// @lua ez.system.get_reset_reason() -> string
+// @brief Why the device most recently rebooted
+// @description Returns one of "power_on", "panic", "task_wdt",
+// "int_wdt", "brownout", "software", "deepsleep", "external", or
+// "unknown". The persistent log service reads this on boot so it
+// can stamp a marker line at the top of each session, making it
+// obvious which boots followed a crash vs. a clean restart. Maps
+// directly onto ESP-IDF's `esp_reset_reason()`.
+LUA_FUNCTION(l_system_get_reset_reason) {
+    const char* name = "unknown";
+    switch (esp_reset_reason()) {
+        case ESP_RST_POWERON:    name = "power_on"; break;
+        case ESP_RST_EXT:        name = "external"; break;
+        case ESP_RST_SW:         name = "software"; break;
+        case ESP_RST_PANIC:      name = "panic"; break;
+        case ESP_RST_INT_WDT:    name = "int_wdt"; break;
+        case ESP_RST_TASK_WDT:   name = "task_wdt"; break;
+        case ESP_RST_WDT:        name = "wdt"; break;
+        case ESP_RST_DEEPSLEEP:  name = "deepsleep"; break;
+        case ESP_RST_BROWNOUT:   name = "brownout"; break;
+        case ESP_RST_SDIO:       name = "sdio"; break;
+        default: break;
+    }
+    lua_pushstring(L, name);
+    return 1;
+}
+
+// @lua ez.system.coredump_status() -> { present: bool, size: int, error: string|nil }
+// @brief Check whether a coredump is sitting in the coredump partition
+// @description ESP-IDF's panic handler writes a register dump + per-
+// task stack snapshot to a dedicated 64 KiB coredump partition on
+// hard crashes (null deref, watchdog, stack smash). This function
+// queries that partition to tell the user whether one is waiting
+// to be downloaded. `present=true` means there's a dump to decode
+// via tools/read_coredump.sh; `error` is a short reason when the
+// integrity check fails (corrupt CRC, truncated, etc.). Returns
+// `present=false` if the partition is empty (NOR-flash erase state)
+// or if no coredump partition is configured.
+// @example
+// local s = ez.system.coredump_status()
+// if s.present then ez.log("crash dump waiting: " .. s.size .. " bytes") end
+// @end
+LUA_FUNCTION(l_system_coredump_status) {
+    lua_newtable(L);
+    size_t addr = 0, size = 0;
+    esp_err_t rc = esp_core_dump_image_get(&addr, &size);
+    bool present = (rc == ESP_OK && size > 0);
+    lua_pushboolean(L, present);
+    lua_setfield(L, -2, "present");
+    lua_pushinteger(L, (lua_Integer)size);
+    lua_setfield(L, -2, "size");
+    if (rc != ESP_OK) {
+        const char* msg = "unknown";
+        // Surface the most common failure modes by name. ESP_ERR_
+        // INVALID_CRC means a dump was written but didn't survive
+        // intact -- still useful information ("we crashed badly
+        // enough that even the crash log is corrupted").
+        switch (rc) {
+            case ESP_ERR_NOT_FOUND:    msg = "no_partition"; break;
+            case ESP_ERR_INVALID_SIZE: msg = "empty"; break;
+            case ESP_ERR_INVALID_CRC:  msg = "bad_crc"; break;
+            default:                   msg = "unknown"; break;
+        }
+        lua_pushstring(L, msg);
+        lua_setfield(L, -2, "error");
+    }
+    return 1;
+}
+
+// @lua ez.system.clear_coredump() -> boolean
+// @brief Erase the coredump partition
+// @description Wipes whatever crash snapshot the panic handler last
+// wrote so coredump_status() returns present=false. Used by the
+// Logs screen's "Clear coredump" action after the user has either
+// downloaded the dump for analysis or decided they don't care.
+// Returns true on success, false if no coredump partition exists.
+LUA_FUNCTION(l_system_clear_coredump) {
+    esp_err_t rc = esp_core_dump_image_erase();
+    lua_pushboolean(L, rc == ESP_OK);
+    return 1;
+}
+
+// @lua ez.system.drain_logs([max_bytes]) -> string
+// @brief Pop newly-appended log bytes from the in-memory ring buffer
+// @description Returns only the bytes that have arrived since the
+// previous call (or since boot, on the first call). The internal
+// cursor advances past the returned bytes so subsequent calls see
+// only the next batch. Used by the log-persistence service to flush
+// to /fs/logs/system.log without re-writing already-saved history.
+// `max_bytes` caps the per-call size (default 4 KiB); leftover
+// bytes come out on the next call.
+// @param max_bytes  Optional cap on the returned chunk size
+// @example
+// local chunk = ez.system.drain_logs()
+// if #chunk > 0 then file:write(chunk) end
+// @end
+LUA_FUNCTION(l_system_drain_logs) {
+    int cap = (int)luaL_optinteger(L, 1, 4096);
+    if (cap <= 0) {
+        lua_pushlstring(L, "", 0);
+        return 1;
+    }
+    if (cap > 16384) cap = 16384;  // matches the ring size; larger asks
+                                   // gain nothing.
+    char* buf = (char*)malloc(cap);
+    if (!buf) {
+        lua_pushlstring(L, "", 0);
+        return 1;
+    }
+    size_t n = log_buffer_drain(buf, cap);
+    lua_pushlstring(L, buf, n);
+    free(buf);
+    return 1;
 }
 
 // @lua ez.system.restart()
@@ -1070,6 +1192,10 @@ static const luaL_Reg system_funcs[] = {
     {"is_usb_msc_active",  l_system_is_usb_msc_active},
     {"is_sd_available",    l_system_is_sd_available},
     {"get_firmware_info",  l_system_get_firmware_info},
+    {"drain_logs",         l_system_drain_logs},
+    {"get_reset_reason",   l_system_get_reset_reason},
+    {"coredump_status",    l_system_coredump_status},
+    {"clear_coredump",     l_system_clear_coredump},
     {"yield",              l_system_yield},
     {"set_loop_delay",     l_system_set_loop_delay},
     {"get_loop_delay",     l_system_get_loop_delay},

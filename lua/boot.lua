@@ -138,6 +138,16 @@ local function boot_sequence()
     ez.log("[Boot] Framework loaded")
 
     -- Start background services
+    --
+    -- Log persistence runs first so every subsequent service.init()
+    -- call has its log lines tee'd to flash. The init also writes a
+    -- session-header line including the reset reason, which is the
+    -- only post-mortem signal we have when the device crashes (the
+    -- ring buffer is gone after a hard reset, but esp_reset_reason()
+    -- survives).
+    local log_persist = require("services.log_persist")
+    log_persist.init()
+
     local contacts_svc = require("services.contacts")
     contacts_svc.init()
 

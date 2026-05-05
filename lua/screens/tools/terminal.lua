@@ -200,6 +200,7 @@ commands.help = function(_, state)
     append(state, "  ./<file>     execute (alias)")
     append(state, "  lua          enter Lua REPL")
     append(state, "  mem          memory stats")
+    append(state, "  logs [N]     last N lines of system log")
     append(state, "  clear        clear transcript")
     append(state, "  reboot       restart device")
     append(state, "  exit         close terminal")
@@ -360,6 +361,51 @@ commands.mem = function(_, state)
                 info.used or 0, info.total or 0))
         end
     end
+end
+
+-- Tail of the persistent log. The log_persist service drains the
+-- C ring every 5 s into /fs/logs/system.log, rotating to .old at
+-- 64 KiB; we read both back and split into lines so the shell's
+-- normal scroll buffer carries them.
+commands.logs = function(args, state)
+    local persist = require("services.log_persist")
+    -- Force a fresh flush so the tail reflects everything that has
+    -- happened up to the moment the user typed the command. Without
+    -- this, anything in the last <5 s wouldn't show.
+    if persist.flush then persist.flush() end
+
+    local n = tonumber(args[1]) or 80
+    local body = persist.read_tail(n)
+    if not body or #body == 0 then
+        append(state, "(log empty)", MUTED_COLOR); return
+    end
+    -- Walk the string and append each line so the terminal can
+    -- syntax-colour error markers individually rather than printing
+    -- one giant blob.
+    for line in (body .. "\n"):gmatch("([^\n]*)\n") do
+        if line == "" then
+            append(state, "")
+        else
+            local color = "TEXT"
+            -- Highlight session markers and lines that look like
+            -- errors so they jump out in the scroll-back.
+            if line:find("^==== boot") then
+                color = PROMPT_COLOR
+            elseif line:find("[Ee]rror") or line:find("panic")
+                or line:find("[Ww]dt") then
+                color = ERROR_COLOR
+            elseif line:find("^%[") then
+                color = MUTED_COLOR
+            end
+            append(state, line, color)
+        end
+    end
+    local cur, old = persist.get_paths()
+    append(state,
+        string.format("(showing last %d lines from %s%s)",
+            n, cur, ez.storage.exists and ez.storage.exists(old)
+                and (" + " .. old) or ""),
+        MUTED_COLOR)
 end
 
 commands.clear = function(_, state)
