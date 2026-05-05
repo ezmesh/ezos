@@ -33,7 +33,16 @@ if not node_mod.handler("tab_bar") then
     node_mod.register("tab_bar", {
         measure = function(n, max_w, max_h)
             theme.set_font("medium_aa")
-            return max_w, theme.font_height() + 10
+            local h = theme.font_height() + 10
+            -- Touch-mode floor: a 22 px tab bar is too narrow to land
+            -- a finger on cleanly. Grow it the same way every other
+            -- focusable widget does so this strip is a real hit
+            -- target. Trackball-only units are unaffected.
+            local touch_input = require("ezui.touch_input")
+            if touch_input.touch_enabled() and h < touch_input.MIN_TARGET_H then
+                h = touch_input.MIN_TARGET_H
+            end
+            return max_w, h
         end,
 
         draw = function(n, d, x, y, w, h)
@@ -70,11 +79,18 @@ function Messages:build(state)
 
     items[#items + 1] = ui.title_bar("Messages", { back = true })
 
-    items[#items + 1] = {
-        type = "tab_bar",
-        tabs = { "Private", "Channels" },
-        active = active_tab,
-    }
+    -- Persist the tab_bar node on self so the touch handler attached
+    -- in on_enter can read its drawn rect (_x/_y/_aw/_ah). A new node
+    -- per build would orphan the previous one and the handler would
+    -- point at stale geometry between rebuilds.
+    if not self._tab_bar_node then
+        self._tab_bar_node = {
+            type = "tab_bar",
+            tabs = { "Private", "Channels" },
+        }
+    end
+    self._tab_bar_node.active = active_tab
+    items[#items + 1] = self._tab_bar_node
 
     local content_items = {}
 
@@ -274,6 +290,28 @@ function Messages:on_enter()
             self:set_state({})
         end
     end)
+
+    -- Tap-to-switch on the Private/Channels strip. The tab_bar node
+    -- isn't focusable so the global touch_input bridge can't route a
+    -- tap there; we handle it locally using the persisted node's
+    -- drawn rect. Two equal-width tabs, so the test is just "which
+    -- half of the bar's width contains the touch x".
+    self._sub_touch = ez.bus.subscribe("touch/down", function(_, data)
+        if type(data) ~= "table" then return end
+        local n = self._tab_bar_node
+        if not n or not n._x then return end
+        if data.y < n._y or data.y >= n._y + (n._ah or 0) then return end
+        if data.x < n._x or data.x >= n._x + (n._aw or 0) then return end
+        local tab_w = (n._aw or 0) / 2
+        local idx = math.floor((data.x - n._x) / tab_w) + 1
+        if idx < 1 then idx = 1 end
+        if idx > 2 then idx = 2 end
+        if idx ~= (self._state.tab or 1) then
+            local ok, sounds = pcall(require, "services.ui_sounds")
+            if ok and sounds and sounds.play then sounds.play("tap") end
+            self:set_state({ tab = idx, scroll = 0 })
+        end
+    end)
 end
 
 function Messages:on_leave()
@@ -281,6 +319,7 @@ function Messages:on_leave()
     if self._sub_msg then ez.bus.unsubscribe(self._sub_msg); self._sub_msg = nil end
     if self._sub_dm then ez.bus.unsubscribe(self._sub_dm); self._sub_dm = nil end
     if self._sub_pending then ez.bus.unsubscribe(self._sub_pending); self._sub_pending = nil end
+    if self._sub_touch then ez.bus.unsubscribe(self._sub_touch); self._sub_touch = nil end
 end
 
 function Messages:on_exit()
@@ -291,6 +330,8 @@ function Messages:handle_key(key)
     -- LEFT/RIGHT switches tabs
     if key.special == "LEFT" or key.special == "RIGHT" then
         local new_tab = (self._state.tab or 1) == 1 and 2 or 1
+        local ok, sounds = pcall(require, "services.ui_sounds")
+        if ok and sounds and sounds.play then sounds.play("tap") end
         self:set_state({ tab = new_tab, scroll = 0 })
         return "handled"
     end

@@ -125,8 +125,16 @@ function Contacts:build(state)
 
     items[#items + 1] = ui.title_bar("Contacts", { back = true })
 
-    -- Tab bar
-    items[#items + 1] = { type = "tab_bar", tabs = { "Added", "Nearby" }, active = tab }
+    -- Persist the tab_bar node so the touch handler in on_enter can
+    -- read its drawn rect across rebuilds.
+    if not self._tab_bar_node then
+        self._tab_bar_node = {
+            type = "tab_bar",
+            tabs = { "Added", "Nearby" },
+        }
+    end
+    self._tab_bar_node.active = tab
+    items[#items + 1] = self._tab_bar_node
 
     local content_items = {}
 
@@ -223,11 +231,30 @@ function Contacts:on_enter()
     self._sub = ez.bus.subscribe("contacts/changed", function()
         self:set_state({})
     end)
+    -- Tap the Added/Nearby strip to switch tabs. The tab_bar is not
+    -- focusable so the global touch_input bridge can't route taps
+    -- there; we hit-test against the persisted node's drawn rect.
+    self._sub_touch = ez.bus.subscribe("touch/down", function(_, data)
+        if type(data) ~= "table" then return end
+        local n = self._tab_bar_node
+        if not n or not n._x then return end
+        if data.y < n._y or data.y >= n._y + (n._ah or 0) then return end
+        if data.x < n._x or data.x >= n._x + (n._aw or 0) then return end
+        local idx = math.floor((data.x - n._x) / ((n._aw or 0) / 2)) + 1
+        if idx < 1 then idx = 1 end
+        if idx > 2 then idx = 2 end
+        if idx ~= (self._state.tab or 1) then
+            local ok, sounds = pcall(require, "services.ui_sounds")
+            if ok and sounds and sounds.play then sounds.play("tap") end
+            self:set_state({ tab = idx, scroll = 0 })
+        end
+    end)
     self._last_refresh = 0
 end
 
 function Contacts:on_leave()
     if self._sub then ez.bus.unsubscribe(self._sub); self._sub = nil end
+    if self._sub_touch then ez.bus.unsubscribe(self._sub_touch); self._sub_touch = nil end
 end
 
 function Contacts:on_exit()
@@ -268,14 +295,20 @@ function Contacts:handle_key(key)
     end
     -- Tab switching with left/right at screen level
     local focus_mod = require("ezui.focus")
+    local function play_tap()
+        local ok, sounds = pcall(require, "services.ui_sounds")
+        if ok and sounds and sounds.play then sounds.play("tap") end
+    end
     if not focus_mod.editing then
         if key.special == "LEFT" then
             if (self._state.tab or 1) ~= 1 then
+                play_tap()
                 self:set_state({ tab = 1, scroll = 0 })
                 return "handled"
             end
         elseif key.special == "RIGHT" then
             if (self._state.tab or 1) ~= 2 then
+                play_tap()
                 self:set_state({ tab = 2, scroll = 0 })
                 return "handled"
             end
