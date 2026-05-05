@@ -1,0 +1,93 @@
+name: Main Branch Artifacts
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - env: t-deck-plus
+            name: embedded
+          - env: t-deck-plus-sdcard
+            name: sdcard
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Build firmware (${{ matrix.name }})
+        run: pio run -e ${{ matrix.env }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.name }}-${{ github.sha }}
+          path: |
+            .pio/build/${{ matrix.env }}/firmware.bin
+            .pio/build/${{ matrix.env }}/bootloader.bin
+            .pio/build/${{ matrix.env }}/partitions.bin
+          retention-days: 90
+
+  prune:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Keep only the 3 most recent main builds
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const KEEP = 3;
+            const prefixes = ['firmware-embedded-', 'firmware-sdcard-'];
+
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 }
+            );
+
+            for (const prefix of prefixes) {
+              const matching = artifacts
+                .filter(a => a.name.startsWith(prefix) && !a.expired)
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+              const toDelete = matching.slice(KEEP);
+              core.info(`${prefix}: ${matching.length} artifacts, deleting ${toDelete.length}`);
+
+              for (const artifact of toDelete) {
+                core.info(`Deleting ${artifact.name} (id=${artifact.id}, created=${artifact.created_at})`);
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.id,
+                });
+              }
+            }
