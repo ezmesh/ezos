@@ -43,4 +43,16 @@ function dialog.prompt(opts, on_submit, on_cancel)
     screen_mod.push(screen_mod.create(PromptDef, state))
 end
 
+-- Push a yes/no confirm screen. opts shape:
+--   { title, message, ok_label = "OK", cancel_label = "Cancel" }
+-- on_ok runs after the dialog pops; on_cancel runs after a cancel
+-- press OR a Back/ESC key. Either is optional. Used by the editor
+-- and paint apps for "leave without saving?" prompts.
+function dialog.confirm(opts, on_ok, on_cancel)
+    local screen_mod = require("ezui.screen")
+    local ConfirmDef = require("screens.dialog.confirm")
+    screen_mod.push(screen_mod.create(ConfirmDef,
+        ConfirmDef.initial_state(opts, on_ok, on_cancel)))
+end
+
 return dialog

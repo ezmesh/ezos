@@ -554,6 +554,13 @@ function screen.render()
     -- Toast on top of everything else so it's visible from any screen.
     screen._draw_toast(d)
 
+    -- Mouse-mode cursor: rendered last so it floats above every
+    -- screen. No-op when the mode is off.
+    local ok_ti, touch_input = pcall(require, "ezui.touch_input")
+    if ok_ti and touch_input.render_cursor then
+        touch_input.render_cursor(d)
+    end
+
     d.flush()
 end
 

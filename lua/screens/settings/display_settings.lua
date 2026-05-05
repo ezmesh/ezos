@@ -141,6 +141,33 @@ function Display:build(state)
         ui.hbox({ gap = 4 }, swatches)
     )
 
+    -- Mouse-mode toggle. Lives here rather than in its own Touch
+    -- screen because the only interactive setting is the on/off
+    -- flag; nesting it under Display keeps the settings tree shallow.
+    -- The toggle just delegates to touch_input.set_mouse_mode which
+    -- handles persistence, cursor reset, and the screen invalidate.
+    local touch_input = require("ezui.touch_input")
+    if touch_input.touch_enabled() then
+        content[#content + 1] = ui.padding({ 12, 8, 4, 8 },
+            ui.text_widget("Touch", { color = "ACCENT", font = "small_aa" })
+        )
+        content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+            ui.toggle("Mouse cursor mode", touch_input.mouse_mode, {
+                on_change = function(on)
+                    touch_input.set_mouse_mode(on)
+                end,
+            })
+        )
+        content[#content + 1] = ui.padding({ 2, 8, 8, 8 },
+            ui.text_widget(
+                "Drag to move a crosshair instead of tapping the screen "
+                .. "directly; tap to click at the crosshair. Useful for "
+                .. "small targets but disables drag gestures (slider "
+                .. "scrub, paint freehand, drag-scroll).",
+                { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
+        )
+    end
+
     return ui.vbox({ gap = 0, bg = "BG" }, {
         ui.title_bar("Display", { back = true }),
         ui.scroll({ grow = 1 }, ui.vbox({ gap = 0 }, content)),
