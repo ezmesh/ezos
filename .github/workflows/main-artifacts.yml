@@ -45,6 +45,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio
 
+      - name: Fetch PlatformIO dependencies
+        run: pio pkg install -e ${{ matrix.env }}
+
+      - name: Build 32-bit luac for bytecode embedding
+        run: |
+          mkdir -p tools/bin
+          LUA_SRC=".pio/libdeps/${{ matrix.env }}/Esp32Lua/src/lua"
+          if [ ! -d "$LUA_SRC" ]; then
+            echo "Lua source not found at $LUA_SRC" >&2
+            ls .pio/libdeps/${{ matrix.env }} || true
+            exit 1
+          fi
+          (cd "$LUA_SRC" && cc -O2 -DLUA_32BITS=1 -o "$GITHUB_WORKSPACE/tools/bin/luac32" luac.c l*.c -lm)
+          tools/bin/luac32 -v
+
       - name: Build firmware (${{ matrix.name }})
         run: pio run -e ${{ matrix.env }}
 
