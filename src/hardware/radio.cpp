@@ -235,13 +235,19 @@ RadioResult Radio::setProfile(RadioProfile profile) {
     applyRadioProfile(cfg, profile);
 
     // Apply modulation params one at a time. Each setter writes its
-    // value into _config on success, so a mid-sequence failure would
-    // leave the radio in a mixed state with _config.profile still
-    // pointing at the old profile -- and the early-exit guard above
-    // would then block any rollback attempt. Snapshot _config first
-    // and restore it (plus re-arm RX) on any failure.
+    // value into _config and the hardware on success, so a mid-sequence
+    // failure leaves both in a mixed state. Roll back by re-issuing the
+    // hardware writes with the snapshot values; restoring _config alone
+    // would leave the chip with new fields stuck in registers that
+    // _config no longer reflects. Rollback writes are best-effort --
+    // we still return the original failure code to the caller.
     RadioConfig rollback = _config;
     auto fail = [&](RadioResult r) {
+        setBandwidth(rollback.bandwidth);
+        setSpreadingFactor(rollback.spreadingFactor);
+        setCodingRate(rollback.codingRate);
+        setSyncWord(rollback.syncWord);
+        setPreambleLength(rollback.preambleLength);
         _config = rollback;
         startReceive();
         return r;
