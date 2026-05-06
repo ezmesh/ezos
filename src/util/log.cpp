@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <LittleFS.h>
+#include <esp_heap_caps.h>
 
 namespace {
 
@@ -163,10 +164,20 @@ void log_panic_flush(const char* reason) {
     ensure_init();
     if (!reason) reason = "?";
 
-    // 16 KiB ring + a small header line. Static so we don't need a
-    // heap alloc that might already be wedged on the panic path,
-    // and don't pay the loopTask stack cost (10 KiB ceiling).
-    static char buf[LOG_BUF_SIZE];
+    // Allocate the scratch from PSRAM on demand. A static [16 KiB]
+    // buffer was the obvious thing -- panic-time, no heap roulette
+    // -- but it permanently steals DMA-capable internal SRAM that
+    // WiFi's RX buffers need at radio init. Free internal RAM at
+    // runtime is tight (~15 KiB on this build) so 16 KiB of
+    // unconditionally-resident BSS is what blocks esp_wifi_init
+    // (Expected to init 4 rx buffer, actual is 0 / ESP_ERR_NO_MEM).
+    //
+    // PSRAM is independent of the regular heap and stays reachable
+    // during a graceful shutdown (FreeRTOS still alive). For genuine
+    // hard panics the shutdown handler doesn't run anyway -- those
+    // are caught by the coredump partition, not this path.
+    char* buf = (char*)heap_caps_malloc(LOG_BUF_SIZE, MALLOC_CAP_SPIRAM);
+    if (!buf) buf = (char*)malloc(LOG_BUF_SIZE);
     size_t n = 0;
 
     // Use a short timeout; if the producer task is wedged we give
@@ -174,7 +185,7 @@ void log_panic_flush(const char* reason) {
     // for low-microsecond memcpys in normal operation, so any
     // failure to acquire here is a strong signal we're in deep
     // trouble.
-    if (g_mutex && xSemaphoreTake(g_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (buf && g_mutex && xSemaphoreTake(g_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         n = g_count;
         size_t tail_start = (g_head + LOG_BUF_SIZE - g_count) % LOG_BUF_SIZE;
         size_t first = LOG_BUF_SIZE - tail_start;
@@ -191,13 +202,19 @@ void log_panic_flush(const char* reason) {
     // -- if main.cpp already ran it, this returns immediately; if
     // somehow it didn't (rare path: crash during init), we still
     // get a working FS.
-    if (!LittleFS.begin(false)) return;
+    if (!LittleFS.begin(false)) {
+        if (buf) free(buf);
+        return;
+    }
 
     // Make sure /logs exists. mkdir on an existing dir is a no-op.
     LittleFS.mkdir("/logs");
 
     File f = LittleFS.open("/logs/system.log", "a");
-    if (!f) return;
+    if (!f) {
+        if (buf) free(buf);
+        return;
+    }
 
     char marker[96];
     int mlen = snprintf(marker, sizeof(marker),
@@ -206,7 +223,10 @@ void log_panic_flush(const char* reason) {
     if (mlen > 0) {
         f.write((const uint8_t*)marker, (size_t)mlen);
     }
-    if (n > 0) {
+    // Skip the body if PSRAM alloc failed -- the marker still lands
+    // on disk so the user can see "something happened" even if the
+    // ring contents themselves were lost.
+    if (buf && n > 0) {
         f.write((const uint8_t*)buf, n);
         // Make sure the last line is newline-terminated so the
         // shell `logs` command and the screen viewer don't glue
@@ -216,4 +236,5 @@ void log_panic_flush(const char* reason) {
         }
     }
     f.close();
+    if (buf) free(buf);
 }
