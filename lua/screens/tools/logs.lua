@@ -6,14 +6,19 @@
 -- without the user having to leave and re-enter the screen.
 --
 -- Keys:
---   UP / DOWN    -- scroll one line
---   PAGE / ALT+UP/DOWN   -- scroll one page
---   HOME / END   -- jump to top / bottom
---   F            -- follow mode toggle (auto-pin to bottom on new logs)
---   C            -- clear both log files (asks for confirmation)
---   R            -- force a flush + reread now
---   D            -- clear an unread coredump (only when present)
---   BACKSPACE    -- back
+--   trackball UP/DOWN     -- scroll one line
+--   ALT+UP / ALT+DOWN     -- scroll one page (12 lines)
+--   F                     -- follow mode toggle (auto-pin to bottom)
+--   C                     -- clear both log files (asks for confirmation)
+--   R                     -- force a flush + reread now
+--   D                     -- clear an unread coredump (only when present)
+--   BACKSPACE             -- back
+--
+-- Touch:
+--   Drag vertically anywhere in the log area to scroll. Drag delta
+--   is converted from pixels to lines using the rendered row
+--   height; a single finger flick of one screen-height roughly
+--   equals one full page.
 
 local ui     = require("ezui")
 local node   = require("ezui.node")
@@ -69,11 +74,36 @@ end
 if not node.handler("log_view") then
     node.register("log_view", {
         focusable = true,
+
+        -- Defer trackball UP/DOWN to the host screen. focus.handle_key
+        -- consumes those keys (it always returns "handled" once a
+        -- focus chain exists, see lua/ezui/focus.lua:212), so the
+        -- screen's handle_key never gets a shot. Returning "handled"
+        -- from on_key short-circuits the focus-nav step and routes
+        -- the chord to the screen via _screen:_scroll_by.
+        on_key = function(n, key)
+            local s = n._screen
+            if not s then return nil end
+            if key.special == "UP" or key.special == "DOWN" then
+                local dir = (key.special == "UP") and -1 or 1
+                local big = key.alt and 12 or 1
+                s:_scroll_by(dir * big)
+                return "handled"
+            end
+            return nil
+        end,
+
         measure = function(n, max_w, max_h)
             return max_w, max_h
         end,
         draw = function(n, d, x, y, w, h)
             d.fill_rect(x, y, w, h, theme.color("BG"))
+            -- Stash the rendered bounds + row height so the touch
+            -- handler can hit-test and convert pixel drags into
+            -- line-count scrolls. Updated every draw so a layout
+            -- change (rotation, screen resize) always sees the
+            -- latest geometry.
+            n._x, n._y, n._w, n._h = x, y, w, h
 
             local lines  = n.lines  or {}
             local scroll = n.scroll or 0
@@ -81,6 +111,7 @@ if not node.handler("log_view") then
 
             theme.set_font("small_aa")
             local lh = theme.font_height() + 1
+            n._row_h = lh
 
             -- Header strip with line count + follow indicator. Mirror
             -- of the packet_sniffer header so the two diagnostic
@@ -146,17 +177,78 @@ end
 
 function Logs:on_enter()
     self._view = self._view or { type = "log_view" }
+    -- The on_key handler on the node delegates back here; cache the
+    -- screen reference on the node so it can call _scroll_by without
+    -- chasing a global lookup.
+    self._view._screen = self
     self:_refresh()
     local me = self
     self._timer = ez.system.set_interval(POLL_MS, function()
         me:_refresh()
     end)
+
+    -- Touch drag: convert vertical finger motion within the log
+    -- viewport into line-count scrolls. We bus-subscribe rather
+    -- than using a `touchable` node attribute because we want
+    -- continuous tracking (touch/move) not just tap/release. The
+    -- pattern matches lua/screens/menu.lua's tab-bar drag handling.
+    local drag = nil  -- {start_y, start_scroll}
+    self._touch_subs = {}
+
+    table.insert(self._touch_subs, ez.bus.subscribe("touch/down",
+        function(_, d)
+            if type(d) ~= "table" then return end
+            local v = me._view
+            if not v._x then return end  -- not laid out yet
+            -- Reject touches that started in the title bar so back-
+            -- button taps still register normally; everything below
+            -- the title strip drives the scroll.
+            if d.y < v._y then return end
+            drag = {
+                start_y      = d.y,
+                start_scroll = me._state.scroll,
+                row_h        = math.max(1, v._row_h or 12),
+                touched      = false,
+            }
+        end))
+
+    table.insert(self._touch_subs, ez.bus.subscribe("touch/move",
+        function(_, d)
+            if not drag or type(d) ~= "table" then return end
+            local dy_px    = d.y - drag.start_y
+            local dy_lines = -math.floor(dy_px / drag.row_h)
+            local lines    = me._view.lines or {}
+            local cap      = max_scroll(#lines)
+            local new      = drag.start_scroll + dy_lines
+            if new < 0 then new = 0 end
+            if new > cap then new = cap end
+            if new ~= me._state.scroll then
+                me._state.scroll = new
+                -- Any meaningful drag cancels follow mode -- the
+                -- user is reading scrollback and would hate the
+                -- viewport snapping back to the bottom every tick.
+                me._state.follow = false
+                me._view.scroll = new
+                me._view.follow = false
+                drag.touched = true
+                screen.invalidate()
+            end
+        end))
+
+    table.insert(self._touch_subs, ez.bus.subscribe("touch/up",
+        function() drag = nil end))
 end
 
 function Logs:on_exit()
     if self._timer then
         ez.system.cancel_timer(self._timer)
         self._timer = nil
+    end
+    if self._touch_subs then
+        for _, id in ipairs(self._touch_subs) do
+            ez.bus.unsubscribe(id)
+        end
+        self._touch_subs = nil
     end
 end
 
@@ -237,11 +329,10 @@ function Logs:handle_key(key)
         return "pop"
     end
 
-    -- Page-sized jumps with Alt+arrow; single-line with plain arrows.
+    -- UP / DOWN are handled by the log_view's on_key (focus consumes
+    -- them before they reach this handler). HOME / END come from the
+    -- remote tool only -- the on-device keyboard doesn't have them.
     local s = key.special
-    local big = key.alt and 12 or 1
-    if s == "UP"   then self:_scroll_by(-big); return "handled" end
-    if s == "DOWN" then self:_scroll_by( big); return "handled" end
     if s == "HOME" then
         self._state.scroll = 0
         self._state.follow = false
