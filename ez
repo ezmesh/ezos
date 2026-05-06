@@ -125,8 +125,59 @@ _ez_have() {
 }
 
 _ez_help() {
-    sed -n '/^# ezOS dev wrapper/,/^# All commands/p' "$EZ_ROOT/ez" \
-        | sed 's/^# \{0,1\}//'
+    # Hand-formatted with ANSI so headings/commands/descriptions get
+    # different weights. Prefer this over sed-extracting the comment
+    # header so the rendered help can have its own structure (groups,
+    # spacing) without us round-tripping it through the source's
+    # comment shape.
+    local b="$EZ_BOLD"
+    local d="$EZ_DIM"
+    local r="$EZ_RESET"
+    local c="$EZ_CYAN"
+    local g="$EZ_GREEN"
+    local y="$EZ_YELLOW"
+
+    # Print the help with sections + colored columns. printf one big
+    # heredoc-style string keeps the layout obvious in source.
+    cat <<EOF
+
+  ${b}${c}ezOS dev wrapper${r}
+
+  ${d}Run a subcommand directly:${r}
+      ${b}./ez${r} ${y}<command>${r} [args...]
+
+  ${d}Or source it for tab-completion + persistent ${b}ez${r}${d} function:${r}
+      ${b}source ./ez${r}
+
+  ${b}${c}Build${r}
+      ${g}build${r}        ${d}[env]${r}        pio run (default env: t-deck-plus)
+      ${g}flash${r}        ${d}[port]${r}       pio run -t upload (USB)
+      ${g}fs${r}                        pio run -t uploadfs (LittleFS image)
+      ${g}clean${r}                     pio run -t clean
+
+  ${b}${c}Device${r}
+      ${g}monitor${r}      ${d}[port]${r}       raw serial monitor at 921600
+      ${g}remote${r}       ${d}[args]${r}       proxy to tools/remote/ez_remote.py
+      ${g}exec${r}         ${d}<lua>${r}        shorthand for ${b}remote -e <lua>${r}
+      ${g}logs${r}                      shorthand for ${b}remote --logs${r}
+      ${g}text${r}                      shorthand for ${b}remote --text${r}
+      ${g}shot${r}         ${d}[path]${r}       shorthand for ${b}remote -s <path>${r}
+                                  ${d}(default /tmp/screen.png)${r}
+      ${g}coredump${r}     ${d}[port]${r}       read + decode panic coredump partition
+
+  ${b}${c}Generate${r}
+      ${g}docs${r}                      regenerate docs/api/* from C++ annotations
+      ${g}wallpapers${r}                regenerate data/wallpapers/*.jpg
+
+  ${b}${c}Environment${r}
+      ${y}EZOS_PORT${r}    ${d}default serial port      (currently: ${EZ_DEFAULT_PORT})${r}
+      ${y}EZOS_ENV${r}     ${d}default platformio env   (currently: ${EZ_DEFAULT_ENV})${r}
+      ${y}NO_COLOR${r}     ${d}set to disable ANSI output${r}
+
+  ${d}Build subcommands set ${b}EZOS_BUILD_SHA${r}${d} + ${b}EZOS_BUILD_AT${r}${d} so locally-flashed${r}
+  ${d}firmware can self-identify against rolling-main in the OTA update screen.${r}
+
+EOF
 }
 
 # --------------------------------------------------------------------------
