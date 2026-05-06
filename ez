@@ -29,21 +29,82 @@
 # --------------------------------------------------------------------------
 # Locate ourselves so the script works from any cwd.
 # --------------------------------------------------------------------------
-if [[ -n "${BASH_SOURCE[0]}" ]]; then
-    EZ_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Different shells expose "the path of this script" through different
+# variables. Bash: BASH_SOURCE[0]. Zsh when sourced: ${(%):-%x} or $0.
+# Both shells set $0 to the script path when the file is executed, but
+# zsh also sets $0 inside a sourced file (unlike bash where $0 is the
+# parent shell name). The fallback chain below works for both.
+_ez_self=""
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+    _ez_self="${BASH_SOURCE[0]}"
+elif [[ -n "${ZSH_VERSION:-}" ]]; then
+    # zsh: %x prompt-expansion gives the file currently being parsed,
+    # which is what we want when this script is sourced.
+    _ez_self="${(%):-%x}"
 else
-    EZ_ROOT="$(cd "$(dirname "$0")" && pwd)"
+    _ez_self="$0"
 fi
+EZ_ROOT="$(cd "$(dirname "$_ez_self")" && pwd)"
 
 EZ_DEFAULT_PORT="${EZOS_PORT:-/dev/ttyACM0}"
 EZ_DEFAULT_ENV="${EZOS_ENV:-t-deck-plus}"
+
+# --------------------------------------------------------------------------
+# Color helpers
+# --------------------------------------------------------------------------
+#
+# Auto-disabled when stdout isn't a terminal (CI logs, redirects, pipes
+# into less, etc.) and when NO_COLOR is set per https://no-color.org.
+# Inspired by the same gating curl, ripgrep, and gh use.
+
+if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]] && [[ "${TERM:-}" != "dumb" ]]; then
+    EZ_RED=$'\033[31m'
+    EZ_GREEN=$'\033[32m'
+    EZ_YELLOW=$'\033[33m'
+    EZ_BLUE=$'\033[34m'
+    EZ_MAGENTA=$'\033[35m'
+    EZ_CYAN=$'\033[36m'
+    EZ_BOLD=$'\033[1m'
+    EZ_DIM=$'\033[2m'
+    EZ_RESET=$'\033[0m'
+else
+    EZ_RED= EZ_GREEN= EZ_YELLOW= EZ_BLUE= EZ_MAGENTA= EZ_CYAN=
+    EZ_BOLD= EZ_DIM= EZ_RESET=
+fi
+
+# Print a coloured message + reset. Usage: _ez_color RED "oops".
+# Hand-rolled lookup table because the obvious bash idiom ${!var}
+# (indirect variable expansion) isn't supported in zsh, and `eval`
+# would require quoting gymnastics. The set is tiny so a case is
+# clearer and survives across shells without compatibility shims.
+_ez_color() {
+    local color=""
+    case "$1" in
+        RED)     color="$EZ_RED";;
+        GREEN)   color="$EZ_GREEN";;
+        YELLOW)  color="$EZ_YELLOW";;
+        BLUE)    color="$EZ_BLUE";;
+        MAGENTA) color="$EZ_MAGENTA";;
+        CYAN)    color="$EZ_CYAN";;
+        BOLD)    color="$EZ_BOLD";;
+        DIM)     color="$EZ_DIM";;
+    esac
+    printf '%s%s%s\n' "$color" "$2" "$EZ_RESET"
+}
+
+# Common helpers for the dispatch table. All write to stderr so command
+# output stays grep-friendly.
+_ez_say()   { _ez_color CYAN   "» $*" >&2; }
+_ez_ok()    { _ez_color GREEN  "✓ $*" >&2; }
+_ez_warn()  { _ez_color YELLOW "! $*" >&2; }
+_ez_fail()  { _ez_color RED    "✗ $*" >&2; }
 
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------
 
 _ez_die() {
-    echo "ez: $*" >&2
+    _ez_fail "$*"
     return 1
 }
 
@@ -75,7 +136,13 @@ _ez_help() {
 _ez_cmd_build() {
     local env="${1:-$EZ_DEFAULT_ENV}"
     _ez_set_build_stamps
-    (cd "$EZ_ROOT" && pio run -e "$env")
+    _ez_say "build $env @ ${EZ_BOLD}${EZOS_BUILD_SHA:0:7}${EZ_RESET}"
+    if (cd "$EZ_ROOT" && pio run -e "$env"); then
+        _ez_ok "build complete"
+    else
+        _ez_fail "build failed"
+        return 1
+    fi
 }
 
 _ez_cmd_flash() {
@@ -84,19 +151,34 @@ _ez_cmd_flash() {
     # explicitly given "auto".
     local port="${1:-$EZ_DEFAULT_PORT}"
     _ez_set_build_stamps
+    _ez_say "flash $EZ_DEFAULT_ENV @ ${EZ_BOLD}${EZOS_BUILD_SHA:0:7}${EZ_RESET} -> $port"
+    local rc
     if [[ "$port" == "auto" ]]; then
-        (cd "$EZ_ROOT" && pio run -e "$EZ_DEFAULT_ENV" -t upload)
+        (cd "$EZ_ROOT" && pio run -e "$EZ_DEFAULT_ENV" -t upload); rc=$?
     else
-        (cd "$EZ_ROOT" && pio run -e "$EZ_DEFAULT_ENV" -t upload --upload-port "$port")
+        (cd "$EZ_ROOT" && pio run -e "$EZ_DEFAULT_ENV" -t upload --upload-port "$port"); rc=$?
     fi
+    if [[ $rc -eq 0 ]]; then
+        _ez_ok "flashed"
+    else
+        _ez_fail "flash failed"
+    fi
+    return $rc
 }
 
 _ez_cmd_fs() {
     _ez_set_build_stamps
-    (cd "$EZ_ROOT" && pio run -e "$EZ_DEFAULT_ENV" -t uploadfs)
+    _ez_say "uploadfs (LittleFS image)"
+    if (cd "$EZ_ROOT" && pio run -e "$EZ_DEFAULT_ENV" -t uploadfs); then
+        _ez_ok "fs uploaded"
+    else
+        _ez_fail "fs upload failed"
+        return 1
+    fi
 }
 
 _ez_cmd_clean() {
+    _ez_say "clean"
     (cd "$EZ_ROOT" && pio run -e "$EZ_DEFAULT_ENV" -t clean)
 }
 
@@ -129,8 +211,12 @@ _ez_cmd_text() {
 
 _ez_cmd_shot() {
     local out="${1:-/tmp/screen.png}"
-    python3 "$EZ_ROOT/tools/remote/ez_remote.py" "$EZ_DEFAULT_PORT" -s "$out"
-    echo "saved: $out"
+    if python3 "$EZ_ROOT/tools/remote/ez_remote.py" "$EZ_DEFAULT_PORT" -s "$out" >/dev/null 2>&1; then
+        _ez_ok "screenshot -> $out"
+    else
+        _ez_fail "screenshot failed"
+        return 1
+    fi
 }
 
 _ez_cmd_coredump() {
@@ -196,14 +282,34 @@ _ez_completions() {
 # Detect "is this script being sourced or executed?". When sourced,
 # leave the `ez` function defined and don't run anything; the caller can
 # call `ez <cmd>` interactively. When executed, dispatch immediately.
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+#
+# zsh and bash differ here: in bash, $0 inside a sourced file is the
+# parent shell name (e.g. "bash") while BASH_SOURCE[0] is the script
+# path. In zsh, $0 is the script path even when sourced, but
+# ZSH_EVAL_CONTEXT contains "file" when sourced. We check both.
+_ez_sourced=false
+if [[ -n "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+    _ez_sourced=true
+elif [[ -n "${ZSH_VERSION:-}" ]] && [[ "${ZSH_EVAL_CONTEXT:-}" == *:file ]]; then
+    _ez_sourced=true
+fi
+
+if ! $_ez_sourced; then
     # Executed directly.
     ez "$@"
     exit $?
 else
-    # Sourced. Hook up completion (bash) so `ez <Tab>` works.
+    # Sourced. Hook up tab completion if the shell supports it.
     if [[ -n "${BASH_VERSION:-}" ]]; then
         complete -F _ez_completions ez
+    elif [[ -n "${ZSH_VERSION:-}" ]]; then
+        # zsh has a different completion system. Do the minimum: a
+        # function that emits the subcommand list. Users with a
+        # configured completion system pick this up automatically.
+        _ez_zsh_complete() { _values 'ez subcommand' \
+            'build' 'flash' 'fs' 'clean' 'monitor' 'remote' 'exec' \
+            'logs' 'text' 'shot' 'coredump' 'docs' 'wallpapers' 'help'; }
+        compdef _ez_zsh_complete ez 2>/dev/null
     fi
-    echo "ez: ready (try \`ez help\`)"
+    _ez_ok "ez ready -- try ${EZ_BOLD}ez help${EZ_RESET}"
 fi

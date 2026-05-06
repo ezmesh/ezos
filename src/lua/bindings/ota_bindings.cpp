@@ -1211,6 +1211,20 @@ LUA_FUNCTION(l_ota_apply_url) {
         return 1;
     }
 
+    // Mark the currently-running image valid before we attempt to
+    // switch slots. With CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y in
+    // the prebuilt sdkconfig, esp_ota_set_boot_partition() refuses
+    // to activate the new partition while the running image is in
+    // PENDING_VERIFY -- which is the state right after a fresh
+    // flash, before boot.lua's deferred 5 s mark_valid timer has
+    // had a chance to fire. The user racing the timer (open
+    // Settings -> Firmware before boot completes) hits this as
+    // "Could Not Activate The Firmware". Calling mark_valid here
+    // is idempotent: ESP_ERR_INVALID_STATE means the image was
+    // already valid (or never in pending verify), which we treat
+    // as success.
+    esp_ota_mark_app_valid_cancel_rollback();
+
     const char* url = luaL_checkstring(L, 1);
 
     PullParams* p = new PullParams();
@@ -1254,15 +1268,27 @@ LUA_FUNCTION(l_ota_apply_url) {
     // is a foreground action, the user expects the screen to stop
     // updating. After the install (or its failure), the loop
     // resumes and progress events get dispatched.
-    // 10 KiB stack -- matches the AsyncIO worker that we know
-    // works for the same fetch_streaming code. mbedtls's TLS
-    // handshake is recursive and uses ~3 KiB of stack frames; an
-    // earlier 5 KiB was too tight and left client->connect() to
-    // hang silently. Now fits comfortably thanks to the
-    // remote_control buffers moving to PSRAM (freed ~55 KiB
-    // internal DRAM).
+    // Core 0, priority 2, 10 KiB stack.
+    //
+    // Core 0 (not 1): Core 1 hosts loopTask which dispatches all of
+    //   Lua (UI, bus events, etc.). Pinning pullTask to Core 1 froze
+    //   the screen and made progress events invisible until the
+    //   download finished. Core 0 has WiFi/AsyncTCP/AsyncIO worker
+    //   on it but the task watchdog covers IDLE0; with the wdt
+    //   bumped to 60 s inside pullTask + the per-chunk vTaskDelay(1)
+    //   in fetch_streaming + the freed internal heap (mbedtls now
+    //   has working room and finishes faster) IDLE0 gets enough
+    //   slices to feed itself.
+    //
+    // Priority 2: above loopTask (1) so OTA makes forward progress
+    //   even while Lua/UI is busy, but below WiFi (~18-23) and
+    //   AsyncTCP (~5) so background networking keeps flowing.
+    //
+    // 10 KiB stack: mbedtls TLS handshake recurses to ~3 KiB; 5 KiB
+    //   was too tight and left WiFiClientSecure::connect() hanging
+    //   silently mid-handshake.
     BaseType_t ok = xTaskCreatePinnedToCore(
-        pullTask, "ota_pull", 10240, p, 2, nullptr, 1);
+        pullTask, "ota_pull", 10240, p, 2, nullptr, 0);
     if (ok != pdPASS) {
         g_pullRunning = false;
         delete p;
