@@ -47,8 +47,7 @@
 #include <Preferences.h>
 #include <Update.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
+#include "../../util/http_client.h"
 #include <mbedtls/sha256.h>
 #include <esp_ota_ops.h>
 #include <ESPAsyncWebServer.h>
@@ -56,6 +55,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
+#include <esp_task_wdt.h>
 
 #include "../../ota_pubkey.h"
 
@@ -967,118 +967,143 @@ bool parseHexSha(const char* hex, size_t len, uint8_t out[32]) {
     return true;
 }
 
+// State threaded through the http_client callbacks. The helper
+// uses C-style function pointers (not std::function), so we pass
+// per-call state via the user-pointer.
+struct PullState {
+    mbedtls_sha256_context sha;
+    bool   shaInited       = false;
+    bool   updateBegan     = false;
+    size_t total           = 0;   // expected size (Content-Length)
+    size_t got             = 0;   // bytes successfully written
+    size_t lastReport      = 0;
+    char   error[80]       = {0}; // first failure reason; empty on success
+};
+
+// on_headers: fired after the helper has parsed the final response's
+// status + headers. We use it to size the Update partition and post
+// the "start" progress event before the body starts streaming.
+static bool pullOnHeaders(void* user, int status, long content_length,
+                          const http_client::HeaderPair* /*headers*/,
+                          size_t /*header_count*/) {
+    PullState* s = (PullState*)user;
+    if (status != 200) {
+        snprintf(s->error, sizeof(s->error), "HTTP %d", status);
+        return false;
+    }
+    if (content_length <= 0) {
+        snprintf(s->error, sizeof(s->error), "missing Content-Length");
+        return false;
+    }
+    s->total = (size_t)content_length;
+    if (!Update.begin(s->total, U_FLASH)) {
+        snprintf(s->error, sizeof(s->error), "Update.begin: %s",
+                 Update.errorString());
+        return false;
+    }
+    s->updateBegan = true;
+    mbedtls_sha256_init(&s->sha);
+    mbedtls_sha256_starts(&s->sha, 0);
+    s->shaInited = true;
+    postProgress("start", 0, nullptr);
+    return true;
+}
+
+// on_chunk: fired per body fragment. Stream straight into Update.write
+// + the running SHA-256, post a progress event every PROGRESS_INTERVAL
+// bytes. Returning false aborts the body read; the helper closes the
+// connection and returns ok=false.
+static bool pullOnChunk(void* user, const uint8_t* chunk, size_t n) {
+    PullState* s = (PullState*)user;
+    if (Update.write((uint8_t*)chunk, n) != n) {
+        snprintf(s->error, sizeof(s->error), "Update.write: %s",
+                 Update.errorString());
+        return false;
+    }
+    mbedtls_sha256_update(&s->sha, chunk, n);
+    s->got += n;
+    if (s->got - s->lastReport >= PROGRESS_INTERVAL) {
+        postProgress("write", s->got, nullptr);
+        s->lastReport = s->got;
+    }
+    return true;
+}
+
 void pullTask(void* arg) {
     PullParams* p = (PullParams*)arg;
+    PullState   state;
 
-    // Read buffer is heap-allocated below (see Buf alloc note). The
-    // lambda captures the pointer by reference so any failure path
-    // can free it on the way out.
-    uint8_t* buf = nullptr;
+    // pullTask is now pinned to Core 1 (see xTaskCreatePinnedToCore
+    // call below) precisely because Core 0's IDLE task is monitored
+    // by the task watchdog (CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
+    // in the prebuilt Arduino-ESP32 sdkconfig). When TLS handshake
+    // or Update.begin's first sector erase blocks pullTask for >5 s,
+    // IDLE on the same core can't run, doesn't feed its own
+    // watchdog, and the system panics with task_wdt -- even though
+    // pullTask itself is making forward progress. Core 1's IDLE
+    // isn't monitored, so a busy pullTask there only freezes the
+    // UI for the duration (acceptable; OTA install is intentionally
+    // foreground).
 
     auto fail = [&](const char* msg) {
         LOG("OTA", "pull failed: %s", msg);
-        Update.abort();
+        if (state.updateBegan) Update.abort();
+        if (state.shaInited)   mbedtls_sha256_free(&state.sha);
         g_lastResult = -1;
         strncpy(g_lastError, msg, MAX_ERROR_LEN - 1);
         g_lastError[MAX_ERROR_LEN - 1] = '\0';
         postProgress("error", 0, msg);
         g_pullRunning = false;
-        if (buf) free(buf);
         delete p;
         vTaskDelete(nullptr);
     };
 
     if (!WiFi.isConnected()) { fail("WiFi not connected"); return; }
 
-    WiFiClientSecure client;
-    client.setInsecure();  // signature on manifest is the trust boundary
-    client.setTimeout(15);
+    // Build the helper request. The OTA flow runs against rolling-
+    // main releases on github, which 302 once via release-assets.
+    // githubusercontent.com -- the helper follows the redirect
+    // automatically. UA is set so github logs show ezos as the
+    // client (purely for visibility).
+    const char* hkeys[] = { "User-Agent" };
+    const char* hvals[] = { "ezos-ota" };
+    http_client::Request req;
+    req.url           = p->url.c_str();
+    req.method        = http_client::METHOD_GET;
+    req.header_keys   = hkeys;
+    req.header_vals   = hvals;
+    req.header_count  = 1;
+    // Generous timeout: a 2.4 MB firmware over a slow link can
+    // easily cross 30 seconds, and the helper's deadline covers
+    // the whole body read, not just connect. 90 seconds is
+    // overkill on a fast link and humane on a slow one.
+    req.timeout_ms    = 90000;
+    req.max_redirects = http_client::MAX_REDIRECTS;
 
-    HTTPClient http;
-    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-    http.setReuse(false);
-    http.setConnectTimeout(15000);
-    http.setTimeout(20000);
-    http.setUserAgent("ezos-ota");
+    http_client::Response resp;
+    http_client::fetch_streaming(req, pullOnHeaders, pullOnChunk,
+                                 &state, resp);
 
-    if (!http.begin(client, p->url)) { fail("http.begin failed"); return; }
-    int code = http.GET();
-    if (code != HTTP_CODE_OK) {
-        char msg[64];
-        snprintf(msg, sizeof(msg), "HTTP %d", code);
-        http.end();
+    // Pick up errors in this order: helper transport error,
+    // callback-reported error (state.error), short read.
+    if (!resp.ok) {
+        const char* msg = state.error[0] ? state.error
+                          : (resp.error[0] ? resp.error : "fetch failed");
+        http_client::response_free(resp);
         fail(msg);
         return;
     }
+    http_client::response_free(resp);
 
-    int total = http.getSize();
-    if (total <= 0) { http.end(); fail("missing Content-Length"); return; }
-
-    if (!Update.begin((size_t)total, U_FLASH)) {
-        char msg[80];
-        snprintf(msg, sizeof(msg), "Update.begin: %s", Update.errorString());
-        http.end();
-        fail(msg);
-        return;
-    }
-
-    postProgress("start", 0, nullptr);
-
-    mbedtls_sha256_context sha;
-    mbedtls_sha256_init(&sha);
-    mbedtls_sha256_starts(&sha, 0);
-
-    WiFiClient* stream = http.getStreamPtr();
-    // Heap-allocate the read buffer in PSRAM. On stack it's 2 KiB
-    // out of the 8 KiB task budget, and we need to shrink that
-    // budget to ~5 KiB to survive xTaskCreate against the
-    // squeezed internal heap (~10-12 KiB free post-WiFi + LWIP).
-    constexpr size_t BUF_LEN = 2048;
-    buf = (uint8_t*)heap_caps_malloc(BUF_LEN, MALLOC_CAP_SPIRAM);
-    if (!buf) buf = (uint8_t*)malloc(BUF_LEN);
-    if (!buf) { http.end(); mbedtls_sha256_free(&sha); fail("buf alloc failed"); return; }
-    size_t got = 0;
-    size_t lastReport = 0;
-
-    while (got < (size_t)total && http.connected()) {
-        size_t avail = stream->available();
-        if (avail == 0) {
-            vTaskDelay(pdMS_TO_TICKS(2));
-            continue;
-        }
-        size_t n = avail < sizeof(buf) ? avail : sizeof(buf);
-        if (got + n > (size_t)total) n = (size_t)total - got;
-        int rd = stream->readBytes(buf, n);
-        if (rd <= 0) {
-            vTaskDelay(pdMS_TO_TICKS(2));
-            continue;
-        }
-        if (Update.write(buf, rd) != (size_t)rd) {
-            char msg[80];
-            snprintf(msg, sizeof(msg), "Update.write: %s", Update.errorString());
-            http.end();
-            mbedtls_sha256_free(&sha);
-            fail(msg);
-            return;
-        }
-        mbedtls_sha256_update(&sha, buf, rd);
-        got += rd;
-        if (got - lastReport >= PROGRESS_INTERVAL) {
-            postProgress("write", got, nullptr);
-            lastReport = got;
-        }
-    }
-    http.end();
-
-    if (got != (size_t)total) {
-        mbedtls_sha256_free(&sha);
+    if (state.got != state.total) {
         fail("short read");
         return;
     }
 
     uint8_t digest[32];
-    mbedtls_sha256_finish(&sha, digest);
-    mbedtls_sha256_free(&sha);
+    mbedtls_sha256_finish(&state.sha, digest);
+    mbedtls_sha256_free(&state.sha);
+    state.shaInited = false;
 
     if (p->hasExpectedSha) {
         if (memcmp(digest, p->expectedSha, 32) != 0) {
@@ -1094,12 +1119,12 @@ void pullTask(void* arg) {
         return;
     }
 
-    LOG("OTA", "pull complete (%u bytes)", (unsigned)got);
+    LOG("OTA", "pull complete (%u bytes)", (unsigned)state.got);
     g_lastResult = 1;
-    snprintf(g_lastError, MAX_ERROR_LEN, "%u bytes downloaded", (unsigned)got);
-    postProgress("end", got, nullptr);
+    snprintf(g_lastError, MAX_ERROR_LEN, "%u bytes downloaded",
+             (unsigned)state.got);
+    postProgress("end", state.got, nullptr);
     g_pullRunning = false;
-    if (buf) free(buf);
     delete p;
     vTaskDelete(nullptr);
 }
@@ -1172,14 +1197,20 @@ LUA_FUNCTION(l_ota_apply_url) {
     }
 
     g_pullRunning = true;
-    // 5 KiB stack -- the read buffer (2 KiB) used to live on this
-    // stack and forced 8 KiB; now buf is in PSRAM so the only
-    // residents are HTTPClient + WiFiClientSecure object slots,
-    // an 80-byte error string, and the SHA context. 5 KiB lands
-    // well above the actual high-water and survives xTaskCreate
-    // when free internal heap is in the 10-12 KiB range.
+    // Core 1, not Core 0. Reasons:
+    //   * Core 0 runs the WiFi RX/TX path; while we DO want WiFi to
+    //     keep flowing during the download, lwIP's RX is interrupt-
+    //     driven and doesn't need pullTask CPU.
+    //   * Core 0's IDLE task is task_wdt-monitored; pullTask hogs
+    //     CPU during unyieldable TLS handshake + flash erase, which
+    //     would starve IDLE on Core 0 and crash the firmware in the
+    //     middle of the install.
+    // 5 KiB stack -- the read buffer (2 KiB) is in PSRAM via the
+    // helper, so the only stack residents are the helper's working
+    // String objects, the SHA-256 context, and an 80-byte error
+    // scratch.
     BaseType_t ok = xTaskCreatePinnedToCore(
-        pullTask, "ota_pull", 5120, p, 5, nullptr, 0);
+        pullTask, "ota_pull", 5120, p, 5, nullptr, 1);
     if (ok != pdPASS) {
         g_pullRunning = false;
         delete p;

@@ -12,10 +12,9 @@
 #include "http_bindings.h"
 #include "../../util/log.h"
 #include "../async.h"
+#include "../../util/http_client.h"
 #include <Arduino.h>
 #include <WiFi.h>
-#include <HTTPClient.h>
-#include <WiFiClientSecure.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 #include <esp_heap_caps.h>
@@ -34,22 +33,15 @@ namespace http_bindings {
 // Queue sizes
 constexpr size_t REQUEST_QUEUE_SIZE = 4;
 constexpr size_t RESPONSE_QUEUE_SIZE = 4;
-constexpr size_t MAX_URL_LEN = 2048;
-constexpr size_t MAX_BODY_LEN = 32 * 1024;  // 32KB max request body
+// Body / header sizes for the binding's request + response structs.
+// MAX_URL_LEN, MAX_HEADERS, MAX_HEADER_LEN come from http_client.h
+// so the wire-format limits live in one place. The body sizes are
+// binding-policy (lua-side response cap) and stay here.
+using http_client::MAX_URL_LEN;
+using http_client::MAX_HEADERS;
+using http_client::MAX_HEADER_LEN;
+constexpr size_t MAX_BODY_LEN     = 32 * 1024;   // 32KB max request body
 constexpr size_t MAX_RESPONSE_LEN = 128 * 1024;  // 128KB max response
-constexpr size_t MAX_HEADERS = 16;
-// Header values can be much longer than the typical 256: the Location
-// header from a github release-asset 302 carries a ~700-char signed
-// JWT, and the content-security-policy on github.com pages is ~4 KiB.
-// Truncating the Location below ~1 KiB silently broke redirect
-// following. 1 KiB is the upper bound seen in practice for headers
-// we actually use; the rest are stored truncated, harmlessly.
-constexpr size_t MAX_HEADER_LEN = 1024;
-// Max redirect hops. github releases bounce one time
-// (github.com -> release-assets.githubusercontent.com); 5 is
-// generous without enabling redirect loops to wedge the worker.
-constexpr int    MAX_REDIRECTS  = 5;
-constexpr size_t MAX_HOST_LEN   = 256;
 
 // HTTP methods
 enum class Method { GET, POST, PUT, DELETE_METHOD, PATCH, HEAD };
@@ -88,165 +80,30 @@ static QueueHandle_t responseQueue = nullptr;
 static lua_State* mainState = nullptr;
 
 // ---------------------------------------------------------------------------
-// Worker task -- raw HTTP/1.1 over WiFiClient.
+// Worker -- delegates to util/http_client.
 //
-// We deliberately do NOT use Arduino-ESP32's HTTPClient. That binding
-// hangs in handleHeaderResponse / getString against several real
-// servers we hit (Python's BaseHTTPRequestHandler being the original
-// trigger); the same servers responded fine to a hand-rolled request
-// over WiFiClient. The benefit of HTTPClient (parsing redirects /
-// chunked / keep-alive) isn't worth the unreliability for our
-// development tooling, where everyone we talk to is a small bot we
-// control and a pure HTTP/1.1 + Connection: close shape is enough.
+// The actual HTTP/1.1 parser, redirect-follower, and HTTPS wiring
+// live in src/util/http_client.cpp now. This wrapper exists to bridge
+// the helper's request/response shape onto the binding's HttpRequest /
+// HttpResponse types and queue ownership rules.
 //
-// Behaviour:
-//   * Always sends HTTP/1.1 + Host header + Connection: close.
-//   * Reads the response status + headers line by line.
-//   * Body is read by one of three strategies, in order:
-//       1. Content-Length: <N>     -- read exactly N bytes
-//       2. Transfer-Encoding: chunked -- de-chunk on the fly
-//       3. (neither)               -- read until peer closes
-//   * Caps the response body at MAX_RESPONSE_LEN; truncates above.
-//   * Timeout (req.timeout) covers the whole request including
-//     connect, write, and read.
-//
-// HTTPS uses WiFiClientSecure with setInsecure() -- same convenience
-// the previous binding offered for dev work. Use the bot's bearer
-// token, not TLS, as the trust boundary.
-// ---------------------------------------------------------------------------
-
-static bool parseUrl(const char* url, bool& isHttps, char* host, size_t hostLen,
-                     int& port, char* path, size_t pathLen) {
-    if (strncmp(url, "https://", 8) == 0) {
-        isHttps = true;
-        url += 8;
-        port = 443;
-    } else if (strncmp(url, "http://", 7) == 0) {
-        isHttps = false;
-        url += 7;
-        port = 80;
-    } else {
-        return false;
-    }
-
-    // host[:port] up to the first '/'
-    const char* slash = strchr(url, '/');
-    size_t authority_len = slash ? (size_t)(slash - url) : strlen(url);
-
-    char authority[160];
-    if (authority_len >= sizeof(authority)) return false;
-    memcpy(authority, url, authority_len);
-    authority[authority_len] = '\0';
-
-    char* colon = strchr(authority, ':');
-    if (colon) {
-        *colon = '\0';
-        port = atoi(colon + 1);
-        if (port <= 0 || port > 65535) return false;
-    }
-    strncpy(host, authority, hostLen - 1);
-    host[hostLen - 1] = '\0';
-
-    if (slash) {
-        strncpy(path, slash, pathLen - 1);
-        path[pathLen - 1] = '\0';
-    } else {
-        path[0] = '/'; path[1] = '\0';
-    }
-    return true;
-}
-
-// Read one line ending in CRLF (or LF), trim the \r, drop the \n.
-// Returns true on success, false on timeout or peer close.
-// Per-line cap for status + header lines. Originally 1024, which
-// silently truncated on github.com's responses -- their default
-// content-security-policy header alone is ~4.5 KiB and their
-// release-download responses ship even larger headers. On a
-// truncation we'd discard the line and return false, the caller
-// would mark the response as "header read timeout", and the user
-// would see "Manifest fetch failed". 8 KiB is the upper bound seen
-// in practice and has plenty of safety margin without ballooning
-// the worker task's stack (the String allocates from PSRAM via
-// the Arduino-ESP32 mbedtls hook anyway).
-static constexpr size_t MAX_LINE_LEN = 8192;
-
-static bool readLine(WiFiClient* client, String& out, uint32_t deadline_ms) {
-    out = "";
-    while (true) {
-        if (client->available()) {
-            int c = client->read();
-            if (c < 0) return false;
-            if (c == '\n') {
-                if (out.length() > 0 && out[out.length() - 1] == '\r') {
-                    out.remove(out.length() - 1);
-                }
-                return true;
-            }
-            out += (char)c;
-            if (out.length() > MAX_LINE_LEN) return false;  // sanity cap
-        } else {
-            if (millis() > deadline_ms) return false;
-            if (!client->connected() && !client->available()) return false;
-            delay(2);
-        }
-    }
-}
-
-static int readBytes(WiFiClient* client, char* buf, int wanted, uint32_t deadline_ms) {
-    int got = 0;
-    while (got < wanted) {
-        int avail = client->available();
-        if (avail > 0) {
-            int n = client->read((uint8_t*)buf + got, wanted - got);
-            if (n > 0) got += n;
-            else if (n < 0) return got;
-        } else {
-            if (millis() > deadline_ms) return got;
-            if (!client->connected() && !client->available()) return got;
-            delay(2);
-        }
-    }
-    return got;
-}
-
-static const char* methodName(Method m) {
-    switch (m) {
-        case Method::GET:    return "GET";
-        case Method::POST:   return "POST";
-        case Method::PUT:    return "PUT";
-        case Method::DELETE_METHOD: return "DELETE";
-        case Method::PATCH:  return "PATCH";
-        case Method::HEAD:   return "HEAD";
-    }
-    return "GET";
-}
-
-// One HTTP fetch run-to-completion. Called on the AsyncIO worker
-// thread (Core 0) -- there is intentionally no http-specific task,
-// because every extra FreeRTOS task burns scarce internal DRAM for
-// its stack and we already have a perfectly capable worker.
-//
-// Ownership rules:
+// Ownership rules (unchanged from before the helper extraction):
 //   * l_fetch heap-allocs HttpRequest in PSRAM, hands the pointer to
 //     AsyncIO::queueHttpRequest.
-//   * This function frees the HttpRequest when done with it (always),
+//   * This function frees the HttpRequest when done (always),
 //     heap-allocs an HttpResponse, queues it on responseQueue.
 //   * update() (Lua thread) reads HttpResponse and frees it.
-// If sending fails (queue full), the producer frees -- there's never a
-// case where the receiver doesn't take ownership of a successfully
-// dequeued pointer.
-// Reset the response struct between redirect attempts. Called both
-// at the start of the worker (to wipe any stale calloc remnants --
-// shouldn't be needed since calloc zeros, but cheap insurance) and
-// at the top of each redirect iteration so the response we
-// eventually queue reflects only the *final* request's outcome.
-static void resetResponse(HttpResponse& resp) {
-    if (resp.body) { free(resp.body); resp.body = nullptr; }
-    resp.bodyLen = 0;
-    if (resp.errorMsg) { free(resp.errorMsg); resp.errorMsg = nullptr; }
-    resp.headerCount = 0;
-    resp.statusCode = 0;
-    resp.success = false;
+// ---------------------------------------------------------------------------
+
+static http_client::Method toHCMethod(Method m) {
+    switch (m) {
+        case Method::POST:          return http_client::METHOD_POST;
+        case Method::PUT:           return http_client::METHOD_PUT;
+        case Method::DELETE_METHOD: return http_client::METHOD_DELETE;
+        case Method::PATCH:         return http_client::METHOD_PATCH;
+        case Method::HEAD:          return http_client::METHOD_HEAD;
+        default:                    return http_client::METHOD_GET;
+    }
 }
 
 static void processHttpRequest(void* requestPtr, int /*coroRef*/) {
@@ -254,15 +111,13 @@ static void processHttpRequest(void* requestPtr, int /*coroRef*/) {
     if (!preq) return;
     HttpRequest& req = *preq;
 
-    // Response also lives in PSRAM -- same reasoning as the request
-    // alloc in l_fetch. The body is allocated separately (also PSRAM
-    // when possible) and is what dominates the response footprint.
+    // Response lives in PSRAM -- same reasoning as the request alloc
+    // in l_fetch. The body buffer is allocated separately by the
+    // helper (also PSRAM-first) and ownership transfers here.
     HttpResponse* presp = (HttpResponse*)heap_caps_calloc(
         1, sizeof(HttpResponse), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!presp) presp = (HttpResponse*)calloc(1, sizeof(HttpResponse));
     if (!presp) {
-        // Without a response slot we can't even report the failure;
-        // best we can do is drop the request.
         if (req.body) free(req.body);
         free(preq);
         return;
@@ -271,286 +126,53 @@ static void processHttpRequest(void* requestPtr, int /*coroRef*/) {
     resp.coroRef = req.coroRef;
     resp.success = false;
 
-    // Heap-allocate the URL parse buffers in PSRAM. The previous
-    // versions were on-stack at 160 + 512 bytes; bumping to MAX_HOST_
-    // LEN (256) + MAX_URL_LEN (2048) would push the worker's 12 KiB
-    // stack uncomfortably close to the rail, so we PSRAM-alloc and
-    // free deterministically at cleanup.
-    char* host = (char*)heap_caps_calloc(1, MAX_HOST_LEN, MALLOC_CAP_SPIRAM);
-    if (!host) host = (char*)calloc(1, MAX_HOST_LEN);
-    char* path = (char*)heap_caps_calloc(1, MAX_URL_LEN, MALLOC_CAP_SPIRAM);
-    if (!path) path = (char*)calloc(1, MAX_URL_LEN);
-
-    WiFiClient* client = nullptr;
-
-    if (!host || !path) {
-        resp.errorMsg = strdup("psram alloc failed");
-        goto cleanup;
+    // Build parallel header arrays for the helper. Pointers reference
+    // the existing in-struct storage, so they stay valid for the
+    // duration of the call.
+    const char* hkeys[MAX_HEADERS];
+    const char* hvals[MAX_HEADERS];
+    for (size_t i = 0; i < req.headerCount && i < MAX_HEADERS; i++) {
+        hkeys[i] = req.headers[i][0];
+        hvals[i] = req.headers[i][1];
     }
 
-    if (WiFi.status() != WL_CONNECTED) {
-        resp.errorMsg = strdup("WiFi not connected");
-        goto cleanup;
+    http_client::Request hreq;
+    hreq.url           = req.url;
+    hreq.method        = toHCMethod(req.method);
+    hreq.body          = (const uint8_t*)req.body;
+    hreq.body_len      = req.bodyLen;
+    hreq.header_keys   = hkeys;
+    hreq.header_vals   = hvals;
+    hreq.header_count  = req.headerCount;
+    hreq.timeout_ms    = req.timeout > 0 ? (uint32_t)req.timeout : 10000;
+    hreq.max_redirects = req.followRedirects ? http_client::MAX_REDIRECTS : 0;
+
+    http_client::BufferedResult result;
+    http_client::fetch_buffered(hreq, MAX_RESPONSE_LEN, result);
+
+    // Translate the helper's result into our HttpResponse shape.
+    resp.success    = result.response.ok;
+    resp.statusCode = result.response.status;
+    if (!result.response.ok && result.response.error[0]) {
+        resp.errorMsg = strdup(result.response.error);
     }
+    // Body ownership transfers from helper to HttpResponse.
+    resp.body    = (char*)result.body;
+    resp.bodyLen = result.body_len;
 
-    {
-        // Redirect-following loop. We re-enter at the top with an
-        // updated req.url whenever the server returns a 3xx with a
-        // Location header. `redirectsLeft` caps the chain so a
-        // misconfigured redirect loop can't pin the worker.
-        int redirectsLeft = req.followRedirects ? MAX_REDIRECTS : 0;
-
-        while (true) {
-            resetResponse(resp);
-
-            bool isHttps = false;
-            int  port = 0;
-            if (!parseUrl(req.url, isHttps, host, MAX_HOST_LEN, port,
-                          path, MAX_URL_LEN)) {
-                resp.errorMsg = strdup("bad URL");
-                goto cleanup;
-            }
-
-            // One client, polymorphic via the WiFiClient base. Secure
-            // variant skips cert verification -- this is dev tooling
-            // for the OTA flow whose trust boundary is the manifest
-            // signature, not TLS.
-            if (isHttps) {
-                auto* s = new WiFiClientSecure();
-                s->setInsecure();
-                client = s;
-            } else {
-                client = new WiFiClient();
-            }
-
-            uint32_t timeout = req.timeout > 0 ? (uint32_t)req.timeout : 10000;
-            client->setTimeout(timeout / 1000 + 1);  // seconds in this lib
-            uint32_t deadline = millis() + timeout;
-
-            if (!client->connect(host, port)) {
-                resp.errorMsg = strdup("connect failed");
-                goto cleanup;
-            }
-
-            // Build + send the request line, headers, body.
-            String headBuf = String(methodName(req.method)) + " " + path + " HTTP/1.1\r\n";
-            headBuf += "Host: ";
-            headBuf += host;
-            if ((isHttps && port != 443) || (!isHttps && port != 80)) {
-                headBuf += ":";
-                headBuf += String(port);
-            }
-            headBuf += "\r\n";
-            headBuf += "Connection: close\r\n";
-            bool sawCType = false, sawCLen = false;
-            for (size_t i = 0; i < req.headerCount; i++) {
-                headBuf += req.headers[i][0];
-                headBuf += ": ";
-                headBuf += req.headers[i][1];
-                headBuf += "\r\n";
-                if (strcasecmp(req.headers[i][0], "Content-Type")   == 0) sawCType = true;
-                if (strcasecmp(req.headers[i][0], "Content-Length") == 0) sawCLen  = true;
-            }
-            bool hasBody = req.body && req.bodyLen > 0 &&
-                           (req.method == Method::POST  ||
-                            req.method == Method::PUT   ||
-                            req.method == Method::PATCH ||
-                            req.method == Method::DELETE_METHOD);
-            if (hasBody && !sawCLen) {
-                headBuf += "Content-Length: ";
-                headBuf += String((unsigned)req.bodyLen);
-                headBuf += "\r\n";
-            }
-            if (hasBody && !sawCType) {
-                headBuf += "Content-Type: application/octet-stream\r\n";
-            }
-            headBuf += "\r\n";
-
-            client->print(headBuf);
-            if (hasBody) {
-                client->write((const uint8_t*)req.body, req.bodyLen);
-            }
-
-            // ----- Read status line --------------------------------
-            String statusLine;
-            if (!readLine(client, statusLine, deadline)) {
-                resp.errorMsg = strdup("no status line");
-                goto cleanup;
-            }
-            // Format: "HTTP/1.1 200 OK"
-            int sp1 = statusLine.indexOf(' ');
-            if (sp1 < 0) {
-                resp.errorMsg = strdup("malformed status");
-                goto cleanup;
-            }
-            resp.statusCode = atoi(statusLine.c_str() + sp1 + 1);
-
-            // ----- Read headers ------------------------------------
-            long contentLength = -1;
-            bool chunked = false;
-            // Track Location for the redirect path. We need to read
-            // it *before* deciding whether to follow because the
-            // header table is bounded by MAX_HEADERS and the entry
-            // could fall off the end on a chatty server.
-            char* locationHdr = nullptr;
-            while (true) {
-                String line;
-                if (!readLine(client, line, deadline)) {
-                    resp.errorMsg = strdup("header read timeout");
-                    if (locationHdr) free(locationHdr);
-                    goto cleanup;
-                }
-                if (line.length() == 0) break;  // end of headers
-                int colon = line.indexOf(':');
-                if (colon <= 0) continue;
-                String key = line.substring(0, colon);
-                String val = line.substring(colon + 1);
-                val.trim();
-
-                if (key.equalsIgnoreCase("Content-Length")) {
-                    contentLength = val.toInt();
-                } else if (key.equalsIgnoreCase("Transfer-Encoding") &&
-                           val.indexOf("chunked") >= 0) {
-                    chunked = true;
-                } else if (key.equalsIgnoreCase("Location")) {
-                    if (locationHdr) free(locationHdr);
-                    locationHdr = strdup(val.c_str());
-                }
-
-                if (resp.headerCount < MAX_HEADERS) {
-                    strncpy(resp.headers[resp.headerCount][0], key.c_str(), MAX_HEADER_LEN - 1);
-                    resp.headers[resp.headerCount][0][MAX_HEADER_LEN - 1] = '\0';
-                    strncpy(resp.headers[resp.headerCount][1], val.c_str(), MAX_HEADER_LEN - 1);
-                    resp.headers[resp.headerCount][1][MAX_HEADER_LEN - 1] = '\0';
-                    resp.headerCount++;
-                }
-            }
-
-            // ----- Redirect handling -------------------------------
-            // Decide *before* reading the body so we don't waste time
-            // pulling content we're about to discard. 3xx responses
-            // almost always have an empty or trivial body anyway.
-            bool is3xx = (resp.statusCode == 301 || resp.statusCode == 302 ||
-                          resp.statusCode == 303 || resp.statusCode == 307 ||
-                          resp.statusCode == 308);
-            if (is3xx && redirectsLeft > 0 && locationHdr &&
-                strlen(locationHdr) < MAX_URL_LEN) {
-                // Drain whatever body the redirect sent so we can
-                // close the connection cleanly. Cheap: 3xx bodies are
-                // typically zero-length per the Content-Length we
-                // already read.
-                if (contentLength > 0) {
-                    char dump[512];
-                    long left = contentLength;
-                    while (left > 0 && millis() <= deadline) {
-                        int n = readBytes(client, dump,
-                                          left > (long)sizeof(dump) ? sizeof(dump) : left,
-                                          deadline);
-                        if (n <= 0) break;
-                        left -= n;
-                    }
-                }
-                // Tear down the current TLS/TCP connection -- the
-                // next iteration opens a fresh one against the
-                // redirect host.
-                client->stop();
-                delete client;
-                client = nullptr;
-                // Update req.url with the absolute Location and loop.
-                // Relative redirects (just a path) aren't currently
-                // supported; github releases / OTA endpoints all
-                // emit absolute targets, so we don't need them yet.
-                strncpy(req.url, locationHdr, MAX_URL_LEN - 1);
-                req.url[MAX_URL_LEN - 1] = '\0';
-                free(locationHdr);
-                redirectsLeft--;
-                continue;  // restart the loop with the new URL
-            }
-            if (locationHdr) free(locationHdr);
-
-            // ----- Read body ---------------------------------------
-            if (req.method != Method::HEAD) {
-                char* body = nullptr;
-                size_t bodyLen = 0;
-
-                if (chunked) {
-                    // <hex-size>\r\n<bytes>\r\n... terminated by 0\r\n\r\n
-                    size_t cap = 4096;
-                    body = (char*)ps_malloc(cap);
-                    if (!body) body = (char*)malloc(cap);
-                    while (body) {
-                        String sizeLine;
-                        if (!readLine(client, sizeLine, deadline)) break;
-                        long chunkSize = strtol(sizeLine.c_str(), nullptr, 16);
-                        if (chunkSize <= 0) break;
-                        if (bodyLen + chunkSize > MAX_RESPONSE_LEN) break;
-                        if (bodyLen + chunkSize + 1 > cap) {
-                            size_t newCap = bodyLen + chunkSize + 1;
-                            char* nb = (char*)ps_malloc(newCap);
-                            if (!nb) nb = (char*)malloc(newCap);
-                            if (!nb) break;
-                            memcpy(nb, body, bodyLen);
-                            free(body);
-                            body = nb;
-                            cap = newCap;
-                        }
-                        int got = readBytes(client, body + bodyLen, chunkSize, deadline);
-                        bodyLen += got;
-                        if (got < chunkSize) break;
-                        String trailing;
-                        readLine(client, trailing, deadline);  // consume the CRLF
-                    }
-                } else if (contentLength > 0) {
-                    size_t want = (contentLength <= (long)MAX_RESPONSE_LEN)
-                                  ? (size_t)contentLength : MAX_RESPONSE_LEN;
-                    body = (char*)ps_malloc(want + 1);
-                    if (!body) body = (char*)malloc(want + 1);
-                    if (body) {
-                        int got = readBytes(client, body, want, deadline);
-                        bodyLen = got > 0 ? (size_t)got : 0;
-                    }
-                } else {
-                    // No length header -- read until close.
-                    size_t cap = 4096;
-                    body = (char*)ps_malloc(cap);
-                    if (!body) body = (char*)malloc(cap);
-                    while (body && bodyLen < MAX_RESPONSE_LEN) {
-                        if (!client->connected() && !client->available()) break;
-                        if (millis() > deadline) break;
-                        int avail = client->available();
-                        if (avail <= 0) { delay(5); continue; }
-                        if (bodyLen + 1 > cap) {
-                            size_t newCap = cap * 2;
-                            if (newCap > MAX_RESPONSE_LEN + 1) newCap = MAX_RESPONSE_LEN + 1;
-                            char* nb = (char*)ps_malloc(newCap);
-                            if (!nb) nb = (char*)malloc(newCap);
-                            if (!nb) break;
-                            memcpy(nb, body, bodyLen);
-                            free(body);
-                            body = nb;
-                            cap = newCap;
-                        }
-                        int n = client->read((uint8_t*)body + bodyLen,
-                                             (cap - 1) - bodyLen);
-                        if (n > 0) bodyLen += n;
-                    }
-                }
-
-                if (body) {
-                    body[bodyLen < MAX_RESPONSE_LEN ? bodyLen : MAX_RESPONSE_LEN - 1] = '\0';
-                }
-                resp.body = body;
-                resp.bodyLen = bodyLen;
-            }
-            resp.success = true;
-            break;  // out of the redirect-loop on a non-redirect response
-        }
+    // Copy response headers into the binding's fixed-size table.
+    resp.headerCount = 0;
+    for (size_t i = 0; i < result.response.header_count && i < MAX_HEADERS; i++) {
+        strncpy(resp.headers[resp.headerCount][0],
+                result.response.headers[i].key,  MAX_HEADER_LEN - 1);
+        resp.headers[resp.headerCount][0][MAX_HEADER_LEN - 1] = '\0';
+        strncpy(resp.headers[resp.headerCount][1],
+                result.response.headers[i].value, MAX_HEADER_LEN - 1);
+        resp.headers[resp.headerCount][1][MAX_HEADER_LEN - 1] = '\0';
+        resp.headerCount++;
     }
+    http_client::response_free(result.response);
 
-cleanup:
-    if (client) { client->stop(); delete client; }
-    if (host) free(host);
-    if (path) free(path);
     if (req.body) free(req.body);
     free(preq);
     xQueueSend(responseQueue, &presp, portMAX_DELAY);
