@@ -986,6 +986,8 @@ struct PullState {
 static bool pullOnHeaders(void* user, int status, long content_length,
                           const http_client::HeaderPair* /*headers*/,
                           size_t /*header_count*/) {
+    LOG("OTA", "headers received: status=%d content_length=%ld",
+        status, content_length);
     PullState* s = (PullState*)user;
     if (status != 200) {
         snprintf(s->error, sizeof(s->error), "HTTP %d", status);
@@ -996,11 +998,13 @@ static bool pullOnHeaders(void* user, int status, long content_length,
         return false;
     }
     s->total = (size_t)content_length;
+    LOG("OTA", "Update.begin(%u)...", (unsigned)s->total);
     if (!Update.begin(s->total, U_FLASH)) {
         snprintf(s->error, sizeof(s->error), "Update.begin: %s",
                  Update.errorString());
         return false;
     }
+    LOG("OTA", "Update.begin OK");
     s->updateBegan = true;
     mbedtls_sha256_init(&s->sha);
     mbedtls_sha256_starts(&s->sha, 0);
@@ -1023,6 +1027,14 @@ static bool pullOnChunk(void* user, const uint8_t* chunk, size_t n) {
     mbedtls_sha256_update(&s->sha, chunk, n);
     s->got += n;
     if (s->got - s->lastReport >= PROGRESS_INTERVAL) {
+        LOG("OTA", "write progress: %u / %u", (unsigned)s->got, (unsigned)s->total);
+        // Force the log ring straight to disk every progress
+        // checkpoint. If a panic kills the device mid-install we
+        // get to read back exactly how far we got, which is the
+        // only way to make progress on debugging the install path
+        // (the on-panic shutdown handler doesn't fire on watchdog
+        // resets so we can't rely on it).
+        log_panic_flush("ota_progress");
         postProgress("write", s->got, nullptr);
         s->lastReport = s->got;
     }
@@ -1033,17 +1045,32 @@ void pullTask(void* arg) {
     PullParams* p = (PullParams*)arg;
     PullState   state;
 
-    // pullTask is now pinned to Core 1 (see xTaskCreatePinnedToCore
-    // call below) precisely because Core 0's IDLE task is monitored
-    // by the task watchdog (CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
-    // in the prebuilt Arduino-ESP32 sdkconfig). When TLS handshake
-    // or Update.begin's first sector erase blocks pullTask for >5 s,
-    // IDLE on the same core can't run, doesn't feed its own
-    // watchdog, and the system panics with task_wdt -- even though
-    // pullTask itself is making forward progress. Core 1's IDLE
-    // isn't monitored, so a busy pullTask there only freezes the
-    // UI for the duration (acceptable; OTA install is intentionally
-    // foreground).
+    // First instruction: yield to IDLE0 so it can feed the task
+    // watchdog before we do any blocking work. Without this, pull
+    // tasks spawned at priority 5 sometimes start running on Core 0
+    // and immediately enter a long-running mbedtls/Update.begin
+    // call, starving IDLE0 for the entire wdt window.
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    // Log via the persistent buffer so the trace survives a panic-
+    // induced reboot if the periodic flusher gets a chance to write
+    // the ring to disk before things go sideways. Direct Serial
+    // printf is unreliable here because the USB CDC TX worker is on
+    // Core 0 and may starve while pullTask is busy.
+    LOG("OTA", "pullTask entered, url=%s", p->url.c_str());
+
+    // Bump the task watchdog timeout to 60 s for the duration of
+    // the install. Default is 5 s (CONFIG_ESP_TASK_WDT_TIMEOUT_S in
+    // the Arduino-ESP32 prebuilt sdkconfig); on Core 0 the IDLE
+    // task is wdt-monitored, and TLS handshake + Update.begin's
+    // first sector erase together can block IDLE0 from running for
+    // many seconds at a stretch. Without this bump the system
+    // panics with task_wdt mid-install even though pullTask is
+    // making forward progress. esp_task_wdt_init updates the
+    // timeout in place if the wdt is already initialized (which it
+    // is by the Arduino runtime). Restored to 5 s on every exit.
+    esp_err_t wdt_rc = esp_task_wdt_init(60, true);
+    LOG("OTA", "wdt_init(60) -> %d", (int)wdt_rc);
 
     auto fail = [&](const char* msg) {
         LOG("OTA", "pull failed: %s", msg);
@@ -1054,9 +1081,12 @@ void pullTask(void* arg) {
         g_lastError[MAX_ERROR_LEN - 1] = '\0';
         postProgress("error", 0, msg);
         g_pullRunning = false;
+        esp_task_wdt_init(5, true);
         delete p;
         vTaskDelete(nullptr);
     };
+
+    LOG("OTA", "pullTask started, url=%s", p->url.c_str());
 
     if (!WiFi.isConnected()) { fail("WiFi not connected"); return; }
 
@@ -1080,9 +1110,12 @@ void pullTask(void* arg) {
     req.timeout_ms    = 90000;
     req.max_redirects = http_client::MAX_REDIRECTS;
 
+    LOG("OTA", "calling fetch_streaming...");
     http_client::Response resp;
     http_client::fetch_streaming(req, pullOnHeaders, pullOnChunk,
                                  &state, resp);
+    LOG("OTA", "fetch_streaming returned: ok=%d status=%d got=%u",
+        resp.ok, resp.status, (unsigned)state.got);
 
     // Pick up errors in this order: helper transport error,
     // callback-reported error (state.error), short read.
@@ -1125,6 +1158,7 @@ void pullTask(void* arg) {
              (unsigned)state.got);
     postProgress("end", state.got, nullptr);
     g_pullRunning = false;
+    esp_task_wdt_init(5, true);
     delete p;
     vTaskDelete(nullptr);
 }
@@ -1197,20 +1231,31 @@ LUA_FUNCTION(l_ota_apply_url) {
     }
 
     g_pullRunning = true;
-    // Core 1, not Core 0. Reasons:
-    //   * Core 0 runs the WiFi RX/TX path; while we DO want WiFi to
-    //     keep flowing during the download, lwIP's RX is interrupt-
-    //     driven and doesn't need pullTask CPU.
-    //   * Core 0's IDLE task is task_wdt-monitored; pullTask hogs
-    //     CPU during unyieldable TLS handshake + flash erase, which
-    //     would starve IDLE on Core 0 and crash the firmware in the
-    //     middle of the install.
+    // Core 0. The previous attempt at pinning to Core 1 to dodge the
+    // IDLE0 task watchdog left the Lua main loop blocked for the
+    // entire install (loopTask runs on Core 1) -- the screen froze,
+    // the remote-control protocol stopped responding, and there was
+    // no way to surface progress. Core 0 keeps the loop alive and
+    // we extend task_wdt to 60 s inside pullTask so IDLE0 starvation
+    // doesn't panic during the unyieldable TLS / flash phases.
+    //
     // 5 KiB stack -- the read buffer (2 KiB) is in PSRAM via the
     // helper, so the only stack residents are the helper's working
     // String objects, the SHA-256 context, and an 80-byte error
     // scratch.
+    // Pin to Core 1, priority 2. Core 0 is wdt-monitored on its
+    // IDLE task, and we have no reliable way to make IDLE0 run
+    // through the unyieldable phases of mbedtls's TLS handshake +
+    // Update.begin's first-sector erase -- task_wdt bumps don't
+    // take effect early enough, priority drops + entry yields don't
+    // help. Core 1 has no IDLE wdt monitoring, so a busy pullTask
+    // there only freezes the Lua main loop (which lives on Core 1
+    // too) for the duration of the install. Acceptable: OTA install
+    // is a foreground action, the user expects the screen to stop
+    // updating. After the install (or its failure), the loop
+    // resumes and progress events get dispatched.
     BaseType_t ok = xTaskCreatePinnedToCore(
-        pullTask, "ota_pull", 5120, p, 5, nullptr, 1);
+        pullTask, "ota_pull", 5120, p, 2, nullptr, 1);
     if (ok != pdPASS) {
         g_pullRunning = false;
         delete p;
