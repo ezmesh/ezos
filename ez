@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# ezOS dev wrapper. Two ways to use:
+#
+#   ./ez <command> [args...]            -- run a subcommand directly
+#   source ./ez                         -- expose `ez` as a shell function
+#                                          + tab completion in this session
+#
+# Subcommands (run `./ez help` for the full list):
+#
+#   build [env]               -- pio run (default env: t-deck-plus)
+#   flash [port]              -- pio run -t upload (USB)
+#   fs                        -- pio run -t uploadfs (LittleFS image)
+#   clean                     -- pio run -t clean
+#   monitor [port]            -- raw serial monitor at 921600
+#   remote [args...]          -- proxy to tools/remote/ez_remote.py
+#   exec <lua>                -- shorthand for `remote -e <lua>`
+#   logs                      -- shorthand for `remote --logs`
+#   text                      -- shorthand for `remote --text`
+#   shot [path]               -- shorthand for `remote -s <path>` (default /tmp/screen.png)
+#   coredump [port]           -- read + decode panic coredump partition
+#   docs                      -- regenerate docs/api/* from C++ annotations
+#   wallpapers                -- regenerate data/wallpapers/*.jpg from sources
+#
+# All commands set EZOS_BUILD_SHA + EZOS_BUILD_AT automatically when they
+# invoke pio so locally-flashed firmware can identify itself for the OTA
+# update screen (without these the build embeds nothing and apply_url's
+# downgrade-detection has nothing to compare against).
+
+# --------------------------------------------------------------------------
+# Locate ourselves so the script works from any cwd.
+# --------------------------------------------------------------------------
+if [[ -n "${BASH_SOURCE[0]}" ]]; then
+    EZ_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+    EZ_ROOT="$(cd "$(dirname "$0")" && pwd)"
+fi
+
+EZ_DEFAULT_PORT="${EZOS_PORT:-/dev/ttyACM0}"
+EZ_DEFAULT_ENV="${EZOS_ENV:-t-deck-plus}"
+
+# --------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------
+
+_ez_die() {
+    echo "ez: $*" >&2
+    return 1
+}
+
+_ez_set_build_stamps() {
+    # The pre-build script in scripts/embed_lua_scripts.py picks these up
+    # and bakes them into kOtaSigningPubkey-adjacent globals so the
+    # running firmware can self-report. Same shape as the CI workflow.
+    if [[ -z "${EZOS_BUILD_SHA:-}" ]]; then
+        export EZOS_BUILD_SHA="$(cd "$EZ_ROOT" && git rev-parse HEAD 2>/dev/null || echo unknown)"
+    fi
+    if [[ -z "${EZOS_BUILD_AT:-}" ]]; then
+        export EZOS_BUILD_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    fi
+}
+
+_ez_have() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+_ez_help() {
+    sed -n '/^# ezOS dev wrapper/,/^# All commands/p' "$EZ_ROOT/ez" \
+        | sed 's/^# \{0,1\}//'
+}
+
+# --------------------------------------------------------------------------
+# Subcommands
+# --------------------------------------------------------------------------
+
+_ez_cmd_build() {
+    local env="${1:-$EZ_DEFAULT_ENV}"
+    _ez_set_build_stamps
+    (cd "$EZ_ROOT" && pio run -e "$env")
+}
+
+_ez_cmd_flash() {
+    # Optional positional port lets you flash a device that isn't on the
+    # default /dev/ttyACM0. Falls through to esptool's auto-detect when
+    # explicitly given "auto".
+    local port="${1:-$EZ_DEFAULT_PORT}"
+    _ez_set_build_stamps
+    if [[ "$port" == "auto" ]]; then
+        (cd "$EZ_ROOT" && pio run -e "$EZ_DEFAULT_ENV" -t upload)
+    else
+        (cd "$EZ_ROOT" && pio run -e "$EZ_DEFAULT_ENV" -t upload --upload-port "$port")
+    fi
+}
+
+_ez_cmd_fs() {
+    _ez_set_build_stamps
+    (cd "$EZ_ROOT" && pio run -e "$EZ_DEFAULT_ENV" -t uploadfs)
+}
+
+_ez_cmd_clean() {
+    (cd "$EZ_ROOT" && pio run -e "$EZ_DEFAULT_ENV" -t clean)
+}
+
+_ez_cmd_monitor() {
+    local port="${1:-$EZ_DEFAULT_PORT}"
+    if _ez_have picocom; then
+        picocom -b 921600 --imap lfcrlf "$port"
+    else
+        # Fallback: pio's monitor (slower to start but always available).
+        (cd "$EZ_ROOT" && pio device monitor --port "$port" --baud 921600)
+    fi
+}
+
+_ez_cmd_remote() {
+    python3 "$EZ_ROOT/tools/remote/ez_remote.py" "$EZ_DEFAULT_PORT" "$@"
+}
+
+_ez_cmd_exec() {
+    if [[ $# -lt 1 ]]; then _ez_die "exec needs a Lua expression"; return $?; fi
+    python3 "$EZ_ROOT/tools/remote/ez_remote.py" "$EZ_DEFAULT_PORT" -e "$*"
+}
+
+_ez_cmd_logs() {
+    python3 "$EZ_ROOT/tools/remote/ez_remote.py" "$EZ_DEFAULT_PORT" --logs
+}
+
+_ez_cmd_text() {
+    python3 "$EZ_ROOT/tools/remote/ez_remote.py" "$EZ_DEFAULT_PORT" --text
+}
+
+_ez_cmd_shot() {
+    local out="${1:-/tmp/screen.png}"
+    python3 "$EZ_ROOT/tools/remote/ez_remote.py" "$EZ_DEFAULT_PORT" -s "$out"
+    echo "saved: $out"
+}
+
+_ez_cmd_coredump() {
+    local port="${1:-$EZ_DEFAULT_PORT}"
+    "$EZ_ROOT/tools/read_coredump.sh" "$port"
+}
+
+_ez_cmd_docs() {
+    (cd "$EZ_ROOT" && python3 tools/generate_lua_docs.py)
+}
+
+_ez_cmd_wallpapers() {
+    (cd "$EZ_ROOT" && python3 tools/gen_wallpapers.py "$@")
+}
+
+_ez_cmd_help() {
+    _ez_help
+}
+
+# --------------------------------------------------------------------------
+# Dispatch
+# --------------------------------------------------------------------------
+
+ez() {
+    local cmd="${1:-help}"
+    shift || true
+    case "$cmd" in
+        build|b)        _ez_cmd_build "$@";;
+        flash|upload|u) _ez_cmd_flash "$@";;
+        fs|uploadfs)    _ez_cmd_fs "$@";;
+        clean)          _ez_cmd_clean "$@";;
+        monitor|m)      _ez_cmd_monitor "$@";;
+        remote|r)       _ez_cmd_remote "$@";;
+        exec|e)         _ez_cmd_exec "$@";;
+        logs|l)         _ez_cmd_logs "$@";;
+        text|t)         _ez_cmd_text "$@";;
+        shot|s)         _ez_cmd_shot "$@";;
+        coredump)       _ez_cmd_coredump "$@";;
+        docs)           _ez_cmd_docs "$@";;
+        wallpapers|wp)  _ez_cmd_wallpapers "$@";;
+        help|--help|-h) _ez_cmd_help;;
+        *)
+            _ez_die "unknown command: $cmd (try \`ez help\`)"
+            return 1
+            ;;
+    esac
+}
+
+# Bash completion. Only registers when the script is sourced, since the
+# completion needs to live in the calling shell's environment.
+_ez_completions() {
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+    local cmds="build flash fs clean monitor remote exec logs text shot coredump docs wallpapers help"
+    if [[ $COMP_CWORD -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "$cmds" -- "$cur") )
+    fi
+}
+
+# --------------------------------------------------------------------------
+# Entry point
+# --------------------------------------------------------------------------
+
+# Detect "is this script being sourced or executed?". When sourced,
+# leave the `ez` function defined and don't run anything; the caller can
+# call `ez <cmd>` interactively. When executed, dispatch immediately.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    # Executed directly.
+    ez "$@"
+    exit $?
+else
+    # Sourced. Hook up completion (bash) so `ez <Tab>` works.
+    if [[ -n "${BASH_VERSION:-}" ]]; then
+        complete -F _ez_completions ez
+    fi
+    echo "ez: ready (try \`ez help\`)"
+fi
