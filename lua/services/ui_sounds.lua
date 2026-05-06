@@ -79,9 +79,15 @@ function ui_sounds.init()
         if type(spec) == "string" then
             handles[event] = preload_one(spec)
         else
+            -- Pack only successfully-loaded handles. A failed preload
+            -- (sound file missing on the LittleFS partition, e.g.
+            -- after a reformat) would otherwise leave a hole that
+            -- makes Lua's `#table` undefined and crashes the
+            -- round-robin step at `idx % #h` -> divide-by-zero.
             local variants = {}
-            for i, stem in ipairs(spec) do
-                variants[i] = preload_one(stem)
+            for _, stem in ipairs(spec) do
+                local h = preload_one(stem)
+                if h then variants[#variants + 1] = h end
             end
             handles[event] = variants
             indices[event] = 1
@@ -106,10 +112,16 @@ function ui_sounds.play(event)
     if not h then return end
 
     if type(h) == "table" then
+        -- Belt-and-braces against an empty variants table -- init()
+        -- now filters failed preloads but a future caller could
+        -- still hand us an empty list, and `idx % 0` panics the VM
+        -- and aborts whatever screen handler triggered the sound.
+        local n = #h
+        if n == 0 then return end
         -- Rotate through variants so rapid taps don't loop one file.
         local idx = indices[event] or 1
         local handle = h[idx]
-        indices[event] = (idx % #h) + 1
+        indices[event] = (idx % n) + 1
         if handle then ez.audio.play_preloaded_async(handle) end
     else
         ez.audio.play_preloaded_async(h)
