@@ -154,6 +154,8 @@ local CATEGORIES = {
               icon = icons.radio_tower, mod = "screens.settings.radio_settings" },
             { title = "Sound", subtitle = "UI feedback, volume",
               icon = icons.volume, mod = "screens.settings.sound_settings" },
+            { title = "Firmware", subtitle = "Check rolling-main update + install OTA",
+              icon = icons.cloud_upload, mod = "screens.settings.firmware_update" },
             { title = "Repeat onboarding", subtitle = "Walk through the first-run wizard again",
               icon = icons.rotate_cw, action = function()
                   require("screens.onboarding").start()
