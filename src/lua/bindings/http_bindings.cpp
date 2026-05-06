@@ -147,6 +147,18 @@ static bool parseUrl(const char* url, bool& isHttps, char* host, size_t hostLen,
 
 // Read one line ending in CRLF (or LF), trim the \r, drop the \n.
 // Returns true on success, false on timeout or peer close.
+// Per-line cap for status + header lines. Originally 1024, which
+// silently truncated on github.com's responses -- their default
+// content-security-policy header alone is ~4.5 KiB and their
+// release-download responses ship even larger headers. On a
+// truncation we'd discard the line and return false, the caller
+// would mark the response as "header read timeout", and the user
+// would see "Manifest fetch failed". 8 KiB is the upper bound seen
+// in practice and has plenty of safety margin without ballooning
+// the worker task's stack (the String allocates from PSRAM via
+// the Arduino-ESP32 mbedtls hook anyway).
+static constexpr size_t MAX_LINE_LEN = 8192;
+
 static bool readLine(WiFiClient* client, String& out, uint32_t deadline_ms) {
     out = "";
     while (true) {
@@ -160,7 +172,7 @@ static bool readLine(WiFiClient* client, String& out, uint32_t deadline_ms) {
                 return true;
             }
             out += (char)c;
-            if (out.length() > 1024) return false;  // sanity cap
+            if (out.length() > MAX_LINE_LEN) return false;  // sanity cap
         } else {
             if (millis() > deadline_ms) return false;
             if (!client->connected() && !client->available()) return false;
