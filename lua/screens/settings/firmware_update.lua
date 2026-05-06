@@ -63,14 +63,25 @@ function FirmwareUpdate.initial_state()
 end
 
 function FirmwareUpdate:on_enter()
-    self._sub = ez.bus.subscribe("ota/progress", function(_topic, data)
-        if type(data) ~= "table" then return end
-        self:set_state({
-            progress_phase = data.phase,
-            progress_bytes = data.bytes or 0,
-            progress_error = data.error,
-        })
-    end)
+    -- on_enter fires every time the screen resurfaces -- including
+    -- when a screen pushed on top is popped. Guard the subscription
+    -- and the manifest fetch so we don't leak handles or restart an
+    -- in-flight or completed check on every resume.
+    if not self._sub then
+        self._sub = ez.bus.subscribe("ota/progress", function(_topic, data)
+            if type(data) ~= "table" then return end
+            self:set_state({
+                progress_phase = data.phase,
+                progress_bytes = data.bytes or 0,
+                progress_error = data.error,
+            })
+        end)
+    end
+
+    -- Already finished checking (manifest in hand or terminal error)
+    -- or a download is in flight -- nothing to do on resume.
+    local s = self:get_state()
+    if s.manifest or s.error or s.installing then return end
 
     if not (ez.wifi.is_connected and ez.wifi.is_connected()) then
         self:set_state({ loading = false, error = "WiFi not connected." })

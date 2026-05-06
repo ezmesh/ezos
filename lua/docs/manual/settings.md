@@ -46,3 +46,32 @@ Device-level operations.
 - Repeat onboarding: re-runs the first-run wizard from the welcome
   screen. The flow over-writes prefs idempotently, so it's safe to
   rerun on an already-onboarded device.
+
+## Firmware
+
+Pull the latest rolling-main build from GitHub and install it over
+the air.
+
+The screen shows the SHA of the running build and the SHA of the
+build currently published as the rolling-main release. WiFi must
+be connected; the device fetches a small manifest plus its
+detached Ed25519 signature, verifies the signature against a
+public key baked into the firmware, then -- and only then -- uses
+the URL and SHA-256 from the manifest to install.
+
+Trust is rooted in the signature, not in TLS. A swapped or
+corrupted asset is rejected on two grounds: the manifest signature
+fails, or the SHA-256 computed while writing the firmware does
+not match the manifest's claim.
+
+- "Install update" downloads the firmware straight into the
+  inactive OTA partition and stages it. Progress shows the bytes
+  written so far.
+- "Reboot now" appears once the install finishes (or if a previous
+  install is already staged). The device boots into the new image
+  and confirms it's healthy after the UI comes up.
+
+Devices flashed before the project's signing key was configured
+display "OTA signing not configured on this device" and refuse to
+install. The fix is to flash a firmware whose embedded public key
+matches the one CI signs releases with.
