@@ -970,6 +970,11 @@ bool parseHexSha(const char* hex, size_t len, uint8_t out[32]) {
 void pullTask(void* arg) {
     PullParams* p = (PullParams*)arg;
 
+    // Read buffer is heap-allocated below (see Buf alloc note). The
+    // lambda captures the pointer by reference so any failure path
+    // can free it on the way out.
+    uint8_t* buf = nullptr;
+
     auto fail = [&](const char* msg) {
         LOG("OTA", "pull failed: %s", msg);
         Update.abort();
@@ -978,6 +983,7 @@ void pullTask(void* arg) {
         g_lastError[MAX_ERROR_LEN - 1] = '\0';
         postProgress("error", 0, msg);
         g_pullRunning = false;
+        if (buf) free(buf);
         delete p;
         vTaskDelete(nullptr);
     };
@@ -1023,7 +1029,14 @@ void pullTask(void* arg) {
     mbedtls_sha256_starts(&sha, 0);
 
     WiFiClient* stream = http.getStreamPtr();
-    uint8_t buf[2048];
+    // Heap-allocate the read buffer in PSRAM. On stack it's 2 KiB
+    // out of the 8 KiB task budget, and we need to shrink that
+    // budget to ~5 KiB to survive xTaskCreate against the
+    // squeezed internal heap (~10-12 KiB free post-WiFi + LWIP).
+    constexpr size_t BUF_LEN = 2048;
+    buf = (uint8_t*)heap_caps_malloc(BUF_LEN, MALLOC_CAP_SPIRAM);
+    if (!buf) buf = (uint8_t*)malloc(BUF_LEN);
+    if (!buf) { http.end(); mbedtls_sha256_free(&sha); fail("buf alloc failed"); return; }
     size_t got = 0;
     size_t lastReport = 0;
 
@@ -1086,6 +1099,7 @@ void pullTask(void* arg) {
     snprintf(g_lastError, MAX_ERROR_LEN, "%u bytes downloaded", (unsigned)got);
     postProgress("end", got, nullptr);
     g_pullRunning = false;
+    if (buf) free(buf);
     delete p;
     vTaskDelete(nullptr);
 }
@@ -1158,14 +1172,25 @@ LUA_FUNCTION(l_ota_apply_url) {
     }
 
     g_pullRunning = true;
+    // 5 KiB stack -- the read buffer (2 KiB) used to live on this
+    // stack and forced 8 KiB; now buf is in PSRAM so the only
+    // residents are HTTPClient + WiFiClientSecure object slots,
+    // an 80-byte error string, and the SHA context. 5 KiB lands
+    // well above the actual high-water and survives xTaskCreate
+    // when free internal heap is in the 10-12 KiB range.
     BaseType_t ok = xTaskCreatePinnedToCore(
-        pullTask, "ota_pull", 8192, p, 5, nullptr, 0);
+        pullTask, "ota_pull", 5120, p, 5, nullptr, 0);
     if (ok != pdPASS) {
         g_pullRunning = false;
         delete p;
         lua_newtable(L);
         lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
-        lua_pushstring(L, "task spawn failed");
+        // Surface the actual cause -- the only way xTaskCreate
+        // returns non-pdPASS in normal operation is internal heap
+        // exhaustion, and "task spawn failed" by itself made the
+        // user think it was a logic bug rather than a memory
+        // pressure issue.
+        lua_pushstring(L, "task spawn failed (internal heap full)");
         lua_setfield(L, -2, "error");
         return 1;
     }
