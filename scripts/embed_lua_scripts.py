@@ -626,6 +626,15 @@ try:
     if build_sha:
         env.Append(CPPDEFINES=[("EZOS_BUILD_SHA", env.StringifyMacro(build_sha))])
 
+    # Optional: ISO 8601 build timestamp. Same value the CI release
+    # workflow embeds in manifest.json, so the firmware-update screen
+    # can spot a manifest that's older than the running firmware
+    # (signature-only trust models are vulnerable to downgrade replay
+    # by a MITM serving an older but legitimately-signed manifest).
+    build_at = os.environ.get("EZOS_BUILD_AT", "").strip()
+    if build_at:
+        env.Append(CPPDEFINES=[("EZOS_BUILD_AT", env.StringifyMacro(build_at))])
+
     skip_embedding = False
     for d in cpp_defines:
         if isinstance(d, tuple):

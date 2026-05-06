@@ -53,9 +53,20 @@ jobs:
               luac.c $(ls l*.c | grep -vE '^(lua|luac)\.c$') -lm)
           tools/bin/luac32 -v
 
+      - name: Stamp build timestamp
+        id: build_stamp
+        # Captured here (not inside the build step) so the manifest
+        # builder below can reference the exact same value -- the
+        # firmware-update screen compares manifest.built_at against
+        # the running firmware's build_at to spot downgrades, and a
+        # 1-second skew from re-invoking `date` would have produced
+        # spurious warnings on freshly-pushed builds.
+        run: echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Build firmware
         env:
           EZOS_BUILD_SHA: ${{ github.sha }}
+          EZOS_BUILD_AT:  ${{ steps.build_stamp.outputs.built_at }}
         run: pio run -e t-deck-plus
 
       - name: Stage release artifacts
@@ -82,7 +93,7 @@ jobs:
           SIZE=$(stat -c%s "$FIRMWARE_BIN")
           SHA256=$(sha256sum "$FIRMWARE_BIN" | awk '{print $1}')
           VERSION=$(awk -F= '/^custom_version[[:space:]]*=/{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' platformio.ini)
-          BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          BUILT_AT='${{ steps.build_stamp.outputs.built_at }}'
           BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-main/firmware.bin"
 
           python -c "

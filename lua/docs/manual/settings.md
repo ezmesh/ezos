@@ -71,6 +71,16 @@ not match the manifest's claim.
   install is already staged). The device boots into the new image
   and confirms it's healthy after the UI comes up.
 
+If the manifest's build timestamp is older than the running
+firmware's, the screen shows a yellow downgrade warning and the
+button changes to "Install (downgrade)". Tapping it pops a
+confirmation dialog before the install actually starts. This is
+the rollback-attack guard: a signature-only trust model is
+otherwise vulnerable to an attacker replaying any older,
+legitimately-signed manifest. Downgrades are still allowed --
+useful when a freshly-rolled main breaks something -- but only
+through the explicit two-step gate.
+
 Devices flashed before the project's signing key was configured
 display "OTA signing not configured on this device" and refuse to
 install. The fix is to flash a firmware whose embedded public key

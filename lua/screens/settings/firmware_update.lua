@@ -42,6 +42,36 @@ local function current_sha()
     return info.build_sha
 end
 
+local function current_build_at()
+    local info = ez.system.get_firmware_info() or {}
+    return info.build_at
+end
+
+-- Detect a manifest that's older than the running firmware. Without
+-- this check a MITM on the (intentionally setInsecure()) HTTPS
+-- connection to GitHub could serve any previously-published,
+-- legitimately-signed manifest -- the standard rollback attack
+-- against a signature-only trust model.
+--
+-- We don't refuse downgrades outright -- they're a useful tool when
+-- a freshly-rolled main breaks something the user depends on -- but
+-- we surface a clear warning and require a separate confirmation
+-- before the install runs, so an unattended click can't quietly
+-- regress the firmware.
+--
+-- ISO 8601 timestamps in the form `YYYY-MM-DDTHH:MM:SSZ` sort
+-- correctly under Lua's lexicographic string compare, so a string
+-- compare here is intentional -- no date parsing required.
+local function is_downgrade(state)
+    if not state.manifest then return false end
+    local cur_at = current_build_at()
+    local m_at   = state.manifest.built_at
+    if not cur_at or cur_at == "" or not m_at or m_at == "" then
+        return false  -- can't tell; don't false-positive
+    end
+    return m_at < cur_at
+end
+
 local function short(s, n)
     n = n or 7
     if not s or s == "" then return "?" end
@@ -206,6 +236,19 @@ local function status_section(state)
             nodes[#nodes + 1] = ui.padding({ 4, 8, 4, 8 },
                 ui.text_widget("Up to date.",
                     { color = "TEXT_MUTED", font = "small_aa" }))
+        elseif is_downgrade(state) then
+            -- Warning, not block. ACCENT colour is already used for
+            -- error text on this screen so it carries the right
+            -- visual weight. The wording calls out the rollback-
+            -- replay risk explicitly so a user who triggered the
+            -- check themselves (and just wants to roll back a bad
+            -- main) can confirm with informed consent.
+            nodes[#nodes + 1] = ui.padding({ 4, 8, 4, 8 },
+                ui.text_widget(
+                    "! Older build than running firmware.\n" ..
+                    "Installing will downgrade. Could also be a " ..
+                    "MITM serving an old signed manifest.",
+                    { wrap = true, color = "ACCENT", font = "small_aa" }))
         end
     end
 
@@ -263,9 +306,31 @@ function FirmwareUpdate:build(state)
                             and not pending
 
         if can_install then
+            local downgrade  = is_downgrade(state)
+            local btn_label  = downgrade and "Install (downgrade)"
+                                          or "Install update"
+            local me = self
             content[#content + 1] = ui.padding({ 8, 8, 4, 8 },
-                ui.button("Install update", {
-                    on_press = function() install(self) end,
+                ui.button(btn_label, {
+                    on_press = function()
+                        if downgrade then
+                            -- Two-step gate: warning banner + confirm
+                            -- dialog. A misclicked Install is the only
+                            -- way an attacker's MITM-served old
+                            -- manifest could land on a device, so make
+                            -- sure the user has to actively agree.
+                            dialog.confirm({
+                                title    = "Downgrade firmware?",
+                                message  = "This manifest is older " ..
+                                    "than the running build. Install " ..
+                                    "anyway?",
+                                ok_label     = "Downgrade",
+                                cancel_label = "Cancel",
+                            }, function() install(me) end)
+                        else
+                            install(me)
+                        end
+                    end,
                 }))
         end
 
