@@ -956,11 +956,18 @@ LUA_FUNCTION(l_system_is_sd_available) {
 // @brief Get firmware partition info
 // @description Returns information about the running firmware partition including
 // size, app binary size, and available space for OTA updates.
-// @return Table with partition_size, app_size, free_bytes, partition_label, flash_chip_size
+// @return Table with partition_size, app_size, free_bytes, partition_label,
+// flash_chip_size; plus version (when EZOS_VERSION is defined),
+// build_sha (when EZOS_BUILD_SHA is defined, e.g. CI builds), and
+// build_at (when EZOS_BUILD_AT is defined; ISO 8601 timestamp). The
+// optional fields identify the running build for the firmware-update
+// screen and let it detect downgrade attempts (manifest.built_at <
+// build_at).
 // @example
 // local info = ez.system.get_firmware_info()
 // print("Partition:", info.partition_label)
 // print("App size:", info.app_size / 1024, "KB")
+// print("Build:", info.version, info.build_sha)
 // @end
 LUA_FUNCTION(l_system_get_firmware_info) {
     lua_newtable(L);
@@ -995,6 +1002,21 @@ LUA_FUNCTION(l_system_get_firmware_info) {
     // Also get total flash size
     lua_pushinteger(L, ESP.getFlashChipSize());
     lua_setfield(L, -2, "flash_chip_size");
+
+#ifdef EZOS_VERSION
+    lua_pushstring(L, EZOS_VERSION);
+    lua_setfield(L, -2, "version");
+#endif
+
+#ifdef EZOS_BUILD_SHA
+    lua_pushstring(L, EZOS_BUILD_SHA);
+    lua_setfield(L, -2, "build_sha");
+#endif
+
+#ifdef EZOS_BUILD_AT
+    lua_pushstring(L, EZOS_BUILD_AT);
+    lua_setfield(L, -2, "build_at");
+#endif
 
     return 1;
 }

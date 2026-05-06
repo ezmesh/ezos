@@ -47,11 +47,17 @@
 #include <Preferences.h>
 #include <Update.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <mbedtls/sha256.h>
 #include <esp_ota_ops.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <freertos/task.h>
+
+#include "../../ota_pubkey.h"
 
 extern "C" {
 #include <lua.h>
@@ -912,6 +918,287 @@ LUA_FUNCTION(l_ota_rollback_and_reboot) {
 }
 
 // ---------------------------------------------------------------------------
+// Pull-mode OTA: download a firmware image over HTTPS, verify its hash
+// against an expected SHA-256, stream it into Update.write, and stage
+// it for the next reboot.
+//
+// Authenticity is enforced by the *caller*: the firmware-update screen
+// fetches a small manifest.json + manifest.sig from the rolling-main
+// release, verifies the Ed25519 signature against the embedded
+// kOtaSigningPubkey via ez.crypto.ed25519_verify, and only then passes
+// the manifest's URL + sha256 down here. We re-check the hash while
+// streaming so a swapped-out asset still gets rejected even though we
+// drop full TLS cert validation (setInsecure -- cert pinning would
+// double the flash budget for no extra security on top of the
+// signature).
+//
+// Runs the actual download on a one-shot FreeRTOS task pinned to the
+// AsyncIO core so the UI loop stays responsive. Progress is reported
+// through the existing ota/progress bus topic; a final phase of
+// "end" or "error" closes the run. Refuses to start a second download
+// while one is in flight.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct PullParams {
+    String url;
+    uint8_t expectedSha[32];
+    bool hasExpectedSha = false;
+};
+
+volatile bool g_pullRunning = false;
+
+bool parseHexSha(const char* hex, size_t len, uint8_t out[32]) {
+    if (len != 64) return false;
+    for (size_t i = 0; i < 32; ++i) {
+        char c1 = hex[i * 2];
+        char c2 = hex[i * 2 + 1];
+        auto nibble = [](char c, uint8_t& v) {
+            if (c >= '0' && c <= '9') { v = c - '0'; return true; }
+            if (c >= 'a' && c <= 'f') { v = 10 + c - 'a'; return true; }
+            if (c >= 'A' && c <= 'F') { v = 10 + c - 'A'; return true; }
+            return false;
+        };
+        uint8_t hi = 0, lo = 0;
+        if (!nibble(c1, hi) || !nibble(c2, lo)) return false;
+        out[i] = (hi << 4) | lo;
+    }
+    return true;
+}
+
+void pullTask(void* arg) {
+    PullParams* p = (PullParams*)arg;
+
+    auto fail = [&](const char* msg) {
+        LOG("OTA", "pull failed: %s", msg);
+        Update.abort();
+        g_lastResult = -1;
+        strncpy(g_lastError, msg, MAX_ERROR_LEN - 1);
+        g_lastError[MAX_ERROR_LEN - 1] = '\0';
+        postProgress("error", 0, msg);
+        g_pullRunning = false;
+        delete p;
+        vTaskDelete(nullptr);
+    };
+
+    if (!WiFi.isConnected()) { fail("WiFi not connected"); return; }
+
+    WiFiClientSecure client;
+    client.setInsecure();  // signature on manifest is the trust boundary
+    client.setTimeout(15);
+
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http.setReuse(false);
+    http.setConnectTimeout(15000);
+    http.setTimeout(20000);
+    http.setUserAgent("ezos-ota");
+
+    if (!http.begin(client, p->url)) { fail("http.begin failed"); return; }
+    int code = http.GET();
+    if (code != HTTP_CODE_OK) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "HTTP %d", code);
+        http.end();
+        fail(msg);
+        return;
+    }
+
+    int total = http.getSize();
+    if (total <= 0) { http.end(); fail("missing Content-Length"); return; }
+
+    if (!Update.begin((size_t)total, U_FLASH)) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "Update.begin: %s", Update.errorString());
+        http.end();
+        fail(msg);
+        return;
+    }
+
+    postProgress("start", 0, nullptr);
+
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+    mbedtls_sha256_starts(&sha, 0);
+
+    WiFiClient* stream = http.getStreamPtr();
+    uint8_t buf[2048];
+    size_t got = 0;
+    size_t lastReport = 0;
+
+    while (got < (size_t)total && http.connected()) {
+        size_t avail = stream->available();
+        if (avail == 0) {
+            vTaskDelay(pdMS_TO_TICKS(2));
+            continue;
+        }
+        size_t n = avail < sizeof(buf) ? avail : sizeof(buf);
+        if (got + n > (size_t)total) n = (size_t)total - got;
+        int rd = stream->readBytes(buf, n);
+        if (rd <= 0) {
+            vTaskDelay(pdMS_TO_TICKS(2));
+            continue;
+        }
+        if (Update.write(buf, rd) != (size_t)rd) {
+            char msg[80];
+            snprintf(msg, sizeof(msg), "Update.write: %s", Update.errorString());
+            http.end();
+            mbedtls_sha256_free(&sha);
+            fail(msg);
+            return;
+        }
+        mbedtls_sha256_update(&sha, buf, rd);
+        got += rd;
+        if (got - lastReport >= PROGRESS_INTERVAL) {
+            postProgress("write", got, nullptr);
+            lastReport = got;
+        }
+    }
+    http.end();
+
+    if (got != (size_t)total) {
+        mbedtls_sha256_free(&sha);
+        fail("short read");
+        return;
+    }
+
+    uint8_t digest[32];
+    mbedtls_sha256_finish(&sha, digest);
+    mbedtls_sha256_free(&sha);
+
+    if (p->hasExpectedSha) {
+        if (memcmp(digest, p->expectedSha, 32) != 0) {
+            fail("sha256 mismatch");
+            return;
+        }
+    }
+
+    if (!Update.end(true)) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "Update.end: %s", Update.errorString());
+        fail(msg);
+        return;
+    }
+
+    LOG("OTA", "pull complete (%u bytes)", (unsigned)got);
+    g_lastResult = 1;
+    snprintf(g_lastError, MAX_ERROR_LEN, "%u bytes downloaded", (unsigned)got);
+    postProgress("end", got, nullptr);
+    g_pullRunning = false;
+    delete p;
+    vTaskDelete(nullptr);
+}
+
+}  // anonymous
+
+// @lua ez.ota.apply_url(url, expected_sha256_hex?) -> table
+// @brief Download a firmware image and stage it for the next reboot
+// @description
+// Streams `url` straight into the OTA partition without buffering the
+// whole image in RAM. When `expected_sha256_hex` is supplied (64 hex
+// chars), the running SHA-256 over the downloaded bytes is compared
+// against it before the new image is committed; a mismatch aborts
+// the update. The caller is responsible for verifying the URL and
+// hash came from a trusted source -- typically by checking an
+// Ed25519 signature on a manifest with `ez.crypto.ed25519_verify`
+// against `ez.ota.signing_pubkey()`.
+//
+// Returns immediately after spawning the download task. Subscribe to
+// the `ota/progress` bus topic for progress and completion events.
+// Refuses with `{ok=false, error="busy"}` when another download is
+// already in flight, and with `{ok=false, error="signing not
+// configured"}` when the embedded signing pubkey is still all zeros.
+// @param url  HTTPS URL to fetch (redirects are followed)
+// @param expected_sha256_hex  Optional 64-char hex SHA-256 the download must match
+// @return Table { ok = boolean, error?: string } describing whether
+//         the task was started successfully.
+// @example
+// local res = ez.ota.apply_url(url, manifest.sha256)
+// if not res.ok then ui.toast("OTA: " .. res.error) end
+// @end
+LUA_FUNCTION(l_ota_apply_url) {
+    if (!ota_signing_configured()) {
+        lua_newtable(L);
+        lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
+        lua_pushstring(L, "signing not configured");
+        lua_setfield(L, -2, "error");
+        return 1;
+    }
+    if (g_pullRunning || g_updateRunning) {
+        lua_newtable(L);
+        lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
+        lua_pushstring(L, "busy"); lua_setfield(L, -2, "error");
+        return 1;
+    }
+    if (!WiFi.isConnected()) {
+        lua_newtable(L);
+        lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
+        lua_pushstring(L, "WiFi not connected"); lua_setfield(L, -2, "error");
+        return 1;
+    }
+
+    const char* url = luaL_checkstring(L, 1);
+
+    PullParams* p = new PullParams();
+    p->url = url;
+
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) {
+        size_t hexLen = 0;
+        const char* hex = luaL_checklstring(L, 2, &hexLen);
+        if (!parseHexSha(hex, hexLen, p->expectedSha)) {
+            delete p;
+            lua_newtable(L);
+            lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
+            lua_pushstring(L, "bad expected_sha256_hex");
+            lua_setfield(L, -2, "error");
+            return 1;
+        }
+        p->hasExpectedSha = true;
+    }
+
+    g_pullRunning = true;
+    BaseType_t ok = xTaskCreatePinnedToCore(
+        pullTask, "ota_pull", 8192, p, 5, nullptr, 0);
+    if (ok != pdPASS) {
+        g_pullRunning = false;
+        delete p;
+        lua_newtable(L);
+        lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
+        lua_pushstring(L, "task spawn failed");
+        lua_setfield(L, -2, "error");
+        return 1;
+    }
+
+    lua_newtable(L);
+    lua_pushboolean(L, true); lua_setfield(L, -2, "ok");
+    return 1;
+}
+
+// @lua ez.ota.signing_pubkey() -> string|nil
+// @brief Return the embedded Ed25519 OTA signing pubkey
+// @description
+// Returns the 32-byte Ed25519 public key the firmware was built to
+// trust for OTA manifest signatures. Returns nil when the build was
+// flashed without a configured key (kOtaSigningPubkey still all
+// zeros) -- in that case `apply_url` will refuse to start.
+// Use with `ez.crypto.ed25519_verify` to check a manifest signature
+// before passing its URL into `apply_url`.
+// @return 32-byte raw pubkey string, or nil when not configured
+// @example
+// local pub = ez.ota.signing_pubkey()
+// if pub and ez.crypto.ed25519_verify(pub, manifest_text, sig) then ... end
+// @end
+LUA_FUNCTION(l_ota_signing_pubkey) {
+    if (!ota_signing_configured()) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushlstring(L, (const char*)kOtaSigningPubkey, OTA_SIGNING_PUBKEY_SIZE);
+    return 1;
+}
+
+// ---------------------------------------------------------------------------
 
 void registerBindings(lua_State* L) {
     static const luaL_Reg funcs[] = {
@@ -924,6 +1211,8 @@ void registerBindings(lua_State* L) {
         {"pending_partition",  l_ota_pending_partition},
         {"mark_valid",         l_ota_mark_valid},
         {"rollback_and_reboot", l_ota_rollback_and_reboot},
+        {"apply_url",          l_ota_apply_url},
+        {"signing_pubkey",     l_ota_signing_pubkey},
         {nullptr, nullptr}
     };
     lua_register_module(L, "ota", funcs);
