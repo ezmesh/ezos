@@ -20,6 +20,7 @@ M.REQUIRED = {
     "screens.onboarding.welcome",
     "screens.onboarding.node_name",
     "screens.onboarding.region",
+    "screens.onboarding.tx_throttle",
     "screens.onboarding.timezone",
     "screens.onboarding.theme",
 }

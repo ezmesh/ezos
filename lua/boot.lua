@@ -124,6 +124,25 @@ local function boot_sequence()
         ez.radio.set_frequency(freq_mhz)
     end
 
+    -- Apply the saved radio protocol profile (meshcore | meshtastic).
+    -- The chip is single-tuner so this is a real re-tune of modulation
+    -- params + sync word; without it the device would always come up on
+    -- the firmware default. Apply *after* set_frequency so the profile
+    -- switch keeps the user's band choice.
+    local profile = ez.storage.get_pref("radio_profile", "meshcore")
+    if profile and profile ~= "meshcore" and ez.radio and ez.radio.set_profile then
+        ez.radio.set_profile(profile)
+    end
+
+    -- Apply the saved TX throttle interval (queue send spacing). The
+    -- driver default is 100 ms; the Settings UI and onboarding offer
+    -- 50 / 100 / 200 / 400 ms. A missing pref just leaves the driver
+    -- default in place.
+    local tx_throttle = tonumber(ez.storage.get_pref("tx_throttle_ms", 0)) or 0
+    if tx_throttle > 0 and ez.mesh and ez.mesh.set_tx_throttle then
+        ez.mesh.set_tx_throttle(tx_throttle)
+    end
+
     local ui = require("ezui")
 
     -- Touch -> widget bridge. Subscribes to the touch/down/move/up

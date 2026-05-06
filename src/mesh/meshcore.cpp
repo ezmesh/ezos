@@ -1,6 +1,8 @@
 #include "meshcore.h"
+#include "../lua/bindings/bus_bindings.h"
 #include <Arduino.h>
 #include <cstring>
+#include <vector>
 
 // Debug logging - define MESH_DEBUG in platformio.ini to enable verbose mesh output
 #ifdef MESH_DEBUG
@@ -61,15 +63,46 @@ void MeshCore::update() {
         int len = _radio.receive(buffer, sizeof(buffer), meta);
         if (len > 0) {
             _rxCount++;
-            handlePacket(buffer, len, meta);
+
+            // When the radio is parked on a non-MeshCore profile (e.g.
+            // Meshtastic), MeshCore's deserializer would just drop the
+            // frame. Instead, hand it off to Lua via a raw bus event so
+            // a separate decoder service can interpret it. MeshCore's
+            // own pipeline is bypassed entirely until the user switches
+            // back -- the radio is single-tuner, not a dual-listen.
+            if (_radio.getProfile() != RadioProfile::MESHCORE) {
+                std::vector<uint8_t> bytes(buffer, buffer + len);
+                float rssi = meta.rssi;
+                float snr  = meta.snr;
+                uint32_t ts = meta.timestamp;
+                const char* profile = radioProfileName(_radio.getProfile());
+                MessageBus::instance().postTable("radio/raw_rx",
+                    [bytes, rssi, snr, ts, profile](lua_State* L) {
+                        lua_newtable(L);
+                        lua_pushlstring(L, reinterpret_cast<const char*>(bytes.data()), bytes.size());
+                        lua_setfield(L, -2, "data");
+                        lua_pushnumber(L, rssi);
+                        lua_setfield(L, -2, "rssi");
+                        lua_pushnumber(L, snr);
+                        lua_setfield(L, -2, "snr");
+                        lua_pushinteger(L, ts);
+                        lua_setfield(L, -2, "timestamp");
+                        lua_pushstring(L, profile);
+                        lua_setfield(L, -2, "profile");
+                    });
+            } else {
+                handlePacket(buffer, len, meta);
+            }
         }
     }
 
     // Process pending rebroadcasts
     processRebroadcasts();
 
-    // Periodic announce (if enabled)
-    if (_announceInterval > 0) {
+    // Periodic announce (if enabled). Suppressed on non-MeshCore
+    // profiles so we don't inject MeshCore-format ADVERTs into a
+    // foreign mesh while the user has switched protocols.
+    if (_announceInterval > 0 && _radio.getProfile() == RadioProfile::MESHCORE) {
         uint32_t now = millis();
         if (now - _lastAnnounce >= _announceInterval) {
             _lastAnnounce = now;
