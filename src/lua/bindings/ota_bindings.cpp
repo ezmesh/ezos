@@ -1254,8 +1254,15 @@ LUA_FUNCTION(l_ota_apply_url) {
     // is a foreground action, the user expects the screen to stop
     // updating. After the install (or its failure), the loop
     // resumes and progress events get dispatched.
+    // 10 KiB stack -- matches the AsyncIO worker that we know
+    // works for the same fetch_streaming code. mbedtls's TLS
+    // handshake is recursive and uses ~3 KiB of stack frames; an
+    // earlier 5 KiB was too tight and left client->connect() to
+    // hang silently. Now fits comfortably thanks to the
+    // remote_control buffers moving to PSRAM (freed ~55 KiB
+    // internal DRAM).
     BaseType_t ok = xTaskCreatePinnedToCore(
-        pullTask, "ota_pull", 5120, p, 2, nullptr, 1);
+        pullTask, "ota_pull", 10240, p, 2, nullptr, 1);
     if (ok != pdPASS) {
         g_pullRunning = false;
         delete p;

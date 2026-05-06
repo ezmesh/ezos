@@ -86,7 +86,15 @@ private:
     uint8_t _cmd = 0;
     uint16_t _payloadLen = 0;
     uint16_t _payloadPos = 0;
-    uint8_t _payload[16384];  // Buffer for commands and file transfers
+    // Lazily allocated in PSRAM on first use. Used to be a 16 KiB
+    // inline array which sat in internal DRAM forever -- that's
+    // 5% of the chip's total internal RAM dedicated to a buffer
+    // the user only touches when running tools/remote/ez_remote.py.
+    // PSRAM is fine: we only memcpy from the USB CDC RX path into
+    // it, no DMA, no time-critical access.
+    static constexpr size_t PAYLOAD_CAP = 16384;
+    uint8_t* _payload = nullptr;
+    bool ensurePayload();
 
     // Timeout for incomplete commands (resets state machine if no data received)
     uint32_t _lastByteTime = 0;

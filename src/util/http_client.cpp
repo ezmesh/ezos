@@ -250,9 +250,13 @@ void fetch_streaming(const Request& req,
             setError(resp, "bad URL");
             goto cleanup;
         }
+        Serial.printf("[hc] url parsed host=%s port=%d https=%d\n",
+                      host, port, (int)isHttps);
 
         if (isHttps) {
+            Serial.println("[hc] new WiFiClientSecure...");
             auto* s = new WiFiClientSecure();
+            Serial.println("[hc] setInsecure...");
             s->setInsecure();
             client = s;
         } else {
@@ -264,7 +268,10 @@ void fetch_streaming(const Request& req,
             client->setTimeout(timeout / 1000 + 1);
             uint32_t deadline = millis() + timeout;
 
+            Serial.printf("[hc] connecting to %s:%d (timeout=%ums)...\n",
+                          host, port, (unsigned)timeout);
             if (!client->connect(host, port)) {
+                Serial.println("[hc] connect FAILED");
                 setError(resp, "connect failed");
                 goto cleanup;
             }
@@ -304,8 +311,10 @@ void fetch_streaming(const Request& req,
                 headBuf += "Content-Type: application/octet-stream\r\n";
             }
             headBuf += "\r\n";
+            Serial.println("[hc] connected; sending request...");
             client->print(headBuf);
             if (hasBody) client->write(req.body, req.body_len);
+            Serial.println("[hc] request sent; reading status...");
 
             // ----- Read status line --------------------------------
             String statusLine;

@@ -5,6 +5,7 @@
 #include "../config.h"
 #include <lua.hpp>
 #include <LittleFS.h>
+#include <esp_heap_caps.h>
 
 // Miniz deflate compressor from LovyanGFX
 extern "C" size_t tdefl_compress_mem_to_mem(
@@ -20,19 +21,64 @@ RemoteControl& RemoteControl::instance() {
     return instance;
 }
 
+bool RemoteControl::ensurePayload() {
+    if (_payload) return true;
+    _payload = (uint8_t*)heap_caps_malloc(PAYLOAD_CAP, MALLOC_CAP_SPIRAM);
+    if (!_payload) _payload = (uint8_t*)malloc(PAYLOAD_CAP);
+    return _payload != nullptr;
+}
+
+// Big scratch buffers for the dev-tool protocol. Lazily allocated
+// on first use into PSRAM rather than living in BSS forever -- they
+// only matter when ez_remote.py actively queries this device, but
+// the BSS cost is paid every boot. Together they used to consume
+// ~38 KiB of internal DRAM, against an internal-heap budget that
+// pinches at ~10 KiB at runtime.
+static char* getJsonBuffer() {
+    static char* buf = nullptr;
+    if (!buf) {
+        buf = (char*)heap_caps_malloc(32768, MALLOC_CAP_SPIRAM);
+        if (!buf) buf = (char*)malloc(32768);
+    }
+    return buf;
+}
+static char* getResultBuf() {
+    static char* buf = nullptr;
+    if (!buf) {
+        buf = (char*)heap_caps_malloc(4096, MALLOC_CAP_SPIRAM);
+        if (!buf) buf = (char*)malloc(4096);
+    }
+    return buf;
+}
+static char* getErrJson() {
+    static char* buf = nullptr;
+    if (!buf) {
+        buf = (char*)heap_caps_malloc(2048, MALLOC_CAP_SPIRAM);
+        if (!buf) buf = (char*)malloc(2048);
+    }
+    return buf;
+}
+
 void RemoteControl::update() {
     // Check if we're waiting for a frame to be rendered
     if (_waitingForFrame) {
         if (display && display->hasFrameBeenFlushed()) {
             // Frame has been rendered, send the captured data
-            static char jsonBuffer[32768];  // Larger buffer for primitives
+            char* jsonBuffer = getJsonBuffer();
+            constexpr size_t JSON_CAP = 32768;
             size_t len = 0;
-
+            if (!jsonBuffer) {
+                sendResponse(RemoteStatus::ERROR,
+                             (const uint8_t*)"PSRAM alloc failed", 18);
+                _waitingForFrame = false;
+                _captureMode = CaptureMode::NONE;
+                return;
+            }
             if (_captureMode == CaptureMode::TEXT) {
-                len = display->getCapturedTextJSON(jsonBuffer, sizeof(jsonBuffer));
+                len = display->getCapturedTextJSON(jsonBuffer, JSON_CAP);
                 display->setTextCaptureEnabled(false);
             } else if (_captureMode == CaptureMode::PRIMITIVES) {
-                len = display->getCapturedPrimitivesJSON(jsonBuffer, sizeof(jsonBuffer));
+                len = display->getCapturedPrimitivesJSON(jsonBuffer, JSON_CAP);
                 display->setPrimitiveCaptureEnabled(false);
             }
 
@@ -51,7 +97,15 @@ void RemoteControl::update() {
             const char* lastError = LuaRuntime::instance().getLastError();
             if (lastError && lastError[0] != '\0') {
                 // Build a JSON response with the escaped error string
-                static char errJson[2048];
+                char* errJson = getErrJson();
+                constexpr size_t ERR_CAP = 2048;
+                if (!errJson) {
+                    sendResponse(RemoteStatus::ERROR,
+                                 (const uint8_t*)"PSRAM alloc failed", 18);
+                    _waitingForFrame = false;
+                    _captureMode = CaptureMode::NONE;
+                    return;
+                }
                 size_t pos = 0;
                 const char* prefix = "[{\"x\":0,\"y\":0,\"color\":63488,\"text\":\"Boot script failed!\"},{\"x\":0,\"y\":20,\"color\":65535,\"text\":\"";
                 size_t prefixLen = strlen(prefix);
@@ -59,7 +113,7 @@ void RemoteControl::update() {
                 pos = prefixLen;
 
                 // JSON-escape the error message
-                for (const char* p = lastError; *p && pos < sizeof(errJson) - 10; p++) {
+                for (const char* p = lastError; *p && pos < ERR_CAP - 10; p++) {
                     char c = *p;
                     if (c == '"' || c == '\\') {
                         errJson[pos++] = '\\';
@@ -120,9 +174,13 @@ void RemoteControl::update() {
                     // No payload, process command immediately
                     processCommand(_cmd, nullptr, 0);
                     _state = State::WAIT_CMD;
-                } else if (_payloadLen > sizeof(_payload)) {
+                } else if (_payloadLen > PAYLOAD_CAP) {
                     // Payload too large, send error and reset
                     sendResponse(RemoteStatus::ERROR, (const uint8_t*)"Payload too large", 17);
+                    _state = State::WAIT_CMD;
+                } else if (!ensurePayload()) {
+                    // PSRAM alloc failed -- can't accept the payload.
+                    sendResponse(RemoteStatus::ERROR, (const uint8_t*)"PSRAM alloc failed", 18);
                     _state = State::WAIT_CMD;
                 } else {
                     _payloadPos = 0;
@@ -572,18 +630,25 @@ void RemoteControl::handleLuaExec(const uint8_t* code, uint16_t len) {
     }
 
     // Build JSON result (single value or array for multiple)
-    static char resultBuf[4096];
+    char* resultBuf = getResultBuf();
+    constexpr size_t RESULT_CAP = 4096;
+    if (!resultBuf) {
+        sendResponse(RemoteStatus::ERROR,
+                     (const uint8_t*)"PSRAM alloc failed", 18);
+        lua_pop(L, nresults);
+        return;
+    }
     size_t pos = 0;
 
     if (nresults > 1) {
         resultBuf[pos++] = '[';
     }
 
-    for (int i = 1; i <= nresults && pos < sizeof(resultBuf) - 100; i++) {
+    for (int i = 1; i <= nresults && pos < RESULT_CAP - 100; i++) {
         if (i > 1) {
             resultBuf[pos++] = ',';
         }
-        pos += serializeLuaValue(L, i, resultBuf + pos, sizeof(resultBuf) - pos, 0);
+        pos += serializeLuaValue(L, i, resultBuf + pos, RESULT_CAP - pos, 0);
     }
 
     if (nresults > 1) {
@@ -672,7 +737,7 @@ void RemoteControl::handleFileRead(const uint8_t* payload, uint16_t len) {
     uint32_t readLen = meta[4] | (meta[5] << 8) | (meta[6] << 16) | (meta[7] << 24);
 
     // Cap read to payload buffer size
-    if (readLen > sizeof(_payload)) readLen = sizeof(_payload);
+    if (readLen > PAYLOAD_CAP) readLen = PAYLOAD_CAP;
 
     auto f = LittleFS.open(fsPath, "r");
     if (!f) {
