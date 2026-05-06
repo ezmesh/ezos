@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -32,10 +32,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pio-
 
-      - name: Install PlatformIO and esptool
+      - name: Install PlatformIO, esptool, and PyNaCl
         run: |
           python -m pip install --upgrade pip
-          pip install platformio esptool
+          pip install platformio esptool pynacl
 
       - name: Fetch PlatformIO dependencies
         run: pio pkg install -e t-deck-plus
@@ -54,9 +54,11 @@ jobs:
           tools/bin/luac32 -v
 
       - name: Build firmware
+        env:
+          EZOS_BUILD_SHA: ${{ github.sha }}
         run: pio run -e t-deck-plus
 
-      - name: Create merged full image for fresh flashing
+      - name: Stage release artifacts
         run: |
           mkdir -p artifacts
           cp .pio/build/t-deck-plus/firmware.bin    artifacts/firmware.bin
@@ -71,12 +73,86 @@ jobs:
             0x8000  artifacts/partitions.bin \
             0x10000 artifacts/firmware.bin
 
+      - name: Build signed manifest
+        env:
+          OTA_SIGNING_PRIVKEY: ${{ secrets.OTA_SIGNING_PRIVKEY }}
+        run: |
+          set -euo pipefail
+          FIRMWARE_BIN=artifacts/firmware.bin
+          SIZE=$(stat -c%s "$FIRMWARE_BIN")
+          SHA256=$(sha256sum "$FIRMWARE_BIN" | awk '{print $1}')
+          VERSION=$(awk -F= '/^custom_version[[:space:]]*=/{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' platformio.ini)
+          BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-main/firmware.bin"
+
+          python -c "
+          import json
+          m = {
+              'tag': 'rolling-main',
+              'sha': '${{ github.sha }}',
+              'short_sha': '${{ github.sha }}'[:7],
+              'version': '$VERSION',
+              'built_at': '$BUILT_AT',
+              'size': $SIZE,
+              'sha256': '$SHA256',
+              'bin_url': '$BIN_URL',
+          }
+          with open('artifacts/manifest.json', 'w') as f:
+              json.dump(m, f, sort_keys=True, separators=(',', ':'))
+          "
+
+          if [ -n "${OTA_SIGNING_PRIVKEY:-}" ]; then
+            python tools/ota/sign_manifest.py artifacts/manifest.json
+          else
+            echo "::warning::OTA_SIGNING_PRIVKEY secret not set; skipping signature. Devices will refuse this manifest."
+          fi
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: firmware-${{ github.sha }}
           path: artifacts/*
           retention-days: 90
+
+      - name: Publish rolling-main release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG=rolling-main
+          NOTES_FILE=$(mktemp)
+          SHORT_SHA="${GITHUB_SHA::7}"
+          cat >"$NOTES_FILE" <<EOF
+          Auto-built from main on $(date -u +%Y-%m-%dT%H:%M:%SZ).
+
+          Commit: ${GITHUB_SHA}
+          Short SHA: ${SHORT_SHA}
+
+          - firmware.bin -- application image (use this for OTA)
+          - firmware-full.bin -- bootloader + partitions + app for fresh flashing
+          - manifest.json + manifest.sig -- consumed by the on-device firmware-update screen
+          EOF
+
+          # Move the tag to the current commit (force-update both ref + tag).
+          git tag -f "$TAG" "$GITHUB_SHA"
+          git push -f origin "refs/tags/${TAG}"
+
+          # Wipe any existing release at this tag, then recreate it with
+          # the freshly built assets. Easier than diffing assets.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag=false
+          fi
+
+          ASSETS=(artifacts/firmware.bin artifacts/firmware-full.bin artifacts/manifest.json)
+          if [ -f artifacts/manifest.json.sig ]; then
+            ASSETS+=(artifacts/manifest.json.sig)
+          fi
+
+          gh release create "$TAG" "${ASSETS[@]}" \
+            --title "Rolling main (${SHORT_SHA})" \
+            --notes-file "$NOTES_FILE" \
+            --prerelease
 
   prune:
     needs: build
