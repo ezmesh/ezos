@@ -126,7 +126,10 @@ local CATEGORIES = {
             { title = "Pixel Fix", subtitle = "Clear screen ghosting",
               icon = icons.monitor, mod = "screens.tools.pixel_fix" },
             { title = "Screensaver", subtitle = "Animated pixel exerciser",
-              icon = icons.monitor, mod = "screens.tools.screensaver" },
+              icon = icons.monitor, action = function()
+                  local ss = require("screens.tools.screensaver")
+                  ss.start()
+              end },
         },
     },
     {

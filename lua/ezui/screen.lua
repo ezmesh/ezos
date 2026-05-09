@@ -31,10 +31,9 @@ screen.status = {
 screen.status_interval = 5000  -- poll hardware every 5s
 screen.status_last = -10000    -- negative so the first update() runs the poll immediately
 
--- Screensaver: auto-launched after idle timeout to exercise subpixels.
--- Resets on any keypress. Disabled when timeout is 0 or "off".
+-- Screensaver: overlay drawn on top of the current screen after idle
+-- timeout to exercise subpixels. Dismissed on any keypress.
 screen.last_input_time = 0     -- millis() of last keypress
-screen._screensaver_active = false
 
 -- Node reused every frame to render the global status bar. Keeping one
 -- instance avoids a garbage-generating allocation per frame.
@@ -438,6 +437,14 @@ function screen.handle_input()
     -- Reset idle timer on any input
     screen.last_input_time = ez.system.millis()
 
+    -- Dismiss screensaver overlay on any key (consume the key)
+    local ss_ok, ss = pcall(require, "screens.tools.screensaver")
+    if ss_ok and ss.is_active() then
+        ss.stop()
+        screen.dirty = true
+        return true  -- consume the key that woke the screen
+    end
+
     -- Toast key handling: Alt+ENTER on a toast with an attached
     -- action invokes it (and consumes the key so the underlying
     -- screen doesn't also receive an Alt+ENTER chord). Bare ENTER --
@@ -543,6 +550,13 @@ function screen.render()
         screen._draw_status_bar(d, inst.title, translucent)
     end
 
+    -- Screensaver overlay (drawn on top of the screen content)
+    local ss_ok, ss = pcall(require, "screens.tools.screensaver")
+    if ss_ok and ss.is_active() then
+        ss.draw(d)
+        screen.dirty = true  -- keep animating
+    end
+
     -- Toast on top of everything else so it's visible from any screen.
     screen._draw_toast(d)
 
@@ -568,26 +582,18 @@ function screen.update()
     -- Drain all pending input
     while screen.handle_input() do end
 
-    -- Screensaver: launch after idle timeout. The screensaver screen
-    -- pops itself on any keypress, which resets last_input_time above.
-    if not screen._screensaver_active then
+    -- Screensaver: activate overlay after idle timeout.
+    -- Dismissed on any keypress in handle_input above.
+    do
         local timeout = tonumber(ez.storage.get_pref("ss_timeout", 0)) or 0
         if timeout > 0 and screen.last_input_time > 0 then
-            local idle = ez.system.millis() - screen.last_input_time
-            if idle >= timeout * 1000 then
-                screen._screensaver_active = true
-                local ok, def = pcall(require, "screens.tools.screensaver")
-                if ok then
-                    local inst = screen.create(def, {})
-                    screen.push(inst)
+            local ss_ok2, ss2 = pcall(require, "screens.tools.screensaver")
+            if ss_ok2 and not ss2.is_active() then
+                local idle = ez.system.millis() - screen.last_input_time
+                if idle >= timeout * 1000 then
+                    ss2.start()
                 end
             end
-        end
-    else
-        -- Check if the screensaver was popped (user pressed a key)
-        local inst = screen.peek()
-        if not inst or inst.title ~= "Screensaver" then
-            screen._screensaver_active = false
         end
     end
 
