@@ -324,6 +324,7 @@ function DMConversation:build(state)
         -- the chat partner's for inbound. (build_share_actions in the
         -- context menu uses the same dispatch.)
         local self_pub = ez.mesh.get_public_key_hex()
+        content_items[#content_items + 1] = { type = "spacer", h = 2, grow = 0 }
         for i, msg in ipairs(msgs) do
             local share_sender = msg.is_self and self_pub or key
             content_items[#content_items + 1] = {
