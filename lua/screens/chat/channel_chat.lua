@@ -106,10 +106,17 @@ function ChannelChat:on_enter()
     end
     stick_to_bottom(self)
 
+    -- Force-rebuild (not set_state) so a new message shows up even
+    -- while the compose box is in edit mode. Same reasoning as
+    -- dm_conversation -- see the comment there. Text input cursor +
+    -- value survive via _PERSISTENT_FIELDS and the state.input
+    -- round-trip.
+    local screen = require("ezui.screen")
     self._sub = ez.bus.subscribe("channel/message", function(topic, msg)
         if msg.channel == (self._state.channel or "#Public") then
-            self:set_state({})
+            self:_rebuild()
             stick_to_bottom(self)
+            screen.invalidate()
         end
     end)
 end

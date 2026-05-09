@@ -496,20 +496,29 @@ function DMConversation:on_enter()
     -- stale offset from a previous screen instance.
     stick_to_bottom(self)
 
+    -- set_state({}) would normally do here, but it defers the rebuild
+    -- when focus.editing is true (so widgets with internal state -- our
+    -- text input -- aren't disrupted). For chat history that's exactly
+    -- the wrong tradeoff: a freshly arrived (or freshly sent) bubble
+    -- would not appear until the user moved focus out of the compose
+    -- box, leaving "where did my share invite go?" gaps. The text
+    -- input's cursor and value are preserved across rebuilds via
+    -- _PERSISTENT_FIELDS + the state.input round-trip, so a forced
+    -- rebuild is safe.
+    local screen = require("ezui.screen")
     self._sub = ez.bus.subscribe("dm/message", function(topic, msg)
         if msg and (msg.sender_key == key or msg.is_self) then
-            -- Rebuild first to add the new bubble to the tree, then
-            -- override the persisted scroll_offset so we actually
-            -- land at the bottom of the now-taller content.
-            self:set_state({})
+            self:_rebuild()
             stick_to_bottom(self)
+            screen.invalidate()
         end
     end)
 
     -- Refresh on delivery status changes (ACK received, retry, failed)
     self._status_sub = ez.bus.subscribe("dm/status", function(topic, info)
         if info and info.pub_key_hex == key then
-            self:set_state({})
+            self:_rebuild()
+            screen.invalidate()
         end
     end)
 end
