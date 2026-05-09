@@ -4,7 +4,7 @@
 
 local ui = require("ezui")
 
-local WhatsNew = { title = "What's New" }
+local WhatsNew = { title = "What's New", granular_scroll = true }
 
 -- Parse the versions.json content. Returns a list of version entries
 -- sorted newest-first, or nil on error.
@@ -44,12 +44,12 @@ function WhatsNew.build_version_list(versions, current_sha)
         if v.date then header = header .. "  (" .. v.date .. ")" end
         if is_current then header = header .. "  -- installed" end
 
-        local header_color = (not found_current and current_sha) and "ACCENT" or "TEXT"
-        items[#items + 1] = ui.padding({ 8, 8, 2, 8 },
-            ui.text_widget(header, {
-                font = "small_aa",
-                color = header_color,
-            }))
+        local is_new = not found_current and current_sha
+        items[#items + 1] = ui.list_item({
+            title = header,
+            subtitle = is_new and "new" or nil,
+            disabled = true,
+        })
 
         -- Group entries
         local groups = v.groups or {}

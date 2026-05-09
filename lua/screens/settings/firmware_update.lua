@@ -356,7 +356,7 @@ function FirmwareUpdate:build(state)
                 ui.button("What's changed", {
                     on_press = function()
                         local cur_sha = current_sha()
-                        local WN = { title = "What's Changed" }
+                        local WN = { title = "What's Changed", granular_scroll = true }
                         function WN:build(s)
                             local items = whats_new.build_version_list(
                                 state.remote_versions, cur_sha)
