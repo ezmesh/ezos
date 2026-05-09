@@ -54,9 +54,17 @@ AES_BLOCK_SIZE = 16
 
 
 def parse_invite_url(url: str) -> bytes:
-    m = URL_RE.search(url)
+    # Drop any literal backslashes the shell didn't strip. Zsh keeps
+    # `\#` and `\?` intact inside double quotes (or even unquoted),
+    # which would otherwise trip the regex; users tend to escape those
+    # characters out of habit when pasting URLs.
+    cleaned = url.replace("\\", "")
+    m = URL_RE.search(cleaned)
     if not m:
-        sys.exit("error: not a valid ezme.sh channel-invite URL")
+        sys.exit(
+            "error: not a valid ezme.sh channel-invite URL\n"
+            "(tip: wrap the URL in single quotes to avoid shell escaping)"
+        )
     b64 = m.group(1).replace("-", "+").replace("_", "/")
     pad = (4 - len(b64) % 4) % 4
     return base64.b64decode(b64 + "=" * pad)
@@ -198,6 +206,10 @@ def main():
         "--add", action="store_true",
         help="After decoding, run meshcore-cli add_channel automatically",
     )
+    ap.add_argument(
+        "--debug", action="store_true",
+        help="Print intermediate keys + raw plaintext on decode failure",
+    )
     args = ap.parse_args()
 
     if bool(args.from_pubkey) == bool(args.from_contact):
@@ -228,7 +240,29 @@ def main():
     aes_key = secret[:16]
 
     plaintext = aes128_ecb_decrypt(aes_key, ciphertext)
-    name, password = parse_plaintext(plaintext)
+
+    if args.debug:
+        print("[debug] sender Ed25519 pub :", sender_ed_pub.hex())
+        print("[debug] my Ed25519 seed    :", my_seed.hex())
+        print("[debug] my X25519 scalar   :", my_x_priv.hex())
+        print("[debug] sender X25519 pub  :", sender_x_pub.hex())
+        print("[debug] shared secret      :", secret.hex())
+        print("[debug] aes key (first 16) :", aes_key.hex())
+        print("[debug] ciphertext bytes   :", ciphertext.hex())
+        print("[debug] plaintext bytes    :", plaintext.hex())
+        print("[debug] plaintext[0]       :", plaintext[0] if plaintext else "(empty)")
+        print()
+
+    try:
+        name, password = parse_plaintext(plaintext)
+    except SystemExit:
+        if not args.debug:
+            print(
+                "\n(re-run with --debug to see the keys + the raw plaintext bytes;"
+                " a wrong pubkey or wrong recipient identity is the usual cause)",
+                file=sys.stderr,
+            )
+        raise
 
     # Channel key on the wire is SHA-256(passphrase)[:16] -- matches
     # ez.crypto.derive_channel_key in the firmware. meshcore-cli's
