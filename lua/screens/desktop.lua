@@ -308,37 +308,19 @@ node.register("desktop_icon", {
                 screen_mod.invalidate()
             end
 
-            -- Glowing border: concentric rounded rects in the accent
-            -- colour, drawn via a small sprite for proper alpha
-            -- blending on the RGB565 framebuffer.
-            if focused then
-                local accent = theme.color("ACCENT")
-                local glow_pad = 4
-                local gw = pw + 2 + glow_pad * 2
-                local gh = gw
-                local gx = ix + inset - 1 - glow_pad
-                local gy = iy + inset - 1 - glow_pad
-                local gr = radius + glow_pad
-                -- Draw 3 layers from outside in with increasing opacity
-                for i = 3, 1, -1 do
-                    d.draw_round_rect(gx - i, gy - i, gw + i * 2, gh + i * 2,
-                        gr + i, accent)
-                end
-            end
-
             -- Plate
             d.fill_round_rect(ix + inset - 1, iy + inset - 1,
                               pw + 2, pw + 2, radius + 1, color)
 
-            -- Pulse overlay
+            -- Pulse highlight: a cached white round-rect sprite pushed
+            -- on top of the plate with variable alpha so the focused
+            -- icon breathes.
             if focused then
-                local pulse_hi = math.max(phase, 0)
-                if pulse_hi > 0.02 then
-                    local hi = ensure_pulse_sprite(pw, radius)
-                    if hi then
-                        local alpha = math.floor(70 * pulse_hi)
-                        hi:push(ix + inset - 2, iy + inset - 2, alpha)
-                    end
+                local pulse_hi = (phase + 1) / 2  -- remap -1..+1 to 0..1
+                local hi = ensure_pulse_sprite(pw, radius)
+                if hi then
+                    local alpha = math.floor(40 + 80 * pulse_hi)
+                    hi:push(ix + inset - 2, iy + inset - 2, alpha)
                 end
             end
 
