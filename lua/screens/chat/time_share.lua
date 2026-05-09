@@ -97,20 +97,33 @@ function time_share.build_actions(msg)
         disabled = true,
     })
 
-    -- Sync action (behind a confirmation dialog to prevent accidental taps)
+    -- Sync action (behind a confirmation dialog to prevent accidental taps).
+    -- Capture the current time so we can compensate for the delay between
+    -- opening the menu and pressing Sync.
+    local menu_opened_ms = ez.system.millis()
+
     out[#out + 1] = ui.list_item({
         title = "Sync clock to this time",
-        subtitle = "Set device time from this share",
+        subtitle = "Adjusts for time since message was received",
         on_press = function()
+            -- Compensate: add the seconds elapsed since the menu opened
+            -- to the shared timestamp. This accounts for the user reading
+            -- the menu, the confirmation dialog, etc.
+            local elapsed_s = math.floor((ez.system.millis() - menu_opened_ms) / 1000)
+            local adjusted = share.timestamp + elapsed_s
             dialog.confirm({
                 title = "Sync clock?",
-                message = "Set device time to " .. format_time(share.timestamp) ..
-                    "?\n" .. hint,
+                message = "Set device time to " .. format_time(adjusted) ..
+                    "?\n(+" .. elapsed_s .. "s adjustment)\n" .. hint,
                 ok_label = "Sync",
                 cancel_label = "Cancel",
             }, function()
-                ez.system.set_time_unix(share.timestamp)
-                ez.log("[TimeShare] Clock synced to " .. tostring(share.timestamp))
+                -- Re-compute at confirm time for maximum accuracy
+                local final_elapsed = math.floor((ez.system.millis() - menu_opened_ms) / 1000)
+                local final_ts = share.timestamp + final_elapsed
+                ez.system.set_time_unix(final_ts)
+                ez.log("[TimeShare] Clock synced to " .. tostring(final_ts) ..
+                    " (shared=" .. tostring(share.timestamp) .. " +" .. final_elapsed .. "s)")
                 screen_mod.pop()
             end)
         end,

@@ -100,8 +100,6 @@ local CATEGORIES = {
               icon = icons.circle_dot, mod = "screens.games.pong" },
             { title = "Starshot", subtitle = "Space shooter, guns+items (2P)",
               icon = icons.rocket, mod = "screens.games.shooter" },
-            { title = "Platformer", subtitle = "12 levels, 4 environments (2P WiFi)",
-              icon = icons.gamepad, mod = "screens.games.platformer" },
         },
     },
     {
