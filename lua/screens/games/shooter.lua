@@ -211,11 +211,11 @@ local spawn_particle_burst
 local spawn_popup
 
 -- Generator difficulty envelope. The first ~30 encounters ramp from
--- 0 → 1 (gentle on-ramp); past that, difficulty stays at 1 so the
--- run keeps pressure constant rather than escalating into farce.
+-- 0 → 1 (gentle on-ramp); past that, difficulty continues to climb
+-- slowly (logarithmic) so late-game waves stay challenging without
+-- becoming impossible.
 local DIFF_RAMP_OVER = 30
 local BOSS_EVERY     = 5       -- every 5th encounter is a boss
-local N_ENCOUNTERS   = 60      -- generated up-front; ~10-15 minutes
 
 -- Pause-menu cursor index. 1 = Resume, 2 = Volume slider, 3 = Quit.
 -- Stored at module scope so render() and the input dispatch share
@@ -358,12 +358,17 @@ end
 
 local function spawn_enemy(kind, x)
     local def = ENEMY_DEFS[kind]
+    -- Scale HP with wave difficulty past the initial ramp. Wave 30 =
+    -- base HP; wave 60 ≈ 1.3x; wave 120 ≈ 1.6x. Keeps late-game
+    -- enemies from being trivial as the player accumulates power-ups.
+    local diff = wave_difficulty(wave)
+    local hp_scale = diff > 1 and diff or 1
     enemies[#enemies + 1] = {
         kind = kind,
         x = x or rand(def.size + 2, SW - def.size - 2),
         y = FIELD_TOP - def.size,
-        hp = def.hp,
-        t = 0,              -- per-enemy time counter for patterns
+        hp = math.floor(def.hp * hp_scale),
+        t = 0,
         phase = rand() * math.pi * 2,
     }
 end
@@ -414,20 +419,25 @@ end
 -- Allocates a spawn budget proportional to difficulty, picks
 -- enemies, and spaces them out over a duration that also tightens
 -- with difficulty (later encounters arrive in faster bursts).
+-- Compute difficulty for a given wave index. Ramps linearly 0→1 over
+-- the first 30 waves, then continues to climb logarithmically so
+-- late-game waves stay fresh: wave 60 ≈ 1.3, wave 120 ≈ 1.6.
+local function wave_difficulty(i)
+    if i <= DIFF_RAMP_OVER then
+        return (i - 1) / DIFF_RAMP_OVER
+    end
+    return 1.0 + math.log(i / DIFF_RAMP_OVER) * 0.4
+end
+
 local function gen_normal_encounter(diff)
     local budget = math.floor(2 + diff * 10)
     local entries = {}
     local cursor = 0
-    -- Loop bound caps the worst case so a runaway random sequence
-    -- can't loop forever; in practice the budget exhausts well
-    -- before hitting it.
-    for _ = 1, 20 do
+    for _ = 1, 30 do
         if budget <= 0 then break end
-        local kind = roll_enemy(diff)
+        local kind = roll_enemy(math.min(diff, 1.0))
         local cost = ENEMY_COST[kind] or 1
         if cost > budget then
-            -- Fallback to a cheap enemy so we don't drop the last
-            -- few budget points.
             kind = E_SCOUT
             cost = 1
         end
@@ -435,17 +445,15 @@ local function gen_normal_encounter(diff)
         entries[#entries + 1] = {
             frame = cursor,
             kind  = kind,
-            x     = rand(),  -- 0..1 normalised; resolved in step_encounter_plan
+            x     = rand(),
         }
-        -- Inter-spawn spacing: 24..56 frames at diff=0, narrowing
-        -- toward 12..28 frames at diff=1. Keeps the pace from
-        -- feeling like a constant stream at every difficulty.
-        local space = math.floor(rand(24, 56) * (1 - diff * 0.5))
-        if space < 8 then space = 8 end
+        -- Spawn spacing tightens with difficulty
+        local space = math.floor(rand(24, 56) * math.max(0.3, 1 - diff * 0.5))
+        if space < 6 then space = 6 end
         cursor = cursor + space
     end
     return {
-        duration = cursor + 60,  -- short breather after the last spawn
+        duration = cursor + 60,
         entries  = entries,
     }
 end
@@ -454,65 +462,132 @@ end
 -- early bosses are dramatic but survivable. Each boss section also
 -- carries a `title` that the HUD banner reads when the encounter
 -- begins.
-local function gen_boss_encounter(diff)
-    if diff < 0.3 then
-        return {
-            duration = 540,
-            entries = {
-                { frame = 0,  kind = E_BOMBER, x = 0.5 },
-                { frame = 90, kind = E_DRONE,  x = 0.25 },
-                { frame = 90, kind = E_DRONE,  x = 0.75 },
-            },
-            title = "BOSS - Recon",
-        }
-    elseif diff < 0.65 then
-        return {
-            duration = 720,
-            entries = {
-                { frame = 0,   kind = E_BOMBER, x = 0.3 },
-                { frame = 0,   kind = E_BOMBER, x = 0.7 },
-                { frame = 60,  kind = E_ZIGZAG, x = 0.15 },
-                { frame = 60,  kind = E_ZIGZAG, x = 0.85 },
-                { frame = 180, kind = E_DRONE,  x = 0.5 },
-            },
-            title = "BOSS - Bomber Squadron",
-        }
-    else
-        return {
-            duration = 900,
-            entries = {
-                { frame = 0,   kind = E_HEAVY, x = 0.5 },
-                { frame = 120, kind = E_DRONE, x = 0.15 },
-                { frame = 120, kind = E_DRONE, x = 0.40 },
-                { frame = 120, kind = E_DRONE, x = 0.60 },
-                { frame = 120, kind = E_DRONE, x = 0.85 },
-                { frame = 360, kind = E_ZIGZAG, x = 0.3 },
-                { frame = 360, kind = E_ZIGZAG, x = 0.7 },
-            },
-            title = "BOSS - Heavy + Drones",
-        }
-    end
-end
+local BOSS_TEMPLATES = {
+    -- Tier 1 (diff < 0.3)
+    { diff_min = 0, diff_max = 0.3, duration = 540,
+      title = "BOSS - Recon",
+      entries = {
+          { frame = 0,  kind = E_BOMBER, x = 0.5 },
+          { frame = 90, kind = E_DRONE,  x = 0.25 },
+          { frame = 90, kind = E_DRONE,  x = 0.75 },
+      }},
+    -- Tier 2 (0.3..0.65)
+    { diff_min = 0.3, diff_max = 0.65, duration = 720,
+      title = "BOSS - Bomber Squadron",
+      entries = {
+          { frame = 0,   kind = E_BOMBER, x = 0.3 },
+          { frame = 0,   kind = E_BOMBER, x = 0.7 },
+          { frame = 60,  kind = E_ZIGZAG, x = 0.15 },
+          { frame = 60,  kind = E_ZIGZAG, x = 0.85 },
+          { frame = 180, kind = E_DRONE,  x = 0.5 },
+      }},
+    { diff_min = 0.3, diff_max = 0.65, duration = 660,
+      title = "BOSS - Drone Swarm",
+      entries = {
+          { frame = 0,   kind = E_DRONE,  x = 0.2 },
+          { frame = 0,   kind = E_DRONE,  x = 0.4 },
+          { frame = 0,   kind = E_DRONE,  x = 0.6 },
+          { frame = 0,   kind = E_DRONE,  x = 0.8 },
+          { frame = 90,  kind = E_ZIGZAG, x = 0.5 },
+          { frame = 180, kind = E_DRONE,  x = 0.3 },
+          { frame = 180, kind = E_DRONE,  x = 0.7 },
+      }},
+    -- Tier 3 (0.65+)
+    { diff_min = 0.65, diff_max = 99, duration = 900,
+      title = "BOSS - Heavy Assault",
+      entries = {
+          { frame = 0,   kind = E_HEAVY,  x = 0.5 },
+          { frame = 120, kind = E_DRONE,  x = 0.15 },
+          { frame = 120, kind = E_DRONE,  x = 0.40 },
+          { frame = 120, kind = E_DRONE,  x = 0.60 },
+          { frame = 120, kind = E_DRONE,  x = 0.85 },
+          { frame = 360, kind = E_ZIGZAG, x = 0.3 },
+          { frame = 360, kind = E_ZIGZAG, x = 0.7 },
+      }},
+    { diff_min = 0.65, diff_max = 99, duration = 960,
+      title = "BOSS - Twin Heavies",
+      entries = {
+          { frame = 0,   kind = E_HEAVY,  x = 0.3 },
+          { frame = 0,   kind = E_HEAVY,  x = 0.7 },
+          { frame = 180, kind = E_BOMBER, x = 0.5 },
+          { frame = 300, kind = E_DRONE,  x = 0.2 },
+          { frame = 300, kind = E_DRONE,  x = 0.8 },
+      }},
+    { diff_min = 0.65, diff_max = 99, duration = 840,
+      title = "BOSS - Bomber Wall",
+      entries = {
+          { frame = 0,   kind = E_BOMBER, x = 0.15 },
+          { frame = 0,   kind = E_BOMBER, x = 0.38 },
+          { frame = 0,   kind = E_BOMBER, x = 0.62 },
+          { frame = 0,   kind = E_BOMBER, x = 0.85 },
+          { frame = 120, kind = E_ZIGZAG, x = 0.3 },
+          { frame = 120, kind = E_ZIGZAG, x = 0.7 },
+      }},
+    { diff_min = 1.0, diff_max = 99, duration = 1080,
+      title = "BOSS - Armada",
+      entries = {
+          { frame = 0,   kind = E_HEAVY,  x = 0.5 },
+          { frame = 60,  kind = E_BOMBER, x = 0.2 },
+          { frame = 60,  kind = E_BOMBER, x = 0.8 },
+          { frame = 180, kind = E_DRONE,  x = 0.15 },
+          { frame = 180, kind = E_DRONE,  x = 0.35 },
+          { frame = 180, kind = E_DRONE,  x = 0.65 },
+          { frame = 180, kind = E_DRONE,  x = 0.85 },
+          { frame = 420, kind = E_ZIGZAG, x = 0.3 },
+          { frame = 420, kind = E_ZIGZAG, x = 0.7 },
+      }},
+}
 
--- Generate the full encounter plan for a run. Deterministic given
--- the seed: same seed always produces the same plan, which lets us
--- show the seed on game-over for a "share your run" feel without
--- adding any infrastructure.
--- Plain assignment (not `local function`) — gen_run was forward-
--- declared at the top so reset_world() can call it through the
--- same upvalue.
-gen_run = function(seed)
-    math.randomseed(seed or ez.system.millis())
-    local plan = {}
-    for i = 1, N_ENCOUNTERS do
-        local diff = math.min(1.0, (i - 1) / DIFF_RAMP_OVER)
-        if i % BOSS_EVERY == 0 then
-            plan[i] = gen_boss_encounter(diff)
-        else
-            plan[i] = gen_normal_encounter(diff)
+local function gen_boss_encounter(diff)
+    -- Collect all templates matching the current difficulty
+    local candidates = {}
+    for _, t in ipairs(BOSS_TEMPLATES) do
+        if diff >= t.diff_min and diff < t.diff_max then
+            candidates[#candidates + 1] = t
         end
     end
-    return plan
+    if #candidates == 0 then
+        candidates[1] = BOSS_TEMPLATES[#BOSS_TEMPLATES]
+    end
+    local pick = candidates[math.floor(rand() * #candidates) + 1]
+    -- Deep copy entries so the template stays immutable
+    local entries = {}
+    for _, e in ipairs(pick.entries) do
+        entries[#entries + 1] = { frame = e.frame, kind = e.kind, x = e.x }
+    end
+    return {
+        duration = pick.duration,
+        entries  = entries,
+        title    = pick.title,
+    }
+end
+
+-- Generate encounters on-demand. Returns a table with a custom __index
+-- that lazily creates encounters as they're accessed, so the game
+-- runs infinitely without pre-allocating hundreds of encounters.
+-- Deterministic given the seed.
+gen_run = function(seed)
+    math.randomseed(seed or ez.system.millis())
+    local cache = {}
+    return setmetatable({}, {
+        __index = function(t, i)
+            if cache[i] then return cache[i] end
+            if type(i) ~= "number" or i < 1 then return nil end
+            -- Ensure all earlier encounters are generated first so
+            -- the random sequence stays deterministic.
+            for j = 1, i do
+                if not cache[j] then
+                    local diff = wave_difficulty(j)
+                    if j % BOSS_EVERY == 0 then
+                        cache[j] = gen_boss_encounter(diff)
+                    else
+                        cache[j] = gen_normal_encounter(diff)
+                    end
+                end
+            end
+            return cache[i]
+        end,
+    })
 end
 
 local function step_encounter_plan()
