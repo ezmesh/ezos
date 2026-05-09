@@ -21,14 +21,8 @@ local ICON_GAP_X = 16
 
 -- Available wallpaper files (on LittleFS at /fs/wallpapers/NAME.jpg)
 local wallpaper_names = {
-    "synthwave", "aurora", "eclipse", "astronaut",
-    "lowpoly", "bonsai", "jellyfish", "stormclouds",
-    "wp01", "wp02", "wp03", "wp04", "wp05", "wp06", "wp07", "wp08",
-    "wp09", "wp10", "wp11", "wp12", "wp13", "wp14", "wp15", "wp16",
-    "wp17", "wp18", "wp19", "wp20", "wp21", "wp22", "wp23", "wp24",
-    "wp25", "wp26", "wp27", "wp28", "wp29", "wp30",
-    "wp31", "wp32", "wp33", "wp34", "wp35", "wp36", "wp37", "wp38",
-    "wp39",
+    "astronaut", "autumn-tree", "ocean-sunset",
+    "green-coastline", "underwater", "geometric",
 }
 -- Wallpaper draw path:
 --   wallpaper_raw  — 320×240 RGB565 blob in LGFX byte-order, blitted via
