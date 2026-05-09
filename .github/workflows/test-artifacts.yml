@@ -100,11 +100,15 @@ jobs:
         run: |
           set -euo pipefail
           FIRMWARE_BIN=artifacts/firmware.bin
+          FULL_BIN=artifacts/firmware-full.bin
           SIZE=$(stat -c%s "$FIRMWARE_BIN")
           SHA256=$(sha256sum "$FIRMWARE_BIN" | awk '{print $1}')
+          FULL_SIZE=$(stat -c%s "$FULL_BIN")
+          FULL_SHA256=$(sha256sum "$FULL_BIN" | awk '{print $1}')
           VERSION='${{ steps.changelog.outputs.version }}'
           BUILT_AT='${{ steps.build_stamp.outputs.built_at }}'
           BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-test/firmware.bin"
+          FULL_BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-test/firmware-full.bin"
 
           python -c "
           import json
@@ -117,6 +121,9 @@ jobs:
               'size': $SIZE,
               'sha256': '$SHA256',
               'bin_url': '$BIN_URL',
+              'full_size': $FULL_SIZE,
+              'full_sha256': '$FULL_SHA256',
+              'full_bin_url': '$FULL_BIN_URL',
           }
           with open('artifacts/manifest.json', 'w') as f:
               json.dump(m, f, sort_keys=True, separators=(',', ':'))

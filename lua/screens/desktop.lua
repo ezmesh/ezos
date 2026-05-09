@@ -531,10 +531,7 @@ function Desktop:handle_key(key)
     end
     if key.character == "w" then
         if char_key_debounced("w") then return "handled" end
-        wallpaper_index = wallpaper_index % #wallpaper_names + 1
-        local name = wallpaper_names[wallpaper_index]
-        ez.storage.set_pref("wallpaper", name)
-        ez.storage.set_pref("wallpaper_path", "")  -- clear custom path
+        local name = advance_wallpaper_name()
         load_wallpaper(name)
         return "handled"
     end

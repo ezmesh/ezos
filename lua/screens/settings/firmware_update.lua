@@ -214,7 +214,15 @@ local function install(self)
         progress_bytes = 0,
         progress_error = nil,
     })
-    local res = ez.ota.apply_url(m.bin_url, m.sha256)
+    -- Prefer full-image OTA (bootloader + partitions + app) when
+    -- the manifest includes it. Falls back to app-only for older
+    -- manifests that only have bin_url.
+    local res
+    if m.full_bin_url and m.full_sha256 and ez.ota.apply_full_url then
+        res = ez.ota.apply_full_url(m.full_bin_url, m.full_sha256)
+    else
+        res = ez.ota.apply_url(m.bin_url, m.sha256)
+    end
     if not res.ok then
         self:set_state({
             installing     = false,
@@ -296,7 +304,7 @@ local function progress_section(state)
                 { wrap = true, color = "ACCENT", font = "small_aa" }))
     else
         -- Compute progress fraction from manifest size
-        local total = state.manifest and state.manifest.size or 0
+        local total = state.manifest and (state.manifest.full_size or state.manifest.size) or 0
         local frac = 0
         if total > 0 then
             frac = math.min(1, state.progress_bytes / total)

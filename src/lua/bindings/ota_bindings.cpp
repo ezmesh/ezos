@@ -56,6 +56,7 @@
 #include <freertos/queue.h>
 #include <freertos/task.h>
 #include <esp_task_wdt.h>
+#include <esp_spi_flash.h>
 
 #include "../../ota_pubkey.h"
 
@@ -1163,7 +1164,389 @@ void pullTask(void* arg) {
     vTaskDelete(nullptr);
 }
 
+// ---------------------------------------------------------------------------
+// Full-image OTA: streams firmware-full.bin (bootloader + partition table +
+// app) and writes each segment to the correct flash region.
+// ---------------------------------------------------------------------------
+
+struct FullOtaState {
+    // Stream position
+    size_t stream_offset = 0;
+    size_t total_size    = 0;
+
+    // Bootloader buffer (PSRAM, max 32 KB)
+    uint8_t* bl_buf = nullptr;
+    size_t   bl_len = 0;
+
+    // Partition table buffer (PSRAM, max 4 KB)
+    uint8_t* pt_buf = nullptr;
+    size_t   pt_len = 0;
+
+    // OTA handle for app region
+    esp_ota_handle_t ota_handle = 0;
+    const esp_partition_t* ota_partition = nullptr;
+    bool ota_began = false;
+
+    // SHA-256 over the full stream
+    mbedtls_sha256_context sha;
+    bool sha_inited = false;
+
+    // Progress
+    size_t last_report = 0;
+    char error[80] = {0};
+};
+
+// Region boundaries in the merged binary
+static constexpr size_t FULL_BL_END  = 0x8000;  // bootloader region end
+static constexpr size_t FULL_PT_END  = 0x9000;  // partition table end (one 4 KB sector)
+static constexpr size_t FULL_APP_OFF = 0x10000;  // app image start
+
+static bool fullOnHeaders(void* user, int status, long content_length,
+                          const http_client::HeaderPair*, size_t) {
+    FullOtaState* s = (FullOtaState*)user;
+    if (status != 200) {
+        snprintf(s->error, sizeof(s->error), "HTTP %d", status);
+        return false;
+    }
+    if (content_length <= (long)FULL_APP_OFF) {
+        snprintf(s->error, sizeof(s->error), "too small for full image");
+        return false;
+    }
+    s->total_size = (size_t)content_length;
+    size_t app_size = content_length - FULL_APP_OFF;
+
+    LOG("OTA", "full image: %u bytes, app=%u", (unsigned)s->total_size, (unsigned)app_size);
+
+    esp_err_t err = esp_ota_begin(s->ota_partition, app_size, &s->ota_handle);
+    if (err != ESP_OK) {
+        snprintf(s->error, sizeof(s->error), "esp_ota_begin: %s", esp_err_to_name(err));
+        return false;
+    }
+    s->ota_began = true;
+
+    mbedtls_sha256_init(&s->sha);
+    mbedtls_sha256_starts(&s->sha, 0);
+    s->sha_inited = true;
+
+    postProgress("start", 0, nullptr);
+    return true;
+}
+
+static bool fullOnChunk(void* user, const uint8_t* chunk, size_t n) {
+    FullOtaState* s = (FullOtaState*)user;
+
+    mbedtls_sha256_update(&s->sha, chunk, n);
+
+    size_t pos = 0;
+    while (pos < n) {
+        size_t abs_off = s->stream_offset;
+        size_t remaining = n - pos;
+
+        if (abs_off < FULL_BL_END) {
+            // Bootloader region — buffer in PSRAM
+            size_t take = std::min(remaining, FULL_BL_END - abs_off);
+            memcpy(s->bl_buf + abs_off, chunk + pos, take);
+            if (abs_off + take > s->bl_len) s->bl_len = abs_off + take;
+            pos += take;
+            s->stream_offset += take;
+        } else if (abs_off < FULL_PT_END) {
+            // Partition table — buffer in PSRAM
+            size_t pt_off = abs_off - FULL_BL_END;
+            size_t take = std::min(remaining, FULL_PT_END - abs_off);
+            memcpy(s->pt_buf + pt_off, chunk + pos, take);
+            if (pt_off + take > s->pt_len) s->pt_len = pt_off + take;
+            pos += take;
+            s->stream_offset += take;
+        } else if (abs_off < FULL_APP_OFF) {
+            // Gap between partition table and app — skip
+            size_t take = std::min(remaining, FULL_APP_OFF - abs_off);
+            pos += take;
+            s->stream_offset += take;
+        } else {
+            // App region — stream to OTA partition
+            esp_err_t err = esp_ota_write(s->ota_handle, chunk + pos, remaining);
+            if (err != ESP_OK) {
+                snprintf(s->error, sizeof(s->error), "esp_ota_write: %s",
+                         esp_err_to_name(err));
+                return false;
+            }
+            pos += remaining;
+            s->stream_offset += remaining;
+        }
+    }
+
+    if (s->stream_offset - s->last_report >= PROGRESS_INTERVAL) {
+        postProgress("write", s->stream_offset, nullptr);
+        log_panic_flush("ota_full_progress");
+        s->last_report = s->stream_offset;
+    }
+    return true;
+}
+
+// Write a flash region only if it differs from what's already there.
+// Returns ESP_OK on success (or skip), or the error code on failure.
+static esp_err_t writeIfChanged(size_t flash_addr, const uint8_t* data,
+                                size_t len, const char* label) {
+    // Read current content
+    uint8_t* current = (uint8_t*)heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
+    if (!current) return ESP_ERR_NO_MEM;
+
+    esp_err_t err = spi_flash_read(flash_addr, current, len);
+    if (err != ESP_OK) { free(current); return err; }
+
+    if (memcmp(current, data, len) == 0) {
+        LOG("OTA", "%s unchanged, skipping write", label);
+        free(current);
+        return ESP_OK;
+    }
+    free(current);
+
+    LOG("OTA", "%s changed, writing %u bytes at 0x%x", label, (unsigned)len,
+        (unsigned)flash_addr);
+
+    size_t erase_size = (len + 0xFFF) & ~0xFFF;  // round up to 4 KB
+    err = spi_flash_erase_range(flash_addr, erase_size);
+    if (err != ESP_OK) return err;
+
+    err = spi_flash_write(flash_addr, data, len);
+    if (err != ESP_OK) return err;
+
+    // Read-back verify
+    uint8_t* verify = (uint8_t*)heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
+    if (!verify) return ESP_ERR_NO_MEM;
+    spi_flash_read(flash_addr, verify, len);
+    bool ok = memcmp(verify, data, len) == 0;
+    free(verify);
+
+    return ok ? ESP_OK : ESP_ERR_INVALID_CRC;
+}
+
+void pullFullTask(void* arg) {
+    PullParams* p = (PullParams*)arg;
+    FullOtaState state;
+
+    vTaskDelay(pdMS_TO_TICKS(50));
+    esp_err_t wdt_rc = esp_task_wdt_init(60, true);
+    LOG("OTA", "pullFullTask entered, wdt_init(60)=%d", (int)wdt_rc);
+
+    // Allocate PSRAM buffers
+    state.bl_buf = (uint8_t*)heap_caps_calloc(1, FULL_BL_END, MALLOC_CAP_SPIRAM);
+    state.pt_buf = (uint8_t*)heap_caps_calloc(1, 0x1000, MALLOC_CAP_SPIRAM);
+    if (!state.bl_buf || !state.pt_buf) {
+        LOG("OTA", "PSRAM alloc failed");
+        g_lastResult = -1;
+        strncpy(g_lastError, "PSRAM alloc failed", MAX_ERROR_LEN);
+        postProgress("error", 0, "PSRAM alloc failed");
+        g_pullRunning = false;
+        esp_task_wdt_init(5, true);
+        if (state.bl_buf) free(state.bl_buf);
+        if (state.pt_buf) free(state.pt_buf);
+        delete p;
+        vTaskDelete(nullptr);
+        return;
+    }
+    // Fill with 0xFF (erased flash default) so gaps in the bootloader
+    // region don't write stale zeros to flash.
+    memset(state.bl_buf, 0xFF, FULL_BL_END);
+    memset(state.pt_buf, 0xFF, 0x1000);
+
+    state.ota_partition = esp_ota_get_next_update_partition(nullptr);
+    if (!state.ota_partition) {
+        postProgress("error", 0, "no OTA partition");
+        g_pullRunning = false;
+        esp_task_wdt_init(5, true);
+        free(state.bl_buf); free(state.pt_buf);
+        delete p;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    auto fail = [&](const char* msg) {
+        LOG("OTA", "full pull failed: %s", msg);
+        if (state.ota_began) esp_ota_abort(state.ota_handle);
+        if (state.sha_inited) mbedtls_sha256_free(&state.sha);
+        g_lastResult = -1;
+        strncpy(g_lastError, msg, MAX_ERROR_LEN - 1);
+        g_lastError[MAX_ERROR_LEN - 1] = '\0';
+        postProgress("error", 0, msg);
+        g_pullRunning = false;
+        esp_task_wdt_init(5, true);
+        free(state.bl_buf); free(state.pt_buf);
+        delete p;
+        vTaskDelete(nullptr);
+    };
+
+    if (!WiFi.isConnected()) { fail("WiFi not connected"); return; }
+
+    // Stream the download
+    const char* hkeys[] = { "User-Agent" };
+    const char* hvals[] = { "ezos-ota" };
+    http_client::Request req;
+    req.url           = p->url.c_str();
+    req.method        = http_client::METHOD_GET;
+    req.header_keys   = hkeys;
+    req.header_vals   = hvals;
+    req.header_count  = 1;
+    req.timeout_ms    = 120000;  // full image is larger
+    req.max_redirects = http_client::MAX_REDIRECTS;
+
+    http_client::Response resp;
+    http_client::fetch_streaming(req, fullOnHeaders, fullOnChunk,
+                                 &state, resp);
+
+    if (!resp.ok) {
+        const char* msg = state.error[0] ? state.error
+                          : (resp.error[0] ? resp.error : "fetch failed");
+        http_client::response_free(resp);
+        fail(msg);
+        return;
+    }
+    http_client::response_free(resp);
+
+    if (state.stream_offset != state.total_size) {
+        fail("short read");
+        return;
+    }
+
+    // Verify SHA-256
+    uint8_t digest[32];
+    mbedtls_sha256_finish(&state.sha, digest);
+    mbedtls_sha256_free(&state.sha);
+    state.sha_inited = false;
+
+    if (p->hasExpectedSha && memcmp(digest, p->expectedSha, 32) != 0) {
+        fail("sha256 mismatch");
+        return;
+    }
+
+    // 1. Validate and commit the app image
+    LOG("OTA", "esp_ota_end...");
+    esp_err_t err = esp_ota_end(state.ota_handle);
+    state.ota_began = false;
+    if (err != ESP_OK) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "app validation: %s", esp_err_to_name(err));
+        fail(msg);
+        return;
+    }
+
+    // 2. Write partition table (only if changed)
+    if (state.pt_len > 0) {
+        err = writeIfChanged(FULL_BL_END, state.pt_buf, state.pt_len, "partition table");
+        if (err != ESP_OK) {
+            char msg[80];
+            snprintf(msg, sizeof(msg), "partition table write: %s", esp_err_to_name(err));
+            fail(msg);
+            return;
+        }
+    }
+
+    // 3. Write bootloader LAST (only if changed — minimizes brick risk)
+    if (state.bl_len > 0) {
+        err = writeIfChanged(0, state.bl_buf, state.bl_len, "bootloader");
+        if (err != ESP_OK) {
+            char msg[80];
+            snprintf(msg, sizeof(msg), "bootloader write: %s", esp_err_to_name(err));
+            fail(msg);
+            return;
+        }
+    }
+
+    // 4. Switch boot partition
+    err = esp_ota_set_boot_partition(state.ota_partition);
+    if (err != ESP_OK) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "set boot partition: %s", esp_err_to_name(err));
+        fail(msg);
+        return;
+    }
+
+    LOG("OTA", "full OTA complete (%u bytes)", (unsigned)state.stream_offset);
+    g_lastResult = 1;
+    snprintf(g_lastError, MAX_ERROR_LEN, "%u bytes downloaded",
+             (unsigned)state.stream_offset);
+    postProgress("end", state.stream_offset, nullptr);
+    g_pullRunning = false;
+    esp_task_wdt_init(5, true);
+    free(state.bl_buf);
+    free(state.pt_buf);
+    delete p;
+    vTaskDelete(nullptr);
+}
+
 }  // anonymous
+
+// @lua ez.ota.apply_full_url(url, expected_sha256_hex?) -> table
+// @brief Download a full firmware image (bootloader + partitions + app) and apply it
+// @description
+// Like apply_url but streams firmware-full.bin which includes the bootloader
+// and partition table alongside the app image. The bootloader and partition
+// table are buffered in PSRAM and written to flash only after the app has
+// been validated. This ensures the device can always receive OTA updates
+// even when the bootloader changes between versions. Only writes flash
+// regions that actually differ to minimize brick risk and flash wear.
+// @param url  HTTPS URL to the firmware-full.bin
+// @param expected_sha256_hex  Optional 64-char hex SHA-256 the download must match
+// @return Table { ok = boolean, error?: string }
+// @end
+LUA_FUNCTION(l_ota_apply_full_url) {
+    if (!ota_signing_configured()) {
+        lua_newtable(L);
+        lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
+        lua_pushstring(L, "signing not configured");
+        lua_setfield(L, -2, "error");
+        return 1;
+    }
+    if (g_pullRunning || g_updateRunning) {
+        lua_newtable(L);
+        lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
+        lua_pushstring(L, "busy"); lua_setfield(L, -2, "error");
+        return 1;
+    }
+    if (!WiFi.isConnected()) {
+        lua_newtable(L);
+        lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
+        lua_pushstring(L, "WiFi not connected"); lua_setfield(L, -2, "error");
+        return 1;
+    }
+
+    esp_ota_mark_app_valid_cancel_rollback();
+
+    const char* url = luaL_checkstring(L, 1);
+    PullParams* p = new PullParams();
+    p->url = url;
+
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) {
+        size_t hexLen = 0;
+        const char* hex = luaL_checklstring(L, 2, &hexLen);
+        if (!parseHexSha(hex, hexLen, p->expectedSha)) {
+            delete p;
+            lua_newtable(L);
+            lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
+            lua_pushstring(L, "bad expected_sha256_hex");
+            lua_setfield(L, -2, "error");
+            return 1;
+        }
+        p->hasExpectedSha = true;
+    }
+
+    g_pullRunning = true;
+    BaseType_t ok = xTaskCreatePinnedToCore(
+        pullFullTask, "ota_full", 10240, p, 2, nullptr, 0);
+    if (ok != pdPASS) {
+        g_pullRunning = false;
+        delete p;
+        lua_newtable(L);
+        lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
+        lua_pushstring(L, "task spawn failed (internal heap full)");
+        lua_setfield(L, -2, "error");
+        return 1;
+    }
+
+    lua_newtable(L);
+    lua_pushboolean(L, true); lua_setfield(L, -2, "ok");
+    return 1;
+}
 
 // @lua ez.ota.apply_url(url, expected_sha256_hex?) -> table
 // @brief Download a firmware image and stage it for the next reboot
@@ -1346,6 +1729,7 @@ void registerBindings(lua_State* L) {
         {"mark_valid",         l_ota_mark_valid},
         {"rollback_and_reboot", l_ota_rollback_and_reboot},
         {"apply_url",          l_ota_apply_url},
+        {"apply_full_url",     l_ota_apply_full_url},
         {"signing_pubkey",     l_ota_signing_pubkey},
         {nullptr, nullptr}
     };
