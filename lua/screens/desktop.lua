@@ -425,23 +425,34 @@ local rotated_this_boot = false
 -- Cycle forward through the built-in name list. If the active
 -- wallpaper is a custom path (not in the list) we fall back to the
 -- first named entry.
-local function advance_wallpaper_name()
-    local current = ez.storage.get_pref("wallpaper", wallpaper_names[1])
-    local idx = 0
-    for i, name in ipairs(wallpaper_names) do
-        if name == current then idx = i break end
+-- Scan the wallpaper directory for all available images (built-in +
+-- user-added). Falls back to the hardcoded list if the dir is missing.
+local function list_wallpapers()
+    local files = ez.storage.list_dir("/fs/wallpapers") or {}
+    local names = {}
+    for _, f in ipairs(files) do
+        local stem = f:match("^(.+)%.jpe?g$") or f:match("^(.+)%.png$")
+        if stem then names[#names + 1] = stem end
     end
-    idx = (idx % #wallpaper_names) + 1
-    local next_name = wallpaper_names[idx]
-    ez.storage.set_pref("wallpaper", next_name)
-    ez.storage.set_pref("wallpaper_path", "")  -- drop custom override
-    wallpaper_index = idx
-    return next_name
+    if #names == 0 then return wallpaper_names end
+    table.sort(names)
+    return names
+end
+
+local function advance_wallpaper_name()
+    local all = list_wallpapers()
+    if #all == 0 then return wallpaper_names[1] end
+    local pick = all[math.random(1, #all)]
+    ez.storage.set_pref("wallpaper", pick)
+    ez.storage.set_pref("wallpaper_path", "")
+    for i, name in ipairs(wallpaper_names) do
+        if name == pick then wallpaper_index = i break end
+    end
+    return pick
 end
 
 function Desktop:on_enter()
-    -- Time, battery, and node id are now polled by the global status bar, so
-    -- this screen no longer needs its own periodic state update.
+    math.randomseed(ez.system.millis())
     refresh_wallpaper_prefs()
 
     -- Bootloop guard: if the last wallpaper load didn't clear its pending
