@@ -22,7 +22,7 @@ local ICON_GAP_X = 16
 -- Available wallpaper files (on LittleFS at /fs/wallpapers/NAME.jpg)
 local wallpaper_names = {
     "astronaut", "autumn-tree", "ocean-sunset",
-    "green-coastline", "underwater", "geometric",
+    "green-coastline", "underwater",
 }
 -- Wallpaper draw path:
 --   wallpaper_raw  — 320×240 RGB565 blob in LGFX byte-order, blitted via
@@ -284,10 +284,8 @@ node.register("desktop_icon", {
         local lw = theme.text_width(label)
 
         -- Render the icon as layers (bottom to top):
-        --   0. Pre-blurred white halo, drawn only when focused so the
-        --      plate appears to glow off the wallpaper.
-        --   1. Rounded-rect plate in the icon's accent colour, brightened
-        --      slightly on focus for a "lit up" effect.
+        --   0. Glowing accent border when focused (concentric round rects).
+        --   1. Rounded-rect plate in the icon's accent colour.
         --   2. White glyph PNG centred on the plate.
         --   3. Shared glass shim (gradient + highlight + border).
         local png = n.icon and n.icon.lg
@@ -301,9 +299,7 @@ node.register("desktop_icon", {
             local pw     = icons._plate_size or (icon_w - 2 * inset)
             local color  = n.icon.color or ez.display.rgb(80, 80, 90)
 
-            -- Compute the pulse phase once so the outer glow, the
-            -- plate colour, and the optional halo all breathe in
-            -- sync. Period ~1.4 s; phase goes -1..+1.
+            -- Pulsing phase for the focused icon. Period ~1.4 s.
             local phase = 0
             if focused then
                 local t = ez.system.millis() / 1000.0
@@ -312,21 +308,29 @@ node.register("desktop_icon", {
                 screen_mod.invalidate()
             end
 
-            -- Pre-blurred static halo — cheap to draw, adds depth.
-            if focused and icons._glow then
-                local pad = icons._glow_pad or 8
-                d.draw_png(ix - pad, iy - pad, icons._glow)
+            -- Glowing border: concentric rounded rects in the accent
+            -- colour, drawn via a small sprite for proper alpha
+            -- blending on the RGB565 framebuffer.
+            if focused then
+                local accent = theme.color("ACCENT")
+                local glow_pad = 4
+                local gw = pw + 2 + glow_pad * 2
+                local gh = gw
+                local gx = ix + inset - 1 - glow_pad
+                local gy = iy + inset - 1 - glow_pad
+                local gr = radius + glow_pad
+                -- Draw 3 layers from outside in with increasing opacity
+                for i = 3, 1, -1 do
+                    d.draw_round_rect(gx - i, gy - i, gw + i * 2, gh + i * 2,
+                        gr + i, accent)
+                end
             end
 
-            -- Plate: resting color only; the pulse rides on top as a
-            -- true alpha-blended white highlight (see below).
+            -- Plate
             d.fill_round_rect(ix + inset - 1, iy + inset - 1,
                               pw + 2, pw + 2, radius + 1, color)
 
-            -- Pulse overlay: a cached white round-rect sprite pushed on
-            -- top of the plate with variable alpha. Alpha tracks the
-            -- sine phase (0..1 on the bright half, clamped on the dim
-            -- half) so the icon breathes via real per-pixel opacity.
+            -- Pulse overlay
             if focused then
                 local pulse_hi = math.max(phase, 0)
                 if pulse_hi > 0.02 then
