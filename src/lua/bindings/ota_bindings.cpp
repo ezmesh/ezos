@@ -1191,6 +1191,10 @@ struct FullOtaState {
     mbedtls_sha256_context sha;
     bool sha_inited = false;
 
+    // App bytes tracking
+    size_t app_written = 0;
+    size_t app_expected = 0;
+
     // Progress
     size_t last_report = 0;
     char error[80] = {0};
@@ -1214,6 +1218,7 @@ static bool fullOnHeaders(void* user, int status, long content_length,
     }
     s->total_size = (size_t)content_length;
     size_t app_size = content_length - FULL_APP_OFF;
+    s->app_expected = app_size;
 
     LOG("OTA", "full image: %u bytes, app=%u", (unsigned)s->total_size, (unsigned)app_size);
 
@@ -1270,6 +1275,7 @@ static bool fullOnChunk(void* user, const uint8_t* chunk, size_t n) {
                          esp_err_to_name(err));
                 return false;
             }
+            s->app_written += remaining;
             pos += remaining;
             s->stream_offset += remaining;
         }
@@ -1420,7 +1426,7 @@ void pullFullTask(void* arg) {
     }
 
     // 1. Validate and commit the app image
-    LOG("OTA", "esp_ota_end...");
+    LOG("OTA", "esp_ota_end (app_written=%u)...", (unsigned)state.app_written);
     esp_err_t err = esp_ota_end(state.ota_handle);
     state.ota_began = false;
     if (err != ESP_OK) {
