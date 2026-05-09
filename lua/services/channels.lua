@@ -8,10 +8,34 @@ local MAX_HISTORY = 50
 local PREF_KEY = "joined_channels"  -- Preferences key for persistence
 
 -- State
-local joined = {}       -- { [name] = { key=str, hash=int, hidden=bool, password=str|nil } }
+--   key    -- 16-byte AES-128 key (the actual cipher key)
+--   secret -- 32-byte HMAC key. MeshCore stores GroupChannel.secret as
+--             uint8_t[PUB_KEY_SIZE=32] and HMACs over the full 32 bytes
+--             (Utils::encryptThenMAC). For 128-bit channel keys the
+--             upper 16 bytes are zero, which we mirror here so wire
+--             format stays compatible with the reference firmware.
+local joined = {}       -- { [name] = { key=16B, secret=32B, hash=int, hidden=bool, password=str|nil } }
 local history = {}      -- { [name] = { messages... } }
 local unread = {}       -- { [name] = count }
 local initialized = false
+
+local MAC_SIZE = 2
+local AES_BLOCK_SIZE = 16
+
+local function pack_u32le(v)
+    return string.char(v % 256,
+                       math.floor(v / 256) % 256,
+                       math.floor(v / 65536) % 256,
+                       math.floor(v / 16777216) % 256)
+end
+
+-- Expand a 16-byte channel key into the 32-byte secret MeshCore HMACs
+-- against. MeshCore::Utils::encryptThenMAC keys HMAC-SHA256 with
+-- PUB_KEY_SIZE=32 bytes; 128-bit channel keys live in the lower half
+-- with zero padding above.
+local function key_to_secret(key)
+    return key .. string.rep('\0', 32 - #key)
+end
 
 -- Resolve sender name from node list by path hash
 local function resolve_sender(sender_hash)
@@ -86,6 +110,7 @@ local function load_channels()
             local hash = ez.crypto.channel_hash(key)
             joined[name] = {
                 key = key,
+                secret = key_to_secret(key),
                 hash = hash,
                 password = password,
                 hidden = hidden_str == "1",
@@ -118,6 +143,7 @@ function channels.join(name, password)
     local hash = ez.crypto.channel_hash(key)
     joined[name] = {
         key = key,
+        secret = key_to_secret(key),
         hash = hash,
         password = password,
         hidden = false,
@@ -177,6 +203,60 @@ end
 -- Mark a channel as read
 function channels.mark_read(name)
     unread[name] = 0
+end
+
+-- Send a text message to a channel. Builds the MeshCore GRP_TXT
+-- plaintext ([ts:4 LE][type:1=0x00 plain][sender: text]), AES-encrypts
+-- under the channel's 16-byte key, prepends a 2-byte HMAC truncation
+-- (Utils::encryptThenMAC), and ships it via send_group_packet. The
+-- bubble is also stored locally with is_self=true so the chat screen
+-- can paint it immediately -- the wire packet itself isn't echoed back
+-- (MeshCore filters our own path hash before posting), so without this
+-- self-store the sender wouldn't see their own messages.
+function channels.send(name, text)
+    local info = joined[name]
+    if not info then return false end
+    if not text or text == "" then return false end
+    if not ez.mesh.is_initialized() then return false end
+
+    local sender = ez.mesh.get_node_name() or "?"
+    local content = sender .. ": " .. text
+
+    -- Use real wall-clock time when available so receivers can render
+    -- "x mins ago" against the timestamp embedded in the plaintext;
+    -- fall back to 0 on devices that haven't synced NTP.
+    local timestamp = 0
+    if ez.system.get_time then
+        local t = ez.system.get_time()
+        if t and t.epoch then timestamp = t.epoch end
+    end
+
+    local plaintext = pack_u32le(timestamp) .. string.char(0x00) .. content
+    local rem = #plaintext % AES_BLOCK_SIZE
+    if rem ~= 0 then
+        plaintext = plaintext .. string.rep('\0', AES_BLOCK_SIZE - rem)
+    end
+
+    local ciphertext = ez.crypto.aes128_ecb_encrypt(info.key, plaintext)
+    if not ciphertext or #ciphertext == 0 then return false end
+
+    local mac = ez.crypto.hmac_sha256(info.secret, ciphertext):sub(1, MAC_SIZE)
+    local data = mac .. ciphertext
+
+    local sent = ez.mesh.send_group_packet(info.hash, data)
+    if not sent then return false end
+
+    local msg = {
+        channel = name,
+        sender_hash = ez.mesh.get_path_hash(),
+        sender_name = sender,
+        text = text,
+        timestamp = timestamp,
+        is_self = true,
+    }
+    store_message(name, msg)
+    ez.bus.post("channel/message", msg)
+    return true
 end
 
 -- Get ordered list of channel info for display
@@ -240,10 +320,19 @@ function channels.init()
         end
         if not target_name then return end
 
-        -- Strip 2-byte MAC prefix, then decrypt the ciphertext
-        if #pkt.data <= 2 then return end
-        local ciphertext = pkt.data:sub(3)
-        if #ciphertext % 16 ~= 0 then return end
+        -- pkt.data wire format: [MAC:2][ciphertext:N*16]. MeshCore
+        -- (Utils::MACThenDecrypt) authenticates with HMAC-SHA256 keyed
+        -- by the channel's full 32-byte secret over the ciphertext, then
+        -- truncates to 2 bytes; reject anything whose recomputed MAC
+        -- doesn't match. Drops random AES-aligned noise that would
+        -- otherwise be "decrypted" into garbage and stored as messages.
+        if #pkt.data <= MAC_SIZE then return end
+        local received_mac = pkt.data:sub(1, MAC_SIZE)
+        local ciphertext = pkt.data:sub(MAC_SIZE + 1)
+        if #ciphertext == 0 or #ciphertext % AES_BLOCK_SIZE ~= 0 then return end
+
+        local expected_mac = ez.crypto.hmac_sha256(target_info.secret, ciphertext):sub(1, MAC_SIZE)
+        if received_mac ~= expected_mac then return end
 
         local plaintext = ez.crypto.aes128_ecb_decrypt(target_info.key, ciphertext)
         if not plaintext or #plaintext == 0 then return end
