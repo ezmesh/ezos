@@ -285,20 +285,13 @@ function screen.create(screen_def, initial_state)
         end
     end
 
-    -- State setter: stores partial into state and (normally) rebuilds the
-    -- tree immediately. While focus.editing is true — e.g. a dropdown is
-    -- open or a text input has captured input — rebuilding would discard
-    -- the widget's internal state (open flag, cursor). In that case we
-    -- accumulate the new state and defer the rebuild until the widget
-    -- releases input, which screen.handle_input picks up below.
+    -- State setter: stores partial into state and rebuilds the tree
+    -- immediately. Widget-internal state (scroll offset, cursor, dropdown
+    -- open flag) is carried over by _persist_state, so rebuilding while
+    -- editing is safe.
     function inst:set_state(partial)
         for k, v in pairs(partial) do
             self._state[k] = v
-        end
-        if focus.editing then
-            self._state_dirty = true
-            screen.invalidate()
-            return
         end
         self:_rebuild()
         screen.invalidate()
@@ -480,15 +473,6 @@ function screen.handle_input()
                 result = "handled"
             end
         end
-    end
-
-    -- If a widget just released input (e.g. dropdown confirmed/cancelled)
-    -- and set_state calls were buffered while editing, rebuild now so the
-    -- tree reflects the stored state.
-    if not focus.editing and inst._state_dirty then
-        inst._state_dirty = false
-        inst:_rebuild()
-        screen.dirty = true
     end
 
     if result == "pop" then

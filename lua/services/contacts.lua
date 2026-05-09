@@ -67,6 +67,18 @@ function contacts.init()
     if initialized then return end
     initialized = true
     load_saved()
+
+    -- Sync contact names when a node re-advertises with a different name
+    ez.bus.subscribe("mesh/node_discovered", function(node)
+        if not node.pub_key_hex or not node.name then return end
+        local c = store[node.pub_key_hex]
+        if c and c.name ~= node.name then
+            c.name = node.name
+            save()
+            ez.bus.post("contacts/changed", node.pub_key_hex)
+        end
+    end)
+
     ez.log("[Contacts] Loaded " .. contacts.count() .. " contact(s)")
 end
 

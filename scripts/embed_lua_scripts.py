@@ -14,7 +14,7 @@ import os
 import re
 import sys
 import subprocess
-import shutil
+
 from pathlib import Path
 
 # Size limits for warnings
@@ -143,8 +143,19 @@ def strip_lua_source(source: str) -> str:
 # ---------------------------------------------------------------------------
 
 def find_luac(project_root: Path) -> str:
-    """Find the Lua 5.4 bytecode compiler (32-bit, matching ESP32 config)."""
-    # Prefer the project's cross-compiled luac (built with LUA_32BITS=1)
+    """Find the Lua 5.4 bytecode compiler (32-bit, matching ESP32 config).
+
+    Returns the path to luac32 or raises SystemExit if not found.
+    Build it with:
+        cd .pio/libdeps/t-deck-plus/Esp32Lua/src/lua
+        cc -O2 -DLUA_32BITS=1 -o ../../../../../../tools/bin/luac32 \\
+            luac.c lapi.c lauxlib.c lbaselib.c lcode.c lcorolib.c \\
+            lctype.c ldblib.c ldebug.c ldo.c ldump.c lfunc.c lgc.c \\
+            linit.c liolib.c llex.c lmathlib.c lmem.c loadlib.c \\
+            lobject.c lopcodes.c loslib.c lparser.c lstate.c lstring.c \\
+            lstrlib.c ltable.c ltablib.c ltm.c lundump.c lutf8lib.c \\
+            lvm.c lzio.c -lm
+    """
     local_luac = project_root / "tools" / "bin" / "luac32"
     if local_luac.exists() and os.access(str(local_luac), os.X_OK):
         try:
@@ -154,22 +165,17 @@ def find_luac(project_root: Path) -> str:
         except (subprocess.TimeoutExpired, OSError):
             pass
 
-    # Fall back to system luac (may not match ESP32 32-bit config!)
-    for name in ['luac54', 'luac5.4', 'luac']:
-        path = shutil.which(name)
-        if path:
-            try:
-                out = subprocess.run([path, '-v'], capture_output=True, text=True, timeout=5)
-                version_str = out.stdout + out.stderr
-                if '5.4' in version_str:
-                    print(f"  WARNING: Using system {path} - bytecode may not match ESP32 32-bit config")
-                    print(f"           Run: cd .pio/libdeps/t-deck-plus/Esp32Lua/src/lua && "
-                          f"cc -O2 -DLUA_32BITS=1 -o ../../../../../../tools/bin/luac32 luac.c l*.c -lm")
-                    return path
-            except (subprocess.TimeoutExpired, OSError):
-                continue
-
-    return None
+    print("\n*** ERROR: luac32 not found at tools/bin/luac32 ***")
+    print("    Bytecode compilation is required. Build it with:")
+    print("      cd .pio/libdeps/t-deck-plus/Esp32Lua/src/lua")
+    print("      cc -O2 -DLUA_32BITS=1 -o ../../../../../../tools/bin/luac32 \\")
+    print("          luac.c lapi.c lauxlib.c lbaselib.c lcode.c lcorolib.c \\")
+    print("          lctype.c ldblib.c ldebug.c ldo.c ldump.c lfunc.c lgc.c \\")
+    print("          linit.c liolib.c llex.c lmathlib.c lmem.c loadlib.c \\")
+    print("          lobject.c lopcodes.c loslib.c lparser.c lstate.c lstring.c \\")
+    print("          lstrlib.c ltable.c ltablib.c ltm.c lundump.c lutf8lib.c \\")
+    print("          lvm.c lzio.c -lm")
+    sys.exit(1)
 
 
 def compile_to_bytecode(luac_path: str, source: str, chunk_name: str) -> bytes:
@@ -555,14 +561,10 @@ def embed_lua_scripts(project_root: Path) -> int:
 
     print(f"Embedding {len(scripts)} Lua scripts...")
 
-    # Try to find luac for bytecode compilation
     luac = find_luac(project_root)
-    if luac:
-        print(f"  Bytecode compiler: {luac}")
-    else:
-        print("  No luac 5.4 found - embedding stripped source (no bytecode)")
+    print(f"  Bytecode compiler: {luac}")
 
-    # Process each script: strip → optionally compile to bytecode
+    # Process each script: strip → compile to bytecode
     source_size = 0
     script_data = []
 
@@ -573,18 +575,13 @@ def embed_lua_scripts(project_root: Path) -> int:
         # Strip comments and whitespace
         stripped = strip_lua_source(raw)
 
-        # Try bytecode compilation
-        content = None
-        if luac:
-            bytecode = compile_to_bytecode(luac, stripped, virtual_path)
-            if bytecode:
-                content = bytecode
+        # Compile to bytecode
+        bytecode = compile_to_bytecode(luac, stripped, virtual_path)
+        if bytecode is None:
+            print(f"\n*** ERROR: Bytecode compilation failed for {virtual_path} ***")
+            return 1
 
-        # Fall back to stripped source
-        if content is None:
-            content = stripped.encode('utf-8')
-
-        script_data.append((virtual_path, content))
+        script_data.append((virtual_path, bytecode))
 
     generate_header(output_h)
     total_size = generate_embedded_scripts_cpp(script_data, output_cpp)
