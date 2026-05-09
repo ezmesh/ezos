@@ -120,6 +120,7 @@ function ChannelChat:build(state)
             })
         )
     else
+        content_items[#content_items + 1] = { type = "spacer", h = 2, grow = 0 }
         for _, msg in ipairs(msgs) do
             content_items[#content_items + 1] = {
                 type = "chat_bubble",
