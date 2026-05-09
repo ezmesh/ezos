@@ -3,6 +3,7 @@
 -- context-menu actions for accepting a time share.
 
 local ui = require("ezui")
+local dialog = require("ezui.dialog")
 local sharing_svc = require("services.sharing")
 local screen_mod = require("ezui.screen")
 
@@ -96,16 +97,22 @@ function time_share.build_actions(msg)
         disabled = true,
     })
 
-    -- Sync action
+    -- Sync action (behind a confirmation dialog to prevent accidental taps)
     out[#out + 1] = ui.list_item({
         title = "Sync clock to this time",
         subtitle = "Set device time from this share",
         on_press = function()
-            local ok = ez.system.set_time_unix(share.timestamp)
-            if ok then
+            dialog.confirm({
+                title = "Sync clock?",
+                message = "Set device time to " .. format_time(share.timestamp) ..
+                    "?\n" .. hint,
+                ok_label = "Sync",
+                cancel_label = "Cancel",
+            }, function()
+                ez.system.set_time_unix(share.timestamp)
                 ez.log("[TimeShare] Clock synced to " .. tostring(share.timestamp))
-            end
-            screen_mod.pop()
+                screen_mod.pop()
+            end)
         end,
     })
 

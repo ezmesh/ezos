@@ -44,8 +44,16 @@ local function build_share_actions(msg, sender_pub_key_hex)
                 title = "Add " .. label .. " to contacts",
                 subtitle = share.pub_key_hex:sub(1, 12) .. "...",
                 on_press = function()
-                    contacts_svc.add(share.pub_key_hex, share.name)
-                    screen_mod.pop()
+                    local dialog = require("ezui.dialog")
+                    dialog.confirm({
+                        title = "Add contact?",
+                        message = "Add " .. label .. " to your contacts?",
+                        ok_label = "Add",
+                        cancel_label = "Cancel",
+                    }, function()
+                        contacts_svc.add(share.pub_key_hex, share.name)
+                        screen_mod.pop()
+                    end)
                 end,
             })
         end
@@ -90,8 +98,16 @@ local function build_share_actions(msg, sender_pub_key_hex)
             title = "Join channel '" .. invite.name .. "'",
             subtitle = "Invited by " .. (msg.sender_name or "contact"),
             on_press = function()
-                channels_svc.join(invite.name, invite.password)
-                screen_mod.pop()
+                local dialog = require("ezui.dialog")
+                dialog.confirm({
+                    title = "Join channel?",
+                    message = "Join '" .. invite.name .. "'?",
+                    ok_label = "Join",
+                    cancel_label = "Cancel",
+                }, function()
+                    channels_svc.join(invite.name, invite.password)
+                    screen_mod.pop()
+                end)
             end,
         })
         return out

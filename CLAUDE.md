@@ -180,6 +180,15 @@ ezos/
 
 ## UI System Architecture (ezui)
 
+### Chat bubble actions
+
+**All actions on chat bubble content (share cards, time shares, invites)
+must be behind a context menu.** Tapping a bubble opens the context menu;
+destructive or state-changing actions (sync clock, add contact, join
+channel) live as menu items inside it. Never fire an action directly
+from `on_press` on a chat bubble -- the touch target is large and
+accidental taps are common on the T-Deck's small screen.
+
 ### Declarative Screen Model
 Screens define a `build(state)` method that returns a node tree. State changes via
 `set_state()` trigger an automatic rebuild and redraw.
