@@ -29,6 +29,64 @@ local function stick_to_bottom(inst)
     require("ezui.screen").invalidate()
 end
 
+local screen_mod = require("ezui.screen")
+
+-- Context menu for a channel message bubble
+local function show_context_menu(self, channel, msg)
+    local MenuDef = { title = "Message" }
+
+    function MenuDef:build(state)
+        local items = {}
+        local preview = msg.text or ""
+        if #preview > 30 then preview = preview:sub(1, 27) .. "..." end
+
+        items[#items + 1] = ui.title_bar(preview, { back = true })
+
+        local actions = {}
+
+        if not msg.is_self then
+            local sender_name = msg.sender_name or "?"
+            local rssi_str = msg.rssi and string.format("%d dBm", math.floor(msg.rssi)) or "unknown"
+            actions[#actions + 1] = ui.list_item({
+                title = "From: " .. sender_name,
+                subtitle = "Signal: " .. rssi_str,
+                disabled = true,
+            })
+        end
+
+        if msg.is_self then
+            actions[#actions + 1] = ui.list_item({
+                title = "Status: sent",
+                disabled = true,
+            })
+
+            actions[#actions + 1] = ui.list_item({
+                title = "Repeat Send",
+                subtitle = "Send this text again",
+                on_press = function()
+                    channels_svc.send(channel, msg.text)
+                    screen_mod.pop()
+                end,
+            })
+        end
+
+        local content = ui.vbox({ gap = 0 }, actions)
+        items[#items + 1] = ui.scroll({ grow = 1 }, content)
+
+        return ui.vbox({ gap = 0, bg = "BG" }, items)
+    end
+
+    function MenuDef:handle_key(k)
+        if k.character == "q" or k.special == "ESCAPE" then
+            return "pop"
+        end
+        return nil
+    end
+
+    local inst = screen_mod.create(MenuDef, {})
+    screen_mod.push(inst)
+end
+
 local ChannelChat = { title = "Channel" }
 
 function ChannelChat:build(state)
@@ -59,6 +117,9 @@ function ChannelChat:build(state)
             content_items[#content_items + 1] = {
                 type = "chat_bubble",
                 msg = msg,
+                on_press = function()
+                    show_context_menu(self, channel, msg)
+                end,
             }
         end
     end

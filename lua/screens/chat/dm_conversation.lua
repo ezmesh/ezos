@@ -152,14 +152,16 @@ local function show_context_menu(self, key, msg, msg_index)
             })
         end
 
-        actions[#actions + 1] = ui.list_item({
-            title = "Repeat Send",
-            subtitle = "Send this text again",
-            on_press = function()
-                dm_svc.send(key, msg.text)
-                screen_mod.pop()
-            end,
-        })
+        if msg.is_self then
+            actions[#actions + 1] = ui.list_item({
+                title = "Repeat Send",
+                subtitle = "Send this text again",
+                on_press = function()
+                    dm_svc.send(key, msg.text)
+                    screen_mod.pop()
+                end,
+            })
+        end
 
         actions[#actions + 1] = ui.list_item({
             title = "Delete Message",
