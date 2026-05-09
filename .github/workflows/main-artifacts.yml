@@ -45,11 +45,18 @@ jobs:
       - name: Fetch PlatformIO dependencies
         run: pio pkg install -e t-deck-plus
 
-      - name: Generate changelog
+      - name: Generate changelog and sync version
+        id: changelog
         run: |
           npm ci
           npx xtr-changelog release --execute --commit --tag
           cp changelog/versions.json lua/docs/changelog.json
+          # Extract the version the changelog tool just wrote and stamp
+          # it into platformio.ini so the firmware binary reports the
+          # same version string.
+          VERSION=$(node -e "const v=require('./changelog/versions.json'); console.log(v.versions[0].version)")
+          sed -i "s/^custom_version *= *.*/custom_version = ${VERSION}/" platformio.ini
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Build 32-bit luac for bytecode embedding
         run: |
@@ -104,7 +111,7 @@ jobs:
           FIRMWARE_BIN=artifacts/firmware.bin
           SIZE=$(stat -c%s "$FIRMWARE_BIN")
           SHA256=$(sha256sum "$FIRMWARE_BIN" | awk '{print $1}')
-          VERSION=$(awk -F= '/^custom_version[[:space:]]*=/{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' platformio.ini)
+          VERSION='${{ steps.changelog.outputs.version }}'
           BUILT_AT='${{ steps.build_stamp.outputs.built_at }}'
           BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-main/firmware.bin"
 

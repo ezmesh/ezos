@@ -229,9 +229,13 @@ local function status_section(state)
     nodes[#nodes + 1] = ui.padding({ 8, 8, 4, 8 },
         ui.text_widget("Current build", { color = "ACCENT", font = "small_aa" }))
 
+    local info = ez.system.get_firmware_info() or {}
     local cur = current_sha() or "(no SHA embedded)"
+    local cur_ver = info.version or ""
+    local cur_label = cur
+    if cur_ver ~= "" then cur_label = cur_ver .. "  " .. cur end
     nodes[#nodes + 1] = ui.padding({ 0, 8, 6, 8 },
-        ui.text_widget(cur, { font = "default" }))
+        ui.text_widget(cur_label, { font = "default" }))
 
     if state.manifest then
         local ch = CHANNELS[state.channel] or CHANNELS[1]
@@ -240,11 +244,13 @@ local function status_section(state)
                 { color = "ACCENT", font = "small_aa" }))
 
         local latest = state.manifest.short_sha or short(state.manifest.sha)
+        local m_ver = state.manifest.version or ""
         local size_str = format_bytes(state.manifest.size or 0)
         local built = state.manifest.built_at or ""
+        local latest_label = latest .. "  -  " .. size_str
+        if m_ver ~= "" then latest_label = m_ver .. "  " .. latest_label end
         nodes[#nodes + 1] = ui.padding({ 0, 8, 2, 8 },
-            ui.text_widget(latest .. "  -  " .. size_str,
-                { font = "default" }))
+            ui.text_widget(latest_label, { font = "default" }))
         if built ~= "" then
             nodes[#nodes + 1] = ui.padding({ 0, 8, 6, 8 },
                 ui.text_widget("built " .. built,
