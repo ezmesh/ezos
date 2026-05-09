@@ -331,13 +331,19 @@ node.register("desktop_icon", {
             end
         end
 
-        -- Label: static colour with a 1px black shadow for legibility over
-        -- bright wallpapers. Selection is communicated by the glow + plate
-        -- brightening above, so the text stays the same in both states.
+        -- Label: bold when focused, regular otherwise. 1px black shadow
+        -- for legibility over bright wallpapers.
+        if focused then
+            theme.set_font("medium_aa", "bold")
+            lw = theme.text_width(label)
+        end
         local lx = cx - math.floor(lw / 2)
         local ly = y + ICON_SIZE + 3
         d.draw_text(lx + 1, ly + 1, label, ez.display.rgb(0, 0, 0))
         d.draw_text(lx, ly, label, ez.display.rgb(230, 230, 235))
+        if focused then
+            theme.set_font("medium_aa")
+        end
     end,
 
     on_activate = function(n, key)

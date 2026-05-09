@@ -7,6 +7,7 @@ local dm_svc = require("services.direct_messages")
 local contacts_svc = require("services.contacts")
 local channels_svc = require("services.channels")
 local sharing_svc = require("services.sharing")
+local time_share = require("screens.chat.time_share")
 require("screens.chat.chat_common")  -- registers chat_bubble node type
 
 local screen_mod = require("ezui.screen")
@@ -124,6 +125,10 @@ local function show_context_menu(self, key, msg, msg_index)
             actions[#actions + 1] = item
         end
 
+        for _, item in ipairs(time_share.build_actions(msg)) do
+            actions[#actions + 1] = item
+        end
+
         if msg.is_self and (msg.status == "failed" or msg.status == "unconfirmed") then
             actions[#actions + 1] = ui.list_item({
                 title = "Retry Send",
@@ -225,6 +230,10 @@ end
 -- string so a successful decode survives across redraws and even
 -- across redemption-state changes (the ezme.sh URL never mutates).
 function DMConversation:_share_for_message(msg, sender_pub_key_hex)
+    -- Time shares don't need sender key decryption
+    local ts_card = time_share.card_for_message(msg)
+    if ts_card then return ts_card end
+
     local share = sharing_svc.parse(msg.text or "")
     if not share then return nil end
 
@@ -464,6 +473,17 @@ function DMConversation:menu()
                     })
                 end
             end)
+        end,
+    }
+
+    items[#items + 1] = {
+        title = "Share time",
+        subtitle = "Send your current clock to sync",
+        on_press = function()
+            local url, err = sharing_svc.encode_time()
+            if url then
+                dm_svc.send(key, url)
+            end
         end,
     }
 

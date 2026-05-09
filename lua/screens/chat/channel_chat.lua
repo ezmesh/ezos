@@ -4,6 +4,8 @@
 
 local ui = require("ezui")
 local channels_svc = require("services.channels")
+local sharing_svc = require("services.sharing")
+local time_share = require("screens.chat.time_share")
 require("screens.chat.chat_common")  -- registers chat_bubble node type
 
 -- Pin the scroll viewport to the most recent message after a rebuild.
@@ -43,6 +45,11 @@ local function show_context_menu(self, channel, msg)
         items[#items + 1] = ui.title_bar(preview, { back = true })
 
         local actions = {}
+
+        -- Time share actions (before generic actions)
+        for _, item in ipairs(time_share.build_actions(msg)) do
+            actions[#actions + 1] = item
+        end
 
         if not msg.is_self then
             local sender_name = msg.sender_name or "?"
@@ -117,6 +124,7 @@ function ChannelChat:build(state)
             content_items[#content_items + 1] = {
                 type = "chat_bubble",
                 msg = msg,
+                share = time_share.card_for_message(msg),
                 on_press = function()
                     show_context_menu(self, channel, msg)
                 end,
@@ -148,6 +156,22 @@ function ChannelChat:build(state)
     )
 
     return ui.vbox({ gap = 0, bg = "BG" }, items)
+end
+
+function ChannelChat:menu()
+    local channel = self._state.channel or "#Public"
+    return {
+        {
+            title = "Share time",
+            subtitle = "Send your current clock to the channel",
+            on_press = function()
+                local url, err = sharing_svc.encode_time()
+                if url then
+                    channels_svc.send(channel, url)
+                end
+            end,
+        },
+    }
 end
 
 function ChannelChat:on_enter()
