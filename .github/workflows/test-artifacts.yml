@@ -32,6 +32,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pio-
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install PlatformIO, esptool, and PyNaCl
         run: |
           python -m pip install --upgrade pip
@@ -39,6 +44,12 @@ jobs:
 
       - name: Fetch PlatformIO dependencies
         run: pio pkg install -e t-deck-plus
+
+      - name: Generate changelog
+        run: |
+          npm ci
+          npx xtr-changelog release --execute
+          cp changelog/versions.json lua/docs/changelog.json
 
       - name: Build 32-bit luac for bytecode embedding
         run: |
@@ -66,6 +77,7 @@ jobs:
       - name: Stage release artifacts
         run: |
           mkdir -p artifacts
+          cp changelog/versions.json artifacts/versions.json
           cp .pio/build/t-deck-plus/firmware.bin    artifacts/firmware.bin
           cp .pio/build/t-deck-plus/bootloader.bin  artifacts/bootloader.bin
           cp .pio/build/t-deck-plus/partitions.bin  artifacts/partitions.bin
@@ -149,7 +161,7 @@ jobs:
             gh release delete "$TAG" --yes --cleanup-tag=false
           fi
 
-          ASSETS=(artifacts/firmware.bin artifacts/firmware-full.bin artifacts/manifest.json)
+          ASSETS=(artifacts/firmware.bin artifacts/firmware-full.bin artifacts/manifest.json artifacts/versions.json)
           if [ -f artifacts/manifest.json.sig ]; then
             ASSETS+=(artifacts/manifest.json.sig)
           fi

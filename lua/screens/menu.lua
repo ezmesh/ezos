@@ -159,6 +159,8 @@ local CATEGORIES = {
               icon = icons.volume, mod = "screens.settings.sound_settings" },
             { title = "Firmware", subtitle = "Check rolling-main update + install OTA",
               icon = icons.cloud_upload, mod = "screens.settings.firmware_update" },
+            { title = "What's New", subtitle = "Changelog for this firmware",
+              icon = icons.info, mod = "screens.settings.whats_new" },
             { title = "Repeat onboarding", subtitle = "Walk through the first-run wizard again",
               icon = icons.rotate_cw, action = function()
                   require("screens.onboarding").start()

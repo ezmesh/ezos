@@ -14,6 +14,8 @@
 
 local ui     = require("ezui")
 local dialog = require("ezui.dialog")
+local whats_new = require("screens.settings.whats_new")
+local screen_mod = require("ezui.screen")
 
 local FirmwareUpdate = { title = "Firmware Update" }
 
@@ -83,6 +85,7 @@ function FirmwareUpdate.initial_state()
         progress_phase = nil,
         progress_error = nil,
         wifi_connected = ez.wifi.is_connected and ez.wifi.is_connected() or false,
+        remote_versions = nil,
     }
 end
 
@@ -164,6 +167,15 @@ local function fetch_manifest(self, tag)
             verified = true,
             manifest = manifest,
         })
+
+        -- Best-effort fetch of remote changelog (non-blocking, no error on failure)
+        local vres = ez.http.fetch(url_for(tag, "versions.json"), { timeout = 10000 })
+        if vres.ok and vres.status == 200 and vres.body then
+            local versions = whats_new.parse_versions(vres.body)
+            if versions then
+                this:set_state({ remote_versions = versions })
+            end
+        end
     end)
 end
 
@@ -330,6 +342,32 @@ function FirmwareUpdate:build(state)
         end
         for _, n in ipairs(progress_section(state)) do
             content[#content + 1] = n
+        end
+
+        -- "What's changed" button when remote changelog is available
+        if state.remote_versions and #state.remote_versions > 0 then
+            content[#content + 1] = ui.padding({ 4, 8, 4, 8 },
+                ui.button("What's changed", {
+                    on_press = function()
+                        local cur_sha = current_sha()
+                        local WN = { title = "What's Changed" }
+                        function WN:build(s)
+                            local items = whats_new.build_version_list(
+                                state.remote_versions, cur_sha)
+                            return ui.vbox({ gap = 0, bg = "BG" }, {
+                                ui.title_bar("What's Changed", { back = true }),
+                                ui.scroll({ grow = 1 },
+                                    ui.vbox({ gap = 0 }, items)),
+                            })
+                        end
+                        function WN:handle_key(k)
+                            if k.special == "BACKSPACE" or k.special == "ESCAPE" then
+                                return "pop"
+                            end
+                        end
+                        screen_mod.push(screen_mod.create(WN, {}))
+                    end,
+                }))
         end
 
         local pending = ez.ota.pending_partition()

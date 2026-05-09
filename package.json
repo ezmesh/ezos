@@ -1,0 +1,27 @@
+{
+  "name": "ezos",
+  "version": "1.0.0",
+  "description": "A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 with LoRa), featuring encrypted mesh networking, offline maps, and a Lua-scripted user interface.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ezmesh/ezos.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ezmesh/ezos/issues"
+  },
+  "homepage": "https://github.com/ezmesh/ezos#readme",
+  "devDependencies": {
+    "@xtr-dev/changelog": "^0.0.4"
+  }
+}
