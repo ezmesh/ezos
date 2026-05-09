@@ -64,6 +64,9 @@ end
 
 local Display = { title = "Display" }
 
+local ROTATE_LABELS = { "Off", "On boot", "Every time shown" }
+local ROTATE_VALUES = { "off", "boot", "shown" }
+
 local SCREENSAVER_OPTIONS = {
     { label = "Off",     value = 0 },
     { label = "1 min",   value = 60 },
@@ -79,10 +82,16 @@ function Display.initial_state()
     for i, opt in ipairs(SCREENSAVER_OPTIONS) do
         if opt.value == ss_val then ss_idx = i break end
     end
+    local wp_val = ez.storage.get_pref("wp_rotate", "boot")
+    local wp_idx = 1
+    for i, v in ipairs(ROTATE_VALUES) do
+        if v == wp_val then wp_idx = i break end
+    end
     return {
         brightness   = tonumber(ez.storage.get_pref("screen_bright", 200)) or 200,
         kb_backlight = tonumber(ez.storage.get_pref("kb_backlight", 0)) or 0,
         screensaver  = ss_idx,
+        wp_rotate    = wp_idx,
     }
 end
 
@@ -153,6 +162,20 @@ function Display:build(state)
             "Cycles animated patterns to exercise all subpixels and "
             .. "prevent LCD image persistence.",
             { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
+    )
+
+    content[#content + 1] = ui.padding({ 12, 8, 4, 8 },
+        ui.text_widget("Wallpaper", { color = "ACCENT", font = "small_aa" })
+    )
+    content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+        ui.dropdown(ROTATE_LABELS, {
+            value = state.wp_rotate,
+            on_change = function(idx)
+                local v = ROTATE_VALUES[idx] or "off"
+                state.wp_rotate = idx
+                ez.storage.set_pref("wp_rotate", v)
+            end,
+        })
     )
 
     content[#content + 1] = ui.padding({ 12, 8, 4, 8 },

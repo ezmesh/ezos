@@ -19,6 +19,7 @@ screen.frame_interval = 33  -- ~30 FPS
 -- Populated into a reusable node each frame before drawing.
 screen.status = {
     battery     = nil,
+    charging    = false,
     time        = nil,
     radio_ok    = nil,
     signal_bars = 0,
@@ -197,6 +198,9 @@ function screen.update_status()
 
     local bat = ez.system.get_battery_percent and ez.system.get_battery_percent() or nil
     if bat ~= s.battery then s.battery = bat; changed = true end
+
+    local chg = ez.system.is_charging and ez.system.is_charging() or false
+    if chg ~= s.charging then s.charging = chg; changed = true end
 
     local tstr = nil
     if ez.system.get_time then

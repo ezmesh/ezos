@@ -143,12 +143,10 @@ local CATEGORIES = {
         -- Rollback) sit on the Dev tab below; this tab is just the
         -- end-user "settings" view plus Repeat-onboarding / About.
         entries = {
-            { title = "Display", subtitle = "Brightness, theme, accent",
+            { title = "Display", subtitle = "Brightness, theme, wallpaper, accent",
               icon = icons.palette, mod = "screens.settings.display_settings" },
             { title = "WiFi", subtitle = "Scan, connect, save credentials",
               icon = icons.wifi, mod = "screens.settings.wifi_settings" },
-            { title = "Wallpaper", subtitle = "Rotate, tile, auto-pan",
-              icon = icons.wallpaper, mod = "screens.settings.wallpaper_settings" },
             { title = "Keyboard", subtitle = "Repeat, trackball",
               icon = icons.keyboard, mod = "screens.settings.keyboard_settings" },
             { title = "GPS", subtitle = "Power, clock sync",

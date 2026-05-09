@@ -585,6 +585,11 @@ node.register("dropdown", {
             local cursor = n._cursor or selected
             local scroll = n._scroll or 0
 
+            -- Stash geometry for on_touch_down
+            n._list_y = ly
+            n._item_h = item_h
+            n._visible = visible
+
             d.fill_rect(x, ly, w, visible * item_h, theme.color("SURFACE"))
             d.draw_rect(x, ly, w, visible * item_h, theme.color("BORDER"))
 
@@ -681,6 +686,36 @@ node.register("dropdown", {
             return "handled"
         end
         return nil
+    end,
+
+    -- Touch: when the dropdown is open and the tap lands on an option
+    -- row, update the cursor to that row and confirm immediately.
+    -- When closed, on_activate handles the open (via the normal
+    -- fire_activate path).
+    on_touch_down = function(n, x, y)
+        if not n._open then return end
+        local ly = n._list_y or 0
+        local item_h = n._item_h or 1
+        local visible = n._visible or 0
+        local scroll = n._scroll or 0
+        if y >= ly then
+            local row = math.floor((y - ly) / item_h) + 1
+            if row >= 1 and row <= visible then
+                local idx = row + scroll
+                local options = n.options or {}
+                if idx >= 1 and idx <= #options then
+                    n.value = idx
+                    n._open = false
+                    focus_mod.exit_edit()
+                    play_sound("select")
+                    if n.on_change then n.on_change(n.value) end
+                    local screen_mod = require("ezui.screen")
+                    local cur = screen_mod.peek and screen_mod.peek()
+                    if cur and cur._rebuild then cur:_rebuild() end
+                    screen_mod.invalidate()
+                end
+            end
+        end
     end,
 })
 
@@ -1067,6 +1102,16 @@ node.register("status_bar", {
         end
 
         if n.battery then
+            if n.charging then
+                -- Lightning bolt indicator for charging/USB power
+                theme.set_font("tiny_aa")
+                local bolt = "+"
+                local bw = theme.text_width(bolt)
+                rx = rx - bw
+                d.draw_text(rx, ty, bolt, theme.color("ACCENT"))
+                rx = rx - 1
+                theme.set_font("small_aa")
+            end
             rx = rx - 20
             d.draw_battery(rx, y + 5, n.battery)
             rx = rx - 4

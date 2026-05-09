@@ -464,7 +464,7 @@ function Desktop:on_enter()
     --   "shown" — advance every time the desktop becomes active
     --             (including returning from a sub-screen).
     --   "off"   — keep the current wallpaper.
-    local rotate_mode = ez.storage.get_pref("wp_rotate", "off")
+    local rotate_mode = ez.storage.get_pref("wp_rotate", "boot")
     local should_rotate = false
     if rotate_mode == "shown" then
         should_rotate = true

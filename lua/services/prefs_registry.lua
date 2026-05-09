@@ -36,7 +36,7 @@ local ENTRIES = {
       description = "Current built-in wallpaper name" },
     { key = "wallpaper_path", type = "string", default = "",
       description = "Custom wallpaper file path (overrides 'wallpaper' when set)" },
-    { key = "wp_rotate",      type = "string", default = "off",
+    { key = "wp_rotate",      type = "string", default = "boot",
       options = { "off", "boot", "shown" },
       description = "Auto-rotate trigger: off, once per boot, or every time shown" },
 

@@ -8,6 +8,7 @@
 #include "../../util/log.h"
 #include "ota_bindings.h"
 #include <Arduino.h>
+#include "../../config.h"
 #include <esp_heap_caps.h>
 #include <esp_partition.h>
 #include <esp_system.h>
@@ -326,6 +327,27 @@ LUA_FUNCTION(l_system_get_battery_voltage) {
     // Approximate conversion (calibration needed for accuracy)
     float voltage = (raw / 4095.0f) * 3.3f * 2.0f;  // Assuming 2:1 divider
     lua_pushnumber(L, voltage);
+    return 1;
+}
+
+// @lua ez.system.is_charging() -> boolean
+// @brief Check if device is likely charging (USB power connected)
+// @description Estimates charging state from battery voltage. When USB power is
+// connected the charge IC pushes voltage above ~4.1V; a LiPo on battery drops
+// below that within seconds. This is a heuristic -- no dedicated charge status
+// pin is wired to the ESP32 on the T-Deck Plus.
+// @return true if voltage suggests USB power is connected
+// @example
+// if ez.system.is_charging() then
+//     print("Plugged in")
+// end
+// @end
+LUA_FUNCTION(l_system_is_charging) {
+    int raw = analogRead(BATTERY_ADC);
+    float voltage = (raw / 4095.0f) * 3.3f * BATTERY_DIVIDER_RATIO;
+    // 4.1V threshold: a fully charged LiPo is 4.2V under charge,
+    // and drops to ~4.05V within seconds after USB disconnect.
+    lua_pushboolean(L, voltage >= 4.1f);
     return 1;
 }
 
@@ -1187,6 +1209,7 @@ static const luaL_Reg system_funcs[] = {
     {"cancel_timer",       l_system_cancel_timer},
     {"get_battery_percent", l_system_get_battery_percent},
     {"get_battery_voltage", l_system_get_battery_voltage},
+    {"is_charging",        l_system_is_charging},
     {"get_free_heap",      l_system_get_free_heap},
     {"get_free_psram",     l_system_get_free_psram},
     {"get_total_heap",     l_system_get_total_heap},

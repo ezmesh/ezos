@@ -24,7 +24,7 @@ end
 
 function Wallpaper.initial_state()
     return {
-        rotate = ez.storage.get_pref("wp_rotate", "off"),
+        rotate = ez.storage.get_pref("wp_rotate", "boot"),
     }
 end
 
