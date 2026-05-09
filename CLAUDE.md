@@ -95,6 +95,23 @@ Safe substitutes:
 If a new glyph is genuinely needed, extend the bitmap font (run the font generator with
 a wider range); otherwise stick to ASCII in any string that reaches `draw_text`.
 
+## Commit Messages
+
+All commits **must** use [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```
+type(scope): description
+```
+
+Allowed types: `feat`, `fix`, `build`, `chore`, `ci`, `docs`, `refactor`, `perf`, `test`, `style`.
+
+Scope is optional but encouraged (e.g. `feat(chat):`, `fix(desktop):`).
+
+A `commit-msg` git hook enforces this — commits with non-conforming
+messages are rejected. The `@xtr-dev/changelog` tool parses these
+prefixes to generate the changelog, so skipping the prefix means the
+change won't appear under the right heading.
+
 ## Building and Flashing
 
 ```bash

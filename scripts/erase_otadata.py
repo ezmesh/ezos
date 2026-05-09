@@ -1,20 +1,20 @@
 """
-PlatformIO post-upload hook: reset the otadata partition.
+PlatformIO pre-upload hook: reset the otadata partition.
 
-After `pio run -t upload` writes app0 directly, the otadata partition
-may still reference an old boot state. This confuses the ESP-IDF OTA
-bootloader: esp_ota_set_boot_partition() refuses to activate a newly
-downloaded image with "Could Not Activate The Firmware".
+Writing the default boot_app0.bin (all 0xFF) before each upload ensures
+the OTA bootloader treats the about-to-be-flashed app0 as the active
+slot. Without this, esp_ota_set_boot_partition() may refuse to activate
+a downloaded OTA image with "Could Not Activate The Firmware" because
+otadata still references stale state from a previous OTA cycle.
 
-Writing the default boot_app0.bin (all 0xFF) resets otadata so the
-bootloader falls back to the first OTA slot (app0), which is the
-partition we just flashed.
+Runs before the upload so the firmware flash's own hard-reset at the
+end is the only reset — no double-reset race that could interrupt boot.
 """
 
 Import("env")
 
 def reset_otadata(source, target, env):
-    """Write default otadata after upload so OTA works cleanly."""
+    """Write default otadata before upload so OTA works cleanly."""
     import subprocess
     import shutil
     import os
@@ -22,9 +22,6 @@ def reset_otadata(source, target, env):
     port = env.subst("$UPLOAD_PORT")
     port_args = ["--port", port] if port else []
 
-    # Find boot_app0.bin — the default otadata image shipped with
-    # the Arduino-ESP32 framework. It's 8 KiB of 0xFF which tells
-    # the bootloader "no OTA state, boot from ota_0".
     framework_dir = env.PioPlatform().get_package_dir("framework-arduinoespressif32")
     boot_app0 = os.path.join(framework_dir, "tools", "partitions", "boot_app0.bin") if framework_dir else None
 
@@ -45,6 +42,7 @@ def reset_otadata(source, target, env):
         return
 
     cmd = [esptool, "--chip", "esp32s3"] + port_args + [
+        "--after", "no_reset",
         "write_flash", "0xe000", boot_app0,
     ]
 
@@ -58,4 +56,4 @@ def reset_otadata(source, target, env):
     except Exception as e:
         print(f"  WARNING: otadata reset skipped: {e}")
 
-env.AddPostAction("upload", reset_otadata)
+env.AddPreAction("upload", reset_otadata)
