@@ -12,8 +12,14 @@
 --
 -- Channel invites are encrypted to the recipient's identity using the
 -- same X25519 shared secret the DM service uses, so a leaked URL is
--- useless to anyone other than the intended recipient. A persisted
--- nonce-redemption set defeats accidental re-tap (or re-share back).
+-- useless to anyone other than the intended recipient. There's no
+-- single-use nonce check on top of that -- it added no real security
+-- (the encryption already gates "who can read this") and traded UX
+-- away: joining and later leaving the channel made the bubble look
+-- dead, even though the user would happily rejoin via the same
+-- (still valid) password. The 8-byte nonce field stays in the wire
+-- format so each invite encrypts to different ciphertext, but the
+-- receive side doesn't track redemption.
 --
 -- Contact shares carry the sender's-known pubkey in plaintext; pubkeys
 -- are public-by-design (every advert puts them on the air), so wrapping
@@ -35,15 +41,6 @@ local PUBKEY_HEX_LEN = 64
 -- MAX_TEXT (120). Sender-side validation refuses encodes that would
 -- exceed it -- better a clear failure than a silently-truncated URL.
 local INVITE_BODY_MAX = 48
-
--- Persisted set of redeemed nonces. Bounded by REDEEMED_MAX so a long
--- session can't grow it unbounded; oldest entries fall off when the
--- cap is hit. Stored hex-encoded under PREF_KEY for cross-boot
--- replay protection. Empty set is the common case (no invites yet).
-local REDEEMED_MAX = 64
-local PREF_KEY = "share_redeemed"
-local redeemed = {}        -- { [nonce_hex] = true }
-local redeemed_order = {}  -- { nonce_hex, ... } -- LRU-style insertion order
 
 -- =========================================================================
 -- Helpers
@@ -98,19 +95,17 @@ local function parse_qs(qs)
     return t
 end
 
-local function bytes_to_hex(bytes)
-    return ez.crypto.bytes_to_hex(bytes)
-end
-
 local function hex_to_bytes(hex)
     return ez.crypto.hex_to_bytes(hex)
 end
 
+-- Build the 8-byte nonce that prefixes the ciphertext. Since we no
+-- longer track redemption, the only job is to make repeat invites for
+-- the same channel produce different tokens (otherwise re-sharing the
+-- same channel would emit byte-identical URLs and chat dedup would
+-- collapse them). millis() + math.random + our pubkey hashed through
+-- SHA-256 is plenty for that.
 local function random_nonce()
-    -- math.random isn't seeded with HW entropy; use ez.crypto.sha256 over
-    -- a millis() probe + a counter for a "good enough" non-repeating
-    -- nonce. Replay protection comes from the persisted redeemed set,
-    -- not from cryptographic uniqueness, so this is sufficient.
     local seed = string.format("%d:%d:%s",
         ez.system.millis(),
         math.random(0, 0x7FFFFFFF),
@@ -119,49 +114,13 @@ local function random_nonce()
 end
 
 -- =========================================================================
--- Persistence
--- =========================================================================
-
-local function load_redeemed()
-    local raw = ez.storage.get_pref(PREF_KEY, "")
-    if not raw or raw == "" then return end
-    for hex in raw:gmatch("[^,]+") do
-        if #hex == NONCE_SIZE * 2 and not redeemed[hex] then
-            redeemed[hex] = true
-            redeemed_order[#redeemed_order + 1] = hex
-        end
-    end
-end
-
-local function save_redeemed()
-    ez.storage.set_pref(PREF_KEY, table.concat(redeemed_order, ","))
-end
-
-local function mark_nonce_redeemed(nonce)
-    local hex = bytes_to_hex(nonce):lower()
-    if redeemed[hex] then return end
-    redeemed[hex] = true
-    redeemed_order[#redeemed_order + 1] = hex
-    -- Cap the persisted set; oldest entries roll off so the pref
-    -- doesn't grow unbounded over months of channel-invite traffic.
-    while #redeemed_order > REDEEMED_MAX do
-        local dropped = table.remove(redeemed_order, 1)
-        redeemed[dropped] = nil
-    end
-    save_redeemed()
-end
-
-local function is_nonce_redeemed(nonce)
-    local hex = bytes_to_hex(nonce):lower()
-    return redeemed[hex] == true
-end
-
--- =========================================================================
 -- Public API
 -- =========================================================================
 
+-- Kept as a no-op so existing boot.lua / call sites remain valid.
+-- Earlier revisions loaded a persisted nonce-redemption set; that's
+-- gone now (see header).
 function sharing.init()
-    load_redeemed()
 end
 
 -- Encode a contact pubkey + display name into a share URL. No
@@ -256,10 +215,12 @@ function sharing.parse(text)
     return nil
 end
 
--- Decrypt and validate a channel-invite token from a known sender.
--- Returns { name, password } on success, or (nil, "reason") on failure
--- (replay, bad pubkey, MAC fail, malformed plaintext). The caller is
--- responsible for marking the nonce redeemed via accept_invite().
+-- Decrypt a channel-invite token from a known sender. Returns the
+-- recovered { name, password } on success, or (nil, "reason") on
+-- cryptographic failure (bad pubkey, MAC fail, malformed plaintext).
+-- The 8-byte nonce in the wire format is consumed but not exposed:
+-- it exists to make every invite produce different ciphertext, not
+-- to gate redemption.
 function sharing.decode_channel_invite(token, sender_pub_key_hex)
     if not token or not sender_pub_key_hex or #sender_pub_key_hex ~= PUBKEY_HEX_LEN then
         return nil, "bad input"
@@ -269,10 +230,8 @@ function sharing.decode_channel_invite(token, sender_pub_key_hex)
     if not raw or #raw < NONCE_SIZE + AES_BLOCK_SIZE then return nil, "token too short" end
     if (#raw - NONCE_SIZE) % AES_BLOCK_SIZE ~= 0 then return nil, "token misaligned" end
 
-    local nonce = raw:sub(1, NONCE_SIZE)
+    -- Skip the nonce -- it's a uniqueness salt, not a redeem token.
     local ciphertext = raw:sub(NONCE_SIZE + 1)
-
-    if is_nonce_redeemed(nonce) then return nil, "already redeemed" end
 
     local sender_pub = hex_to_bytes(sender_pub_key_hex)
     if not sender_pub or #sender_pub ~= 32 then return nil, "bad sender key" end
@@ -295,17 +254,7 @@ function sharing.decode_channel_invite(token, sender_pub_key_hex)
     end
     local password = plaintext:sub(3 + name_len, 2 + name_len + pwd_len)
 
-    return { name = name, password = password, nonce = nonce }
-end
-
--- Mark a successfully-redeemed invite's nonce as consumed so a later
--- re-tap of the same URL fails with "already redeemed". Call this only
--- after the user has accepted the invite (joined the channel) so an
--- ignored invite doesn't burn the nonce.
-function sharing.accept_invite(invite)
-    if invite and invite.nonce then
-        mark_nonce_redeemed(invite.nonce)
-    end
+    return { name = name, password = password }
 end
 
 return sharing

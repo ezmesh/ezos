@@ -1,6 +1,14 @@
 -- Shared chat bubble node type for channel and DM screens
 -- Registers the "chat_bubble" node type with left/right alignment.
 -- Bubbles are focusable for keyboard navigation and context menus.
+--
+-- Share-card mode: when the screen attaches a `share` table to the
+-- bubble node, the bubble switches to a wider, card-style layout that
+-- previews what tapping it would do (Add contact / Join channel) and
+-- shows a state line ("Tap to add" / "Already added" / "Cannot open").
+-- The screen owns the parse + decode work because invite tokens need
+-- the sender pubkey and a per-screen cache to avoid re-running X25519
+-- on every rebuild; chat_common just renders what it's given.
 
 local theme = require("ezui.theme")
 local node_mod = require("ezui.node")
@@ -10,10 +18,95 @@ local chat = {}
 
 -- Constants
 local BUBBLE_MAX_PCT = 0.78   -- bubble max width as fraction of container
+local SHARE_MAX_PCT  = 0.92   -- share cards take more width than text bubbles
 local PAD_X = 5
 local PAD_Y = 3
 local RADIUS = 4
 local BUBBLE_GAP = 2
+
+-- Measure / draw helpers for share-card bubbles. Kept in their own
+-- pair so the regular chat-bubble path stays untouched and easy to
+-- read; the dispatcher in measure/draw chooses based on n.share.
+local function measure_share(n, max_w)
+    local share = n.share
+    local card_max = math.floor(max_w * SHARE_MAX_PCT)
+    local inner_w = card_max - PAD_X * 2
+
+    -- Three lines: kind label (tiny), main title (small), action hint
+    -- (tiny). Title can wrap if the name is unusually long; the others
+    -- are single-line.
+    theme.set_font("tiny_aa")
+    local meta_h = theme.font_height() + 1
+
+    theme.set_font("small_aa")
+    local title_lines = text_mod.wrap(share.title or "", inner_w)
+    n._share_title_lines = title_lines
+    local title_h = theme.font_height() * #title_lines
+
+    theme.set_font("tiny_aa")
+    local action_h = theme.font_height() + 1
+
+    n._card_w = card_max
+    n._title_h = title_h
+    n._meta_h = meta_h
+    n._action_h = action_h
+    n._line_h = theme.font_height()  -- used for tiny-font lines
+
+    local total_h = meta_h + title_h + action_h + PAD_Y * 2 + BUBBLE_GAP
+    return max_w, total_h
+end
+
+local function draw_share(n, d, x, y, w, h)
+    local share = n.share
+    local msg = n.msg or {}
+    local focused = n._focused
+
+    local card_w = n._card_w or math.floor(w * SHARE_MAX_PCT)
+    local title_h = n._title_h or 12
+    local meta_h = n._meta_h or 10
+    local action_h = n._action_h or 10
+    local card_h = meta_h + title_h + action_h + PAD_Y * 2
+
+    local cx = msg.is_self and (x + w - card_w - 2) or (x + 2)
+    local cy = y
+
+    -- Background: filled with ACCENT-tinted SURFACE so the card stands
+    -- out from regular chat. Outline highlights when focused.
+    local bg = focused and theme.color("SELECTION") or theme.color("SURFACE_ALT")
+    local border = focused and theme.color("ACCENT") or theme.color("BORDER")
+    d.fill_round_rect(cx, cy, card_w, card_h, RADIUS, bg)
+    d.draw_round_rect(cx, cy, card_w, card_h, RADIUS, border)
+
+    if focused then
+        -- Same focus bar as regular bubbles, on the matching edge
+        local bar = theme.color("ACCENT")
+        if msg.is_self then
+            d.fill_rect(cx + card_w - 2, cy + 2, 2, card_h - 4, bar)
+        else
+            d.fill_rect(cx, cy + 2, 2, card_h - 4, bar)
+        end
+    end
+
+    local ty = cy + PAD_Y
+
+    -- Kind label, e.g. "CONTACT CARD" / "CHANNEL INVITE"
+    theme.set_font("tiny_aa")
+    d.draw_text(cx + PAD_X, ty, share.kind_label or "SHARE", theme.color("ACCENT"))
+    ty = ty + meta_h
+
+    -- Title (the contact name or channel name)
+    theme.set_font("small_aa")
+    for _, line in ipairs(n._share_title_lines or { share.title or "" }) do
+        d.draw_text(cx + PAD_X, ty, line, theme.color("TEXT"))
+        ty = ty + n._line_h
+    end
+
+    -- Action hint, color-coded: muted for done/disabled states, accent
+    -- for the actionable "Tap to ..." paths.
+    theme.set_font("tiny_aa")
+    local hint_color = share.disabled and theme.color("TEXT_MUTED") or theme.color("ACCENT")
+    d.draw_text(cx + PAD_X, ty, share.action_hint or "Tap for details", hint_color)
+end
 
 if not node_mod.handler("chat_bubble") then
     node_mod.register("chat_bubble", {
@@ -22,6 +115,10 @@ if not node_mod.handler("chat_bubble") then
         measure = function(n, max_w, max_h)
             local msg = n.msg
             if not msg then return max_w, 16 end
+
+            if n.share then
+                return measure_share(n, max_w)
+            end
 
             local bubble_max = math.floor(max_w * BUBBLE_MAX_PCT)
             local inner_w = bubble_max - PAD_X * 2
@@ -75,6 +172,10 @@ if not node_mod.handler("chat_bubble") then
         draw = function(n, d, x, y, w, h)
             local msg = n.msg
             if not msg then return end
+
+            if n.share then
+                return draw_share(n, d, x, y, w, h)
+            end
 
             local focused = n._focused
             local bubble_w = n._bubble_w or 100

@@ -17,7 +17,7 @@ local screen_mod = require("ezui.screen")
 -- line (you can't accept your own contact share); incoming shares get
 -- the prominent Add/Join action with up-front decoding so the menu
 -- can show the actual channel name and gracefully disable already-
--- joined / already-redeemed / undecryptable invites.
+-- joined / undecryptable invites.
 local function build_share_actions(msg, sender_pub_key_hex)
     local share = sharing_svc.parse(msg.text or "")
     if not share then return {} end
@@ -90,7 +90,6 @@ local function build_share_actions(msg, sender_pub_key_hex)
             subtitle = "Invited by " .. (msg.sender_name or "contact"),
             on_press = function()
                 channels_svc.join(invite.name, invite.password)
-                sharing_svc.accept_invite(invite)
                 screen_mod.pop()
             end,
         })
@@ -216,6 +215,85 @@ local function stick_to_bottom(inst)
     require("ezui.screen").invalidate()
 end
 
+-- Build the per-bubble share descriptor used by chat_common's
+-- card-style render path. Returns nil for plain text. Decoded
+-- channel-invite results are cached in self._share_cache because
+-- decode_channel_invite runs an X25519 derive (~30 ms) we don't want
+-- to repeat on every rebuild -- the cache is keyed by the token
+-- string so a successful decode survives across redraws and even
+-- across redemption-state changes (the ezme.sh URL never mutates).
+function DMConversation:_share_for_message(msg, sender_pub_key_hex)
+    local share = sharing_svc.parse(msg.text or "")
+    if not share then return nil end
+
+    if share.kind == "contact" then
+        local label = (share.name and share.name ~= "")
+            and share.name or share.pub_key_hex:sub(1, 8)
+        local hint, disabled
+        if msg.is_self then
+            hint = "Sent in this message"
+            disabled = true
+        elseif contacts_svc.is_contact(share.pub_key_hex) then
+            hint = "Already in contacts"
+            disabled = true
+        else
+            hint = "Tap to add"
+            disabled = false
+        end
+        return {
+            kind_label = "CONTACT CARD",
+            title = label,
+            action_hint = hint,
+            disabled = disabled,
+        }
+    end
+
+    if share.kind == "channel_invite" then
+        if msg.is_self then
+            return {
+                kind_label = "CHANNEL INVITE",
+                title = "(invite sent)",
+                action_hint = "Sent in this message",
+                disabled = true,
+            }
+        end
+
+        self._share_cache = self._share_cache or {}
+        local cached = self._share_cache[share.token]
+        if cached == nil then
+            local invite, err = sharing_svc.decode_channel_invite(share.token, sender_pub_key_hex)
+            cached = invite or { _err = err or "decrypt failed" }
+            self._share_cache[share.token] = cached
+        end
+
+        if cached._err then
+            return {
+                kind_label = "CHANNEL INVITE",
+                title = "(cannot open)",
+                action_hint = cached._err,
+                disabled = true,
+            }
+        end
+
+        local hint, disabled
+        if channels_svc.is_joined(cached.name) then
+            hint = "Already joined"
+            disabled = true
+        else
+            hint = "Tap to join"
+            disabled = false
+        end
+        return {
+            kind_label = "CHANNEL INVITE",
+            title = cached.name,
+            action_hint = hint,
+            disabled = disabled,
+        }
+    end
+
+    return nil
+end
+
 function DMConversation:build(state)
     local key = state.contact_key or ""
     local contact = contacts_svc.get(key)
@@ -242,10 +320,16 @@ function DMConversation:build(state)
             })
         )
     else
+        -- Sender pubkey for invite decryption: our own for self-sent,
+        -- the chat partner's for inbound. (build_share_actions in the
+        -- context menu uses the same dispatch.)
+        local self_pub = ez.mesh.get_public_key_hex()
         for i, msg in ipairs(msgs) do
+            local share_sender = msg.is_self and self_pub or key
             content_items[#content_items + 1] = {
                 type = "chat_bubble",
                 msg = msg,
+                share = self:_share_for_message(msg, share_sender),
                 on_press = function()
                     show_context_menu(self, key, msg, i)
                 end,
