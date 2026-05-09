@@ -31,6 +31,11 @@ screen.status = {
 screen.status_interval = 5000  -- poll hardware every 5s
 screen.status_last = -10000    -- negative so the first update() runs the poll immediately
 
+-- Screensaver: auto-launched after idle timeout to exercise subpixels.
+-- Resets on any keypress. Disabled when timeout is 0 or "off".
+screen.last_input_time = 0     -- millis() of last keypress
+screen._screensaver_active = false
+
 -- Node reused every frame to render the global status bar. Keeping one
 -- instance avoids a garbage-generating allocation per frame.
 local _status_node = { type = "status_bar" }
@@ -430,6 +435,9 @@ function screen.handle_input()
     local key = ez.keyboard.read()
     if not key or not key.valid then return false end
 
+    -- Reset idle timer on any input
+    screen.last_input_time = ez.system.millis()
+
     -- Toast key handling: Alt+ENTER on a toast with an attached
     -- action invokes it (and consumes the key so the underlying
     -- screen doesn't also receive an Alt+ENTER chord). Bare ENTER --
@@ -559,6 +567,29 @@ function screen.update()
 
     -- Drain all pending input
     while screen.handle_input() do end
+
+    -- Screensaver: launch after idle timeout. The screensaver screen
+    -- pops itself on any keypress, which resets last_input_time above.
+    if not screen._screensaver_active then
+        local timeout = tonumber(ez.storage.get_pref("ss_timeout", 0)) or 0
+        if timeout > 0 and screen.last_input_time > 0 then
+            local idle = ez.system.millis() - screen.last_input_time
+            if idle >= timeout * 1000 then
+                screen._screensaver_active = true
+                local ok, def = pcall(require, "screens.tools.screensaver")
+                if ok then
+                    local inst = screen.create(def, {})
+                    screen.push(inst)
+                end
+            end
+        end
+    else
+        -- Check if the screensaver was popped (user pressed a key)
+        local inst = screen.peek()
+        if not inst or inst.title ~= "Screensaver" then
+            screen._screensaver_active = false
+        end
+    end
 
     -- Refresh global status bar state (throttled internally)
     screen.update_status()

@@ -64,10 +64,25 @@ end
 
 local Display = { title = "Display" }
 
+local SCREENSAVER_OPTIONS = {
+    { label = "Off",     value = 0 },
+    { label = "1 min",   value = 60 },
+    { label = "2 min",   value = 120 },
+    { label = "5 min",   value = 300 },
+    { label = "10 min",  value = 600 },
+    { label = "30 min",  value = 1800 },
+}
+
 function Display.initial_state()
+    local ss_val = tonumber(ez.storage.get_pref("ss_timeout", 0)) or 0
+    local ss_idx = 1
+    for i, opt in ipairs(SCREENSAVER_OPTIONS) do
+        if opt.value == ss_val then ss_idx = i break end
+    end
     return {
         brightness   = tonumber(ez.storage.get_pref("screen_bright", 200)) or 200,
         kb_backlight = tonumber(ez.storage.get_pref("kb_backlight", 0)) or 0,
+        screensaver  = ss_idx,
     }
 end
 
@@ -118,6 +133,26 @@ function Display:build(state)
                 state.kb_backlight = val
             end,
         })
+    )
+
+    content[#content + 1] = ui.padding({ 12, 8, 4, 8 },
+        ui.text_widget("Screensaver", { color = "ACCENT", font = "small_aa" })
+    )
+    content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+        ui.dropdown(SCREENSAVER_OPTIONS, {
+            value = state.screensaver,
+            on_change = function(idx)
+                local val = SCREENSAVER_OPTIONS[idx].value
+                ez.storage.set_pref("ss_timeout", val)
+                state.screensaver = idx
+            end,
+        })
+    )
+    content[#content + 1] = ui.padding({ 2, 8, 4, 8 },
+        ui.text_widget(
+            "Cycles animated patterns to exercise all subpixels and "
+            .. "prevent LCD image persistence.",
+            { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
     )
 
     content[#content + 1] = ui.padding({ 12, 8, 4, 8 },

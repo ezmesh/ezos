@@ -125,6 +125,8 @@ local CATEGORIES = {
               icon = icons.circle_dot, mod = "screens.tools.touch_test" },
             { title = "Pixel Fix", subtitle = "Clear screen ghosting",
               icon = icons.monitor, mod = "screens.tools.pixel_fix" },
+            { title = "Screensaver", subtitle = "Animated pixel exerciser",
+              icon = icons.monitor, mod = "screens.tools.screensaver" },
         },
     },
     {
