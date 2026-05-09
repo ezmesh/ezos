@@ -56,4 +56,8 @@ def reset_otadata(source, target, env):
     except Exception as e:
         print(f"  WARNING: otadata reset skipped: {e}")
 
-env.AddPreAction("upload", reset_otadata)
+# Disabled: writing boot_app0.bin before upload sets otadata sequence=1
+# for ota_0, which then prevents Update.end() from activating ota_1.
+# The OTA activation issue is handled in C++ by calling
+# esp_ota_mark_app_valid_cancel_rollback() before Update.end().
+# env.AddPreAction("upload", reset_otadata)
