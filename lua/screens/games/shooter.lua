@@ -648,13 +648,13 @@ local function drop_item(x, y, enemy_kind)
     -- pool so the buffs don't trivialise late-game pacing.
     local r = rand()
     local kind
-    if     r < 0.25 then kind = I_HEAL
-    elseif r < 0.43 then kind = I_GUN
-    elseif r < 0.53 then kind = I_SHIELD
-    elseif r < 0.61 then kind = I_THRUST
-    elseif r < 0.65 then kind = I_MULTI
-    elseif r < 0.77 then kind = I_RATE
-    elseif r < 0.89 then kind = I_SPEED
+    if     r < 0.22 then kind = I_HEAL
+    elseif r < 0.38 then kind = I_GUN
+    elseif r < 0.47 then kind = I_SHIELD
+    elseif r < 0.54 then kind = I_THRUST
+    elseif r < 0.58 then kind = I_MULTI
+    elseif r < 0.76 then kind = I_RATE
+    elseif r < 0.88 then kind = I_SPEED
     else                 kind = I_SLOW end
     items[#items + 1] = {
         x = x, y = y, vy = 0.8, kind = kind,
