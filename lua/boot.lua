@@ -183,6 +183,14 @@ local function boot_sequence()
     local dm_svc = require("services.direct_messages")
     dm_svc.init()
 
+    -- Sharing: encode/decode for ezme.sh share URLs that ride inside
+    -- DM bubbles (contact pubkeys, channel-invite tokens). Must come
+    -- after dm_svc because the receive-side action card reuses the
+    -- DM ECDH cache to decrypt invite tokens; nonce-replay state is
+    -- loaded here from NVS.
+    local sharing_svc = require("services.sharing")
+    sharing_svc.init()
+
     -- Custom packets: P2P extension layer on RAW_CUSTOM. Subscribes
     -- after dm_svc so the DM internals it borrows are ready.
     -- register_demos() installs PING / PONG / GPS\0 handlers; remove

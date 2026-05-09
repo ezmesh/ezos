@@ -5,9 +5,100 @@
 local ui = require("ezui")
 local dm_svc = require("services.direct_messages")
 local contacts_svc = require("services.contacts")
+local channels_svc = require("services.channels")
+local sharing_svc = require("services.sharing")
 require("screens.chat.chat_common")  -- registers chat_bubble node type
 
 local screen_mod = require("ezui.screen")
+
+-- Build the share-specific menu items for an inbound message whose
+-- text contains an ezme.sh share URL. Returns a list of list_item
+-- nodes, possibly empty. Self-sent shares get a non-actionable status
+-- line (you can't accept your own contact share); incoming shares get
+-- the prominent Add/Join action with up-front decoding so the menu
+-- can show the actual channel name and gracefully disable already-
+-- joined / already-redeemed / undecryptable invites.
+local function build_share_actions(msg, sender_pub_key_hex)
+    local share = sharing_svc.parse(msg.text or "")
+    if not share then return {} end
+
+    local out = {}
+
+    if share.kind == "contact" then
+        local already = contacts_svc.is_contact(share.pub_key_hex)
+        local label = share.name and share.name ~= "" and share.name or share.pub_key_hex:sub(1, 8)
+        if msg.is_self then
+            out[#out + 1] = ui.list_item({
+                title = "Shared contact: " .. label,
+                subtitle = "Sent in this message",
+                disabled = true,
+            })
+        elseif already then
+            out[#out + 1] = ui.list_item({
+                title = label .. " is already a contact",
+                disabled = true,
+            })
+        else
+            out[#out + 1] = ui.list_item({
+                title = "Add " .. label .. " to contacts",
+                subtitle = share.pub_key_hex:sub(1, 12) .. "...",
+                on_press = function()
+                    contacts_svc.add(share.pub_key_hex, share.name)
+                    screen_mod.pop()
+                end,
+            })
+        end
+        return out
+    end
+
+    if share.kind == "channel_invite" then
+        if msg.is_self then
+            out[#out + 1] = ui.list_item({
+                title = "Shared channel invite",
+                subtitle = "Sent in this message",
+                disabled = true,
+            })
+            return out
+        end
+
+        -- Need the sender's pubkey to derive the shared secret. The DM
+        -- service stamps `sender_key` on inbound messages; if the
+        -- candidate isn't a known contact we can't decrypt anyway.
+        local invite, err = sharing_svc.decode_channel_invite(share.token, sender_pub_key_hex)
+        if not invite then
+            out[#out + 1] = ui.list_item({
+                title = "Channel invite (cannot open)",
+                subtitle = err or "decrypt failed",
+                disabled = true,
+            })
+            return out
+        end
+
+        if channels_svc.is_joined(invite.name) then
+            out[#out + 1] = ui.list_item({
+                title = "Already in channel '" .. invite.name .. "'",
+                disabled = true,
+            })
+            -- Don't burn the nonce on a no-op accept; user might still
+            -- want to redeem on a different device with the same
+            -- identity.
+            return out
+        end
+
+        out[#out + 1] = ui.list_item({
+            title = "Join channel '" .. invite.name .. "'",
+            subtitle = "Invited by " .. (msg.sender_name or "contact"),
+            on_press = function()
+                channels_svc.join(invite.name, invite.password)
+                sharing_svc.accept_invite(invite)
+                screen_mod.pop()
+            end,
+        })
+        return out
+    end
+
+    return out
+end
 
 -- Context menu shown when pressing Enter on a chat bubble
 local function show_context_menu(self, key, msg, msg_index)
@@ -21,6 +112,18 @@ local function show_context_menu(self, key, msg, msg_index)
         items[#items + 1] = ui.title_bar(preview, { back = true })
 
         local actions = {}
+
+        -- Share actions are shown first because they're the user's
+        -- intent on opening the menu for a share-bearing bubble; the
+        -- generic "Repeat Send" / "Delete" actions stay visible below.
+        -- The sender pubkey is the conversation key for inbound
+        -- messages and our own pubkey for self-sent ones; the inbound
+        -- case needs the contact's key to derive the shared secret
+        -- that decrypts channel-invite tokens.
+        local share_sender_key = msg.is_self and ez.mesh.get_public_key_hex() or key
+        for _, item in ipairs(build_share_actions(msg, share_sender_key)) do
+            actions[#actions + 1] = item
+        end
 
         if msg.is_self and (msg.status == "failed" or msg.status == "unconfirmed") then
             actions[#actions + 1] = ui.list_item({
@@ -172,6 +275,113 @@ function DMConversation:build(state)
     )
 
     return ui.vbox({ gap = 0, bg = "BG" }, items)
+end
+
+-- Push a sub-menu that lists candidate items and dispatches `on_pick`
+-- with the chosen entry. Reused by both share variants below; both
+-- follow the "list of contacts/channels, pick one, fire-and-forget"
+-- shape so it's worth abstracting once. The dialog menu pops itself
+-- before invoking on_press, so when the user presses Back from this
+-- picker they land on DMConversation rather than on a stale parent
+-- menu (which we already popped).
+local function push_picker(title, items, on_pick)
+    local screen_mod = require("ezui.screen")
+    local MenuDialog = require("screens.dialog.menu")
+    local entries = {}
+    for _, item in ipairs(items) do
+        entries[#entries + 1] = {
+            title = item.title,
+            subtitle = item.subtitle,
+            on_press = function() on_pick(item.value) end,
+        }
+    end
+    if #entries == 0 then
+        entries[#entries + 1] = {
+            title = "(nothing to share)",
+            disabled = true,
+        }
+    end
+    screen_mod.push(screen_mod.create(MenuDialog,
+        MenuDialog.initial_state(entries, title)))
+end
+
+-- Top-level Alt+M menu for the DM conversation. Lets the user share a
+-- contact card or channel invite with the current chat partner; the
+-- chosen item is rendered into an ezme.sh share URL and sent through
+-- the regular dm.send pipeline so it flows through the same
+-- encryption / ACK / retry path as a normal message bubble.
+function DMConversation:menu()
+    local key = self._state.contact_key or ""
+    local items = {}
+
+    items[#items + 1] = {
+        title = "Share a contact...",
+        subtitle = "Send one of your contacts to the other side",
+        on_press = function()
+            local picker = {}
+            -- Skip the chat partner themselves -- sharing their own
+            -- card back to them is a no-op (they already have their
+            -- own pubkey) and just clutters the picker.
+            for _, c in ipairs(contacts_svc.get_all()) do
+                if c.pub_key_hex ~= key then
+                    picker[#picker + 1] = {
+                        title = c.name or c.pub_key_hex:sub(1, 8),
+                        subtitle = c.pub_key_hex:sub(1, 12) .. "...",
+                        value = c,
+                    }
+                end
+            end
+            push_picker("Share contact", picker, function(contact)
+                local url = sharing_svc.encode_contact(contact.pub_key_hex, contact.name)
+                if url then dm_svc.send(key, url) end
+            end)
+        end,
+    }
+
+    items[#items + 1] = {
+        title = "Invite to a channel...",
+        subtitle = "Send a one-shot invite for one of your channels",
+        on_press = function()
+            local picker = {}
+            for _, ch in ipairs(channels_svc.get_list()) do
+                -- #Public has no password and inviting to it is
+                -- pointless (every device is already on it). Hidden
+                -- channels are still listed -- the user opted in by
+                -- joining them, so making them shareable is fine.
+                local info = channels_svc.get_info(ch.name)
+                if info and info.password and info.password ~= "" then
+                    picker[#picker + 1] = {
+                        title = ch.name,
+                        subtitle = "Invite to this private channel",
+                        value = ch.name,
+                    }
+                end
+            end
+            push_picker("Invite to channel", picker, function(channel_name)
+                local info = channels_svc.get_info(channel_name)
+                if not info then return end
+                local url, err = sharing_svc.encode_channel_invite(key, channel_name, info.password)
+                if url then
+                    dm_svc.send(key, url)
+                else
+                    -- Surface the failure as a chat-bubble-shaped
+                    -- system message so the user knows the invite
+                    -- didn't go out. dm.send only delivers if the
+                    -- text is small enough; for invite errors we
+                    -- post directly to the bus.
+                    ez.bus.post("dm/message", {
+                        sender_key = key,
+                        sender_name = "system",
+                        text = "Invite failed: " .. (err or "unknown"),
+                        timestamp = ez.system.millis(),
+                        is_self = false,
+                    })
+                end
+            end)
+        end,
+    }
+
+    return items
 end
 
 function DMConversation:on_enter()
