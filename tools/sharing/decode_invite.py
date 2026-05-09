@@ -86,9 +86,11 @@ def ed25519_pub_to_x25519_pub(ed_pub: bytes) -> bytes:
     return u.to_bytes(32, "little")
 
 
-# Derive the X25519 scalar from the Ed25519 32-byte seed. Matches
+# Derive the X25519 scalar from a 32-byte Ed25519 seed. Matches
 # Identity::calcSharedSecret in firmware: SHA-512 of the seed, take
-# the first 32 bytes, then RFC 7748 clamp.
+# the first 32 bytes, then RFC 7748 clamp. Used for --ed25519-seed
+# inputs; meshcore-cli's get private_key returns an already-derived
+# clamped scalar, which doesn't go through this function.
 def ed25519_seed_to_x25519_priv(seed: bytes) -> bytes:
     if len(seed) != 32:
         raise ValueError(f"Ed25519 seed must be 32 bytes, got {len(seed)}")
@@ -98,6 +100,16 @@ def ed25519_seed_to_x25519_priv(seed: bytes) -> bytes:
     scalar[31] &= 0x7F
     scalar[31] |= 0x40
     return bytes(scalar)
+
+
+# Sanity check: an X25519 scalar that's been RFC 7748 clamped has
+# byte[0] & 0x07 == 0 and (byte[31] & 0xC0) == 0x40. We don't blindly
+# trust this -- callers always say which format they're passing -- but
+# we use it to spot common confusions (e.g. someone hex-pasting an
+# Ed25519 seed where we expected a clamped scalar). False positives on
+# random Ed25519 seeds are ~1/512.
+def looks_x25519_clamped(b: bytes) -> bool:
+    return len(b) == 32 and (b[0] & 0x07) == 0 and (b[31] & 0xC0) == 0x40
 
 
 def x25519_shared_secret(priv_scalar: bytes, peer_x_pub: bytes) -> bytes:
@@ -121,6 +133,13 @@ def run_meshcore_cli(args: list, port: str) -> str:
 
 
 def fetch_private_key(port: str) -> bytes:
+    """
+    Pull the recipient's already-clamped X25519 scalar from meshcore-cli.
+    The meshcore Python lib's `get private_key` returns the same scalar
+    the firmware uses for ECDH (RFC 7748 clamped, 32 bytes), NOT the
+    Ed25519 seed -- so we use it directly as the X25519 priv with no
+    SHA-512 + clamp step on top.
+    """
     raw = run_meshcore_cli(["get", "private_key"], port)
     try:
         data = json.loads(raw)
@@ -130,12 +149,16 @@ def fetch_private_key(port: str) -> bytes:
     if not hex_str:
         sys.exit(f"error: response missing 'private_key' field: {data}")
     out = bytes.fromhex(hex_str)
-    # Some firmware exports the full 64-byte Ed25519 keypair (seed ||
-    # derived_public). The seed is what we need for ECDH.
     if len(out) == 64:
+        # Some exports include the public half too -- scalar is the first 32.
         out = out[:32]
     if len(out) != 32:
         sys.exit(f"error: unexpected private_key length {len(out)} (want 32)")
+    if not looks_x25519_clamped(out):
+        sys.exit(
+            "error: meshcore-cli returned 32 bytes that don't look RFC 7748 clamped\n"
+            "(expected an X25519 scalar; script can't tell what you've got)"
+        )
     return out
 
 
@@ -200,7 +223,16 @@ def main():
         help="Sender name as it appears in meshcore-cli contacts",
     )
     ap.add_argument(
-        "--privkey", help="Recipient Ed25519 private key hex (skip CLI fetch)",
+        "--privkey",
+        help="Recipient X25519 private scalar hex, RFC 7748 clamped "
+             "(matches meshcore-cli's get private_key output). Skips the CLI fetch.",
+    )
+    ap.add_argument(
+        "--ed25519-seed", dest="ed25519_seed",
+        help="Alternative to --privkey: pass a raw Ed25519 seed (32 bytes, "
+             "unclamped); the script will SHA-512 + clamp it to derive the "
+             "X25519 scalar internally. Useful for round-trip testing with "
+             "Python-generated keypairs.",
     )
     ap.add_argument(
         "--add", action="store_true",
@@ -225,16 +257,38 @@ def main():
     if len(sender_ed_pub) != 32:
         sys.exit(f"error: sender pubkey must be 32 bytes (got {len(sender_ed_pub)})")
 
+    # Resolve recipient X25519 scalar. Three input shapes:
+    #   --privkey       : already-clamped X25519 scalar (matches meshcore-cli's
+    #                     get private_key output)
+    #   --ed25519-seed  : raw Ed25519 seed; we SHA-512 + clamp it to derive
+    #                     the X25519 scalar
+    #   neither         : pull from meshcore-cli, treat as scalar
+    if args.privkey and args.ed25519_seed:
+        ap.error("pass either --privkey or --ed25519-seed, not both")
     if args.privkey:
-        my_seed = bytes.fromhex(args.privkey)
-        if len(my_seed) == 64:
-            my_seed = my_seed[:32]
-        if len(my_seed) != 32:
-            sys.exit(f"error: --privkey must be 32 or 64 bytes (got {len(my_seed)})")
+        my_x_priv = bytes.fromhex(args.privkey)
+        if len(my_x_priv) == 64:
+            my_x_priv = my_x_priv[:32]
+        if len(my_x_priv) != 32:
+            sys.exit(f"error: --privkey must be 32 or 64 bytes (got {len(my_x_priv)})")
+        if not looks_x25519_clamped(my_x_priv):
+            sys.exit(
+                "error: --privkey doesn't look RFC 7748 clamped; pass --ed25519-seed "
+                "instead if this is a raw Ed25519 seed."
+            )
+        derivation = "supplied (--privkey, used as X25519 scalar)"
+    elif args.ed25519_seed:
+        seed = bytes.fromhex(args.ed25519_seed)
+        if len(seed) == 64:
+            seed = seed[:32]
+        if len(seed) != 32:
+            sys.exit(f"error: --ed25519-seed must be 32 or 64 bytes (got {len(seed)})")
+        my_x_priv = ed25519_seed_to_x25519_priv(seed)
+        derivation = "supplied (--ed25519-seed, SHA-512 + clamped)"
     else:
-        my_seed = fetch_private_key(args.port)
+        my_x_priv = fetch_private_key(args.port)
+        derivation = "fetched from meshcore-cli (X25519 scalar)"
 
-    my_x_priv = ed25519_seed_to_x25519_priv(my_seed)
     sender_x_pub = ed25519_pub_to_x25519_pub(sender_ed_pub)
     secret = x25519_shared_secret(my_x_priv, sender_x_pub)
     aes_key = secret[:16]
@@ -242,8 +296,8 @@ def main():
     plaintext = aes128_ecb_decrypt(aes_key, ciphertext)
 
     if args.debug:
+        print(f"[debug] privkey source     : {derivation}")
         print("[debug] sender Ed25519 pub :", sender_ed_pub.hex())
-        print("[debug] my Ed25519 seed    :", my_seed.hex())
         print("[debug] my X25519 scalar   :", my_x_priv.hex())
         print("[debug] sender X25519 pub  :", sender_x_pub.hex())
         print("[debug] shared secret      :", secret.hex())
