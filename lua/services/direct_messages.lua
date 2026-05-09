@@ -50,6 +50,16 @@ local ACK_TIMEOUT = 15000     -- Give up after 15 seconds with no ACK
 local SAVE_PATH = "/fs/dm_history.json"
 local SAVE_DELAY = 2000       -- Debounce: write at most every 2 seconds
 
+-- Wait between an auto-advert and the follow-up TXT_MSG when sending
+-- to a contact that hasn't proven knowledge of our pubkey yet. The
+-- receiver will FLOOD-rebroadcast our ADVERT; that rebroadcast plus
+-- the ADVERT's own ~1 s airtime + 50..200 ms scheduling jitter
+-- (REBROADCAST_DELAY in src/mesh/meshcore.cpp) keeps the receiver's
+-- single-tuner radio in TX mode for ~2 s after we finish sending the
+-- ADVERT. Anything we transmit during that window is silently lost,
+-- so we hold the TXT_MSG back until the rebroadcast cycle has settled.
+local POST_ADVERT_WAIT_MS = 2500
+
 -- Pending-ciphertext cap and TTL. If the sender never advertises and
 -- never gets added as a contact, we drop the ciphertext after this
 -- window so a hostile peer can't pin a growing buffer on us. 48 h is
@@ -857,10 +867,6 @@ function dm.init()
                     if pending.msg_ref then
                         pending.msg_ref.status = "pending"
                     end
-                    if not contacts_svc.is_known_by(pending.pub_key_hex)
-                            and ez.mesh.send_announce then
-                        ez.mesh.send_announce()
-                    end
                     -- transmit() yields at every crypto step, so it
                     -- must run inside a coroutine. Capture the loop
                     -- values so retries fire correctly per-pending.
@@ -869,9 +875,20 @@ function dm.init()
                     -- expected_ack hash changes per attempt — refresh
                     -- pending.expected_ack when the new packet is built
                     -- so incoming ACKs from the retry match.
+                    --
+                    -- The auto-advert moved inside the coroutine so we
+                    -- can wait_ms between it and the TXT_MSG; without
+                    -- that gap the receiver's FLOOD rebroadcast of the
+                    -- ADVERT clobbers our follow-up TX. See
+                    -- POST_ADVERT_WAIT_MS.
                     local pk, txt, att = pending.pub_key_hex, pending.text, pending.attempt
                     local entry = pending
+                    local need_advert = not contacts_svc.is_known_by(pk)
                     spawn(function()
+                        if need_advert and ez.mesh.send_announce then
+                            ez.mesh.send_announce()
+                            wait_ms(POST_ADVERT_WAIT_MS)
+                        end
                         local ok, new_ack, direct = transmit(pk, txt, att)
                         if ok and new_ack then
                             entry.expected_ack = new_ack
@@ -934,10 +951,16 @@ function dm.send(pub_key_hex, text)
         -- sync (a tiny build + queue_send), so one small blocking
         -- step on the worker trip, but it happens before the longer
         -- X25519 / AES / HMAC sequence and is dwarfed by them.
+        --
+        -- After queueing the ADVERT, hold the TXT_MSG back via
+        -- wait_ms so the receiver has time to receive, rebroadcast,
+        -- and finish transmitting before our follow-up TX -- see
+        -- POST_ADVERT_WAIT_MS for the airtime/rebroadcast math.
         if contacts_svc.is_contact(pub_key_hex)
                 and not contacts_svc.is_known_by(pub_key_hex) then
             if ez.mesh.send_announce then
                 ez.mesh.send_announce()
+                wait_ms(POST_ADVERT_WAIT_MS)
             end
         end
 

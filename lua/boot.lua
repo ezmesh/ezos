@@ -135,10 +135,17 @@ local function boot_sequence()
     end
 
     -- Apply the saved TX throttle interval (queue send spacing). The
-    -- driver default is 100 ms; the Settings UI and onboarding offer
-    -- 50 / 100 / 200 / 400 ms. A missing pref just leaves the driver
-    -- default in place.
+    -- driver default is 200 ms; the Settings UI and onboarding offer
+    -- 200 / 400 / 800 ms. A missing pref just leaves the driver default
+    -- in place. Older firmware exposed 50 and 100 ms presets that
+    -- caused TX-side collisions with the receiver's FLOOD rebroadcast
+    -- of the previous packet -- migrate those values up so users on
+    -- upgrade aren't stuck at a setting we no longer offer.
     local tx_throttle = tonumber(ez.storage.get_pref("tx_throttle_ms", 0)) or 0
+    if tx_throttle > 0 and tx_throttle < 200 then
+        tx_throttle = 200
+        ez.storage.set_pref("tx_throttle_ms", tx_throttle)
+    end
     if tx_throttle > 0 and ez.mesh and ez.mesh.set_tx_throttle then
         ez.mesh.set_tx_throttle(tx_throttle)
     end

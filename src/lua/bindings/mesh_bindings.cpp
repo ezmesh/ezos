@@ -998,6 +998,21 @@ LUA_FUNCTION(l_mesh_build_packet) {
     pkt.payloadLen = payloadLen;
     memcpy(pkt.payload, payload, payloadLen);
 
+    // FLOOD packets must carry the originator's path hash so receivers
+    // can detect a loop-back and skip rebroadcast. The C++ sender path
+    // (MeshCore::sendAnnounce, scheduleRebroadcast) does this; before
+    // this hook, Lua-built FLOOD packets went on-air with an empty path
+    // and bounced back to us via every neighbour's rebroadcast -- which
+    // we then re-flooded ourselves, and that re-flood TX coincided with
+    // the receiver's PATH_RETURN, eating the ACK. Match the C++ behavior
+    // when the caller didn't supply an explicit path. DIRECT packets
+    // (with a cached return path) are left alone -- the supplied path
+    // already encodes the routing.
+    if (pathLen == 0 && mesh != nullptr &&
+            (routeType == RouteType::FLOOD || routeType == RouteType::TRANSPORT_FLOOD)) {
+        pkt.addToPath(mesh->getIdentity().getPathHash());
+    }
+
     // Serialize
     uint8_t buffer[MeshPacket::MAX_SIZE];
     size_t len = pkt.serialize(buffer, sizeof(buffer));

@@ -157,6 +157,28 @@ RadioResult Radio::translateStatus(int status) {
     }
 }
 
+// RadioLib's modulation setters (setFrequency, setBandwidth, ...) drop the
+// SX1262 to standby while applying the new value, so a chip that was in RX
+// before the call comes back in standby silently. The flag side stays
+// truthy because we only flip _receiving on explicit sleep/send -- so
+// is_receiving() lies and packets vanish until something (a TX completion,
+// a manual start_receive) re-arms the chip. Any setter the user can hit
+// outside of setProfile must restart RX itself; setProfile already does
+// it after the full sequence and uses _suppressAutoRestart to skip the
+// per-setter restarts in between.
+//
+// We keep auto-restart unconditional rather than gated on _receiving:
+// the only times we're not in RX are during a TX (where the in-flight
+// startTransmit already owns the chip) or while sleep() has parked us,
+// and applying a modulation setter to a sleeping chip is itself a
+// configuration bug we'd rather make obvious than paper over.
+void Radio::reArmAfterSetter() {
+    if (_suppressAutoRestart) return;
+    if (_transmitting) return;     // an in-flight TX owns the chip
+    if (!_receiving) return;       // sleep() / explicit standby
+    startReceive();
+}
+
 RadioResult Radio::setFrequency(float mhz) {
     if (!_initialized) return RadioResult::ERROR_INIT;
 
@@ -164,6 +186,7 @@ RadioResult Radio::setFrequency(float mhz) {
     if (state == RADIOLIB_ERR_NONE) {
         _config.frequency = mhz;
     }
+    reArmAfterSetter();
     return translateStatus(state);
 }
 
@@ -174,6 +197,7 @@ RadioResult Radio::setBandwidth(float khz) {
     if (state == RADIOLIB_ERR_NONE) {
         _config.bandwidth = khz;
     }
+    reArmAfterSetter();
     return translateStatus(state);
 }
 
@@ -184,6 +208,7 @@ RadioResult Radio::setSpreadingFactor(uint8_t sf) {
     if (state == RADIOLIB_ERR_NONE) {
         _config.spreadingFactor = sf;
     }
+    reArmAfterSetter();
     return translateStatus(state);
 }
 
@@ -194,6 +219,7 @@ RadioResult Radio::setCodingRate(uint8_t cr) {
     if (state == RADIOLIB_ERR_NONE) {
         _config.codingRate = cr;
     }
+    reArmAfterSetter();
     return translateStatus(state);
 }
 
@@ -204,6 +230,7 @@ RadioResult Radio::setSyncWord(uint8_t sw) {
     if (state == RADIOLIB_ERR_NONE) {
         _config.syncWord = sw;
     }
+    reArmAfterSetter();
     return translateStatus(state);
 }
 
@@ -214,6 +241,7 @@ RadioResult Radio::setTxPower(int8_t dbm) {
     if (state == RADIOLIB_ERR_NONE) {
         _config.txPower = dbm;
     }
+    reArmAfterSetter();
     return translateStatus(state);
 }
 
@@ -224,6 +252,7 @@ RadioResult Radio::setPreambleLength(uint16_t len) {
     if (state == RADIOLIB_ERR_NONE) {
         _config.preambleLength = len;
     }
+    reArmAfterSetter();
     return translateStatus(state);
 }
 
@@ -241,6 +270,11 @@ RadioResult Radio::setProfile(RadioProfile profile) {
     // would leave the chip with new fields stuck in registers that
     // _config no longer reflects. Rollback writes are best-effort --
     // we still return the original failure code to the caller.
+    //
+    // _suppressAutoRestart muzzles the per-setter RX re-arm helper for
+    // the duration of this sequence; we want exactly one startReceive
+    // call at the bottom (or in fail()), not one between every setter.
+    _suppressAutoRestart = true;
     RadioConfig rollback = _config;
     auto fail = [&](RadioResult r) {
         setBandwidth(rollback.bandwidth);
@@ -249,6 +283,7 @@ RadioResult Radio::setProfile(RadioProfile profile) {
         setSyncWord(rollback.syncWord);
         setPreambleLength(rollback.preambleLength);
         _config = rollback;
+        _suppressAutoRestart = false;
         startReceive();
         return r;
     };
@@ -261,6 +296,7 @@ RadioResult Radio::setProfile(RadioProfile profile) {
     r = setPreambleLength(cfg.preambleLength);   if (r != RadioResult::OK) return fail(r);
 
     _config.profile = profile;
+    _suppressAutoRestart = false;
 
     // Re-arm RX with the new params; callers expect the radio to keep
     // listening across a profile switch.
@@ -275,29 +311,39 @@ RadioResult Radio::setProfile(RadioProfile profile) {
 RadioResult Radio::configure(const RadioConfig& config) {
     RadioResult result;
 
+    // Same dance as setProfile: muzzle the per-setter RX re-arm so we
+    // don't bounce in and out of receive mode seven times before the
+    // last setter, then do one explicit startReceive at the bottom.
+    _suppressAutoRestart = true;
+    auto finish = [&](RadioResult r) {
+        _suppressAutoRestart = false;
+        if (_receiving && !_transmitting) startReceive();
+        return r;
+    };
+
     result = setFrequency(config.frequency);
-    if (result != RadioResult::OK) return result;
+    if (result != RadioResult::OK) return finish(result);
 
     result = setBandwidth(config.bandwidth);
-    if (result != RadioResult::OK) return result;
+    if (result != RadioResult::OK) return finish(result);
 
     result = setSpreadingFactor(config.spreadingFactor);
-    if (result != RadioResult::OK) return result;
+    if (result != RadioResult::OK) return finish(result);
 
     result = setCodingRate(config.codingRate);
-    if (result != RadioResult::OK) return result;
+    if (result != RadioResult::OK) return finish(result);
 
     result = setSyncWord(config.syncWord);
-    if (result != RadioResult::OK) return result;
+    if (result != RadioResult::OK) return finish(result);
 
     result = setTxPower(config.txPower);
-    if (result != RadioResult::OK) return result;
+    if (result != RadioResult::OK) return finish(result);
 
     result = setPreambleLength(config.preambleLength);
-    if (result != RadioResult::OK) return result;
+    if (result != RadioResult::OK) return finish(result);
 
     _config = config;
-    return RadioResult::OK;
+    return finish(RadioResult::OK);
 }
 
 RadioResult Radio::send(const uint8_t* data, size_t len) {

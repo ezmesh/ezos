@@ -159,13 +159,34 @@ private:
     bool _initialized = false;
     bool _transmitting = false;
     bool _receiving = false;
+    // Suppresses the per-setter auto-restart of RX while a multi-step
+    // operation (setProfile, configure) walks through the modulation
+    // setters. The wrapping op restores it and issues exactly one
+    // startReceive at the end so we don't bounce through standby per
+    // setter. See Radio::reArmAfterSetter.
+    bool _suppressAutoRestart = false;
+
+    // Re-arm RX after a single modulation setter. RadioLib drops the
+    // chip to standby internally when applying setFrequency / setBandwidth
+    // / etc., and the original implementation didn't restart RX; the
+    // _receiving flag stayed truthy but the chip was silent. Boot.lua's
+    // set_frequency call landed every device in this state until a
+    // subsequent TX (or explicit start_receive) kicked it. See radio.cpp
+    // for the full reasoning.
+    void reArmAfterSetter();
 
     float _lastRssi = 0;
     float _lastSnr = 0;
 
     // Transmit queue and throttling
     static constexpr size_t TX_QUEUE_MAX_SIZE = 16;
-    static constexpr uint32_t TX_THROTTLE_DEFAULT_MS = 100;  // Minimum ms between transmissions
+    // Minimum ms between transmissions. 200 ms keeps us under ~85%
+    // airtime when draining a back-to-back queue at SF8/BW62.5 (~1 s
+    // per packet) and stays clear of the receiver's FLOOD rebroadcast
+    // window. Lower values starve neighbours and cause our follow-up
+    // TX to collide with the receiver's rebroadcast of the previous
+    // packet -- see lua/services/direct_messages.lua dm.send.
+    static constexpr uint32_t TX_THROTTLE_DEFAULT_MS = 200;
     std::deque<QueuedTxPacket> _txQueue;
     uint32_t _lastTxTime = 0;
     uint32_t _throttleIntervalMs = TX_THROTTLE_DEFAULT_MS;

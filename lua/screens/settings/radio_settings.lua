@@ -47,20 +47,22 @@ local function profile_index_for(id)
     return 1
 end
 
--- Keep this list in sync with TX_THROTTLE_PRESETS in
+-- Keep this list in sync with PRESETS in
 -- lua/screens/onboarding/tx_throttle.lua so the two pickers tell the
--- same story. 100 ms is the firmware default; one step below, three
--- steps above.
+-- same story. 200 ms is the firmware default. Values below 200 ms used
+-- to be offered but were removed: a single packet at SF8/BW62.5 is ~1 s
+-- on air, so anything tighter starves neighbours and causes the
+-- receiver's FLOOD rebroadcast to clobber our follow-up TX. boot.lua
+-- migrates old saved values up.
 local TX_THROTTLE_PRESETS = {
-    { label = "Fast (50 ms)",       ms =  50 },
-    { label = "Default (100 ms)",   ms = 100 },
-    { label = "Relaxed (200 ms)",   ms = 200 },
+    { label = "Default (200 ms)",   ms = 200 },
     { label = "Polite (400 ms)",    ms = 400 },
+    { label = "Sparse (800 ms)",    ms = 800 },
 }
 
 local function tx_throttle_index_for(ms)
-    if not ms or ms <= 0 then return 2 end  -- treat 0/missing as default
-    local best_i, best_delta = 2, math.huge
+    if not ms or ms <= 0 then return 1 end  -- treat 0/missing as default
+    local best_i, best_delta = 1, math.huge
     for i, p in ipairs(TX_THROTTLE_PRESETS) do
         local d = math.abs(p.ms - ms)
         if d < best_delta then best_i, best_delta = i, d end

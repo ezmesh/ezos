@@ -1,10 +1,10 @@
 -- Onboarding step -- TX queue spacing.
 --
 -- Sets the minimum interval between queued packet transmissions. The
--- driver default is 100 ms; this picker offers one step below (faster,
--- heavier on the channel) and a couple above (more polite to
--- neighbours). Stored under `tx_throttle_ms` and re-applied at boot by
--- lua/boot.lua. Mirrors the picker on Settings -> Radio.
+-- 200 ms default matches the firmware default; the higher options are
+-- more polite to neighbours in a busy mesh. Stored under
+-- `tx_throttle_ms` and re-applied at boot by lua/boot.lua. Mirrors the
+-- picker on Settings -> Radio.
 
 local ui = require("ezui")
 local M  = require("screens.onboarding")
@@ -13,12 +13,15 @@ local PATH = "screens.onboarding.tx_throttle"
 local PREF = "tx_throttle_ms"
 
 -- Keep this in sync with TX_THROTTLE_PRESETS in
--- lua/screens/settings/radio_settings.lua.
+-- lua/screens/settings/radio_settings.lua. Values below 200 ms used to
+-- be exposed but were removed: at SF8/BW62.5 a single packet is ~1 s on
+-- air, so anything tighter starves neighbours and causes the receiver's
+-- FLOOD rebroadcast to collide with our follow-up TX. boot.lua migrates
+-- old saved values up.
 local PRESETS = {
-    { label = "Fast (50 ms)",     ms =  50 },
-    { label = "Default (100 ms)", ms = 100 },
-    { label = "Relaxed (200 ms)", ms = 200 },
+    { label = "Default (200 ms)", ms = 200 },
     { label = "Polite (400 ms)",  ms = 400 },
+    { label = "Sparse (800 ms)",  ms = 800 },
 }
 
 local LABELS = {}
@@ -26,8 +29,8 @@ for i, p in ipairs(PRESETS) do LABELS[i] = p.label end
 
 local function default_index()
     local saved = tonumber(ez.storage.get_pref(PREF, 0)) or 0
-    if saved <= 0 then return 2 end  -- "Default" is index 2
-    local best_i, best_delta = 2, math.huge
+    if saved <= 0 then return 1 end  -- "Default" is index 1
+    local best_i, best_delta = 1, math.huge
     for i, p in ipairs(PRESETS) do
         local d = math.abs(p.ms - saved)
         if d < best_delta then best_i, best_delta = i, d end
