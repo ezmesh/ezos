@@ -431,8 +431,11 @@ local function list_wallpapers()
     local files = ez.storage.list_dir("/fs/wallpapers") or {}
     local names = {}
     for _, f in ipairs(files) do
-        local stem = f:match("^(.+)%.jpe?g$") or f:match("^(.+)%.png$")
-        if stem then names[#names + 1] = stem end
+        local fname = type(f) == "table" and f.name or f
+        if type(fname) == "string" then
+            local stem = fname:match("^(.+)%.jpe?g$") or fname:match("^(.+)%.png$")
+            if stem then names[#names + 1] = stem end
+        end
     end
     if #names == 0 then return wallpaper_names end
     table.sort(names)
