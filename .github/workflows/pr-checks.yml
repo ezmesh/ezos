@@ -1,10 +1,12 @@
 name: PR Checks
 
 # Gates merges into main and test on:
-#   1. Conventional Commits format -- both the PR title (which becomes the
-#      squash-merge commit subject) and every commit in the PR. The local
-#      .githooks/commit-msg catches direct pushes; this catches GitHub's
-#      "Merge pull request" / squash flows that bypass client hooks.
+#   1. Conventional Commits format on the PR title -- the title becomes
+#      the squash-merge commit subject, so it must parse on its own. We
+#      do NOT walk every commit in the PR; promotion PRs (test -> main)
+#      can carry historical messages that predate the policy, and the
+#      per-commit hook on direct pushes (.githooks/commit-msg) already
+#      catches the source-of-truth case.
 #   2. A real version bump -- xtr-changelog must compute a `next version`
 #      that's different from the one already published in versions.json.
 #      Otherwise the auto-publish workflows would republish the same
@@ -49,47 +51,6 @@ jobs:
             exit 1
           fi
           echo "PR title OK: $TITLE"
-
-      - name: Checkout PR commits
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Validate commits in PR
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          # Same regex as the title check. Merge commits and release
-          # commits are exempt (mirrors .githooks/commit-msg).
-          re='^(feat|fix|build|chore|ci|docs|refactor|perf|test|style)(\([a-zA-Z0-9_-]+\))?(!)?: .+'
-
-          fail=0
-          while IFS= read -r line; do
-            sha=${line%% *}
-            msg=${line#* }
-            # Skip merges
-            parents=$(git rev-list --parents -n 1 "$sha" | awk '{print NF-1}')
-            if [ "$parents" -gt 1 ]; then continue; fi
-            # Skip changelog release commits
-            case "$msg" in
-              "[skip ci]"*|"chore(release)"*) continue;;
-            esac
-            if ! printf '%s\n' "$msg" | grep -qE "$re"; then
-              echo "::error::Commit $sha message is not a Conventional Commit:"
-              echo "  $msg"
-              fail=1
-            fi
-          done < <(git log --format='%H %s' "$BASE_SHA..$HEAD_SHA")
-
-          if [ "$fail" -ne 0 ]; then
-            echo ""
-            echo "Fix locally with `git rebase -i $BASE_SHA` and reword the offending commits."
-            exit 1
-          fi
-          echo "All PR commits parse as Conventional Commits."
 
   version-bump:
     name: Version bump required
