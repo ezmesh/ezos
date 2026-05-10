@@ -106,8 +106,6 @@ local CATEGORIES = {
               icon = icons.grid, mod = "screens.games.g2048" },
             { title = "Blackjack", subtitle = "Single-player vs dealer (hits to 17)",
               icon = icons.spade, mod = "screens.games.blackjack" },
-            { title = "Video Poker", subtitle = "Jacks-or-Better, 5-card draw",
-              icon = icons.spade, mod = "screens.games.video_poker" },
         },
     },
     {
