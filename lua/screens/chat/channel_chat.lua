@@ -123,7 +123,13 @@ local function show_context_menu(self, channel, msg)
     end
 
     function MenuDef:handle_key(k)
-        if k.character == "q" or k.special == "ESCAPE" then
+        -- BACKSPACE is the on-device back-arrow; ESCAPE is the
+        -- remote-tool synonym. Without BACKSPACE the user has no way
+        -- to dismiss this menu on the T-Deck (no Esc key exists).
+        if k.character == "q"
+            or k.special == "ESCAPE"
+            or k.special == "BACKSPACE"
+        then
             return "pop"
         end
         return nil
