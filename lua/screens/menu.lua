@@ -102,6 +102,8 @@ local CATEGORIES = {
               icon = icons.rocket, mod = "screens.games.shooter" },
             { title = "Snake", subtitle = "Classic snake on a 26x17 grid",
               icon = icons.circle_dot, mod = "screens.games.snake" },
+            { title = "Pool (1P / 2P WiFi)", subtitle = "8-ball pool vs AI or over SoftAP + UDP",
+              icon = icons.circle_dot, mod = "screens.games.pool" },
         },
     },
     {
