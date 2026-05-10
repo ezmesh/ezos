@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.0.71] - 2026-05-10
+## [0.0.80] - 2026-05-10
 
 ### Features
 - **channels:** per-channel history limit + notification mode (#80) (374eb45)
@@ -10,20 +10,10 @@
 ### Features
 - **channels:** per-channel history limit + notification mode (#80) (374eb45)
 
-## [0.0.71] - 2026-05-10
-
-### Other
-- **release:** add DeployKey bypass actor to branch rulesets (#84) (afc57b3)
-
-## [0.0.71] - 2026-05-10
+## [0.0.79] - 2026-05-10
 
 ### Features
 - **notifications:** wire DM/file/battery/SD/panic events (#79) (5478bde)
-
-## [0.0.71] - 2026-05-10
-
-### Other
-- **branch-protection:** drop required-status-checks enforcement (84da3d7)
 
 ## [0.0.78] - 2026-05-09
 
