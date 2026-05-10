@@ -171,6 +171,33 @@ Key rotation is "burn a new firmware containing the new pubkey, then
 rotate the secret". Don't lose the private key — there's no recovery
 path other than reflashing every device manually.
 
+**Branch ruleset push gate** (already wired, documented for context):
+the auto-release workflow's `xtr-changelog --push` step pushes the
+`[skip ci]` release commit + tag straight back to `main` / `test`.
+Both branches are protected by repo rulesets (see
+`scripts/branch-protection.sh`), and the rulesets' `pull_request`
+rule blocks direct pushes from any actor not on the bypass list --
+including the workflow's `GITHUB_TOKEN`, regardless of `permissions:`
+scope. The "GitHub Actions" identity does not appear in the bypass
+picker on the free org plan, so we can't put it on the bypass list.
+
+Workaround in use: a write-enabled **deploy key** (`auto-release-push`,
+private half stored in repo secret `RELEASE_PUSH_KEY`). Deploy-key
+pushes bypass branch rulesets by design. Both `*-artifacts.yml`
+workflows load the key into ssh-agent via `webfactory/ssh-agent`
+and check the repo out over SSH so the subsequent `git push` from
+xtr-changelog flows through the same key.
+
+If OTA releases ever stop publishing, check the failing workflow
+run's "Generate changelog, sync version, and push back" step. A
+GH013 / "Changes must be made through a pull request" error means
+the SSH push fell back to HTTPS+GITHUB_TOKEN -- usually because the
+checkout step's `ssh-key` input was lost or the secret was rotated
+without updating the deploy key. Regenerate the keypair with
+`ssh-keygen -t ed25519`, register the public half via
+`POST /repos/ezmesh/ezos/keys` with `read_only: false`, and re-upload
+the private half to the `RELEASE_PUSH_KEY` secret.
+
 ## Project Structure
 
 ```
