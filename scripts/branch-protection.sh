@@ -123,7 +123,7 @@ EOF
 # the existing protection in place if creation hits a transient API
 # error, rate limit, or 422.
 echo "Snapshotting any existing ezos-branch-* rulesets..."
-STALE_IDS=$(list_stale_ruleset_ids || true)
+STALE_IDS=$(list_stale_ruleset_ids)
 if [ -n "$STALE_IDS" ]; then
     echo "  found $(echo "$STALE_IDS" | wc -l) stale ruleset(s) to remove after new ones are in place"
 fi
