@@ -1297,6 +1297,14 @@ void pullFullTask(void* arg) {
     auto active = [](uint32_t s) { return s == 0xFFFFFFFF ? 0u : s; };
     uint32_t max_seq = std::max(active(seq0), active(seq1));
     uint32_t new_seq = max_seq + 1;
+    // The IDF bootloader picks the boot app via `(ota_seq - 1) % ota_app_count`
+    // -- not by which physical otadata sector holds the entry. On a freshly
+    // flashed device both sectors are blank (0xFFFFFFFF -> treated as 0),
+    // so `new_seq = 1` always selects app0; if the OTA target was app1,
+    // the post-write `esp_ota_get_boot_partition` check below trips with
+    // "boot partition did not switch". Nudge the sequence by one so its
+    // parity matches the target slot before writing.
+    if (((new_seq - 1) % 2u) != (uint32_t)slot) new_seq += 1;
 
     uint8_t entry[32];
     memset(entry, 0xFF, sizeof(entry));
