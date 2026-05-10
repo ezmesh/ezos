@@ -128,26 +128,29 @@ local function evaluate(hand)
     if #distinct == 5 and distinct[5] - distinct[1] == 4 then
         is_straight = true
     end
-    -- Wheel: A-2-3-4-5. The Ace counts low here; everywhere else it
-    -- counts high (which matters for straight-flush vs royal-flush).
+    -- Wheel: A-2-3-4-5 (Ace low). Span check above misses this because
+    -- the Ace is encoded as rank 1, so the sorted distinct list is
+    -- {1,2,3,4,5} and 5-1==4 already matches; explicit check kept for
+    -- clarity and to flag wheel for the royal-vs-straight-flush below.
     local wheel = (#distinct == 5
         and distinct[1] == 1 and distinct[2] == 2
         and distinct[3] == 3 and distinct[4] == 4 and distinct[5] == 5)
     if wheel then is_straight = true end
 
-    -- Royal vs straight flush.
+    -- Broadway: A-10-J-Q-K (Ace high). Span check misses this too --
+    -- {1,10,11,12,13} has span 12. Without this branch, A-K-Q-J-10
+    -- mixed-suit would fall through to "nothing" and the same hand
+    -- in one suit would be misclassified as a Flush instead of a
+    -- Royal Flush (the 6x payout instead of 250x / 4000x).
+    local broadway = (#distinct == 5
+        and distinct[1] == 1 and distinct[2] == 10
+        and distinct[3] == 11 and distinct[4] == 12 and distinct[5] == 13)
+    if broadway then is_straight = true end
+
+    -- Royal vs straight flush. Broadway + flush is the royal; any
+    -- other straight + flush is a "regular" straight flush.
     if is_flush and is_straight then
-        if (not wheel)
-                and distinct[5] == 13 and distinct[1] == 1 then
-            -- A,K,Q,J,10 of one suit.
-            local has_high = false
-            for _, r in ipairs(distinct) do
-                if r == 10 then has_high = true end
-            end
-            if has_high then
-                return "royal", "Royal Flush"
-            end
-        end
+        if broadway then return "royal", "Royal Flush" end
         return "sflush", "Straight Flush"
     end
 
@@ -299,10 +302,13 @@ node.register("vpoker_field", {
                 draw_card_face(d, game.hand[i],
                     hand_x + (i - 1) * (CARD_W + CARD_GAP),
                     hand_y, game.held[i])
-                -- Slot index above each card so the player can tell
-                -- which key (1-5) toggles which hold.
+                -- Slot label above each card. Q/W/E/R/T because the
+                -- T-Deck has no number row -- bare digits aren't
+                -- typable in the field, only via alt-chord. Mapping
+                -- to the top row of the QWERTY block keeps it to
+                -- single-key presses with no modifier.
                 theme.set_font("tiny_aa")
-                local lbl = tostring(i)
+                local lbl = string.sub("QWERT", i, i)
                 local lw = theme.text_width(lbl)
                 d.draw_text(hand_x + (i - 1) * (CARD_W + CARD_GAP)
                               + floor((CARD_W - lw) / 2),
@@ -329,7 +335,7 @@ node.register("vpoker_field", {
         if game.state == STATE_BETTING then
             hints = "L/R bet | Enter deal"
         elseif game.state == STATE_HOLD then
-            hints = "1-5 hold | Enter draw"
+            hints = "Q-T hold | Enter draw"
         else
             hints = "Enter for next hand"
         end
@@ -380,12 +386,18 @@ function VideoPoker:handle_key(key)
             return "handled"
         end
     elseif game.state == STATE_HOLD then
+        -- Letters Q/W/E/R/T are the on-device bindings (top QWERTY
+        -- row, no modifier). Digits 1-5 are kept for the remote tool
+        -- and any setup that has a real number row -- on the T-Deck
+        -- they're only reachable via alt-chord, but the firmware
+        -- still emits them as character == "1".
+        local c = key.character
         local idx = nil
-        if     key.character == "1" then idx = 1
-        elseif key.character == "2" then idx = 2
-        elseif key.character == "3" then idx = 3
-        elseif key.character == "4" then idx = 4
-        elseif key.character == "5" then idx = 5
+        if     c == "q" or c == "Q" or c == "1" then idx = 1
+        elseif c == "w" or c == "W" or c == "2" then idx = 2
+        elseif c == "e" or c == "E" or c == "3" then idx = 3
+        elseif c == "r" or c == "R" or c == "4" then idx = 4
+        elseif c == "t" or c == "T" or c == "5" then idx = 5
         end
         if idx then toggle_hold(idx); bump(); return "handled" end
         if key.special == "ENTER" then
