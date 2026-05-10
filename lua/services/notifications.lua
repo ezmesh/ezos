@@ -41,6 +41,18 @@ local function source_muted(source)
     return v == "0" or v == 0 or v == false
 end
 
+-- The on-device bitmap fonts only cover printable ASCII 0x20..0x7E
+-- (see CLAUDE.md "On-device font character set"); anything else
+-- renders as `[]` boxes. Notification title/body strings often come
+-- from peer-originated mesh data (contact names, DM bodies, file
+-- names) where there's no upstream guarantee on character set, so
+-- sanitize centrally here rather than asking every call site to
+-- remember.
+local function ascii_safe(s)
+    if type(s) ~= "string" then return s end
+    return (s:gsub("[^\32-\126]", "?"))
+end
+
 function notifications.post(opts)
     opts = opts or {}
     if not opts.title or opts.title == "" then return nil end
@@ -48,8 +60,8 @@ function notifications.post(opts)
 
     local n = {
         id        = _next_id,
-        title     = opts.title,
-        body      = opts.body,
+        title     = ascii_safe(opts.title),
+        body      = ascii_safe(opts.body),
         source    = opts.source or "system",
         sticky    = opts.sticky and true or false,
         action    = opts.action,

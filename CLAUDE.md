@@ -299,7 +299,10 @@ Services are initialized in order in `lua/boot.lua`:
 6. **custom_packets** — Custom (non-MeshCore) packet handlers
 7. **file_transfer** — Mesh-based file send/receive
 8. **ui_sounds** — UI sound effects via the audio engine
-9. **notifications** — Bus subscriber for OTA / system notifications
+9. **notifications** — Toast queue + bus subscribers for OTA, DMs,
+   file transfer, low battery, SD connect/disconnect, and panic /
+   brownout recovery. See "Notifications service" below for the
+   public API and per-source mute pref namespace.
 10. **apps** — Registered file-type → screen handlers (used by the file manager)
 11. **gps** — `gps_svc.start_sync_loop()` is always called; the loop itself
     respects the user's "never / at boot / hourly" pref and is a no-op when
@@ -309,6 +312,36 @@ After services start, `migrations.run()` runs version migrations and an
 `ntp` sync is kicked. Other modules under `lua/services/` (e.g.
 `map_archive`, `prefs_registry`, `signal_test`) are loaded on demand by
 the screens that need them.
+
+### Notifications service
+
+`services/notifications` is an in-memory toast queue. The bus topic
+`notifications/changed` fires on every change; `ezui/screen.lua`
+subscribes once and renders the most recent entry as a toast.
+
+Public API:
+
+- `notifications.post(opts)` — `{ title, body?, source?, sticky?,
+  action? = { label, on_press }, read? }`. Returns the new id, or
+  nil if suppressed (muted source, missing title). `title` and
+  `body` are sanitized to printable ASCII before being stored — the
+  on-device fonts can't render anything else (see "On-device font
+  character set" above), and titles/bodies often come from
+  peer-originated mesh data.
+- `notifications.post_unless_focused(opts, predicate)` — posts only
+  when `predicate(top_screen_inst)` returns false. Use for events
+  that lead to a screen the user might already be looking at (the
+  DM message → DM conversation flow is the canonical example).
+- `notifications.dismiss(id)` / `notifications.dismiss_source(s)` /
+  `notifications.list()` / `notifications.unread_count()` /
+  `notifications.mark_all_read()`.
+
+Per-source mute pref: every `post()` consults `notify_<source>` in
+NVS (default `"1"` = on). Setting `notify_dm = "0"`, for instance,
+silences every DM toast without touching the wiring. The namespace
+is meant for a future Settings panel; pref keys must stay under
+NVS's 15-character limit, so source tags should be short
+(`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `system`).
 
 ### Module Loading
 

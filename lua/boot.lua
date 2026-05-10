@@ -331,17 +331,28 @@ local function boot_sequence()
             battery_state.last_threshold = nil
             return
         end
-        local thresholds = { 5, 10, 20 }   -- check most-severe first
+        -- Check most-severe (lowest %) first. A new toast only
+        -- fires when crossing into a *more-severe* threshold than
+        -- the one currently latched -- ratcheting downward, never
+        -- back up. Without that gate, partial recovery from 4% to
+        -- 7% (still below 25, still discharging) would replace the
+        -- sticky 5% warning with a non-sticky 10% one. Iteration
+        -- always stops at the first matching threshold so we
+        -- don't fall through to a less-severe row.
+        local thresholds = { 5, 10, 20 }
         for _, t in ipairs(thresholds) do
-            if pct <= t and battery_state.last_threshold ~= t then
-                battery_state.last_threshold = t
-                notifications.dismiss_source("battery")
-                notifications.post({
-                    title  = "Battery low",
-                    body   = string.format("%d%% remaining", pct),
-                    source = "battery",
-                    sticky = (t <= 5),
-                })
+            if pct <= t then
+                local last = battery_state.last_threshold
+                if last == nil or last > t then
+                    battery_state.last_threshold = t
+                    notifications.dismiss_source("battery")
+                    notifications.post({
+                        title  = "Battery low",
+                        body   = string.format("%d%% remaining", pct),
+                        source = "battery",
+                        sticky = (t <= 5),
+                    })
+                end
                 return
             end
         end
