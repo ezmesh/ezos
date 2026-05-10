@@ -2,8 +2,13 @@
 
 ## [0.0.71] - 2026-05-10
 
-### Other
-- **branch-protection:** drop required-status-checks enforcement (84da3d7)
+### Features
+- **notifications:** wire DM/file/battery/SD/panic events (#79) (5478bde)
+
+## [0.0.71] - 2026-05-10
+
+### Features
+- **notifications:** wire DM/file/battery/SD/panic events (#79) (5478bde)
 
 ## [0.0.71] - 2026-05-10
 
@@ -87,7 +92,7 @@
 - cooperative coroutine scheduler + Lua trace log + EU freq nudge (be93d32)
 - seed-based encounter plan + boss sections + drone enemy + thrust pickup + particles / popups / sprite polish (4849cfa)
 - in-game pause menu (P toggles) (85e48e2)
-- address review feedback — closure capture + lines split (bf33a58)
+- address review feedback - closure capture + lines split (bf33a58)
 - Easy / Hard modes with drop-preview on Easy (950960c)
 - distinct enemy sprites + ship accel + hold-to-shoot (698ca63)
 - TDMAP v4/v5 drop, version macro, http+system binding fixes, docs CI (4457967)
@@ -162,7 +167,7 @@
 - cooperative coroutine scheduler + Lua trace log + EU freq nudge (be93d32)
 - seed-based encounter plan + boss sections + drone enemy + thrust pickup + particles / popups / sprite polish (4849cfa)
 - in-game pause menu (P toggles) (85e48e2)
-- address review feedback — closure capture + lines split (bf33a58)
+- address review feedback - closure capture + lines split (bf33a58)
 - Easy / Hard modes with drop-preview on Easy (950960c)
 - distinct enemy sprites + ship accel + hold-to-shoot (698ca63)
 - TDMAP v4/v5 drop, version macro, http+system binding fixes, docs CI (4457967)
