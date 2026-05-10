@@ -22,6 +22,6 @@
   },
   "homepage": "https://github.com/ezmesh/ezos#readme",
   "devDependencies": {
-    "@xtr-dev/changelog": "^0.0.4"
+    "@xtr-dev/changelog": "^0.0.5"
   }
 }
