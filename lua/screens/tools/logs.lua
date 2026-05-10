@@ -198,6 +198,7 @@ function Logs:on_enter()
     table.insert(self._touch_subs, ez.bus.subscribe("touch/down",
         function(_, d)
             if type(d) ~= "table" then return end
+            if require("ezui.touch_input").is_wake_event() then return end
             local v = me._view
             if not v._x then return end  -- not laid out yet
             -- Reject touches that started in the title bar so back-

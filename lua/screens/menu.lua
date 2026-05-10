@@ -534,6 +534,13 @@ function Menu:on_enter()
         table.insert(self._touch_subs, ez.bus.subscribe("touch/down",
             function(_, data)
                 if type(data) ~= "table" then return end
+                -- A touch that just woke the screensaver shouldn't
+                -- also start a tab-strip drag. The bridge has already
+                -- bumped the idle timer; we just bail.
+                if touch_input.is_wake_event() then
+                    pending = nil
+                    return
+                end
                 local strip = me._tab_strip_node
                 if not in_strip_hit(strip, data.x, data.y) then
                     pending = nil

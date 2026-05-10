@@ -177,8 +177,46 @@ local function fire_tap_event(sx, sy, duration_ms)
     ez.bus.post(topic, { x = sx, y = sy, duration_ms = duration_ms })
 end
 
+-- Reset the idle timer + check the screensaver gate. Returns true
+-- when the gesture should be swallowed (screensaver was active and
+-- has just been dismissed -- the touch only served to wake the
+-- device, it must not also activate whatever sat under the overlay).
+--
+-- Also stamps M._wake_until_ms forward so per-screen touch
+-- subscribers (e.g. menu.lua's tab-strip drag, game tap-to-play
+-- handlers) can call M.is_wake_event() and skip the activation
+-- branch -- the bus broadcasts to every subscriber, so the bridge
+-- can't suppress them on its own.
+local _WAKE_GUARD_MS = 250
+local function screensaver_swallow()
+    local ok, screen = pcall(require, "ezui.screen")
+    if not ok or not screen.notify_input then return false end
+    if screen.notify_input() then
+        M._wake_until_ms = ez.system.millis() + _WAKE_GUARD_MS
+        return true
+    end
+    return false
+end
+
+M._wake_until_ms = 0
+
+-- Did a recent touch event just wake the device from the
+-- screensaver? Per-screen `touch/*` subscribers should check this
+-- and bail before treating the event as a real interaction.
+function M.is_wake_event()
+    return ez.system.millis() < M._wake_until_ms
+end
+
 local function on_down(_topic, data)
     if type(data) ~= "table" or not data.x or not data.y then return end
+
+    if screensaver_swallow() then
+        -- Drop any in-flight gesture so the matching touch/up
+        -- doesn't fire an activation when the screen wakes.
+        _pending = nil
+        _mouse_pending = nil
+        return
+    end
 
     if M.mouse_mode then
         -- Capture the start of the drag and the cursor position
@@ -237,6 +275,16 @@ local function on_down(_topic, data)
 end
 
 local function on_move(_topic, data)
+    -- Keep the idle timer warm during long drags (paint, slider scrub,
+    -- map pan) so the screensaver doesn't pop while the user is
+    -- actively interacting. Also catches the rare case where on_down
+    -- was missed but on_move arrives with the screensaver still up.
+    if screensaver_swallow() then
+        _pending = nil
+        _mouse_pending = nil
+        return
+    end
+
     if M.mouse_mode then
         if not _mouse_pending or type(data) ~= "table" then return end
         local dx = data.x - _mouse_pending.start_x
@@ -311,6 +359,12 @@ local function on_move(_topic, data)
 end
 
 local function on_up(_topic, data)
+    if screensaver_swallow() then
+        _pending = nil
+        _mouse_pending = nil
+        return
+    end
+
     if M.mouse_mode then
         local p = _mouse_pending
         _mouse_pending = nil
