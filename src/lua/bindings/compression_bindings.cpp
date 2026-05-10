@@ -27,7 +27,7 @@
 #define TINFL_FLAG_COMPUTE_ADLER32 8
 #endif
 
-// ez.compression.inflate(data, out_size [, raw]) -> string | nil, error
+// @lua ez.compression.inflate(data, out_size [, raw]) -> string | nil, error
 // @brief Decompress zlib- or raw-deflate-encoded bytes.
 // @description
 //   Out-size must be the exact uncompressed length (no growth allowed). For

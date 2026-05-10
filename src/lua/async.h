@@ -76,10 +76,10 @@ public:
     // 32-bit aligned writes are atomic on Xtensa, so no lock is needed
     // for a snapshot read.
     struct Stats {
-        uint32_t queued;     // total Send'd to _requestQueue
-        uint32_t completed;  // worker finished, result delivered
-        uint32_t failed;     // worker finished with success=false
-        uint32_t in_flight;  // queued - completed - failed (live count)
+        uint32_t queued;      // total dequeued by worker (increments on xQueueReceive, not xQueueSend)
+        uint32_t completed;   // worker finished, result delivered
+        uint32_t failed;      // worker finished with success=false
+        uint32_t in_flight;   // queued - completed - failed (items being processed; excludes items waiting in queue -- check queue_depth too)
         uint32_t queue_depth; // current uxQueueMessagesWaiting
     };
     Stats getStats() const;

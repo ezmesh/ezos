@@ -10,6 +10,14 @@
 // scaffolding, and grouping it under ez.debug makes the boundary
 // obvious to anyone reading app Lua.
 
+// @module ez.debug
+// @brief Test-only introspection helpers for the on-device pytest suite.
+// @description
+//   Exposes AsyncIO queue stats (asyncio_stats), SD remount (sd_remount),
+//   heap snapshots (heap), and last-panic details (last_panic). Intended
+//   for use by tools/remote/tests only -- not part of the public Lua API.
+// @end
+
 #include "debug_bindings.h"
 #include "../lua_bindings.h"
 #include "../async.h"
