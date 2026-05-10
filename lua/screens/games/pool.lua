@@ -159,7 +159,7 @@ local function encode_state(sim)
 end
 
 local function decode_state(data)
-    if not data or #data < 6 or data:byte(1) ~= 0x02 then return nil end
+    if not data or #data < 7 or data:byte(1) ~= 0x02 then return nil end
     local turn = data:byte(2)
     local cue_x = read_i16(data, 3)
     local cue_y = read_i16(data, 5)
@@ -882,7 +882,7 @@ local function start_local_or_host(self, mode)
                     self._client_input.power = inp.power
                     -- Record the most recent shoot edge; we consume it
                     -- below when balls are stopped and it's P2's turn.
-                    if inp.shoot then
+                    if inp.shoot and sim.turn == 2 then
                         self._client_input.shoot = true
                     end
                     if not self._client_addr then
@@ -1100,6 +1100,11 @@ local function shutdown_local(self)
 end
 
 function Pool:on_exit()
+    if self._view and self._view._charge_timer then
+        ez.system.cancel_timer(self._view._charge_timer)
+        self._view._charge_timer = nil
+        self._view.charging = false
+    end
     if self._state.mode == MODE_1P   then shutdown_local(self)
     elseif self._state.mode == MODE_HOST then shutdown_host(self)
     elseif self._state.mode == MODE_JOIN then shutdown_join(self)
