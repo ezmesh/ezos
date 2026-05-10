@@ -1,0 +1,270 @@
+name: Test Branch Artifacts
+
+on:
+  push:
+    branches:
+      - test
+    # Don't retrigger when our own release commit pushes generated
+    # changelog/version-stamp files back to the branch. Belt + suspenders
+    # with [skip ci] in the release commit message.
+    paths-ignore:
+      - 'changelog/versions.json'
+      - 'changelog/archive.json'
+      - 'lua/docs/changelog.json'
+      - 'CHANGELOG.md'
+      - 'platformio.ini'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Use the deploy key for the checkout so that `git push` later in
+      # the changelog step also goes over SSH using the same key. Branch
+      # rulesets exempt deploy-key pushes, which is the only way the
+      # auto-release commit can land on a protected branch on a free
+      # org plan (no GitHub App / bypass actor available in the picker).
+      - name: Set up deploy key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.RELEASE_PUSH_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.RELEASE_PUSH_KEY }}
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install PlatformIO, esptool, and PyNaCl
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio esptool pynacl
+
+      - name: Fetch PlatformIO dependencies
+        run: pio pkg install -e t-deck-plus
+
+      - name: Configure git for release commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate changelog, sync version, and push back
+        id: changelog
+        run: |
+          npm ci
+          # Push the release commit + tag back to the branch so
+          # versions.json[0].commit advances and the next run computes
+          # the next version against the freshly-released anchor (not
+          # against the original f2370c9 hand-edit). Without this the
+          # version label drifts non-monotonically and the
+          # version-bump-required PR gate has no real anchor.
+          #
+          # [skip ci] in the commit message keeps the resulting push
+          # from re-triggering this workflow on top of the paths-ignore
+          # filter above (defense in depth).
+          #
+          # No retry on push race: if origin advances during the run,
+          # xtr-changelog --push fails non-FF and the workflow errors
+          # out. The next push (manual or otherwise) will produce a
+          # fresh release. xtr-changelog's --push isn't atomic, so a
+          # rejected branch push may still leave a tag on origin; if
+          # that happens, delete the orphan tag manually
+          # (`git push origin :refs/tags/vX.Y.Z`). Tracked upstream as
+          # https://github.com/xtr-dev/changelog/issues/1.
+          npx xtr-changelog release \
+            --execute --commit --tag --push \
+            --message '[skip ci] chore(release): {version}'
+
+          cp changelog/versions.json lua/docs/changelog.json
+          VERSION=$(node -e "const v=require('./changelog/versions.json'); console.log(v.versions[0].version)")
+          sed -i "s/^custom_version *= *.*/custom_version = ${VERSION}/" platformio.ini
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build 32-bit luac for bytecode embedding
+        run: |
+          mkdir -p tools/bin
+          LUA_SRC=".pio/libdeps/t-deck-plus/Esp32Lua/src/lua"
+          if [ ! -d "$LUA_SRC" ]; then
+            echo "Lua source not found at $LUA_SRC" >&2
+            ls .pio/libdeps/t-deck-plus || true
+            exit 1
+          fi
+          (cd "$LUA_SRC" && cc -O2 -DLUA_32BITS=1 -o "$GITHUB_WORKSPACE/tools/bin/luac32" \
+              luac.c $(ls l*.c | grep -vE '^(lua|luac)\.c$') -lm)
+          tools/bin/luac32 -v
+
+      - name: Stamp build timestamp
+        id: build_stamp
+        run: echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build firmware
+        env:
+          EZOS_BUILD_SHA: ${{ github.sha }}
+          EZOS_BUILD_AT:  ${{ steps.build_stamp.outputs.built_at }}
+        run: pio run -e t-deck-plus
+
+      - name: Stage release artifacts
+        run: |
+          mkdir -p artifacts
+          cp changelog/versions.json artifacts/versions.json
+          cp .pio/build/t-deck-plus/firmware.bin    artifacts/firmware.bin
+          cp .pio/build/t-deck-plus/bootloader.bin  artifacts/bootloader.bin
+          cp .pio/build/t-deck-plus/partitions.bin  artifacts/partitions.bin
+          esptool.py --chip esp32s3 merge_bin \
+            -o artifacts/firmware-full.bin \
+            --flash_mode dio \
+            --flash_freq 80m \
+            --flash_size 16MB \
+            0x0000  artifacts/bootloader.bin \
+            0x8000  artifacts/partitions.bin \
+            0x10000 artifacts/firmware.bin
+
+      - name: Build signed manifest
+        env:
+          OTA_SIGNING_PRIVKEY: ${{ secrets.OTA_SIGNING_PRIVKEY }}
+        run: |
+          set -euo pipefail
+          FIRMWARE_BIN=artifacts/firmware.bin
+          FULL_BIN=artifacts/firmware-full.bin
+          SIZE=$(stat -c%s "$FIRMWARE_BIN")
+          SHA256=$(sha256sum "$FIRMWARE_BIN" | awk '{print $1}')
+          FULL_SIZE=$(stat -c%s "$FULL_BIN")
+          FULL_SHA256=$(sha256sum "$FULL_BIN" | awk '{print $1}')
+          VERSION='${{ steps.changelog.outputs.version }}'
+          BUILT_AT='${{ steps.build_stamp.outputs.built_at }}'
+          BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-test/firmware.bin"
+          FULL_BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-test/firmware-full.bin"
+
+          python -c "
+          import json
+          m = {
+              'tag': 'rolling-test',
+              'sha': '${{ github.sha }}',
+              'short_sha': '${{ github.sha }}'[:7],
+              'version': '$VERSION',
+              'built_at': '$BUILT_AT',
+              'size': $SIZE,
+              'sha256': '$SHA256',
+              'bin_url': '$BIN_URL',
+              'full_size': $FULL_SIZE,
+              'full_sha256': '$FULL_SHA256',
+              'full_bin_url': '$FULL_BIN_URL',
+          }
+          with open('artifacts/manifest.json', 'w') as f:
+              json.dump(m, f, sort_keys=True, separators=(',', ':'))
+          "
+
+          if [ -n "${OTA_SIGNING_PRIVKEY:-}" ]; then
+            python tools/ota/sign_manifest.py artifacts/manifest.json
+          else
+            echo "::warning::OTA_SIGNING_PRIVKEY secret not set; skipping signature. Devices will refuse this manifest."
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-test-${{ github.sha }}
+          path: artifacts/*
+          retention-days: 90
+
+      - name: Publish rolling-test release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG=rolling-test
+          NOTES_FILE=$(mktemp)
+          SHORT_SHA="${GITHUB_SHA::7}"
+          cat >"$NOTES_FILE" <<EOF
+          Auto-built from test on $(date -u +%Y-%m-%dT%H:%M:%SZ).
+
+          Commit: ${GITHUB_SHA}
+          Short SHA: ${SHORT_SHA}
+
+          - firmware.bin -- application image (use this for OTA)
+          - firmware-full.bin -- bootloader + partitions + app for fresh flashing
+          - manifest.json + manifest.sig -- consumed by the on-device firmware-update screen
+          EOF
+
+          # Move the tag to the current commit (force-update both ref + tag).
+          git tag -f "$TAG" "$GITHUB_SHA"
+          git push -f origin "refs/tags/${TAG}"
+
+          # Wipe any existing release at this tag, then recreate it with
+          # the freshly built assets. Easier than diffing assets.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag=false
+          fi
+
+          ASSETS=(artifacts/firmware.bin artifacts/firmware-full.bin artifacts/manifest.json artifacts/versions.json)
+          if [ -f artifacts/manifest.json.sig ]; then
+            ASSETS+=(artifacts/manifest.json.sig)
+          fi
+
+          gh release create "$TAG" "${ASSETS[@]}" \
+            --title "Rolling test (${SHORT_SHA})" \
+            --notes-file "$NOTES_FILE" \
+            --prerelease
+
+  prune:
+    needs: build
+    runs-on: ubuntu-latest
+    # actions: write lives only on this job (the one that calls
+    # deleteArtifact) so a supply-chain compromise during the build
+    # job's npm/pip installs can't silently delete other workflow
+    # artifacts. contents: write is inherited from the workflow
+    # level but isn't used here.
+    permissions:
+      actions: write
+    steps:
+      - name: Keep only the 3 most recent test builds
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const KEEP = 3;
+            const PREFIX = 'firmware-test-';
+
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 }
+            );
+
+            const matching = artifacts
+              .filter(a => a.name.startsWith(PREFIX) && !a.expired)
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            const toDelete = matching.slice(KEEP);
+            core.info(`${matching.length} artifacts, deleting ${toDelete.length}`);
+
+            for (const artifact of toDelete) {
+              core.info(`Deleting ${artifact.name} (id=${artifact.id}, created=${artifact.created_at})`);
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+              });
+            }

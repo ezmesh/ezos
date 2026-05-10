@@ -276,6 +276,12 @@ local function boot_sequence()
 
     ez.log("[Boot] Services started")
 
+    -- Run version migrations before applying settings. Migrations may
+    -- rename or transform prefs, so they must run before anything reads
+    -- the values they touch.
+    local migrations = require("services.migrations")
+    migrations.run()
+
     -- Apply saved display settings
     local brightness = ez.storage.get_pref("screen_bright", 200)
     ez.display.set_brightness(brightness)

@@ -2,6 +2,7 @@
 #include "embedded_scripts.h"
 #include "../config.h"
 #include "../util/log.h"
+#include "../hardware/sd_manager.h"
 #include <Arduino.h>
 #include <SD.h>
 #include <LittleFS.h>
@@ -373,6 +374,11 @@ void AsyncIO::workerTask(void* param) {
 
     while (true) {
         if (xQueueReceive(self->_requestQueue, &req, portMAX_DELAY) == pdTRUE) {
+            self->_statsQueued++;  // count requests that actually entered
+                                   // the worker. Skipping the per-Lua-call
+                                   // xQueueSend sites avoids missing the
+                                   // ones spread across storage_bindings.
+
             Result result;
             result.type = req.type;
             result.coroRef = req.coroRef;
@@ -385,9 +391,19 @@ void AsyncIO::workerTask(void* param) {
             const char* adjustedPath;
             fs::FS* fs = getFS(req.path, &adjustedPath);
 
+            // SD ops on this Core 0 worker must serialise against the
+            // Lua bindings on Core 1 -- otherwise a Core 1 remount can
+            // tear FATFS state out from under our File handle here.
+            // Non-FS ops (AES, HMAC, X25519, HTTP_FETCH) skip the lock
+            // entirely; they don't touch SD. The conditional struct
+            // construction with bool is awkward in C++ so we use a
+            // pointer-or-null and an explicit destructor scope.
+            const bool needSdLock = (fs == &SD);
+            if (needSdLock) SDManager::lock();
+
             switch (req.type) {
                 case OpType::READ: {
-                    File f = fs->open(adjustedPath, FILE_READ);
+                    File f = SDManager::openWithRetry(fs, adjustedPath, FILE_READ);
                     if (f) {
                         size_t size = f.size();
                         if (size > 0 && size <= MAX_FILE_SIZE) {
@@ -411,7 +427,7 @@ void AsyncIO::workerTask(void* param) {
                 }
 
                 case OpType::READ_BYTES: {
-                    File f = fs->open(adjustedPath, FILE_READ);
+                    File f = SDManager::openWithRetry(fs, adjustedPath, FILE_READ);
                     if (f) {
                         size_t fileSize = f.size();
                         if (req.offset < fileSize && req.length > 0) {
@@ -441,7 +457,7 @@ void AsyncIO::workerTask(void* param) {
 
                 case OpType::WRITE: {
                     if (req.data && req.dataLen > 0) {
-                        File f = fs->open(adjustedPath, FILE_WRITE);
+                        File f = SDManager::openWithRetry(fs, adjustedPath, FILE_WRITE);
                         if (f) {
                             size_t written = f.write(req.data, req.dataLen);
                             result.success = (written == req.dataLen);
@@ -456,10 +472,10 @@ void AsyncIO::workerTask(void* param) {
                 case OpType::WRITE_BYTES: {
                     if (req.data && req.dataLen > 0) {
                         // Open in read+write mode to preserve existing content
-                        File f = fs->open(adjustedPath, "r+");
+                        File f = SDManager::openWithRetry(fs, adjustedPath, "r+");
                         if (!f) {
                             // File doesn't exist, create it
-                            f = fs->open(adjustedPath, FILE_WRITE);
+                            f = SDManager::openWithRetry(fs, adjustedPath, FILE_WRITE);
                         }
                         if (f) {
                             f.seek(req.offset);
@@ -475,7 +491,7 @@ void AsyncIO::workerTask(void* param) {
 
                 case OpType::APPEND: {
                     if (req.data && req.dataLen > 0) {
-                        File f = fs->open(adjustedPath, FILE_APPEND);
+                        File f = SDManager::openWithRetry(fs, adjustedPath, FILE_APPEND);
                         if (f) {
                             size_t written = f.write(req.data, req.dataLen);
                             result.success = (written == req.dataLen);
@@ -493,7 +509,7 @@ void AsyncIO::workerTask(void* param) {
                 }
 
                 case OpType::JSON_READ: {
-                    File f = fs->open(adjustedPath, FILE_READ);
+                    File f = SDManager::openWithRetry(fs, adjustedPath, FILE_READ);
                     if (f) {
                         size_t size = f.size();
                         if (size > 0 && size <= MAX_JSON_DOC) {
@@ -513,7 +529,7 @@ void AsyncIO::workerTask(void* param) {
 
                 case OpType::JSON_WRITE: {
                     if (req.data && req.dataLen > 0) {
-                        File f = fs->open(adjustedPath, FILE_WRITE);
+                        File f = SDManager::openWithRetry(fs, adjustedPath, FILE_WRITE);
                         if (f) {
                             // Data is already JSON string from Lua
                             size_t written = f.write(req.data, req.dataLen);
@@ -526,7 +542,7 @@ void AsyncIO::workerTask(void* param) {
                 }
 
                 case OpType::RLE_READ: {
-                    File f = fs->open(adjustedPath, FILE_READ);
+                    File f = SDManager::openWithRetry(fs, adjustedPath, FILE_READ);
                     if (f) {
                         size_t fileSize = f.size();
                         if (req.offset < fileSize && req.length > 0) {
@@ -556,7 +572,7 @@ void AsyncIO::workerTask(void* param) {
                 }
 
                 case OpType::RLE_READ_RGB565: {
-                    File f = fs->open(adjustedPath, FILE_READ);
+                    File f = SDManager::openWithRetry(fs, adjustedPath, FILE_READ);
                     if (f) {
                         size_t fileSize = f.size();
                         if (req.offset < fileSize && req.length > 0) {
@@ -673,9 +689,24 @@ void AsyncIO::workerTask(void* param) {
                 }
             }
 
+            if (needSdLock) SDManager::unlock();
+
+            if (result.success) self->_statsCompleted++;
+            else                self->_statsFailed++;
+
             xQueueSend(self->_resultQueue, &result, portMAX_DELAY);
         }
     }
+}
+
+AsyncIO::Stats AsyncIO::getStats() const {
+    Stats s = {};
+    s.queued      = _statsQueued;
+    s.completed   = _statsCompleted;
+    s.failed      = _statsFailed;
+    s.in_flight   = _statsQueued - _statsCompleted - _statsFailed;
+    s.queue_depth = _requestQueue ? uxQueueMessagesWaiting(_requestQueue) : 0;
+    return s;
 }
 
 void AsyncIO::update() {
@@ -831,8 +862,18 @@ int AsyncIO::l_async_read(lua_State* L) {
 
     // Legacy /scripts/ paths: try SD > FS > embedded
     if (strncmp(path, "/scripts/", 9) == 0) {
-        // 1. Check SD card first
-        if (SD.begin(SD_CS) && SD.exists(path)) {
+        // 1. Check SD card first. Lock around the probe so we don't
+        // race with a remount. The SD.exists check is dropped quickly
+        // -- if the path is on SD, the actual read happens either via
+        // the worker (which takes its own lock for the request) or in
+        // the sync fallback below (which re-acquires the lock for the
+        // duration of the file ops).
+        bool onSd = false;
+        if (SDManager::ensureMounted()) {
+            SDManager::ScopedLock lk;
+            onSd = SD.exists(path);
+        }
+        if (onSd) {
             if (lua_isyieldable(L)) {
                 char sdPath[MAX_PATH];
                 snprintf(sdPath, sizeof(sdPath), "/sd%s", path);
@@ -852,6 +893,7 @@ int AsyncIO::l_async_read(lua_State* L) {
                 return lua_yield(L, 0);
             } else {
                 // Synchronous fallback for calls outside a coroutine
+                SDManager::ScopedLock lk;
                 File file = SD.open(path, "r");
                 if (file) {
                     size_t fileSize = file.size();

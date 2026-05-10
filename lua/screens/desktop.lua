@@ -22,7 +22,7 @@ local ICON_GAP_X = 16
 -- Available wallpaper files (on LittleFS at /fs/wallpapers/NAME.jpg)
 local wallpaper_names = {
     "astronaut", "autumn-tree", "ocean-sunset",
-    "green-coastline", "underwater", "geometric",
+    "green-coastline", "underwater",
 }
 -- Wallpaper draw path:
 --   wallpaper_raw  — 320×240 RGB565 blob in LGFX byte-order, blitted via
@@ -284,10 +284,8 @@ node.register("desktop_icon", {
         local lw = theme.text_width(label)
 
         -- Render the icon as layers (bottom to top):
-        --   0. Pre-blurred white halo, drawn only when focused so the
-        --      plate appears to glow off the wallpaper.
-        --   1. Rounded-rect plate in the icon's accent colour, brightened
-        --      slightly on focus for a "lit up" effect.
+        --   0. Glowing accent border when focused (concentric round rects).
+        --   1. Rounded-rect plate in the icon's accent colour.
         --   2. White glyph PNG centred on the plate.
         --   3. Shared glass shim (gradient + highlight + border).
         local png = n.icon and n.icon.lg
@@ -301,9 +299,7 @@ node.register("desktop_icon", {
             local pw     = icons._plate_size or (icon_w - 2 * inset)
             local color  = n.icon.color or ez.display.rgb(80, 80, 90)
 
-            -- Compute the pulse phase once so the outer glow, the
-            -- plate colour, and the optional halo all breathe in
-            -- sync. Period ~1.4 s; phase goes -1..+1.
+            -- Pulsing phase for the focused icon. Period ~1.4 s.
             local phase = 0
             if focused then
                 local t = ez.system.millis() / 1000.0
@@ -312,29 +308,19 @@ node.register("desktop_icon", {
                 screen_mod.invalidate()
             end
 
-            -- Pre-blurred static halo — cheap to draw, adds depth.
-            if focused and icons._glow then
-                local pad = icons._glow_pad or 8
-                d.draw_png(ix - pad, iy - pad, icons._glow)
-            end
-
-            -- Plate: resting color only; the pulse rides on top as a
-            -- true alpha-blended white highlight (see below).
+            -- Plate
             d.fill_round_rect(ix + inset - 1, iy + inset - 1,
                               pw + 2, pw + 2, radius + 1, color)
 
-            -- Pulse overlay: a cached white round-rect sprite pushed on
-            -- top of the plate with variable alpha. Alpha tracks the
-            -- sine phase (0..1 on the bright half, clamped on the dim
-            -- half) so the icon breathes via real per-pixel opacity.
+            -- Pulse highlight: a cached white round-rect sprite pushed
+            -- on top of the plate with variable alpha so the focused
+            -- icon breathes.
             if focused then
-                local pulse_hi = math.max(phase, 0)
-                if pulse_hi > 0.02 then
-                    local hi = ensure_pulse_sprite(pw, radius)
-                    if hi then
-                        local alpha = math.floor(70 * pulse_hi)
-                        hi:push(ix + inset - 2, iy + inset - 2, alpha)
-                    end
+                local pulse_hi = (phase + 1) / 2  -- remap -1..+1 to 0..1
+                local hi = ensure_pulse_sprite(pw, radius)
+                if hi then
+                    local alpha = math.floor(40 + 80 * pulse_hi)
+                    hi:push(ix + inset - 2, iy + inset - 2, alpha)
                 end
             end
 
@@ -345,13 +331,19 @@ node.register("desktop_icon", {
             end
         end
 
-        -- Label: static colour with a 1px black shadow for legibility over
-        -- bright wallpapers. Selection is communicated by the glow + plate
-        -- brightening above, so the text stays the same in both states.
+        -- Label: bold when focused, regular otherwise. 1px black shadow
+        -- for legibility over bright wallpapers.
+        if focused then
+            theme.set_font("medium_aa", "bold")
+            lw = theme.text_width(label)
+        end
         local lx = cx - math.floor(lw / 2)
         local ly = y + ICON_SIZE + 3
         d.draw_text(lx + 1, ly + 1, label, ez.display.rgb(0, 0, 0))
         d.draw_text(lx, ly, label, ez.display.rgb(230, 230, 235))
+        if focused then
+            theme.set_font("medium_aa")
+        end
     end,
 
     on_activate = function(n, key)
@@ -433,23 +425,37 @@ local rotated_this_boot = false
 -- Cycle forward through the built-in name list. If the active
 -- wallpaper is a custom path (not in the list) we fall back to the
 -- first named entry.
-local function advance_wallpaper_name()
-    local current = ez.storage.get_pref("wallpaper", wallpaper_names[1])
-    local idx = 0
-    for i, name in ipairs(wallpaper_names) do
-        if name == current then idx = i break end
+-- Scan the wallpaper directory for all available images (built-in +
+-- user-added). Falls back to the hardcoded list if the dir is missing.
+local function list_wallpapers()
+    local files = ez.storage.list_dir("/fs/wallpapers") or {}
+    local names = {}
+    for _, f in ipairs(files) do
+        local fname = type(f) == "table" and f.name or f
+        if type(fname) == "string" then
+            local stem = fname:match("^(.+)%.jpe?g$") or fname:match("^(.+)%.png$")
+            if stem then names[#names + 1] = stem end
+        end
     end
-    idx = (idx % #wallpaper_names) + 1
-    local next_name = wallpaper_names[idx]
-    ez.storage.set_pref("wallpaper", next_name)
-    ez.storage.set_pref("wallpaper_path", "")  -- drop custom override
-    wallpaper_index = idx
-    return next_name
+    if #names == 0 then return wallpaper_names end
+    table.sort(names)
+    return names
+end
+
+local function advance_wallpaper_name()
+    local all = list_wallpapers()
+    if #all == 0 then return wallpaper_names[1] end
+    local pick = all[math.random(1, #all)]
+    ez.storage.set_pref("wallpaper", pick)
+    ez.storage.set_pref("wallpaper_path", "")
+    for i, name in ipairs(wallpaper_names) do
+        if name == pick then wallpaper_index = i break end
+    end
+    return pick
 end
 
 function Desktop:on_enter()
-    -- Time, battery, and node id are now polled by the global status bar, so
-    -- this screen no longer needs its own periodic state update.
+    math.randomseed(ez.system.millis())
     refresh_wallpaper_prefs()
 
     -- Bootloop guard: if the last wallpaper load didn't clear its pending
@@ -472,7 +478,7 @@ function Desktop:on_enter()
     --   "shown" — advance every time the desktop becomes active
     --             (including returning from a sub-screen).
     --   "off"   — keep the current wallpaper.
-    local rotate_mode = ez.storage.get_pref("wp_rotate", "off")
+    local rotate_mode = ez.storage.get_pref("wp_rotate", "boot")
     local should_rotate = false
     if rotate_mode == "shown" then
         should_rotate = true
@@ -525,10 +531,7 @@ function Desktop:handle_key(key)
     end
     if key.character == "w" then
         if char_key_debounced("w") then return "handled" end
-        wallpaper_index = wallpaper_index % #wallpaper_names + 1
-        local name = wallpaper_names[wallpaper_index]
-        ez.storage.set_pref("wallpaper", name)
-        ez.storage.set_pref("wallpaper_path", "")  -- clear custom path
+        local name = advance_wallpaper_name()
         load_wallpaper(name)
         return "handled"
     end

@@ -397,6 +397,26 @@ local RECV_DEDUP_WINDOW_S = 60
 -- messages only merge when they arrive within the retransmit window,
 -- so the mesh-level ACK retry (every ~10-15 s) is hidden but a true
 -- second message from the peer isn't.
+-- Track running signal-quality ranges across collapsed duplicate
+-- receptions (different repeaters relaying the same DM). Mirrors the
+-- helper in services/channels.lua. Only inbound messages dedupe, but
+-- we seed the range on every new message so the context menu can show
+-- a one-line value for count == 1 without a special case.
+local function fold_signal(target, src)
+    if src.rssi then
+        target.rssi_min = math.min(target.rssi_min or src.rssi, src.rssi)
+        target.rssi_max = math.max(target.rssi_max or src.rssi, src.rssi)
+    end
+    if src.snr then
+        target.snr_min = math.min(target.snr_min or src.snr, src.snr)
+        target.snr_max = math.max(target.snr_max or src.snr, src.snr)
+    end
+    if src.hop_count then
+        target.hops_min = math.min(target.hops_min or src.hop_count, src.hop_count)
+        target.hops_max = math.max(target.hops_max or src.hop_count, src.hop_count)
+    end
+end
+
 store_message = function(pub_key_hex, msg)
     if not conversations[pub_key_hex] then
         conversations[pub_key_hex] = {}
@@ -410,11 +430,13 @@ store_message = function(pub_key_hex, msg)
                 and (msg.timestamp or 0) - (last.timestamp or 0) <= RECV_DEDUP_WINDOW_S then
             last.count = (last.count or 1) + 1
             last.timestamp = msg.timestamp
+            fold_signal(last, msg)
             return last
         end
     end
 
     msg.count = 1
+    fold_signal(msg, msg)
     h[#h + 1] = msg
     while #h > MAX_HISTORY do
         table.remove(h, 1)
@@ -758,6 +780,8 @@ function dm.init()
                                     timestamp = msg_timestamp,
                                     rssi = pkt.rssi,
                                     snr = pkt.snr,
+                                    -- 1-byte path hashes -> #path == hops.
+                                    hop_count = pkt.path and #pkt.path or 0,
                                     is_self = false,
                                 }
 

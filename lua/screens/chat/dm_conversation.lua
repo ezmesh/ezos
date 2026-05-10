@@ -7,6 +7,7 @@ local dm_svc = require("services.direct_messages")
 local contacts_svc = require("services.contacts")
 local channels_svc = require("services.channels")
 local sharing_svc = require("services.sharing")
+local time_share = require("screens.chat.time_share")
 require("screens.chat.chat_common")  -- registers chat_bubble node type
 
 local screen_mod = require("ezui.screen")
@@ -43,8 +44,16 @@ local function build_share_actions(msg, sender_pub_key_hex)
                 title = "Add " .. label .. " to contacts",
                 subtitle = share.pub_key_hex:sub(1, 12) .. "...",
                 on_press = function()
-                    contacts_svc.add(share.pub_key_hex, share.name)
-                    screen_mod.pop()
+                    local dialog = require("ezui.dialog")
+                    dialog.confirm({
+                        title = "Add contact?",
+                        message = "Add " .. label .. " to your contacts?",
+                        ok_label = "Add",
+                        cancel_label = "Cancel",
+                    }, function()
+                        contacts_svc.add(share.pub_key_hex, share.name)
+                        screen_mod.pop()
+                    end)
                 end,
             })
         end
@@ -89,8 +98,16 @@ local function build_share_actions(msg, sender_pub_key_hex)
             title = "Join channel '" .. invite.name .. "'",
             subtitle = "Invited by " .. (msg.sender_name or "contact"),
             on_press = function()
-                channels_svc.join(invite.name, invite.password)
-                screen_mod.pop()
+                local dialog = require("ezui.dialog")
+                dialog.confirm({
+                    title = "Join channel?",
+                    message = "Join '" .. invite.name .. "'?",
+                    ok_label = "Join",
+                    cancel_label = "Cancel",
+                }, function()
+                    channels_svc.join(invite.name, invite.password)
+                    screen_mod.pop()
+                end)
             end,
         })
         return out
@@ -124,6 +141,10 @@ local function show_context_menu(self, key, msg, msg_index)
             actions[#actions + 1] = item
         end
 
+        for _, item in ipairs(time_share.build_actions(msg)) do
+            actions[#actions + 1] = item
+        end
+
         if msg.is_self and (msg.status == "failed" or msg.status == "unconfirmed") then
             actions[#actions + 1] = ui.list_item({
                 title = "Retry Send",
@@ -144,22 +165,61 @@ local function show_context_menu(self, key, msg, msg_index)
 
         if not msg.is_self then
             local sender_name = msg.sender_name or "?"
-            local rssi_str = msg.rssi and string.format("%d dBm", math.floor(msg.rssi)) or "unknown"
-            actions[#actions + 1] = ui.list_item({
-                title = "From: " .. sender_name,
-                subtitle = "Signal: " .. rssi_str,
-                disabled = true,
-            })
+            local count = msg.count or 1
+            -- See channel_chat.lua for the rationale on the count > 1
+            -- branch -- mirrored here so DM bubbles get the same
+            -- repeat-count + RSSI/hops/SNR ranges when the same DM was
+            -- relayed by multiple repeaters.
+            if count > 1 then
+                actions[#actions + 1] = ui.list_item({
+                    title = "From: " .. sender_name
+                        .. " (" .. count .. " repeats)",
+                    disabled = true,
+                })
+                if msg.rssi_min and msg.rssi_max then
+                    actions[#actions + 1] = ui.list_item({
+                        title = string.format("RSSI: %d..%d dBm",
+                            math.floor(msg.rssi_min),
+                            math.floor(msg.rssi_max)),
+                        disabled = true,
+                    })
+                end
+                if msg.hops_min and msg.hops_max then
+                    actions[#actions + 1] = ui.list_item({
+                        title = string.format("Hops: %d..%d",
+                            msg.hops_min, msg.hops_max),
+                        disabled = true,
+                    })
+                end
+                if msg.snr_min and msg.snr_max then
+                    actions[#actions + 1] = ui.list_item({
+                        title = string.format("SNR:  %.1f..%.1f dB",
+                            msg.snr_min, msg.snr_max),
+                        disabled = true,
+                    })
+                end
+            else
+                local rssi_str = msg.rssi and
+                    string.format("%d dBm", math.floor(msg.rssi))
+                    or "unknown"
+                actions[#actions + 1] = ui.list_item({
+                    title = "From: " .. sender_name,
+                    subtitle = "Signal: " .. rssi_str,
+                    disabled = true,
+                })
+            end
         end
 
-        actions[#actions + 1] = ui.list_item({
-            title = "Repeat Send",
-            subtitle = "Send this text again",
-            on_press = function()
-                dm_svc.send(key, msg.text)
-                screen_mod.pop()
-            end,
-        })
+        if msg.is_self then
+            actions[#actions + 1] = ui.list_item({
+                title = "Repeat Send",
+                subtitle = "Send this text again",
+                on_press = function()
+                    dm_svc.send(key, msg.text)
+                    screen_mod.pop()
+                end,
+            })
+        end
 
         actions[#actions + 1] = ui.list_item({
             title = "Delete Message",
@@ -223,6 +283,10 @@ end
 -- string so a successful decode survives across redraws and even
 -- across redemption-state changes (the ezme.sh URL never mutates).
 function DMConversation:_share_for_message(msg, sender_pub_key_hex)
+    -- Time shares don't need sender key decryption
+    local ts_card = time_share.card_for_message(msg)
+    if ts_card then return ts_card end
+
     local share = sharing_svc.parse(msg.text or "")
     if not share then return nil end
 
@@ -324,6 +388,7 @@ function DMConversation:build(state)
         -- the chat partner's for inbound. (build_share_actions in the
         -- context menu uses the same dispatch.)
         local self_pub = ez.mesh.get_public_key_hex()
+        content_items[#content_items + 1] = { type = "spacer", h = 2, grow = 0 }
         for i, msg in ipairs(msgs) do
             local share_sender = msg.is_self and self_pub or key
             content_items[#content_items + 1] = {
@@ -462,6 +527,17 @@ function DMConversation:menu()
                     })
                 end
             end)
+        end,
+    }
+
+    items[#items + 1] = {
+        title = "Share time",
+        subtitle = "Send your current clock to sync",
+        on_press = function()
+            local url, err = sharing_svc.encode_time()
+            if url then
+                dm_svc.send(key, url)
+            end
         end,
     }
 

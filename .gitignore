@@ -7,6 +7,10 @@ src/lua/embedded_lua_scripts.h
 src/lua/embedded_docs.cpp
 src/lua/embedded_docs.h
 
+# Auto-generated embedded binary assets (boot logo, etc.)
+src/generated/embedded_assets.cpp
+src/generated/embedded_assets.h
+
 # IDE settings
 .idea/
 .vscode/
@@ -29,6 +33,7 @@ tools/maps/*.checkpoint
 # Screenshots
 *.png
 !/docs/screenshots/*.png
+!/assets/**/*.png
 node_modules/
 
 # Generated docs

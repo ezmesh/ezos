@@ -19,6 +19,7 @@ screen.frame_interval = 33  -- ~30 FPS
 -- Populated into a reusable node each frame before drawing.
 screen.status = {
     battery     = nil,
+    charging    = false,
     time        = nil,
     radio_ok    = nil,
     signal_bars = 0,
@@ -30,6 +31,13 @@ screen.status = {
 
 screen.status_interval = 5000  -- poll hardware every 5s
 screen.status_last = -10000    -- negative so the first update() runs the poll immediately
+
+-- Screensaver: overlay drawn on top of the current screen after idle
+-- timeout to exercise subpixels. Dismissed on any keypress. Seeded
+-- to the boot timestamp (rather than 0) so the activation gate fires
+-- even if the device sits idle from boot without a keypress -- which
+-- is exactly the scenario the screensaver is designed for.
+screen.last_input_time = ez.system.millis()  -- millis() of last keypress (or boot)
 
 -- Node reused every frame to render the global status bar. Keeping one
 -- instance avoids a garbage-generating allocation per frame.
@@ -193,6 +201,9 @@ function screen.update_status()
 
     local bat = ez.system.get_battery_percent and ez.system.get_battery_percent() or nil
     if bat ~= s.battery then s.battery = bat; changed = true end
+
+    local chg = ez.system.is_charging and ez.system.is_charging() or false
+    if chg ~= s.charging then s.charging = chg; changed = true end
 
     local tstr = nil
     if ez.system.get_time then
@@ -430,6 +441,17 @@ function screen.handle_input()
     local key = ez.keyboard.read()
     if not key or not key.valid then return false end
 
+    -- Reset idle timer on any input
+    screen.last_input_time = ez.system.millis()
+
+    -- Dismiss screensaver overlay on any key (consume the key)
+    local ss_ok, ss = pcall(require, "screens.tools.screensaver")
+    if ss_ok and ss.is_active() then
+        ss.stop()
+        screen.dirty = true
+        return true  -- consume the key that woke the screen
+    end
+
     -- Toast key handling: Alt+ENTER on a toast with an attached
     -- action invokes it (and consumes the key so the underlying
     -- screen doesn't also receive an Alt+ENTER chord). Bare ENTER --
@@ -535,6 +557,13 @@ function screen.render()
         screen._draw_status_bar(d, inst.title, translucent)
     end
 
+    -- Screensaver overlay (drawn on top of the screen content)
+    local ss_ok, ss = pcall(require, "screens.tools.screensaver")
+    if ss_ok and ss.is_active() then
+        ss.draw(d)
+        screen.dirty = true  -- keep animating
+    end
+
     -- Toast on top of everything else so it's visible from any screen.
     screen._draw_toast(d)
 
@@ -559,6 +588,21 @@ function screen.update()
 
     -- Drain all pending input
     while screen.handle_input() do end
+
+    -- Screensaver: activate overlay after idle timeout.
+    -- Dismissed on any keypress in handle_input above.
+    do
+        local timeout = tonumber(ez.storage.get_pref("ss_timeout", 0)) or 0
+        if timeout > 0 and screen.last_input_time > 0 then
+            local ss_ok2, ss2 = pcall(require, "screens.tools.screensaver")
+            if ss_ok2 and not ss2.is_active() then
+                local idle = ez.system.millis() - screen.last_input_time
+                if idle >= timeout * 1000 then
+                    ss2.start()
+                end
+            end
+        end
+    end
 
     -- Refresh global status bar state (throttled internally)
     screen.update_status()

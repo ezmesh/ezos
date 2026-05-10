@@ -9,6 +9,14 @@ under `ez.storage.set_pref`, so changes survive reboots.
 - Backlights: display brightness and keyboard backlight level.
 - Accent color: highlight color used for selection, focus, and
   buttons. Independent from the theme.
+- Wallpaper: pick from the bundled set, or set any JPEG via the
+  Files app's "Set as wallpaper" action. The "Rotate" dropdown
+  controls when the wallpaper changes: Off, On boot, or Every time
+  the desktop is shown.
+- Screensaver: pick a timeout (Off / 1 min / 2 min / 5 min /
+  10 min / 30 min). After that long without input the device draws
+  an animated pixel-exerciser overlay on top of the current screen,
+  dismissed by any keypress.
 
 ## Sound
 
@@ -50,11 +58,6 @@ do not poll the chip and the chip can sleep.
 
 Set the system clock. GPS supplies time when a fix is available.
 
-## Wallpaper
-
-Pick a wallpaper from `/fs/wallpapers/`. Use the Files app to set
-any JPEG as wallpaper.
-
 ## System
 
 Device-level operations.
@@ -65,15 +68,29 @@ Device-level operations.
 
 ## Firmware
 
-Pull the latest rolling-main build from GitHub and install it over
-the air.
+Pull the latest rolling build from GitHub and install it over the
+air.
+
+A channel dropdown at the top picks which release to track:
+
+- `main`: the production rolling release. Cut from `main` after
+  every merged PR. This is the default and what most users want.
+- `test`: the staging rolling release, cut from the `test` branch.
+  May be less stable -- it's where new features land for shake-out
+  before they get promoted to `main`. Useful if you want to try
+  upcoming changes.
+
+Both channels are signed by the same key, so a swapped manifest is
+detected by the signature check below. The device also refuses any
+manifest whose embedded `tag` does not match the channel you asked
+for, so a channel swap can't slip past even with a valid signature.
 
 The screen shows the SHA of the running build and the SHA of the
-build currently published as the rolling-main release. WiFi must
-be connected; the device fetches a small manifest plus its
-detached Ed25519 signature, verifies the signature against a
-public key baked into the firmware, then -- and only then -- uses
-the URL and SHA-256 from the manifest to install.
+build currently published on the chosen channel. WiFi must be
+connected; the device fetches a small manifest plus its detached
+Ed25519 signature, verifies the signature against a public key
+baked into the firmware, then -- and only then -- uses the URL and
+SHA-256 from the manifest to install.
 
 Trust is rooted in the signature, not in TLS. A swapped or
 corrupted asset is rejected on two grounds: the manifest signature
@@ -101,3 +118,12 @@ Devices flashed before the project's signing key was configured
 display "OTA signing not configured on this device" and refuse to
 install. The fix is to flash a firmware whose embedded public key
 matches the one CI signs releases with.
+
+## What's New
+
+A scrollable changelog of the firmware running on the device, plus
+(when an update is staged from the Firmware screen) the new entries
+from the rolling release waiting to be installed. The list is fed
+from `lua/docs/changelog.json`, which the release pipeline
+generates from commit messages. Each entry shows the version,
+date, scope, description, and short commit hash.

@@ -71,8 +71,6 @@ local CATEGORIES = {
         entries = {
             { title = "Notifications", subtitle = "Recent system events",
               icon = icons.bell, mod = "screens.tools.notifications" },
-            { title = "Claude", subtitle = "Chat with the dev host",
-              icon = icons.bot, mod = "screens.tools.claude" },
             { title = "Help", subtitle = "On-device manual + API",
               icon = icons.help, mod = "screens.tools.help" },
             { title = "Terminal", subtitle = "Shell: cd, ls, run",
@@ -96,12 +94,10 @@ local CATEGORIES = {
               icon = icons.blocks, mod = "screens.games.breakout" },
             { title = "Tetris", subtitle = "Top-5 high scores (local)",
               icon = icons.blocks, mod = "screens.games.tetris" },
-            { title = "Pong (2P WiFi)", subtitle = "Head-to-head over SoftAP + UDP",
-              icon = icons.circle_dot, mod = "screens.games.pong" },
-            { title = "Starshot", subtitle = "Space shooter, guns+items (2P)",
+            { title = "Starshot", subtitle = "Space shooter, guns + pickups",
               icon = icons.rocket, mod = "screens.games.shooter" },
-            { title = "Platformer", subtitle = "12 levels, 4 environments (2P WiFi)",
-              icon = icons.gamepad, mod = "screens.games.platformer" },
+            { title = "Snake", subtitle = "Classic snake on a 26x17 grid",
+              icon = icons.circle_dot, mod = "screens.games.snake" },
         },
     },
     {
@@ -125,6 +121,11 @@ local CATEGORIES = {
               icon = icons.circle_dot, mod = "screens.tools.touch_test" },
             { title = "Pixel Fix", subtitle = "Clear screen ghosting",
               icon = icons.monitor, mod = "screens.tools.pixel_fix" },
+            { title = "Screensaver", subtitle = "Animated pixel exerciser",
+              icon = icons.monitor, action = function()
+                  local ss = require("screens.tools.screensaver")
+                  ss.start()
+              end },
         },
     },
     {
@@ -134,16 +135,14 @@ local CATEGORIES = {
         -- Settings used to be a separate sub-page (screens/settings/
         -- settings.lua); we flattened those rows directly into this
         -- tab so users only need one tap to reach Display / WiFi /
-        -- etc. The dev-flavoured operations (Dev OTA, Claude Bot,
-        -- Rollback) sit on the Dev tab below; this tab is just the
-        -- end-user "settings" view plus Repeat-onboarding / About.
+        -- etc. The dev-flavoured operations (Dev OTA, Rollback) sit
+        -- on the Dev tab below; this tab is just the end-user
+        -- "settings" view plus Repeat-onboarding / About.
         entries = {
-            { title = "Display", subtitle = "Brightness, theme, accent",
+            { title = "Display", subtitle = "Brightness, theme, wallpaper, accent",
               icon = icons.palette, mod = "screens.settings.display_settings" },
             { title = "WiFi", subtitle = "Scan, connect, save credentials",
               icon = icons.wifi, mod = "screens.settings.wifi_settings" },
-            { title = "Wallpaper", subtitle = "Rotate, tile, auto-pan",
-              icon = icons.wallpaper, mod = "screens.settings.wallpaper_settings" },
             { title = "Keyboard", subtitle = "Repeat, trackball",
               icon = icons.keyboard, mod = "screens.settings.keyboard_settings" },
             { title = "GPS", subtitle = "Power, clock sync",
@@ -156,6 +155,8 @@ local CATEGORIES = {
               icon = icons.volume, mod = "screens.settings.sound_settings" },
             { title = "Firmware", subtitle = "Check rolling-main update + install OTA",
               icon = icons.cloud_upload, mod = "screens.settings.firmware_update" },
+            { title = "What's New", subtitle = "Changelog for this firmware",
+              icon = icons.info, mod = "screens.settings.whats_new" },
             { title = "Repeat onboarding", subtitle = "Walk through the first-run wizard again",
               icon = icons.rotate_cw, action = function()
                   require("screens.onboarding").start()
@@ -171,8 +172,6 @@ local CATEGORIES = {
         entries = {
             { title = "Dev OTA", subtitle = "Push firmware over WiFi from a host",
               icon = icons.cloud_upload, mod = "screens.settings.dev_ota" },
-            { title = "Claude Bot", subtitle = "Chat host URL + bearer token",
-              icon = icons.bot, mod = "screens.settings.claude_bot" },
             { title = "Rollback firmware", subtitle = "Revert to the previous OTA slot and reboot",
               icon = icons.rotate_ccw, action = function()
                   -- Pulled inline from the old system_settings.lua so

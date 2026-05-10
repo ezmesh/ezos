@@ -4,18 +4,39 @@ on:
   push:
     branches:
       - main
+    # Don't retrigger on our own release commits (which only touch the
+    # generated changelog / version-stamp files). [skip ci] in the
+    # commit message is the belt; this is the suspenders.
+    paths-ignore:
+      - 'changelog/versions.json'
+      - 'changelog/archive.json'
+      - 'lua/docs/changelog.json'
+      - 'CHANGELOG.md'
+      - 'platformio.ini'
   workflow_dispatch:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # Use the deploy key for the checkout so that `git push` later in
+      # the changelog step also goes over SSH using the same key. Branch
+      # rulesets exempt deploy-key pushes, which is the only way the
+      # auto-release commit can land on a protected branch on a free
+      # org plan (no GitHub App / bypass actor available in the picker).
+      - name: Set up deploy key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.RELEASE_PUSH_KEY }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.RELEASE_PUSH_KEY }}
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -32,6 +53,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pio-
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install PlatformIO, esptool, and PyNaCl
         run: |
           python -m pip install --upgrade pip
@@ -39,6 +65,50 @@ jobs:
 
       - name: Fetch PlatformIO dependencies
         run: pio pkg install -e t-deck-plus
+
+      - name: Configure git for release commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate changelog, sync version, and push back
+        id: changelog
+        run: |
+          npm ci
+          # --push pushes the release commit + tag back to main so
+          # versions.json[0].commit advances each run. Without this,
+          # subsequent runs all compute "next version" against a frozen
+          # anchor and the published version label drifts non-
+          # monotonically; the version-bump-required PR gate also has
+          # nothing real to anchor against.
+          #
+          # [skip ci] in the message keeps the resulting push from
+          # re-triggering this workflow (paths-ignore above is the
+          # primary loop-break; this is defense in depth).
+          #
+          # No retry on push race: if origin advances during the run,
+          # xtr-changelog --push fails non-FF and the workflow errors
+          # out. The next push (manual or otherwise) will produce a
+          # fresh release. xtr-changelog's --push isn't atomic, so a
+          # rejected branch push may still leave a tag on origin; if
+          # that happens, delete the orphan tag manually
+          # (`git push origin :refs/tags/vX.Y.Z`). Tracked upstream as
+          # https://github.com/xtr-dev/changelog/issues/1.
+          npx xtr-changelog release \
+            --execute --commit --tag --push \
+            --message '[skip ci] chore(release): {version}'
+
+          cp changelog/versions.json lua/docs/changelog.json
+          # Stamp the just-released version into platformio.ini so the
+          # built binary reports the same version string. Note: this
+          # edit is local to the runner -- it is not committed back to
+          # the branch (nor needs to be: the version is derivable from
+          # versions.json[0]). If you want platformio.ini's checked-in
+          # version to track too, amend the release commit before
+          # --push above. Today it lags by exactly one release.
+          VERSION=$(node -e "const v=require('./changelog/versions.json'); console.log(v.versions[0].version)")
+          sed -i "s/^custom_version *= *.*/custom_version = ${VERSION}/" platformio.ini
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Build 32-bit luac for bytecode embedding
         run: |
@@ -72,6 +142,7 @@ jobs:
       - name: Stage release artifacts
         run: |
           mkdir -p artifacts
+          cp changelog/versions.json artifacts/versions.json
           cp .pio/build/t-deck-plus/firmware.bin    artifacts/firmware.bin
           cp .pio/build/t-deck-plus/bootloader.bin  artifacts/bootloader.bin
           cp .pio/build/t-deck-plus/partitions.bin  artifacts/partitions.bin
@@ -90,11 +161,15 @@ jobs:
         run: |
           set -euo pipefail
           FIRMWARE_BIN=artifacts/firmware.bin
+          FULL_BIN=artifacts/firmware-full.bin
           SIZE=$(stat -c%s "$FIRMWARE_BIN")
           SHA256=$(sha256sum "$FIRMWARE_BIN" | awk '{print $1}')
-          VERSION=$(awk -F= '/^custom_version[[:space:]]*=/{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' platformio.ini)
+          FULL_SIZE=$(stat -c%s "$FULL_BIN")
+          FULL_SHA256=$(sha256sum "$FULL_BIN" | awk '{print $1}')
+          VERSION='${{ steps.changelog.outputs.version }}'
           BUILT_AT='${{ steps.build_stamp.outputs.built_at }}'
           BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-main/firmware.bin"
+          FULL_BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-main/firmware-full.bin"
 
           python -c "
           import json
@@ -107,6 +182,9 @@ jobs:
               'size': $SIZE,
               'sha256': '$SHA256',
               'bin_url': '$BIN_URL',
+              'full_size': $FULL_SIZE,
+              'full_sha256': '$FULL_SHA256',
+              'full_bin_url': '$FULL_BIN_URL',
           }
           with open('artifacts/manifest.json', 'w') as f:
               json.dump(m, f, sort_keys=True, separators=(',', ':'))
@@ -155,7 +233,7 @@ jobs:
             gh release delete "$TAG" --yes --cleanup-tag=false
           fi
 
-          ASSETS=(artifacts/firmware.bin artifacts/firmware-full.bin artifacts/manifest.json)
+          ASSETS=(artifacts/firmware.bin artifacts/firmware-full.bin artifacts/manifest.json artifacts/versions.json)
           if [ -f artifacts/manifest.json.sig ]; then
             ASSETS+=(artifacts/manifest.json.sig)
           fi
@@ -168,6 +246,13 @@ jobs:
   prune:
     needs: build
     runs-on: ubuntu-latest
+    # actions: write lives only on this job (the one that calls
+    # deleteArtifact) so a supply-chain compromise during the build
+    # job's npm/pip installs can't silently delete other workflow
+    # artifacts. contents: write is inherited from the workflow
+    # level but isn't used here.
+    permissions:
+      actions: write
     steps:
       - name: Keep only the 3 most recent main builds
         uses: actions/github-script@v7

@@ -5,6 +5,7 @@
 #include "../embedded_scripts.h"
 #include "../async.h"
 #include "../../config.h"
+#include "../../hardware/sd_manager.h"
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <SD.h>
@@ -25,8 +26,9 @@
 // Also provides persistent key-value preferences stored in NVS flash.
 // @end
 
-// Storage state
-static bool sdInitialized = false;
+// Storage state. SD lifecycle (mount + remount + lock) is delegated to
+// hardware/sd_manager so the same shared state is honoured by the Lua
+// bindings, the AsyncIO worker on Core 0, and the USB MSC subsystem.
 static Preferences prefs;
 static bool prefsOpened = false;
 
@@ -35,19 +37,31 @@ static const char* MOUNT_SD = "/sd";
 static const char* MOUNT_FS = "/fs";
 static const char* MOUNT_IMG = "/img";
 
-// Initialize SD card
-static bool initSD() {
-    if (sdInitialized) return true;
+static bool initSD() { return SDManager::ensureMounted(); }
 
-    SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
-    if (SD.begin(SD_CS)) {
-        sdInitialized = true;
-        Serial.println("[Storage] SD card initialized");
-        return true;
+// RAII lock that's held only for SD operations. LittleFS calls construct
+// a no-op instance and pay nothing. Used by every LUA_FUNCTION that
+// touches the filesystem so the open AND subsequent read/write/close
+// run under one continuous lock -- otherwise the AsyncIO worker on
+// Core 0 could call SD.end() between our open and our read and tear
+// FATFS out from under our File handle.
+struct SDOpScope {
+    bool held;
+    explicit SDOpScope(fs::FS* fs) : held(fs == &SD) {
+        if (held) SDManager::lock();
     }
+    ~SDOpScope() {
+        if (held) SDManager::unlock();
+    }
+    SDOpScope(const SDOpScope&) = delete;
+    SDOpScope& operator=(const SDOpScope&) = delete;
+};
 
-    Serial.println("[Storage] SD card not available");
-    return false;
+// Local alias so existing call sites keep their shape; the actual retry
+// logic lives in SDManager so the AsyncIO worker on Core 0 and other
+// callers (copy_file, etc) can share it.
+static inline File openWithRetry(fs::FS* fs, const char* path, const char* mode) {
+    return SDManager::openWithRetry(fs, path, mode);
 }
 
 // Ensure preferences are open
@@ -180,8 +194,11 @@ LUA_FUNCTION(l_storage_read_bytes) {
         lua_pushstring(L, "SD card not available");
         return 2;
     }
+    // Hold the SD lock for the full open->read->close so a remount on
+    // Core 0 can't tear FATFS out from under our File handle mid-read.
+    SDOpScope sdLock(fs);
 
-    File file = fs->open(adjustedPath, "r");
+    File file = openWithRetry(fs, adjustedPath, "r");
     if (!file) {
         lua_pushnil(L);
         lua_pushstring(L, "File not found");
@@ -263,8 +280,9 @@ LUA_FUNCTION(l_storage_file_size) {
         lua_pushstring(L, "SD card not available");
         return 2;
     }
+    SDOpScope sdLock(fs);
 
-    File file = fs->open(adjustedPath, "r");
+    File file = openWithRetry(fs, adjustedPath, "r");
     if (!file) {
         lua_pushnil(L);
         lua_pushstring(L, "File not found");
@@ -328,8 +346,9 @@ LUA_FUNCTION(l_storage_read_file) {
         lua_pushstring(L, "Filesystem not available");
         return 2;
     }
+    SDOpScope sdLock(fs);
 
-    File file = fs->open(adjustedPath, "r");
+    File file = openWithRetry(fs, adjustedPath, "r");
     if (!file) {
         lua_pushnil(L);
         lua_pushstring(L, "File not found");
@@ -387,8 +406,9 @@ LUA_FUNCTION(l_storage_write_file) {
         lua_pushstring(L, "SD card not available");
         return 2;
     }
+    SDOpScope sdLock(fs);
 
-    File file = fs->open(adjustedPath, "w");
+    File file = openWithRetry(fs, adjustedPath, "w");
     if (!file) {
         lua_pushboolean(L, false);
         lua_pushstring(L, "Cannot create file");
@@ -434,8 +454,9 @@ LUA_FUNCTION(l_storage_append_file) {
         lua_pushstring(L, "SD card not available");
         return 2;
     }
+    SDOpScope sdLock(fs);
 
-    File file = fs->open(adjustedPath, "a");
+    File file = openWithRetry(fs, adjustedPath, "a");
     if (!file) {
         lua_pushboolean(L, false);
         lua_pushstring(L, "Cannot open file");
@@ -521,6 +542,7 @@ LUA_FUNCTION(l_storage_exists) {
         lua_pushboolean(L, false);
         return 1;
     }
+    SDOpScope sdLock(fs);
 
     lua_pushboolean(L, fs->exists(adjustedPath));
     return 1;
@@ -548,6 +570,7 @@ LUA_FUNCTION(l_storage_remove) {
         lua_pushboolean(L, false);
         return 1;
     }
+    SDOpScope sdLock(fs);
 
     lua_pushboolean(L, fs->remove(adjustedPath));
     return 1;
@@ -581,6 +604,7 @@ LUA_FUNCTION(l_storage_rename) {
         lua_pushboolean(L, false);
         return 1;
     }
+    SDOpScope sdLock(fsOld);
 
     lua_pushboolean(L, fsOld->rename(adjustedOld, adjustedNew));
     return 1;
@@ -606,6 +630,7 @@ LUA_FUNCTION(l_storage_mkdir) {
         lua_pushboolean(L, false);
         return 1;
     }
+    SDOpScope sdLock(fs);
 
     lua_pushboolean(L, fs->mkdir(adjustedPath));
     return 1;
@@ -635,6 +660,7 @@ LUA_FUNCTION(l_storage_rmdir) {
         lua_pushboolean(L, false);
         return 1;
     }
+    SDOpScope sdLock(fs);
 
     lua_pushboolean(L, fs->rmdir(adjustedPath));
     return 1;
@@ -772,6 +798,7 @@ LUA_FUNCTION(l_storage_list_dir) {
         if (!initSD()) {
             return 1;
         }
+        SDOpScope sdLock(&SD);
         File dir = SD.open(adjustedPath);
         if (!dir || !dir.isDirectory()) {
             return 1;
@@ -1066,6 +1093,7 @@ LUA_FUNCTION(l_storage_get_sd_info) {
         lua_pushnil(L);
         return 1;
     }
+    SDOpScope sdLock(&SD);
 
     lua_newtable(L);
 
@@ -1301,14 +1329,18 @@ LUA_FUNCTION(l_storage_copy_file) {
         lua_pushboolean(L, false);
         return 1;
     }
+    // Lock if either side is SD. The recursive mutex makes the same
+    // scope cheap if both sides are SD.
+    SDOpScope srcLock(srcFs);
+    SDOpScope dstLock(dstFs);
 
-    File srcFile = srcFs->open(srcPath, "r");
+    File srcFile = openWithRetry(srcFs, srcPath, "r");
     if (!srcFile) {
         lua_pushboolean(L, false);
         return 1;
     }
 
-    File dstFile = dstFs->open(dstPath, "w");
+    File dstFile = openWithRetry(dstFs, dstPath, "w");
     if (!dstFile) {
         srcFile.close();
         lua_pushboolean(L, false);
@@ -1355,6 +1387,7 @@ LUA_FUNCTION(l_storage_get_free_space) {
             lua_pushinteger(L, 0);
             return 1;
         }
+        SDOpScope sdLock(&SD);
         uint64_t freeSpace = SD.totalBytes() - SD.usedBytes();
         lua_pushinteger(L, (lua_Integer)freeSpace);
     } else {

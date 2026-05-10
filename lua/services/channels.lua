@@ -51,6 +51,26 @@ local function resolve_sender(sender_hash)
     return nil
 end
 
+-- Track running signal-quality ranges across collapsed duplicates so
+-- the bubble's context menu can show e.g. "RSSI: -110..-90 dBm" instead
+-- of just the most recent value. Called both when a fresh msg first
+-- lands (seed from its own values) and when a duplicate is folded in
+-- (extend the range).
+local function fold_signal(target, src)
+    if src.rssi then
+        target.rssi_min = math.min(target.rssi_min or src.rssi, src.rssi)
+        target.rssi_max = math.max(target.rssi_max or src.rssi, src.rssi)
+    end
+    if src.snr then
+        target.snr_min = math.min(target.snr_min or src.snr, src.snr)
+        target.snr_max = math.max(target.snr_max or src.snr, src.snr)
+    end
+    if src.hop_count then
+        target.hops_min = math.min(target.hops_min or src.hop_count, src.hop_count)
+        target.hops_max = math.max(target.hops_max or src.hop_count, src.hop_count)
+    end
+end
+
 -- Store a decoded message into history, grouping consecutive duplicates
 local function store_message(channel_name, msg)
     if not history[channel_name] then
@@ -64,10 +84,12 @@ local function store_message(channel_name, msg)
         last.count = (last.count or 1) + 1
         last.rssi = msg.rssi
         last.timestamp = msg.timestamp
+        fold_signal(last, msg)
         return
     end
 
     msg.count = 1
+    fold_signal(msg, msg)
     h[#h + 1] = msg
     while #h > MAX_HISTORY do
         table.remove(h, 1)
@@ -420,6 +442,10 @@ function channels.init()
             timestamp = msg_timestamp,
             rssi = pkt.rssi,
             snr = pkt.snr,
+            -- Outer-packet hop count. Surfaced by mesh_bindings.cpp's
+            -- group-packet callback (pkt.hop_count == pathLen, which
+            -- equals hops because PATH_HASH_SIZE=1).
+            hop_count = pkt.hop_count or 0,
             is_self = is_self,
         }
 
