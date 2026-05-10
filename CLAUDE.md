@@ -418,11 +418,11 @@ Example primitive output for map tiles:
 
 - Baudrate: 921600
 - Request: `[CMD:1][LEN:2][PAYLOAD:LEN]`
-- Response: `[STATUS:1][LEN:4 little-endian][DATA:LEN]` (4-byte length so file reads can return >64 KiB)
+- Response: `[STATUS:1][LEN:4 little-endian][DATA:LEN]` (4-byte length to fit screenshot BMPs, ~225 KiB at 320x240; file reads are capped at PAYLOAD_CAP = 16 KiB)
 
 Commands:
 - `0x01` PING - Test connection
-- `0x02` SCREENSHOT - Capture RLE-compressed RGB565 framebuffer
+- `0x02` SCREENSHOT - Capture framebuffer as a 24-bit BMP (BGR, bottom-up)
 - `0x03` KEY_CHAR - Send character with modifiers
 - `0x04` KEY_SPECIAL - Send special key (arrows, enter, etc.)
 - `0x05` SCREEN_INFO - Get current screen title and dimensions
