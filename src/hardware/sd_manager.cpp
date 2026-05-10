@@ -8,7 +8,7 @@
 namespace SDManager {
 
 // Recursive mutex: callers may legitimately hold the lock across a
-// helper that also locks (e.g. openLocked -> remount on retry). Built
+// helper that also locks (e.g. openWithRetry -> remount on retry). Built
 // once on first use; FreeRTOS doesn't expose a constexpr SemaphoreHandle
 // initialiser, so lazy construction in ensureLockExists() is the
 // idiomatic pattern.

@@ -799,7 +799,7 @@ bool Display::saveScreenshot(const char* path) {
         SD.mkdir("/screenshots");
     }
 
-    File file = SD.open(path, FILE_WRITE);
+    File file = SDManager::openWithRetry(&SD, path, FILE_WRITE);
     if (!file) {
         Serial.printf("[Screenshot] Cannot create file: %s\n", path);
         return false;

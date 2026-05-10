@@ -41,7 +41,7 @@ bool remount();
 // Cheap "is the wrapper currently in a believed-mounted state". Used
 // by isSDAvailable()-style probes that don't want to trigger a remount
 // on every call. NOT a guarantee that the next open() succeeds; that's
-// what openLocked()'s retry path is for.
+// what openWithRetry()'s retry path is for.
 bool isMounted();
 
 // Acquire / release the SD mutex around any touch of the SD object
