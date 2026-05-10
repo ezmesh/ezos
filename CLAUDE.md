@@ -122,22 +122,36 @@ pio run
 pio run -t upload
 ```
 
-## Rolling-main OTA updates
+## Rolling OTA updates
 
-Every push to `main` triggers `.github/workflows/main-artifacts.yml`,
-which builds the firmware, generates a `manifest.json` describing the
-build (SHA, version, sha256, size, asset URL), signs it with an
-Ed25519 key from the `OTA_SIGNING_PRIVKEY` GitHub Actions secret, and
-republishes the `rolling-main` GitHub Release with the binaries +
-manifest + detached signature. Older builds are kept as run artefacts
-(prune step caps at 3) for short-term debugging.
+Pushes to `main` and `test` trigger `.github/workflows/main-artifacts.yml`
+and `.github/workflows/test-artifacts.yml` respectively. Each builds
+the firmware, generates a `manifest.json` describing the build (SHA,
+version, sha256, size, asset URL, plus the `full_*` variants for the
+bootloader+partitions+app blob), signs it with an Ed25519 key from the
+`OTA_SIGNING_PRIVKEY` GitHub Actions secret, runs `xtr-changelog
+release --commit --tag --push` to advance `versions.json` and tag the
+release, and republishes the `rolling-main` / `rolling-test` GitHub
+Release with the binaries + manifest + detached signature. Older
+builds are kept as run artefacts (prune step caps at 3) for short-
+term debugging.
+
+Pushes that touch ONLY generated files don't retrigger the workflow
+(would otherwise loop on the workflow's own release commit):
+`paths-ignore` excludes `changelog/versions.json`,
+`changelog/archive.json`, `lua/docs/changelog.json`, `CHANGELOG.md`,
+and `platformio.ini`. The release commit is also prefixed with
+`[skip ci]` as defense in depth.
 
 The on-device update screen (`lua/screens/settings/firmware_update.lua`)
-fetches `manifest.json` and `manifest.json.sig` from the rolling-main
-release, calls `ez.crypto.ed25519_verify` against the embedded
-`kOtaSigningPubkey` (`src/ota_pubkey.cpp`), and only on a valid
-signature passes the asset URL + sha256 into `ez.ota.apply_url`, which
-streams the firmware straight into the inactive OTA partition. Trust
+lets the user pick `main` or `test` channel, fetches `manifest.json`
+and `manifest.json.sig` from that release, calls
+`ez.crypto.ed25519_verify` against the embedded `kOtaSigningPubkey`
+(`src/ota_pubkey.cpp`), and only on a valid signature passes the
+`full_bin_url` + `full_sha256` into `ez.ota.apply_full_url`, which
+streams the firmware straight into the inactive OTA partition (writing
+bootloader / partition table only when they differ from current
+flash) and switches the boot slot via direct otadata write. Trust
 flows from the signature, not from TLS — the streamer uses
 `setInsecure()` and re-checks SHA-256 against the manifest while
 writing.

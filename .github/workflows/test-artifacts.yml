@@ -74,20 +74,17 @@ jobs:
           # from re-triggering this workflow on top of the paths-ignore
           # filter above (defense in depth).
           #
-          # Run release on the SHA we were triggered for. If origin
-          # advanced under us between commit and push, rebase the
-          # release commit onto the new tip and push again -- preserves
-          # the relationship between this build's artifacts and the
-          # release commit. One retry is plenty for this repo's traffic.
-          if ! npx xtr-changelog release \
-                --execute --commit --tag --push \
-                --message '[skip ci] chore(release): {version}'; then
-            echo "Initial release push failed; rebasing on origin/$GITHUB_REF_NAME and retrying..."
-            git fetch origin "$GITHUB_REF_NAME"
-            git rebase "origin/$GITHUB_REF_NAME"
-            git push origin "HEAD:$GITHUB_REF_NAME"
-            git push origin --tags
-          fi
+          # No retry on push race: if origin advances during the run,
+          # xtr-changelog --push fails non-FF and the workflow errors
+          # out. The next push (manual or otherwise) will produce a
+          # fresh release. xtr-changelog's --push isn't atomic, so a
+          # rejected branch push may still leave a tag on origin; if
+          # that happens, delete the orphan tag manually
+          # (`git push origin :refs/tags/vX.Y.Z`). Tracked upstream as
+          # https://github.com/xtr-dev/changelog/issues/1.
+          npx xtr-changelog release \
+            --execute --commit --tag --push \
+            --message '[skip ci] chore(release): {version}'
 
           cp changelog/versions.json lua/docs/changelog.json
           VERSION=$(node -e "const v=require('./changelog/versions.json'); console.log(v.versions[0].version)")

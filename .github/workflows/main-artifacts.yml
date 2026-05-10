@@ -73,15 +73,18 @@ jobs:
           # [skip ci] in the message keeps the resulting push from
           # re-triggering this workflow (paths-ignore above is the
           # primary loop-break; this is defense in depth).
-          if ! npx xtr-changelog release \
-                --execute --commit --tag --push \
-                --message '[skip ci] chore(release): {version}'; then
-            echo "Initial release push failed; rebasing on origin/$GITHUB_REF_NAME and retrying..."
-            git fetch origin "$GITHUB_REF_NAME"
-            git rebase "origin/$GITHUB_REF_NAME"
-            git push origin "HEAD:$GITHUB_REF_NAME"
-            git push origin --tags
-          fi
+          #
+          # No retry on push race: if origin advances during the run,
+          # xtr-changelog --push fails non-FF and the workflow errors
+          # out. The next push (manual or otherwise) will produce a
+          # fresh release. xtr-changelog's --push isn't atomic, so a
+          # rejected branch push may still leave a tag on origin; if
+          # that happens, delete the orphan tag manually
+          # (`git push origin :refs/tags/vX.Y.Z`). Tracked upstream as
+          # https://github.com/xtr-dev/changelog/issues/1.
+          npx xtr-changelog release \
+            --execute --commit --tag --push \
+            --message '[skip ci] chore(release): {version}'
 
           cp changelog/versions.json lua/docs/changelog.json
           # Stamp the just-released version into platformio.ini so the
