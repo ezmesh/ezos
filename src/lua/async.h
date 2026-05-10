@@ -70,6 +70,20 @@ public:
     using HttpProcessor = void (*)(void* requestPtr, int coroRef);
     static void setHttpProcessor(HttpProcessor fn);
 
+    // Snapshot of worker-thread counters. Read by ez.debug.asyncio_stats
+    // for tests that need to know the queue is drained before asserting.
+    // Counters are uint32_t writes from the worker / Lua threads --
+    // 32-bit aligned writes are atomic on Xtensa, so no lock is needed
+    // for a snapshot read.
+    struct Stats {
+        uint32_t queued;     // total Send'd to _requestQueue
+        uint32_t completed;  // worker finished, result delivered
+        uint32_t failed;     // worker finished with success=false
+        uint32_t in_flight;  // queued - completed - failed (live count)
+        uint32_t queue_depth; // current uxQueueMessagesWaiting
+    };
+    Stats getStats() const;
+
 private:
     AsyncIO() = default;
 
@@ -131,6 +145,12 @@ private:
     QueueHandle_t _requestQueue = nullptr;
     QueueHandle_t _resultQueue = nullptr;
     TaskHandle_t _workerTask = nullptr;
+
+    // Stats counters (see Stats struct above). volatile so the compiler
+    // doesn't cache them across the worker / Lua-thread boundary.
+    volatile uint32_t _statsQueued = 0;
+    volatile uint32_t _statsCompleted = 0;
+    volatile uint32_t _statsFailed = 0;
 
     static void workerTask(void* param);
     void processResults();

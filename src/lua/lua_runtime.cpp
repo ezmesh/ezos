@@ -49,6 +49,8 @@ void registerNetModule(lua_State* L);
 #include "bindings/touch_bindings.h"
 // JPEG / PNG encode bindings + header peek helpers
 #include "bindings/image_bindings.h"
+// ez.debug.* (test-only): asyncio_stats, sd_remount, heap, last_panic.
+#include "bindings/debug_bindings.h"
 
 LuaRuntime& LuaRuntime::instance() {
     static LuaRuntime runtime;
@@ -234,6 +236,12 @@ void LuaRuntime::registerAllModules() {
     // display bindings have created the Sprite metatable -- this
     // pass appends encode_jpeg/encode_png methods to it.
     image_bindings::registerBindings(_state);
+
+    // ez.debug.* test-only introspection (asyncio queue, sd remount,
+    // heap fragmentation, reset_reason + coredump in one call). Last
+    // so it can reach into AsyncIO / SDManager / esp-idf state once
+    // everything else is wired up.
+    debug_bindings::registerBindings(_state);
 
     LOG("LuaRuntime", "Modules registered");
 }

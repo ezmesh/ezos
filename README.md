@@ -10,6 +10,7 @@ A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 wi
 <p align="center">
   <img src="docs/screenshots/mesh-chat.png" alt="Mesh Chat" width="200"/>
   <img src="docs/screenshots/settings.png" alt="Settings" width="200"/>
+  <img src="docs/screenshots/map.png" alt="Map" width="200"/>
 </p>
 
 > 🚧 **Early development.** APIs, on-disk formats, and the UI framework change between commits. Expect breaking changes, missing features, and rough edges. Not yet suitable for daily-driver or production use. Pin to a released tag if you want a stable build.

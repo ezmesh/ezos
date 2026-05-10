@@ -374,6 +374,11 @@ void AsyncIO::workerTask(void* param) {
 
     while (true) {
         if (xQueueReceive(self->_requestQueue, &req, portMAX_DELAY) == pdTRUE) {
+            self->_statsQueued++;  // count requests that actually entered
+                                   // the worker. Skipping the per-Lua-call
+                                   // xQueueSend sites avoids missing the
+                                   // ones spread across storage_bindings.
+
             Result result;
             result.type = req.type;
             result.coroRef = req.coroRef;
@@ -686,9 +691,22 @@ void AsyncIO::workerTask(void* param) {
 
             if (needSdLock) SDManager::unlock();
 
+            if (result.success) self->_statsCompleted++;
+            else                self->_statsFailed++;
+
             xQueueSend(self->_resultQueue, &result, portMAX_DELAY);
         }
     }
+}
+
+AsyncIO::Stats AsyncIO::getStats() const {
+    Stats s = {};
+    s.queued      = _statsQueued;
+    s.completed   = _statsCompleted;
+    s.failed      = _statsFailed;
+    s.in_flight   = _statsQueued - _statsCompleted - _statsFailed;
+    s.queue_depth = _requestQueue ? uxQueueMessagesWaiting(_requestQueue) : 0;
+    return s;
 }
 
 void AsyncIO::update() {
