@@ -182,21 +182,40 @@ scope. The "GitHub Actions" identity does not appear in the bypass
 picker on the free org plan, so we can't put it on the bypass list.
 
 Workaround in use: a write-enabled **deploy key** (`auto-release-push`,
-private half stored in repo secret `RELEASE_PUSH_KEY`). Deploy-key
-pushes bypass branch rulesets by design. Both `*-artifacts.yml`
+private half stored in repo secret `RELEASE_PUSH_KEY`) **plus a
+DeployKey bypass actor on each ruleset**. Both `*-artifacts.yml`
 workflows load the key into ssh-agent via `webfactory/ssh-agent`
 and check the repo out over SSH so the subsequent `git push` from
-xtr-changelog flows through the same key.
+xtr-changelog flows through the same key, and the bypass actor
+on `ezos-branch-main` / `ezos-branch-test` lets that push land
+despite the `pull_request` rule. **Deploy keys do NOT bypass
+rulesets implicitly** -- the bypass actor must be present, of
+type `DeployKey` (which covers any deploy key on the repo, so the
+API stores it with `actor_id: null`).
 
 If OTA releases ever stop publishing, check the failing workflow
 run's "Generate changelog, sync version, and push back" step. A
 GH013 / "Changes must be made through a pull request" error means
-the SSH push fell back to HTTPS+GITHUB_TOKEN -- usually because the
-checkout step's `ssh-key` input was lost or the secret was rotated
-without updating the deploy key. Regenerate the keypair with
-`ssh-keygen -t ed25519`, register the public half via
-`POST /repos/ezmesh/ezos/keys` with `read_only: false`, and re-upload
-the private half to the `RELEASE_PUSH_KEY` secret.
+the push reached GitHub but the `pull_request` rule fired anyway.
+The two common causes:
+
+1. The DeployKey bypass entry is missing from the ruleset's
+   `bypass_actors`. Re-run `scripts/branch-protection.sh` (which
+   includes it now), or add it manually:
+   ```sh
+   gh api repos/ezmesh/ezos/rulesets        # find the ruleset id
+   gh api -X PUT repos/ezmesh/ezos/rulesets/<id> -f \
+       'bypass_actors[][actor_type]=DeployKey' \
+       -f 'bypass_actors[][bypass_mode]=always' ...
+   ```
+   (Pass the full ruleset payload; the PUT replaces it.)
+2. The SSH push genuinely fell back to HTTPS+GITHUB_TOKEN because
+   the deploy key is missing or the secret was rotated. Regenerate
+   the keypair with `ssh-keygen -t ed25519`, register the public
+   half via `POST /repos/ezmesh/ezos/keys` with `read_only: false`,
+   and re-upload the private half to `RELEASE_PUSH_KEY`. The
+   `webfactory/ssh-agent` step's log lines (`Identity added: ...`,
+   key fingerprint) confirm whether auth got off the ground.
 
 ## Project Structure
 

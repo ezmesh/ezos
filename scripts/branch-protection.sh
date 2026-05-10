@@ -14,13 +14,18 @@
 # Bypass for the auto-release workflow:
 #   The "GitHub Actions" identity does not appear in the bypass-actor
 #   picker on the free org plan, so the runner can't be added to the
-#   rulesets' bypass list. The auto-release workflow instead pushes
+#   rulesets' bypass list directly. The auto-release workflow pushes
 #   over SSH using a write-enabled deploy key (repo secret
 #   RELEASE_PUSH_KEY, public half registered as deploy key
-#   "auto-release-push"). Deploy-key pushes bypass branch rulesets by
-#   design, so `bypass_actors` here stays empty -- there is no actor
-#   to preserve across re-runs. See CLAUDE.md "Rolling OTA updates"
-#   for the wiring.
+#   "auto-release-push") and we add a DeployKey bypass actor here so
+#   the push lands. (Deploy keys do NOT bypass rulesets implicitly
+#   on GitHub today; the `pull_request` rule fires on every push,
+#   including SSH/deploy-key auth, unless an explicit DeployKey
+#   bypass actor is in `bypass_actors`. The actor_type `DeployKey`
+#   covers any deploy key registered on the repo, so a single entry
+#   bypasses all of them -- there is no per-key id to set, and the
+#   API returns `actor_id: null`.) See CLAUDE.md "Rolling OTA
+#   updates" for the wiring.
 #
 # Why rulesets, not classic branch protection:
 #   Classic protection's "required_status_checks" applies to *every*
@@ -77,7 +82,9 @@ create_ruleset() {
   "name": "ezos-branch-${branch}",
   "target": "branch",
   "enforcement": "active",
-  "bypass_actors": [],
+  "bypass_actors": [
+    { "actor_id": null, "actor_type": "DeployKey", "bypass_mode": "always" }
+  ],
   "conditions": {
     "ref_name": {
       "include": ["refs/heads/${branch}"],
