@@ -1,9 +1,8 @@
--- Top-down space arcade shooter.
+-- Top-down space arcade shooter (single-player).
 --
--- Player(s) at the bottom, enemies spawn from the top and flow down
--- with various movement patterns, bullets travel up. Dropped items
--- change guns / heal / grant shield / multiply score. Solo or 2P
--- over WiFi (host-authoritative same as pong/bubble).
+-- The player ship sits at the bottom, enemies spawn from the top and
+-- flow down with various movement patterns, bullets travel up. Dropped
+-- items change guns / heal / grant shield / multiply score.
 --
 -- Enemy archetypes: scout (straight down, low hp), zigzag (L/R
 -- sinusoidal descent), bomber (slow, shoots downward bombs), heavy
@@ -261,18 +260,13 @@ local pause_idx = 1
 local PAUSE_ITEMS = 3
 
 ---------------------------------------------------------------------------
--- Mode / net state
+-- Mode state
 ---------------------------------------------------------------------------
 
+-- "menu" = title screen up; "playing" = run in progress. Kept around
+-- as a single-value flag rather than a boolean so the menu/playing
+-- transitions read the same as before the 2P strip.
 local mode = "menu"
-local NET_SSID = "tdeck-ss"
-local NET_PASS = "starship"
-local NET_PORT = 4248
-local STATE_HZ = 15
-local INPUT_HZ = 20
-
-local net_udp, net_peer_ip, net_peer_port
-local remote_snapshot = nil
 
 ---------------------------------------------------------------------------
 -- Setup helpers
@@ -318,14 +312,8 @@ local function new_starfield()
     end
 end
 
-local function reset_world(n_players)
-    players = {
-        make_player(1, SW / 2 - (n_players > 1 and 40 or 0),
-                       rgb(120, 220, 120)),
-    }
-    if n_players > 1 then
-        players[2] = make_player(2, SW / 2 + 40, rgb(120, 180, 240))
-    end
+local function reset_world()
+    players = { make_player(1, SW / 2, rgb(120, 220, 120)) }
     enemies = {}
     bullets = {}
     for i = 1, BULLET_POOL do
@@ -1210,10 +1198,8 @@ local function step_authoritative()
     if not any_alive then
         if game_state ~= "over" then
             play_sfx("game_over", sfx.game_over, 90)
-            -- Record high score once on transition. Solo runs get
-            -- credited their own score; in MP the host records its
-            -- own (player 1) score since there's no shared ranking.
-            if mode == "solo" and players[1] then
+            -- Record high score once on transition.
+            if players[1] then
                 highscores.submit(HS_KEY, players[1].score, wave)
             end
         end
@@ -1230,7 +1216,6 @@ end
 -- them so the per-frame redraw doesn't allocate two fresh strings via
 -- string.format every tick.
 local hud_p1_txt, hud_p1_key = "", nil
-local hud_p2_txt, hud_p2_txt_w, hud_p2_key = "", 0, nil
 
 local function draw_hud(d)
     d.fill_rect(0, 0, SW, HUD_H, rgb(0, 0, 0))
@@ -1246,20 +1231,6 @@ local function draw_hud(d)
             hud_p1_key = key
         end
         d.draw_text(4, 4, hud_p1_txt, rgb(200, 230, 200))
-    end
-    if players and players[2] then
-        local p2 = players[2]
-        theme.set_font("tiny_aa")
-        local hp = math.max(0, p2.hp)
-        local lives = math.max(0, p2.lives)
-        local key = p2.gun * 1e9 + hp * 1e6 + lives * 1e4 + p2.score
-        if key ~= hud_p2_key then
-            hud_p2_txt = string.format("P2 %s HP:%d L:%d %d",
-                GUN_NAMES[p2.gun], hp, lives, p2.score)
-            hud_p2_txt_w = theme.text_width(hud_p2_txt)
-            hud_p2_key = key
-        end
-        d.draw_text(SW - hud_p2_txt_w - 4, 4, hud_p2_txt, rgb(180, 200, 240))
     end
     theme.set_font("tiny_aa")
     if status_text and status_text ~= "" then
@@ -1550,31 +1521,20 @@ end
 local function render(d)
     d.fill_rect(0, HUD_H, SW, SH - HUD_H, rgb(5, 5, 20))
 
-    if mode == "join" and remote_snapshot then
-        for _, s in ipairs(remote_snapshot.stars or {}) do
-            d.fill_rect(floor(s.x), floor(s.y), 1, 1,
-                rgb(120, 120, 150))
+    draw_stars(d)
+    for _, e in ipairs(enemies or {}) do draw_enemy(d, e) end
+    if bullets then
+        for i = 1, #bullets do
+            local b = bullets[i]
+            if not b.dead then draw_bullet(d, b) end
         end
-        for _, e in ipairs(remote_snapshot.enemies or {}) do draw_enemy(d, e) end
-        for _, b in ipairs(remote_snapshot.bullets or {}) do draw_bullet(d, b) end
-        for _, it in ipairs(remote_snapshot.items  or {}) do draw_item(d, it) end
-        for _, p in ipairs(remote_snapshot.players or {}) do draw_player(d, p) end
-    else
-        draw_stars(d)
-        for _, e in ipairs(enemies or {}) do draw_enemy(d, e) end
-        if bullets then
-            for i = 1, #bullets do
-                local b = bullets[i]
-                if not b.dead then draw_bullet(d, b) end
-            end
-        end
-        for _, it in ipairs(items   or {}) do draw_item(d, it) end
-        for _, p in ipairs(players  or {}) do draw_player(d, p) end
-        -- Particles draw above ships so a tight burst reads as
-        -- being on top of the explosion site, not behind it.
-        draw_particles(d)
-        draw_popups(d)
     end
+    for _, it in ipairs(items   or {}) do draw_item(d, it) end
+    for _, p in ipairs(players  or {}) do draw_player(d, p) end
+    -- Particles draw above ships so a tight burst reads as
+    -- being on top of the explosion site, not behind it.
+    draw_particles(d)
+    draw_popups(d)
 
     draw_hud(d)
     draw_boss_banner(d)
@@ -1647,19 +1607,17 @@ local function render(d)
         local tw = theme.text_width(t)
         d.draw_text(floor((SW - tw) / 2), 46, t, rgb(230, 120, 120))
 
-        -- Top-5 board (solo only — MP has no shared leaderboard).
-        if mode == "solo" then
-            theme.set_font("tiny_aa")
-            local y0 = 74
-            local rows = highscores.format(HS_KEY, function(i, h)
-                return string.format("%d.  %6d   wave %d",
-                    i, h.score, h.extra)
-            end)
-            for i, line in ipairs(rows) do
-                local lw = theme.text_width(line)
-                d.draw_text(floor((SW - lw) / 2), y0 + (i - 1) * 12,
-                    line, rgb(220, 220, 220))
-            end
+        -- Top-5 board.
+        theme.set_font("tiny_aa")
+        local y0 = 74
+        local rows = highscores.format(HS_KEY, function(i, h)
+            return string.format("%d.  %6d   wave %d",
+                i, h.score, h.extra)
+        end)
+        for i, line in ipairs(rows) do
+            local lw = theme.text_width(line)
+            d.draw_text(floor((SW - lw) / 2), y0 + (i - 1) * 12,
+                line, rgb(220, 220, 220))
         end
 
         theme.set_font("small_aa")
@@ -1674,105 +1632,6 @@ if not node_mod.handler("shooter_view") then
         measure = function(_, _, _) return SW, SH end,
         draw = function(_, d, _, _, _, _) render(d) end,
     })
-end
-
----------------------------------------------------------------------------
--- Net (host-authoritative, compact packets)
----------------------------------------------------------------------------
-
--- Input packet C→H:  [0x01][left][right][up][down][fire]  (6 bytes)
--- Snapshot H→C: ad-hoc concat (see encode_snapshot).
-
-local function encode_snapshot()
-    local out = { string.char(0x02) }
-    out[#out + 1] = string.pack("<B", game_state == "playing" and 0 or 1)
-    for i = 1, 2 do
-        local p = players and players[i]
-        if p then
-            out[#out + 1] = string.pack("<HHBBBBH",
-                floor(p.x), floor(p.y),
-                math.max(0, p.hp), math.max(0, p.lives),
-                p.gun, p.alive and 1 or 0,
-                p.score)
-        else
-            out[#out + 1] = string.pack("<HHBBBBH", 0,0,0,0,1,0,0)
-        end
-    end
-    -- Enemies
-    out[#out + 1] = string.char(math.min(#enemies, 40))
-    for i = 1, math.min(#enemies, 40) do
-        local e = enemies[i]
-        out[#out + 1] = string.pack("<BHH", e.kind, floor(e.x), floor(e.y))
-    end
-    -- Bullets (skip pool slots marked dead).
-    local live_n = 0
-    for i = 1, #bullets do
-        if not bullets[i].dead then live_n = live_n + 1 end
-    end
-    if live_n > 40 then live_n = 40 end
-    out[#out + 1] = string.char(live_n)
-    local written = 0
-    for i = 1, #bullets do
-        if written >= live_n then break end
-        local b = bullets[i]
-        if not b.dead then
-            local c = b.hostile and 1 or 0
-            out[#out + 1] = string.pack("<BBHH", c,
-                (b.kind == "missile") and 1 or 0,
-                floor(b.x), floor(b.y))
-            written = written + 1
-        end
-    end
-    -- Items
-    out[#out + 1] = string.char(math.min(#items, 20))
-    for i = 1, math.min(#items, 20) do
-        local it = items[i]
-        out[#out + 1] = string.pack("<BHH", it.kind, floor(it.x), floor(it.y))
-    end
-    return table.concat(out)
-end
-
-local function decode_snapshot(data)
-    if #data < 2 or data:byte(1) ~= 0x02 then return nil end
-    local snap = { players = {}, enemies = {}, bullets = {}, items = {} }
-    local off = 2
-    snap.state, off = string.unpack("<B", data, off)
-    for i = 1, 2 do
-        local x, y, hp, lives, gun, alive, score, next_off =
-            string.unpack("<HHBBBBH", data, off)
-        off = next_off
-        snap.players[i] = {
-            id = i, x = x, y = y, hp = hp, lives = lives,
-            gun = gun, alive = alive == 1, score = score,
-            color = (i == 1) and rgb(120, 220, 120) or rgb(120, 180, 240),
-            shield_end_ms = 0,
-        }
-    end
-    local n_e = data:byte(off); off = off + 1
-    for _ = 1, n_e do
-        local k, x, y, next_off = string.unpack("<BHH", data, off)
-        off = next_off
-        snap.enemies[#snap.enemies + 1] = { kind = k, x = x, y = y }
-    end
-    local n_b = data:byte(off); off = off + 1
-    for _ = 1, n_b do
-        local hostile, ismissile, x, y, next_off =
-            string.unpack("<BBHH", data, off)
-        off = next_off
-        snap.bullets[#snap.bullets + 1] = {
-            x = x, y = y,
-            hostile = hostile == 1,
-            color = hostile == 1 and rgb(240, 80, 80) or rgb(240, 230, 100),
-            kind = ismissile == 1 and "missile" or "rapid",
-        }
-    end
-    local n_i = data:byte(off); off = off + 1
-    for _ = 1, n_i do
-        local k, x, y, next_off = string.unpack("<BHH", data, off)
-        off = next_off
-        snap.items[#snap.items + 1] = { kind = k, x = x, y = y }
-    end
-    return snap
 end
 
 ---------------------------------------------------------------------------
@@ -1815,17 +1674,12 @@ end
 ---------------------------------------------------------------------------
 
 local function tear_down(self)
-    for _, k in ipairs({"_tick","_rx","_tx","_itx"}) do
-        if self[k] then ez.system.cancel_timer(self[k]); self[k] = nil end
+    if self._tick then
+        ez.system.cancel_timer(self._tick); self._tick = nil
     end
-    if net_udp then ez.net.udp_close(net_udp); net_udp = nil end
-    if mode == "host" then ez.wifi.stop_ap()
-    elseif mode == "join" then ez.wifi.disconnect() end
     audio.stop()
     if synth and synth.silence then synth.silence() end
     mode = "menu"; game_state = "menu"
-    net_peer_ip, net_peer_port = nil, nil
-    remote_snapshot = nil
     autofire = false
 end
 
@@ -1841,16 +1695,8 @@ function Game:build(_state)
                     { font = "small_aa", color = "TEXT_SEC",
                       text_align = "center", wrap = true })
             ),
-            ui.padding({ 4, 40, 4, 40 },
-                ui.button("Solo", { on_press = function() self:_start("solo") end })),
-            ui.padding({ 4, 40, 4, 40 },
-                ui.button("Host (2P)", { on_press = function() self:_start("host") end })),
-            ui.padding({ 4, 40, 4, 40 },
-                ui.button("Join", { on_press = function() self:_start("join") end })),
-            ui.padding({ 8, 20, 0, 20 },
-                ui.text_widget(status_text or "", {
-                    font = "tiny_aa", color = "TEXT_MUTED",
-                    text_align = "center", wrap = true })),
+            ui.padding({ 8, 40, 4, 40 },
+                ui.button("Start", { on_press = function() self:_start() end })),
         })
     end
     return { type = "shooter_view" }
@@ -1863,122 +1709,19 @@ end
 
 function Game:on_exit() tear_down(self) end
 
-function Game:_start(m)
-    mode = m
-    if m == "solo" then
-        reset_world(1)
-        game_state = "playing"
-        self._tick = ez.system.set_interval(math.floor(DT * 1000), function()
-            apply_input(players[1],
-                input_flag("left"), input_flag("right"),
-                input_flag("up"),   input_flag("down"),
-                input_flag("fire"))
-            step_authoritative()
-            screen_mod.invalidate()
-        end)
-        self:set_state({})
-    elseif m == "host" then
-        status_text = "Starting AP..."
-        self:set_state({})
-        spawn(function()
-            if not ez.wifi.start_ap(NET_SSID, NET_PASS, 1, false, 2) then
-                status_text = "AP failed"; mode = "menu"
-                self:set_state({}); return
-            end
-            net_udp = ez.net.udp_open(NET_PORT)
-            if not net_udp then
-                status_text = "UDP open failed"; mode = "menu"
-                ez.wifi.stop_ap(); self:set_state({}); return
-            end
-            reset_world(2)
-            game_state = "playing"
-            status_text = "Hosting " .. NET_SSID
-            self:set_state({})
-
-            self._rx = ez.system.set_interval(20, function()
-                while true do
-                    local data, from_ip, from_port = ez.net.udp_recv(net_udp)
-                    if not data then break end
-                    if #data == 6 and data:byte(1) == 0x01 then
-                        if not net_peer_ip then
-                            net_peer_ip, net_peer_port = from_ip, from_port
-                        end
-                        apply_input(players[2],
-                            data:byte(2) == 1,
-                            data:byte(3) == 1,
-                            data:byte(4) == 1,
-                            data:byte(5) == 1,
-                            data:byte(6) == 1)
-                    end
-                end
-            end)
-            self._tick = ez.system.set_interval(math.floor(DT * 1000), function()
-                apply_input(players[1],
-                    input_flag("left"), input_flag("right"),
-                    input_flag("up"),   input_flag("down"),
-                    input_flag("fire"))
-                step_authoritative()
-                screen_mod.invalidate()
-            end)
-            self._tx = ez.system.set_interval(math.floor(1000 / STATE_HZ),
-                function()
-                    if net_peer_ip then
-                        ez.net.udp_send(net_udp, net_peer_ip, net_peer_port,
-                            encode_snapshot())
-                    end
-                end)
-        end)
-    elseif m == "join" then
-        status_text = "Joining..."
-        self:set_state({})
-        spawn(function()
-            ez.wifi.connect(NET_SSID, NET_PASS)
-            local up = false
-            for _ = 1, 5 do
-                up = ez.wifi.wait_connected(4)
-                if up then break end
-                ez.wifi.disconnect()
-                local w = ez.system.millis() + 1500
-                while ez.system.millis() < w do defer() end
-            end
-            if not up then
-                status_text = "Could not join AP"; mode = "menu"
-                self:set_state({}); return
-            end
-            net_udp = ez.net.udp_open(0)
-            if not net_udp then
-                status_text = "UDP open failed"; mode = "menu"
-                self:set_state({}); return
-            end
-            net_peer_ip, net_peer_port = ez.wifi.get_gateway(), NET_PORT
-            game_state = "playing"
-            status_text = "Connected"
-            self:set_state({})
-
-            self._rx = ez.system.set_interval(20, function()
-                while true do
-                    local data = ez.net.udp_recv(net_udp)
-                    if not data then break end
-                    local snap = decode_snapshot(data)
-                    if snap then
-                        remote_snapshot = snap
-                        game_state = snap.state == 0 and "playing" or "over"
-                        screen_mod.invalidate()
-                    end
-                end
-            end)
-            self._itx = ez.system.set_interval(math.floor(1000 / INPUT_HZ),
-                function()
-                    ez.net.udp_send(net_udp, net_peer_ip, net_peer_port,
-                        string.pack("<BBBBBB", 0x01,
-                            input_flag("left")  and 1 or 0,
-                            input_flag("right") and 1 or 0,
-                            input_flag("up")    and 1 or 0,
-                            input_flag("down")  and 1 or 0,
-                            input_flag("fire")  and 1 or 0))
-                end)
-        end)
-    end
+function Game:_start()
+    mode = "playing"
+    reset_world()
+    game_state = "playing"
+    self._tick = ez.system.set_interval(math.floor(DT * 1000), function()
+        apply_input(players[1],
+            input_flag("left"), input_flag("right"),
+            input_flag("up"),   input_flag("down"),
+            input_flag("fire"))
+        step_authoritative()
+        screen_mod.invalidate()
+    end)
+    self:set_state({})
 end
 
 -- Pause-menu key dispatch. Returns "handled" for everything so the
@@ -2058,8 +1801,7 @@ function Game:handle_key(key)
         tear_down(self); self:set_state({}); return "handled"
     end
     if c == "r" and game_state == "over" then
-        if mode == "solo" then reset_world(1)
-        elseif mode == "host" then reset_world(2) end
+        reset_world()
         game_state = "playing"; return "handled"
     end
 

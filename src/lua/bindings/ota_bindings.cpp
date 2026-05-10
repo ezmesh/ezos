@@ -5,8 +5,8 @@
 //      streaming POST /ota authenticated with a per-session bearer
 //      token. Bytes flow into Update.write through the body callback
 //      as they arrive -- no main-loop blocking, no per-byte multipart
-//      parser. Also exposes /info, /logs, /screen.bmp, /lua, /key,
-//      /chat_event for the host-side dev console and the Claude bot.
+//      parser. Also exposes /info, /logs, /screen.bmp, /lua, /key
+//      for the host-side dev console.
 //   2. A handful of helpers around esp_ota_* so boot.lua can mark the
 //      running image good (cancelling the IDF's auto-rollback) and
 //      callers can introspect / force a rollback.
@@ -27,8 +27,8 @@
 // DeferredLua + block the AsyncTCP request handler on a flag while
 // the main loop processes the call, then send the response. Other
 // handlers are pure reads of ESP-IDF state (info / logs), use
-// already-thread-safe primitives (MessageBus::post for chat_event,
-// the keyboard inject queue's single-producer SPSC), or do their own
+// already-thread-safe primitives (the keyboard inject queue's
+// single-producer SPSC), or do their own
 // heap work (screen.bmp builds a fresh PSRAM buffer -- torn pixels
 // possible, never a crash).
 //
@@ -521,40 +521,6 @@ void key_handler_body(AsyncWebServerRequest* req, uint8_t* data,
     if (lb->len == lb->cap) lb->data[lb->len] = '\0';
 }
 
-void chat_event_handler_complete(AsyncWebServerRequest* req) {
-    if (!requireBearer(req)) return;
-    auto* lb = (LuaBodyBuf*)req->_tempObject;
-    if (!lb || lb->len == 0) {
-        req->send(400, "application/json",
-            "{\"ok\":false,\"error\":\"empty body\"}");
-        return;
-    }
-    // MessageBus::post takes a NUL-terminated string; the body buffer
-    // is sized to leave room for one and we wrote the terminator on
-    // completion, so this is safe to pass through.
-    MessageBus::instance().post("claude/event", lb->data);
-    req->send(200, "application/json", "{\"ok\":true}");
-}
-
-void chat_event_handler_body(AsyncWebServerRequest* req, uint8_t* data,
-                             size_t len, size_t index, size_t total) {
-    constexpr size_t MAX_EVENT = 8 * 1024;
-    if (total == 0 || total > MAX_EVENT) return;
-    auto* lb = (LuaBodyBuf*)req->_tempObject;
-    if (index == 0 || !lb) {
-        if (lb) { free(lb); req->_tempObject = nullptr; }
-        lb = (LuaBodyBuf*)malloc(sizeof(LuaBodyBuf) + total + 1);
-        if (!lb) return;
-        lb->cap = total;
-        lb->len = 0;
-        req->_tempObject = lb;
-    }
-    if (index + len > lb->cap) return;
-    memcpy(lb->data + index, data, len);
-    if (index + len > lb->len) lb->len = index + len;
-    if (lb->len == lb->cap) lb->data[lb->len] = '\0';
-}
-
 void ota_handler_complete(AsyncWebServerRequest* req) {
     // Auth was already checked on the first body chunk -- a wrong
     // token there would have set g_uploadFailed and we'd be here just
@@ -746,8 +712,6 @@ LUA_FUNCTION(l_ota_dev_server_start) {
                  nullptr, lua_handler_body);
     g_server->on("/key",        HTTP_POST, key_handler_complete,
                  nullptr, key_handler_body);
-    g_server->on("/chat_event", HTTP_POST, chat_event_handler_complete,
-                 nullptr, chat_event_handler_body);
     g_server->on("/ota",        HTTP_POST, ota_handler_complete,
                  nullptr, ota_handler_body);
 
