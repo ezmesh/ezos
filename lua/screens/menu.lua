@@ -96,7 +96,7 @@ local CATEGORIES = {
               icon = icons.blocks, mod = "screens.games.breakout" },
             { title = "Tetris", subtitle = "Top-5 high scores (local)",
               icon = icons.blocks, mod = "screens.games.tetris" },
-            { title = "Starshot", subtitle = "Space shooter, guns+items (2P)",
+            { title = "Starshot", subtitle = "Space shooter, guns + pickups",
               icon = icons.rocket, mod = "screens.games.shooter" },
             { title = "Snake", subtitle = "Classic snake on a 26x17 grid",
               icon = icons.circle_dot, mod = "screens.games.snake" },
