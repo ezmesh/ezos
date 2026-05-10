@@ -34,7 +34,7 @@ A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 wi
 - 🗺️ **Offline Maps** - OpenStreetMap tiles with city/town labels
 - 📍 **GPS Integration** - Location sharing with mesh nodes
 - 👥 **Contact Management** - Save and organize mesh contacts
-- 🎮 **Games** - 2048, Tetris, Pong, Blackjack, Snake, Solitaire, Sudoku
+- 🎮 **Games** - Tetris, Pong, Snake, Solitaire, Sudoku
 - 🎨 **Customizable UI** - Themes, wallpapers, icon packs
 - 🖥️ **Lua Shell** - Scriptable interface with full API access
 

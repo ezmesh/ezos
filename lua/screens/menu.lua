@@ -102,10 +102,6 @@ local CATEGORIES = {
               icon = icons.rocket, mod = "screens.games.shooter" },
             { title = "Snake", subtitle = "Classic snake on a 26x17 grid",
               icon = icons.circle_dot, mod = "screens.games.snake" },
-            { title = "2048", subtitle = "Slide-and-merge tile puzzle",
-              icon = icons.grid, mod = "screens.games.g2048" },
-            { title = "Blackjack", subtitle = "Single-player vs dealer (hits to 17)",
-              icon = icons.spade, mod = "screens.games.blackjack" },
         },
     },
     {
