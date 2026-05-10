@@ -240,11 +240,19 @@ local function status_section(state)
 
     local info = ez.system.get_firmware_info() or {}
     local cur = current_sha() or "(no SHA embedded)"
+    local is_local_build = (cur == "(no SHA embedded)")
     local cur_ver = info.version or ""
     local cur_label = cur
     if cur_ver ~= "" then cur_label = cur_ver .. "  " .. cur end
     nodes[#nodes + 1] = ui.padding({ 0, 8, 6, 8 },
         ui.text_widget(cur_label, { font = "default" }))
+
+    if is_local_build then
+        nodes[#nodes + 1] = ui.padding({ 0, 8, 6, 8 },
+            ui.text_widget(
+                "Local dev build -- no downgrade detection.",
+                { wrap = true, color = "TEXT_MUTED", font = "small_aa" }))
+    end
 
     if state.manifest then
         local ch = CHANNELS[state.channel] or CHANNELS[1]
