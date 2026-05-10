@@ -9,6 +9,6 @@
     "markdown": {
       "path": "CHANGELOG.md"
     },
-    "packageJson": true
+    "packageJson": { "path": "package.json" }
   }
 }
