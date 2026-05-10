@@ -171,6 +171,30 @@ Key rotation is "burn a new firmware containing the new pubkey, then
 rotate the secret". Don't lose the private key — there's no recovery
 path other than reflashing every device manually.
 
+**Branch ruleset setup** (also once per project): the auto-release
+workflow's `xtr-changelog --push` step pushes the `[skip ci]` release
+commit + tag straight back to `main` / `test`. Both branches are
+protected by repo rulesets (see `scripts/branch-protection.sh`), and
+the rulesets' `pull_request` rule blocks direct pushes from any actor
+not on the bypass list — including the workflow's `GITHUB_TOKEN`,
+regardless of `permissions:` scope. Without a bypass entry the push
+fails with GH006 ("changes must be made through a pull request") and
+the workflow stops publishing OTA releases.
+
+The GitHub Actions runner identity isn't a queryable Integration on
+the repo, so it can't be added via the rulesets API. After running
+`scripts/branch-protection.sh`, manually add `github-actions` as a
+bypass actor in the GitHub UI for both rulesets:
+
+  Settings → Rules → `ezos-branch-main` → Bypass list → Add bypass
+  → "GitHub Actions"
+
+Repeat for `ezos-branch-test`. Symptom of forgetting this step: the
+release workflow's "Generate changelog, sync version, and push back"
+step fails with GH006, the rolling-main / rolling-test releases stop
+updating, and devices on those channels report "no newer version
+available" indefinitely.
+
 ## Project Structure
 
 ```
