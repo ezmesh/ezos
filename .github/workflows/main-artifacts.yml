@@ -4,6 +4,15 @@ on:
   push:
     branches:
       - main
+    # Don't retrigger on our own release commits (which only touch the
+    # generated changelog / version-stamp files). [skip ci] in the
+    # commit message is the belt; this is the suspenders.
+    paths-ignore:
+      - 'changelog/versions.json'
+      - 'changelog/archive.json'
+      - 'lua/docs/changelog.json'
+      - 'CHANGELOG.md'
+      - 'platformio.ini'
   workflow_dispatch:
 
 permissions:
@@ -45,15 +54,43 @@ jobs:
       - name: Fetch PlatformIO dependencies
         run: pio pkg install -e t-deck-plus
 
-      - name: Generate changelog and sync version
+      - name: Configure git for release commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate changelog, sync version, and push back
         id: changelog
         run: |
           npm ci
-          npx xtr-changelog release --execute --commit --tag
+          # --push pushes the release commit + tag back to main so
+          # versions.json[0].commit advances each run. Without this,
+          # subsequent runs all compute "next version" against a frozen
+          # anchor and the published version label drifts non-
+          # monotonically; the version-bump-required PR gate also has
+          # nothing real to anchor against.
+          #
+          # [skip ci] in the message keeps the resulting push from
+          # re-triggering this workflow (paths-ignore above is the
+          # primary loop-break; this is defense in depth).
+          if ! npx xtr-changelog release \
+                --execute --commit --tag --push \
+                --message '[skip ci] chore(release): {version}'; then
+            echo "Initial release push failed; rebasing on origin/$GITHUB_REF_NAME and retrying..."
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase "origin/$GITHUB_REF_NAME"
+            git push origin "HEAD:$GITHUB_REF_NAME"
+            git push origin --tags
+          fi
+
           cp changelog/versions.json lua/docs/changelog.json
-          # Extract the version the changelog tool just wrote and stamp
-          # it into platformio.ini so the firmware binary reports the
-          # same version string.
+          # Stamp the just-released version into platformio.ini so the
+          # built binary reports the same version string. Note: this
+          # edit is local to the runner -- it is not committed back to
+          # the branch (nor needs to be: the version is derivable from
+          # versions.json[0]). If you want platformio.ini's checked-in
+          # version to track too, amend the release commit before
+          # --push above. Today it lags by exactly one release.
           VERSION=$(node -e "const v=require('./changelog/versions.json'); console.log(v.versions[0].version)")
           sed -i "s/^custom_version *= *.*/custom_version = ${VERSION}/" platformio.ini
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"

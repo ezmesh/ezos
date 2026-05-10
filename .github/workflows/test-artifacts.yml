@@ -4,6 +4,15 @@ on:
   push:
     branches:
       - test
+    # Don't retrigger when our own release commit pushes generated
+    # changelog/version-stamp files back to the branch. Belt + suspenders
+    # with [skip ci] in the release commit message.
+    paths-ignore:
+      - 'changelog/versions.json'
+      - 'changelog/archive.json'
+      - 'lua/docs/changelog.json'
+      - 'CHANGELOG.md'
+      - 'platformio.ini'
   workflow_dispatch:
 
 permissions:
@@ -45,11 +54,41 @@ jobs:
       - name: Fetch PlatformIO dependencies
         run: pio pkg install -e t-deck-plus
 
-      - name: Generate changelog and sync version
+      - name: Configure git for release commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate changelog, sync version, and push back
         id: changelog
         run: |
           npm ci
-          npx xtr-changelog release --execute
+          # Push the release commit + tag back to the branch so
+          # versions.json[0].commit advances and the next run computes
+          # the next version against the freshly-released anchor (not
+          # against the original f2370c9 hand-edit). Without this the
+          # version label drifts non-monotonically and the
+          # version-bump-required PR gate has no real anchor.
+          #
+          # [skip ci] in the commit message keeps the resulting push
+          # from re-triggering this workflow on top of the paths-ignore
+          # filter above (defense in depth).
+          #
+          # Run release on the SHA we were triggered for. If origin
+          # advanced under us between commit and push, rebase the
+          # release commit onto the new tip and push again -- preserves
+          # the relationship between this build's artifacts and the
+          # release commit. One retry is plenty for this repo's traffic.
+          if ! npx xtr-changelog release \
+                --execute --commit --tag --push \
+                --message '[skip ci] chore(release): {version}'; then
+            echo "Initial release push failed; rebasing on origin/$GITHUB_REF_NAME and retrying..."
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase "origin/$GITHUB_REF_NAME"
+            git push origin "HEAD:$GITHUB_REF_NAME"
+            git push origin --tags
+          fi
+
           cp changelog/versions.json lua/docs/changelog.json
           VERSION=$(node -e "const v=require('./changelog/versions.json'); console.log(v.versions[0].version)")
           sed -i "s/^custom_version *= *.*/custom_version = ${VERSION}/" platformio.ini
