@@ -30,14 +30,38 @@ end
 --   action  table   { label, on_press } -- shown in the center
 --   read    bool    initial read state (default false)
 -- Returns the new notification's id.
+-- Per-source mute: read `notify_<source>` (default "1" = on). Setting
+-- the pref to "0" silences every post with that source tag without
+-- needing to touch the calling site. Lets a Settings panel offer a
+-- "Mute battery / DMs / file transfers" toggle later without churn.
+local function source_muted(source)
+    if not source or source == "" then return false end
+    if not (ez and ez.storage and ez.storage.get_pref) then return false end
+    local v = ez.storage.get_pref("notify_" .. source, "1")
+    return v == "0" or v == 0 or v == false
+end
+
+-- The on-device bitmap fonts only cover printable ASCII 0x20..0x7E
+-- (see CLAUDE.md "On-device font character set"); anything else
+-- renders as `[]` boxes. Notification title/body strings often come
+-- from peer-originated mesh data (contact names, DM bodies, file
+-- names) where there's no upstream guarantee on character set, so
+-- sanitize centrally here rather than asking every call site to
+-- remember.
+local function ascii_safe(s)
+    if type(s) ~= "string" then return s end
+    return (s:gsub("[^\32-\126]", "?"))
+end
+
 function notifications.post(opts)
     opts = opts or {}
     if not opts.title or opts.title == "" then return nil end
+    if source_muted(opts.source) then return nil end
 
     local n = {
         id        = _next_id,
-        title     = opts.title,
-        body      = opts.body,
+        title     = ascii_safe(opts.title),
+        body      = ascii_safe(opts.body),
         source    = opts.source or "system",
         sticky    = opts.sticky and true or false,
         action    = opts.action,
@@ -49,6 +73,32 @@ function notifications.post(opts)
     while #_items > _max_items do table.remove(_items) end
     emit_changed()
     return n.id
+end
+
+-- Variant of post() that suppresses the notification when the user is
+-- already looking at the screen the notification would lead them to.
+-- Useful for e.g. DM message notifications: if the user is sitting in
+-- the conversation with that contact, a toast would be redundant
+-- (and the screen itself already shows the new message).
+--
+-- `predicate` receives the current top screen instance and should
+-- return true to suppress the post. When the screen stack is empty,
+-- or no instance is on top yet, the post goes through unconditionally
+-- so we never lose a notification during boot.
+--
+-- Returns the new notification id, or nil when suppressed.
+function notifications.post_unless_focused(opts, predicate)
+    if type(predicate) == "function" then
+        local ok, screen = pcall(require, "ezui.screen")
+        if ok and screen.peek then
+            local inst = screen.peek()
+            if inst then
+                local pred_ok, suppress = pcall(predicate, inst)
+                if pred_ok and suppress then return nil end
+            end
+        end
+    end
+    return notifications.post(opts)
 end
 
 function notifications.dismiss(id)
