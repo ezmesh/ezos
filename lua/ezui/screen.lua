@@ -33,8 +33,11 @@ screen.status_interval = 5000  -- poll hardware every 5s
 screen.status_last = -10000    -- negative so the first update() runs the poll immediately
 
 -- Screensaver: overlay drawn on top of the current screen after idle
--- timeout to exercise subpixels. Dismissed on any keypress.
-screen.last_input_time = 0     -- millis() of last keypress
+-- timeout to exercise subpixels. Dismissed on any keypress. Seeded
+-- to the boot timestamp (rather than 0) so the activation gate fires
+-- even if the device sits idle from boot without a keypress -- which
+-- is exactly the scenario the screensaver is designed for.
+screen.last_input_time = ez.system.millis()  -- millis() of last keypress (or boot)
 
 -- Node reused every frame to render the global status bar. Keeping one
 -- instance avoids a garbage-generating allocation per frame.

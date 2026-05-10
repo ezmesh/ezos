@@ -56,15 +56,21 @@ local BALL_R       = 4              -- 8 px diameter; tight but legible
 local POCKET_R     = 7              -- forgiving for the small playfield
 
 -- Six pockets at corners and rail mid-points. Coords are pocket
--- centres in screen-space, used both for drawing and for "did the ball
--- fall in" tests.
+-- centres in screen-space, used both for drawing and for "did the
+-- ball fall in" tests. The cushion-bounce code in step_physics()
+-- clamps every ball to [PLAY_X0+BALL_R .. PLAY_X1-BALL_R] before
+-- pocket_check() runs, so the pocket centres must sit on the play
+-- area boundary (not the outer rail) -- otherwise no clamped ball
+-- ever lands within POCKET_R of a pocket and the game becomes
+-- unwinnable. With pockets at PLAY_*: corner ball is ~5.7 px away
+-- and side ball is ~4 px away, both inside POCKET_R = 7.
 local POCKETS = {
-    { x = TABLE_X,             y = TABLE_Y },
-    { x = TABLE_X + TABLE_W/2, y = TABLE_Y - 1 },
-    { x = TABLE_X + TABLE_W,   y = TABLE_Y },
-    { x = TABLE_X,             y = TABLE_Y + TABLE_H },
-    { x = TABLE_X + TABLE_W/2, y = TABLE_Y + TABLE_H + 1 },
-    { x = TABLE_X + TABLE_W,   y = TABLE_Y + TABLE_H },
+    { x = PLAY_X0,             y = PLAY_Y0 },
+    { x = TABLE_X + TABLE_W/2, y = PLAY_Y0 },
+    { x = PLAY_X1,             y = PLAY_Y0 },
+    { x = PLAY_X0,             y = PLAY_Y1 },
+    { x = TABLE_X + TABLE_W/2, y = PLAY_Y1 },
+    { x = PLAY_X1,             y = PLAY_Y1 },
 }
 
 -- Ball IDs follow standard pool numbering. 0 is the cue, 1-7 solids,
