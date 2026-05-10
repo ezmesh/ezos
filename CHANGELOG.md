@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.0.83] - 2026-05-10
+
+### Features
+- **channels:** per-channel history limit + notification mode (#80) (374eb45)
+
+### Fixes
+- **release:** packageJson must be an object, not the literal true (#86) (9d253e7)
+- **release:** fetch tags so xtr-changelog can advance the version (#85) (d389651)
+
+## [0.0.83] - 2026-05-10
+
+### Features
+- **channels:** per-channel history limit + notification mode (#80) (374eb45)
+
+### Fixes
+- **release:** packageJson must be an object, not the literal true (#86) (9d253e7)
+- **release:** fetch tags so xtr-changelog can advance the version (#85) (d389651)
+
 ## [0.0.80] - 2026-05-10
 
 ### Features
@@ -7,8 +25,8 @@
 
 ## [0.0.71] - 2026-05-10
 
-### Features
-- **channels:** per-channel history limit + notification mode (#80) (374eb45)
+### Other
+- **release:** add DeployKey bypass actor to branch rulesets (#84) (afc57b3)
 
 ## [0.0.79] - 2026-05-10
 
