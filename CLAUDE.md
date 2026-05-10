@@ -486,6 +486,22 @@ Screenshots are best for:
 - Debugging rendering issues not captured by text/primitives
 - Creating documentation or bug reports
 
+**Wallpaper convention for documentation screenshots.** When the
+shot includes the Desktop (so the wallpaper is visible behind the
+icon dock), ALWAYS set the wallpaper to `green-coastline` first so
+re-shoots stay visually consistent with what's already in
+`docs/screenshots/`:
+
+```bash
+python tools/remote/ez_remote.py /dev/ttyACM0 \
+    -e "ez.storage.set_pref('wallpaper', 'green-coastline')"
+# then navigate back to Desktop and take the shot
+```
+
+Shots that don't show the wallpaper (Map viewer, Chat, Settings
+sub-pages, etc.) don't care -- this rule only matters for the
+Desktop screen itself.
+
 ### Debugging with Lua Execution
 
 The `-e` flag executes Lua code on the device and returns JSON results:
