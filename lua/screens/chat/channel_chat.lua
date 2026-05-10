@@ -53,12 +53,51 @@ local function show_context_menu(self, channel, msg)
 
         if not msg.is_self then
             local sender_name = msg.sender_name or "?"
-            local rssi_str = msg.rssi and string.format("%d dBm", math.floor(msg.rssi)) or "unknown"
-            actions[#actions + 1] = ui.list_item({
-                title = "From: " .. sender_name,
-                subtitle = "Signal: " .. rssi_str,
-                disabled = true,
-            })
+            local count = msg.count or 1
+            -- Header row. Annotate the sender label with the repeat
+            -- count when the bubble is the rolled-up view of multiple
+            -- receptions of the same text. Single-receipt messages
+            -- collapse to a one-line "Signal: -94 dBm" subtitle, which
+            -- is what existing users expect.
+            if count > 1 then
+                actions[#actions + 1] = ui.list_item({
+                    title = "From: " .. sender_name
+                        .. " (" .. count .. " repeats)",
+                    disabled = true,
+                })
+                -- Range rows (only added if we actually saw the value).
+                if msg.rssi_min and msg.rssi_max then
+                    actions[#actions + 1] = ui.list_item({
+                        title = string.format("RSSI: %d..%d dBm",
+                            math.floor(msg.rssi_min),
+                            math.floor(msg.rssi_max)),
+                        disabled = true,
+                    })
+                end
+                if msg.hops_min and msg.hops_max then
+                    actions[#actions + 1] = ui.list_item({
+                        title = string.format("Hops: %d..%d",
+                            msg.hops_min, msg.hops_max),
+                        disabled = true,
+                    })
+                end
+                if msg.snr_min and msg.snr_max then
+                    actions[#actions + 1] = ui.list_item({
+                        title = string.format("SNR:  %.1f..%.1f dB",
+                            msg.snr_min, msg.snr_max),
+                        disabled = true,
+                    })
+                end
+            else
+                local rssi_str = msg.rssi and
+                    string.format("%d dBm", math.floor(msg.rssi))
+                    or "unknown"
+                actions[#actions + 1] = ui.list_item({
+                    title = "From: " .. sender_name,
+                    subtitle = "Signal: " .. rssi_str,
+                    disabled = true,
+                })
+            end
         end
 
         if msg.is_self then

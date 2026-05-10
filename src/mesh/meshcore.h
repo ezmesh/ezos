@@ -65,9 +65,14 @@ struct ParsedPacket {
 // Callback types
 using MessageCallback = std::function<void(const Message&)>;
 using NodeCallback = std::function<void(const NodeInfo&)>;
-// Raw group packet callback for Lua - receives encrypted data before decryption
+// Raw group packet callback for Lua - receives encrypted data before
+// decryption. hopCount is the outer mesh packet's pathLen (with
+// PATH_HASH_SIZE=1 every hop is a single byte, so pathLen == hops);
+// surfaced so services/channels.lua can fold per-receipt hop range
+// into a duplicate-collapsed message.
 using GroupPacketCallback = std::function<void(uint8_t channelHash, const uint8_t* data, size_t dataLen,
-                                                uint8_t senderHash, float rssi, float snr)>;
+                                                uint8_t senderHash, float rssi, float snr,
+                                                uint8_t hopCount)>;
 // Generic packet callback - returns true if Lua handled it (skip C++ handling),
 // second bool is whether to rebroadcast
 using PacketCallback = std::function<std::pair<bool, bool>(const ParsedPacket& packet)>;
