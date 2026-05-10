@@ -10,10 +10,21 @@
 // low-level tinfl_* API is available — which is exactly what we need.
 #include "rom/miniz.h"
 
+#include <esp_heap_caps.h>
+
 // Pulled from the ROM header, redeclared here so this file compiles even
 // when the ROM header's flag macros are name-mangled by the toolchain.
 #ifndef TINFL_FLAG_PARSE_ZLIB_HEADER
 #define TINFL_FLAG_PARSE_ZLIB_HEADER 1
+#endif
+#ifndef TINFL_FLAG_HAS_MORE_INPUT
+#define TINFL_FLAG_HAS_MORE_INPUT 2
+#endif
+#ifndef TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF
+#define TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF 4
+#endif
+#ifndef TINFL_FLAG_COMPUTE_ADLER32
+#define TINFL_FLAG_COMPUTE_ADLER32 8
 #endif
 
 // ez.compression.inflate(data, out_size [, raw]) -> string | nil, error
@@ -62,20 +73,51 @@ LUA_FUNCTION(l_compression_inflate) {
         return 2;
     }
 
-    int flags = raw ? 0 : TINFL_FLAG_PARSE_ZLIB_HEADER;
-    size_t decoded = tinfl_decompress_mem_to_mem(
-        outBuf, (size_t)outSize,
-        inData, inLen,
-        flags);
-
-    if (decoded == TINFL_DECOMPRESS_MEM_TO_MEM_FAILED) {
+    // We can't use tinfl_decompress_mem_to_mem here: the ROM
+    // implementation puts a `tinfl_decompressor` (~10.5 KiB of huff
+    // tables) on the *caller's* C stack. Two concurrent map tile
+    // inflates running back-to-back through the AsyncIO completion
+    // path overflowed the loop task's stack and panicked the device
+    // (issue #52). Heap-allocate the state instead -- ps_malloc keeps
+    // it in PSRAM where huff-table fragmentation doesn't matter, with
+    // a malloc fallback for non-PSRAM parts.
+    tinfl_decompressor* decomp = (tinfl_decompressor*)heap_caps_malloc(
+        sizeof(tinfl_decompressor), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!decomp) {
+        decomp = (tinfl_decompressor*)malloc(sizeof(tinfl_decompressor));
+    }
+    if (!decomp) {
         free(outBuf);
         lua_pushnil(L);
-        lua_pushstring(L, "inflate failed");
+        lua_pushstring(L, "out-of-memory (decompressor state)");
+        return 2;
+    }
+    tinfl_init(decomp);
+
+    int flags = (raw ? 0 : TINFL_FLAG_PARSE_ZLIB_HEADER)
+              | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+
+    size_t inRemaining  = inLen;
+    size_t outRemaining = (size_t)outSize;
+    tinfl_status status = tinfl_decompress(
+        decomp,
+        (const mz_uint8*)inData, &inRemaining,
+        outBuf, outBuf, &outRemaining,
+        flags);
+
+    free(decomp);
+
+    if (status != TINFL_STATUS_DONE) {
+        free(outBuf);
+        lua_pushnil(L);
+        lua_pushfstring(L, "inflate failed (status=%d)", (int)status);
         return 2;
     }
 
-    lua_pushlstring(L, (const char*)outBuf, decoded);
+    // outRemaining is the number of *new* bytes written this call when
+    // using a non-wrapping output buffer, which here equals the total
+    // since we passed the full input in one shot.
+    lua_pushlstring(L, (const char*)outBuf, outRemaining);
     free(outBuf);
     return 1;
 }
