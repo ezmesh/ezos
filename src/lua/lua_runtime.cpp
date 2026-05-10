@@ -3,6 +3,7 @@
 #include "embedded_scripts.h"
 #include "../config.h"
 #include "../util/log.h"
+#include "../hardware/sd_manager.h"
 #include <esp_heap_caps.h>
 #include <LittleFS.h>
 #include <SD.h>
@@ -48,6 +49,8 @@ void registerNetModule(lua_State* L);
 #include "bindings/touch_bindings.h"
 // JPEG / PNG encode bindings + header peek helpers
 #include "bindings/image_bindings.h"
+// ez.debug.* (test-only): asyncio_stats, sd_remount, heap, last_panic.
+#include "bindings/debug_bindings.h"
 
 LuaRuntime& LuaRuntime::instance() {
     static LuaRuntime runtime;
@@ -234,6 +237,12 @@ void LuaRuntime::registerAllModules() {
     // pass appends encode_jpeg/encode_png methods to it.
     image_bindings::registerBindings(_state);
 
+    // ez.debug.* test-only introspection (asyncio queue, sd remount,
+    // heap fragmentation, reset_reason + coredump in one call). Last
+    // so it can reach into AsyncIO / SDManager / esp-idf state once
+    // everything else is wired up.
+    debug_bindings::registerBindings(_state);
+
     LOG("LuaRuntime", "Modules registered");
 }
 
@@ -294,23 +303,32 @@ bool LuaRuntime::executeFile(const char* path) {
         return false;
     }
 
-    // Handle explicit /sd/ path
+    // Handle explicit /sd/ path. Lock spans only the open->read->close
+    // -- executeBuffer runs the Lua VM via lua_pcall and could itself
+    // do SD I/O (or take many ms), so holding the SD mutex across it
+    // would starve every other SD consumer for the script's lifetime.
     if (strncmp(path, "/sd/", 4) == 0) {
         const char* fsPath = path + 3;  // Strip "/sd"
-        if (SD.begin(SD_CS)) {
-            File file = SD.open(fsPath, "r");
-            if (file) {
-                size_t fileSize = file.size();
-                char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                if (buffer) {
-                    size_t bytesRead = file.read((uint8_t*)buffer, fileSize);
+        if (SDManager::ensureMounted()) {
+            char* buffer = nullptr;
+            size_t bytesRead = 0;
+            {
+                SDManager::ScopedLock lk;
+                File file = SD.open(fsPath, "r");
+                if (file) {
+                    size_t fileSize = file.size();
+                    buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                    if (buffer) {
+                        bytesRead = file.read((uint8_t*)buffer, fileSize);
+                        buffer[bytesRead] = '\0';
+                    }
                     file.close();
-                    buffer[bytesRead] = '\0';
-                    bool result = executeBuffer(buffer, bytesRead, path);
-                    heap_caps_free(buffer);
-                    return result;
                 }
-                file.close();
+            }  // lk released before executeBuffer
+            if (buffer) {
+                bool result = executeBuffer(buffer, bytesRead, path);
+                heap_caps_free(buffer);
+                return result;
             }
         }
         char err[128];
@@ -358,21 +376,29 @@ bool LuaRuntime::executeFile(const char* path) {
 
     // Legacy /scripts/ paths: try SD > FS > embedded
     if (strncmp(path, "/scripts/", 9) == 0) {
-        // 1. Try SD card
-        if (SD.begin(SD_CS)) {
-            File file = SD.open(path, "r");
-            if (file) {
-                size_t fileSize = file.size();
-                char* buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                if (buffer) {
-                    size_t bytesRead = file.read((uint8_t*)buffer, fileSize);
+        // 1. Try SD card. Same lock-narrowing pattern as the /sd/
+        // branch above -- read into a buffer under the lock, release
+        // before executeBuffer's lua_pcall.
+        if (SDManager::ensureMounted()) {
+            char* buffer = nullptr;
+            size_t bytesRead = 0;
+            {
+                SDManager::ScopedLock lk;
+                File file = SD.open(path, "r");
+                if (file) {
+                    size_t fileSize = file.size();
+                    buffer = (char*)heap_caps_malloc(fileSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                    if (buffer) {
+                        bytesRead = file.read((uint8_t*)buffer, fileSize);
+                        buffer[bytesRead] = '\0';
+                    }
                     file.close();
-                    buffer[bytesRead] = '\0';
-                    bool result = executeBuffer(buffer, bytesRead, path);
-                    heap_caps_free(buffer);
-                    return result;
                 }
-                file.close();
+            }
+            if (buffer) {
+                bool result = executeBuffer(buffer, bytesRead, path);
+                heap_caps_free(buffer);
+                return result;
             }
         }
 

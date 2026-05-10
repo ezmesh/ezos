@@ -1,12 +1,12 @@
-name: Main Branch Artifacts
+name: Test Branch Artifacts
 
 on:
   push:
     branches:
-      - main
-    # Don't retrigger on our own release commits (which only touch the
-    # generated changelog / version-stamp files). [skip ci] in the
-    # commit message is the belt; this is the suspenders.
+      - test
+    # Don't retrigger when our own release commit pushes generated
+    # changelog/version-stamp files back to the branch. Belt + suspenders
+    # with [skip ci] in the release commit message.
     paths-ignore:
       - 'changelog/versions.json'
       - 'changelog/archive.json'
@@ -76,16 +76,16 @@ jobs:
         id: changelog
         run: |
           npm ci
-          # --push pushes the release commit + tag back to main so
-          # versions.json[0].commit advances each run. Without this,
-          # subsequent runs all compute "next version" against a frozen
-          # anchor and the published version label drifts non-
-          # monotonically; the version-bump-required PR gate also has
-          # nothing real to anchor against.
+          # Push the release commit + tag back to the branch so
+          # versions.json[0].commit advances and the next run computes
+          # the next version against the freshly-released anchor (not
+          # against the original f2370c9 hand-edit). Without this the
+          # version label drifts non-monotonically and the
+          # version-bump-required PR gate has no real anchor.
           #
-          # [skip ci] in the message keeps the resulting push from
-          # re-triggering this workflow (paths-ignore above is the
-          # primary loop-break; this is defense in depth).
+          # [skip ci] in the commit message keeps the resulting push
+          # from re-triggering this workflow on top of the paths-ignore
+          # filter above (defense in depth).
           #
           # No retry on push race: if origin advances during the run,
           # xtr-changelog --push fails non-FF and the workflow errors
@@ -100,13 +100,6 @@ jobs:
             --message '[skip ci] chore(release): {version}'
 
           cp changelog/versions.json lua/docs/changelog.json
-          # Stamp the just-released version into platformio.ini so the
-          # built binary reports the same version string. Note: this
-          # edit is local to the runner -- it is not committed back to
-          # the branch (nor needs to be: the version is derivable from
-          # versions.json[0]). If you want platformio.ini's checked-in
-          # version to track too, amend the release commit before
-          # --push above. Today it lags by exactly one release.
           VERSION=$(node -e "const v=require('./changelog/versions.json'); console.log(v.versions[0].version)")
           sed -i "s/^custom_version *= *.*/custom_version = ${VERSION}/" platformio.ini
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
@@ -126,12 +119,6 @@ jobs:
 
       - name: Stamp build timestamp
         id: build_stamp
-        # Captured here (not inside the build step) so the manifest
-        # builder below can reference the exact same value -- the
-        # firmware-update screen compares manifest.built_at against
-        # the running firmware's build_at to spot downgrades, and a
-        # 1-second skew from re-invoking `date` would have produced
-        # spurious warnings on freshly-pushed builds.
         run: echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Build firmware
@@ -169,13 +156,13 @@ jobs:
           FULL_SHA256=$(sha256sum "$FULL_BIN" | awk '{print $1}')
           VERSION='${{ steps.changelog.outputs.version }}'
           BUILT_AT='${{ steps.build_stamp.outputs.built_at }}'
-          BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-main/firmware.bin"
-          FULL_BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-main/firmware-full.bin"
+          BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-test/firmware.bin"
+          FULL_BIN_URL="https://github.com/${{ github.repository }}/releases/download/rolling-test/firmware-full.bin"
 
           python -c "
           import json
           m = {
-              'tag': 'rolling-main',
+              'tag': 'rolling-test',
               'sha': '${{ github.sha }}',
               'short_sha': '${{ github.sha }}'[:7],
               'version': '$VERSION',
@@ -200,21 +187,21 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ github.sha }}
+          name: firmware-test-${{ github.sha }}
           path: artifacts/*
           retention-days: 90
 
-      - name: Publish rolling-main release
+      - name: Publish rolling-test release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG=rolling-main
+          TAG=rolling-test
           NOTES_FILE=$(mktemp)
           SHORT_SHA="${GITHUB_SHA::7}"
           cat >"$NOTES_FILE" <<EOF
-          Auto-built from main on $(date -u +%Y-%m-%dT%H:%M:%SZ).
+          Auto-built from test on $(date -u +%Y-%m-%dT%H:%M:%SZ).
 
           Commit: ${GITHUB_SHA}
           Short SHA: ${SHORT_SHA}
@@ -240,7 +227,7 @@ jobs:
           fi
 
           gh release create "$TAG" "${ASSETS[@]}" \
-            --title "Rolling main (${SHORT_SHA})" \
+            --title "Rolling test (${SHORT_SHA})" \
             --notes-file "$NOTES_FILE" \
             --prerelease
 
@@ -248,12 +235,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Keep only the 3 most recent main builds
+      - name: Keep only the 3 most recent test builds
         uses: actions/github-script@v7
         with:
           script: |
             const KEEP = 3;
-            const PREFIX = 'firmware-';
+            const PREFIX = 'firmware-test-';
 
             const artifacts = await github.paginate(
               github.rest.actions.listArtifactsForRepo,

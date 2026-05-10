@@ -1,0 +1,24 @@
+#!/bin/sh
+# Enforce conventional commit format on the first line.
+# Allowed: type(scope): description  OR  type: description
+# Types: feat fix build chore ci docs refactor perf test style
+# Merge commits and [skip ci] release commits are exempt.
+
+msg=$(head -1 "$1")
+
+# Allow merge commits
+echo "$msg" | grep -qE '^Merge ' && exit 0
+
+# Allow release commits from changelog tool
+echo "$msg" | grep -qE '^\[skip ci\]|chore\(release\)' && exit 0
+
+if ! echo "$msg" | grep -qE '^(feat|fix|build|chore|ci|docs|refactor|perf|test|style)(\([a-zA-Z0-9_-]+\))?(!)?:'; then
+    echo "ERROR: Commit message does not follow Conventional Commits format."
+    echo ""
+    echo "  Expected: type(scope): description"
+    echo "  Got:      $msg"
+    echo ""
+    echo "  Allowed types: feat fix build chore ci docs refactor perf test style"
+    echo ""
+    exit 1
+fi

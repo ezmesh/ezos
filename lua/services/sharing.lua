@@ -30,6 +30,7 @@ local sharing = {}
 local URL_PREFIX = "https://ezme.sh/#"
 local CONTACT_VERB = "add/v1"
 local INVITE_VERB = "join/v1"
+local TIME_VERB = "time/v1"
 
 local NONCE_SIZE = 8
 local AES_BLOCK_SIZE = 16
@@ -181,6 +182,13 @@ function sharing.encode_channel_invite(recipient_pub_key_hex, channel_name, chan
     return URL_PREFIX .. INVITE_VERB .. "?t=" .. token
 end
 
+-- Encode the current unix time into a share URL.
+function sharing.encode_time()
+    local ts = ez.system.get_time_unix()
+    if not ts or ts == 0 then return nil, "clock not set" end
+    return URL_PREFIX .. TIME_VERB .. "?t=" .. tostring(ts)
+end
+
 -- Parse arbitrary text and return a structured share descriptor if it
 -- contains a recognised share URL, or nil otherwise. Looks for the
 -- URL prefix anywhere in the text -- bubbles can have leading words
@@ -189,6 +197,7 @@ end
 -- Returned shape:
 --   { kind = "contact", pub_key_hex = "...", name = "..." }
 --   { kind = "channel_invite", token = "<base64url>" }
+--   { kind = "time", timestamp = <unix_ts> }
 function sharing.parse(text)
     if not text or #text == 0 then return nil end
 
@@ -210,6 +219,13 @@ function sharing.parse(text)
         return {
             kind = "channel_invite",
             token = params.t,
+        }
+    elseif verb == TIME_VERB then
+        local ts = tonumber(params.t)
+        if not ts or ts < 1577836800 then return nil end  -- before 2020
+        return {
+            kind = "time",
+            timestamp = ts,
         }
     end
     return nil

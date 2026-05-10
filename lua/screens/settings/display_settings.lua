@@ -64,10 +64,34 @@ end
 
 local Display = { title = "Display" }
 
+local ROTATE_LABELS = { "Off", "On boot", "Every time shown" }
+local ROTATE_VALUES = { "off", "boot", "shown" }
+
+local SCREENSAVER_OPTIONS = {
+    { label = "Off",     value = 0 },
+    { label = "1 min",   value = 60 },
+    { label = "2 min",   value = 120 },
+    { label = "5 min",   value = 300 },
+    { label = "10 min",  value = 600 },
+    { label = "30 min",  value = 1800 },
+}
+
 function Display.initial_state()
+    local ss_val = tonumber(ez.storage.get_pref("ss_timeout", 0)) or 0
+    local ss_idx = 1
+    for i, opt in ipairs(SCREENSAVER_OPTIONS) do
+        if opt.value == ss_val then ss_idx = i break end
+    end
+    local wp_val = ez.storage.get_pref("wp_rotate", "boot")
+    local wp_idx = 1
+    for i, v in ipairs(ROTATE_VALUES) do
+        if v == wp_val then wp_idx = i break end
+    end
     return {
         brightness   = tonumber(ez.storage.get_pref("screen_bright", 200)) or 200,
         kb_backlight = tonumber(ez.storage.get_pref("kb_backlight", 0)) or 0,
+        screensaver  = ss_idx,
+        wp_rotate    = wp_idx,
     }
 end
 
@@ -116,6 +140,40 @@ function Display:build(state)
                 ez.keyboard.set_backlight(val)
                 ez.storage.set_pref("kb_backlight", val)
                 state.kb_backlight = val
+            end,
+        })
+    )
+
+    content[#content + 1] = ui.padding({ 12, 8, 4, 8 },
+        ui.text_widget("Screensaver", { color = "ACCENT", font = "small_aa" })
+    )
+    content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+        ui.dropdown(SCREENSAVER_OPTIONS, {
+            value = state.screensaver,
+            on_change = function(idx)
+                local val = SCREENSAVER_OPTIONS[idx].value
+                ez.storage.set_pref("ss_timeout", val)
+                state.screensaver = idx
+            end,
+        })
+    )
+    content[#content + 1] = ui.padding({ 2, 8, 4, 8 },
+        ui.text_widget(
+            "Cycles animated patterns to exercise all subpixels and "
+            .. "prevent LCD image persistence.",
+            { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
+    )
+
+    content[#content + 1] = ui.padding({ 12, 8, 4, 8 },
+        ui.text_widget("Wallpaper", { color = "ACCENT", font = "small_aa" })
+    )
+    content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+        ui.dropdown(ROTATE_LABELS, {
+            value = state.wp_rotate,
+            on_change = function(idx)
+                local v = ROTATE_VALUES[idx] or "off"
+                state.wp_rotate = idx
+                ez.storage.set_pref("wp_rotate", v)
             end,
         })
     )

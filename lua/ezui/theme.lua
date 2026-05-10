@@ -68,7 +68,7 @@ theme.SPACING = {
 -- Screen geometry
 theme.SCREEN_W = 320
 theme.SCREEN_H = 240
-theme.STATUS_H = 20    -- Global status bar height (always rendered at top)
+theme.STATUS_H = 18    -- Global status bar height (always rendered at top)
 theme.TITLE_H  = 14    -- In-screen sub-bar height (back hint / right action)
 
 -- Map tile palettes. Tiles store 3-bit semantic indices (0..7 = Land, Water,

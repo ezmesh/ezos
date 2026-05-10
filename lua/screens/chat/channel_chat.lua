@@ -4,6 +4,8 @@
 
 local ui = require("ezui")
 local channels_svc = require("services.channels")
+local sharing_svc = require("services.sharing")
+local time_share = require("screens.chat.time_share")
 require("screens.chat.chat_common")  -- registers chat_bubble node type
 
 -- Pin the scroll viewport to the most recent message after a rebuild.
@@ -27,6 +29,108 @@ local function stick_to_bottom(inst)
     local s = find_scroll(inst._tree)
     if s then s.scroll_offset = 99999 end
     require("ezui.screen").invalidate()
+end
+
+local screen_mod = require("ezui.screen")
+
+-- Context menu for a channel message bubble
+local function show_context_menu(self, channel, msg)
+    local MenuDef = { title = "Message" }
+
+    function MenuDef:build(state)
+        local items = {}
+        local preview = msg.text or ""
+        if #preview > 30 then preview = preview:sub(1, 27) .. "..." end
+
+        items[#items + 1] = ui.title_bar(preview, { back = true })
+
+        local actions = {}
+
+        -- Time share actions (before generic actions)
+        for _, item in ipairs(time_share.build_actions(msg)) do
+            actions[#actions + 1] = item
+        end
+
+        if not msg.is_self then
+            local sender_name = msg.sender_name or "?"
+            local count = msg.count or 1
+            -- Header row. Annotate the sender label with the repeat
+            -- count when the bubble is the rolled-up view of multiple
+            -- receptions of the same text. Single-receipt messages
+            -- collapse to a one-line "Signal: -94 dBm" subtitle, which
+            -- is what existing users expect.
+            if count > 1 then
+                actions[#actions + 1] = ui.list_item({
+                    title = "From: " .. sender_name
+                        .. " (" .. count .. " repeats)",
+                    disabled = true,
+                })
+                -- Range rows (only added if we actually saw the value).
+                if msg.rssi_min and msg.rssi_max then
+                    actions[#actions + 1] = ui.list_item({
+                        title = string.format("RSSI: %d..%d dBm",
+                            math.floor(msg.rssi_min),
+                            math.floor(msg.rssi_max)),
+                        disabled = true,
+                    })
+                end
+                if msg.hops_min and msg.hops_max then
+                    actions[#actions + 1] = ui.list_item({
+                        title = string.format("Hops: %d..%d",
+                            msg.hops_min, msg.hops_max),
+                        disabled = true,
+                    })
+                end
+                if msg.snr_min and msg.snr_max then
+                    actions[#actions + 1] = ui.list_item({
+                        title = string.format("SNR:  %.1f..%.1f dB",
+                            msg.snr_min, msg.snr_max),
+                        disabled = true,
+                    })
+                end
+            else
+                local rssi_str = msg.rssi and
+                    string.format("%d dBm", math.floor(msg.rssi))
+                    or "unknown"
+                actions[#actions + 1] = ui.list_item({
+                    title = "From: " .. sender_name,
+                    subtitle = "Signal: " .. rssi_str,
+                    disabled = true,
+                })
+            end
+        end
+
+        if msg.is_self then
+            actions[#actions + 1] = ui.list_item({
+                title = "Status: sent",
+                disabled = true,
+            })
+
+            actions[#actions + 1] = ui.list_item({
+                title = "Repeat Send",
+                subtitle = "Send this text again",
+                on_press = function()
+                    channels_svc.send(channel, msg.text)
+                    screen_mod.pop()
+                end,
+            })
+        end
+
+        local content = ui.vbox({ gap = 0 }, actions)
+        items[#items + 1] = ui.scroll({ grow = 1 }, content)
+
+        return ui.vbox({ gap = 0, bg = "BG" }, items)
+    end
+
+    function MenuDef:handle_key(k)
+        if k.character == "q" or k.special == "ESCAPE" then
+            return "pop"
+        end
+        return nil
+    end
+
+    local inst = screen_mod.create(MenuDef, {})
+    screen_mod.push(inst)
 end
 
 local ChannelChat = { title = "Channel" }
@@ -55,10 +159,15 @@ function ChannelChat:build(state)
             })
         )
     else
+        content_items[#content_items + 1] = { type = "spacer", h = 2, grow = 0 }
         for _, msg in ipairs(msgs) do
             content_items[#content_items + 1] = {
                 type = "chat_bubble",
                 msg = msg,
+                share = time_share.card_for_message(msg),
+                on_press = function()
+                    show_context_menu(self, channel, msg)
+                end,
             }
         end
     end
@@ -87,6 +196,22 @@ function ChannelChat:build(state)
     )
 
     return ui.vbox({ gap = 0, bg = "BG" }, items)
+end
+
+function ChannelChat:menu()
+    local channel = self._state.channel or "#Public"
+    return {
+        {
+            title = "Share time",
+            subtitle = "Send your current clock to the channel",
+            on_press = function()
+                local url, err = sharing_svc.encode_time()
+                if url then
+                    channels_svc.send(channel, url)
+                end
+            end,
+        },
+    }
 end
 
 function ChannelChat:on_enter()

@@ -3,9 +3,14 @@
 A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 with LoRa), featuring encrypted mesh networking, offline maps, and a Lua-scripted user interface.
 
 <p align="center">
-  <img src="docs/screenshots/main-menu.png" alt="Main Menu" width="240"/>
-  <img src="docs/screenshots/map-viewer.png" alt="Map Viewer" width="240"/>
-  <img src="docs/screenshots/mesh-chat.png" alt="Mesh Chat" width="240"/>
+  <img src="docs/screenshots/desktop.png" alt="Desktop" width="200"/>
+  <img src="docs/screenshots/main-menu.png" alt="Main Menu" width="200"/>
+  <img src="docs/screenshots/contacts.png" alt="Contacts" width="200"/>
+</p>
+<p align="center">
+  <img src="docs/screenshots/mesh-chat.png" alt="Mesh Chat" width="200"/>
+  <img src="docs/screenshots/settings.png" alt="Settings" width="200"/>
+  <img src="docs/screenshots/map.png" alt="Map" width="200"/>
 </p>
 
 > 🚧 **Early development.** APIs, on-disk formats, and the UI framework change between commits. Expect breaking changes, missing features, and rough edges. Not yet suitable for daily-driver or production use. Pin to a released tag if you want a stable build.
@@ -30,7 +35,7 @@ A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 wi
 - 🗺️ **Offline Maps** - OpenStreetMap tiles with city/town labels
 - 📍 **GPS Integration** - Location sharing with mesh nodes
 - 👥 **Contact Management** - Save and organize mesh contacts
-- 🎮 **Games** - 2048, Tetris, Pong, Poker, Blackjack, Snake, Solitaire, Sudoku
+- 🎮 **Games** - Tetris, Pong, Snake, Solitaire, Sudoku
 - 🎨 **Customizable UI** - Themes, wallpapers, icon packs
 - 🖥️ **Lua Shell** - Scriptable interface with full API access
 

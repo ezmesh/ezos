@@ -100,8 +100,10 @@ local CATEGORIES = {
               icon = icons.circle_dot, mod = "screens.games.pong" },
             { title = "Starshot", subtitle = "Space shooter, guns+items (2P)",
               icon = icons.rocket, mod = "screens.games.shooter" },
-            { title = "Platformer", subtitle = "12 levels, 4 environments (2P WiFi)",
-              icon = icons.gamepad, mod = "screens.games.platformer" },
+            { title = "Snake", subtitle = "Classic snake on a 26x17 grid",
+              icon = icons.circle_dot, mod = "screens.games.snake" },
+            { title = "Pool (1P / 2P WiFi)", subtitle = "8-ball pool vs AI or over SoftAP + UDP",
+              icon = icons.circle_dot, mod = "screens.games.pool" },
         },
     },
     {
@@ -125,6 +127,11 @@ local CATEGORIES = {
               icon = icons.circle_dot, mod = "screens.tools.touch_test" },
             { title = "Pixel Fix", subtitle = "Clear screen ghosting",
               icon = icons.monitor, mod = "screens.tools.pixel_fix" },
+            { title = "Screensaver", subtitle = "Animated pixel exerciser",
+              icon = icons.monitor, action = function()
+                  local ss = require("screens.tools.screensaver")
+                  ss.start()
+              end },
         },
     },
     {
@@ -138,12 +145,10 @@ local CATEGORIES = {
         -- Rollback) sit on the Dev tab below; this tab is just the
         -- end-user "settings" view plus Repeat-onboarding / About.
         entries = {
-            { title = "Display", subtitle = "Brightness, theme, accent",
+            { title = "Display", subtitle = "Brightness, theme, wallpaper, accent",
               icon = icons.palette, mod = "screens.settings.display_settings" },
             { title = "WiFi", subtitle = "Scan, connect, save credentials",
               icon = icons.wifi, mod = "screens.settings.wifi_settings" },
-            { title = "Wallpaper", subtitle = "Rotate, tile, auto-pan",
-              icon = icons.wallpaper, mod = "screens.settings.wallpaper_settings" },
             { title = "Keyboard", subtitle = "Repeat, trackball",
               icon = icons.keyboard, mod = "screens.settings.keyboard_settings" },
             { title = "GPS", subtitle = "Power, clock sync",
@@ -156,6 +161,8 @@ local CATEGORIES = {
               icon = icons.volume, mod = "screens.settings.sound_settings" },
             { title = "Firmware", subtitle = "Check rolling-main update + install OTA",
               icon = icons.cloud_upload, mod = "screens.settings.firmware_update" },
+            { title = "What's New", subtitle = "Changelog for this firmware",
+              icon = icons.info, mod = "screens.settings.whats_new" },
             { title = "Repeat onboarding", subtitle = "Walk through the first-run wizard again",
               icon = icons.rotate_cw, action = function()
                   require("screens.onboarding").start()

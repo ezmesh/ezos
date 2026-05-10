@@ -515,7 +515,8 @@ static void pushNodeTable(lua_State* L, const NodeInfo& node) {
 
 // Helper: Push group packet info as Lua table onto stack
 static void pushGroupPacketTable(lua_State* L, uint8_t channelHash, const uint8_t* data, size_t dataLen,
-                                  uint8_t senderHash, float rssi, float snr) {
+                                  uint8_t senderHash, float rssi, float snr,
+                                  uint8_t hopCount) {
     lua_newtable(L);
 
     lua_pushinteger(L, channelHash);
@@ -532,6 +533,12 @@ static void pushGroupPacketTable(lua_State* L, uint8_t channelHash, const uint8_
 
     lua_pushnumber(L, snr);
     lua_setfield(L, -2, "snr");
+
+    // Outer-packet path length. With PATH_HASH_SIZE=1 every hop is a
+    // single byte, so this is the hop count -- exposed so the channel
+    // service can track per-receipt hop range when duplicates collapse.
+    lua_pushinteger(L, hopCount);
+    lua_setfield(L, -2, "hop_count");
 }
 
 // Helper: Push parsed packet info as Lua table onto stack
@@ -622,7 +629,7 @@ LUA_FUNCTION(l_mesh_on_node_discovered) {
 // @description Registers a callback for receiving GRP_TXT and GRP_DATA packets.
 // The callback receives pre-parsed group packet data including the encrypted payload.
 // Also posts to message bus "mesh/group_packet". Pass nil to remove the callback.
-// @param callback Function(packet_table) called with {channel_hash, data, sender_hash, rssi, snr}
+// @param callback Function(packet_table) called with {channel_hash, data, sender_hash, rssi, snr, hop_count}
 // @note When this callback is set, Lua takes over channel handling
 // @example
 // ez.mesh.on_group_packet(function(pkt)
@@ -642,11 +649,13 @@ LUA_FUNCTION(l_mesh_on_group_packet) {
 
         if (mesh) {
             mesh->setGroupPacketCallback([](uint8_t channelHash, const uint8_t* data, size_t dataLen,
-                                           uint8_t senderHash, float rssi, float snr) {
+                                           uint8_t senderHash, float rssi, float snr,
+                                           uint8_t hopCount) {
                 lua_State* LS = LUA_STATE;
                 if (LS && groupPacketCallbackRef != LUA_NOREF) {
                     lua_rawgeti(LS, LUA_REGISTRYINDEX, groupPacketCallbackRef);
-                    pushGroupPacketTable(LS, channelHash, data, dataLen, senderHash, rssi, snr);
+                    pushGroupPacketTable(LS, channelHash, data, dataLen, senderHash, rssi, snr,
+                                         hopCount);
 
                     if (lua_pcall(LS, 1, 0, 0) != LUA_OK) {
                         Serial.printf("[Lua] Group packet callback error: %s\n",
@@ -659,9 +668,9 @@ LUA_FUNCTION(l_mesh_on_group_packet) {
                 // Copy data since it won't survive beyond this callback
                 std::vector<uint8_t> dataCopy(data, data + dataLen);
                 MessageBus::instance().postTable("mesh/group_packet",
-                    [channelHash, dataCopy, senderHash, rssi, snr](lua_State* L) {
+                    [channelHash, dataCopy, senderHash, rssi, snr, hopCount](lua_State* L) {
                         pushGroupPacketTable(L, channelHash, dataCopy.data(), dataCopy.size(),
-                                           senderHash, rssi, snr);
+                                           senderHash, rssi, snr, hopCount);
                     });
             });
         }

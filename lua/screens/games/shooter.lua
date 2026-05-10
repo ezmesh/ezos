@@ -64,6 +64,18 @@ local GUN_MISSILE = 4
 
 local GUN_NAMES = { "Blaster", "Spread", "Rapid", "Missile" }
 
+-- Hot-path constants. These were previously table literals built
+-- inside `spawn` closures / apply_input on every fire frame, churning
+-- the GC.
+local SPREAD_ANGLES = { -0.28, 0, 0.28 }
+local HEAVY_BURST_ANGLES = { -0.3, 0, 0.3 }
+local GUN_SFX_NAMES = {
+    [1] = "blaster",  -- GUN_BLASTER
+    [2] = "spread",   -- GUN_SPREAD
+    [3] = "rapid",    -- GUN_RAPID
+    [4] = "missile",  -- GUN_MISSILE
+}
+
 -- Per-gun: cooldown in frames, bullet damage, spawn pattern.
 -- Kept table-driven so adding a gun is purely data.
 -- Each gun links to a sound in sfx. Sound plays in apply_input when
@@ -71,34 +83,40 @@ local GUN_NAMES = { "Blaster", "Spread", "Rapid", "Missile" }
 -- just the key press, which would spam when the gun's on cooldown.
 local GUNS = {
     [GUN_BLASTER] = { cooldown = 7,  damage = 2, sound = sfx.blaster,
-                      spawn = function(px, py, bullets)
-                          bullets[#bullets + 1] = {
-                              x = px, y = py - 10, vx = 0, vy = -6,
-                              dmg = 2, color = rgb(240, 230, 100), kind = "blaster" }
+                      spawn = function(px, py, acquire)
+                          local b = acquire(); if not b then return end
+                          b.x = px; b.y = py - 10
+                          b.vx = 0; b.vy = -6
+                          b.dmg = 2; b.color = rgb(240, 230, 100)
+                          b.kind = "blaster"
                       end },
     [GUN_SPREAD]  = { cooldown = 12, damage = 2, sound = sfx.spread,
-                      spawn = function(px, py, bullets)
-                          for _, a in ipairs({-0.28, 0, 0.28}) do
-                              bullets[#bullets + 1] = {
-                                  x = px, y = py - 10,
-                                  vx = sin(a) * 6, vy = -cos(a) * 6,
-                                  dmg = 2, color = rgb(160, 240, 140), kind = "spread" }
+                      spawn = function(px, py, acquire)
+                          for _, a in ipairs(SPREAD_ANGLES) do
+                              local b = acquire(); if not b then return end
+                              b.x = px; b.y = py - 10
+                              b.vx = sin(a) * 6; b.vy = -cos(a) * 6
+                              b.dmg = 2; b.color = rgb(160, 240, 140)
+                              b.kind = "spread"
                           end
                       end },
     [GUN_RAPID]   = { cooldown = 3,  damage = 1, sound = sfx.rapid,
-                      spawn = function(px, py, bullets)
-                          bullets[#bullets + 1] = {
-                              x = px, y = py - 10, vx = 0, vy = -8,
-                              dmg = 1, color = rgb(90, 200, 240), kind = "rapid" }
+                      spawn = function(px, py, acquire)
+                          local b = acquire(); if not b then return end
+                          b.x = px; b.y = py - 10
+                          b.vx = 0; b.vy = -8
+                          b.dmg = 1; b.color = rgb(90, 200, 240)
+                          b.kind = "rapid"
                       end },
     -- Missile is slower but homing + high damage.
     [GUN_MISSILE] = { cooldown = 18, damage = 5, sound = sfx.missile,
-                      spawn = function(px, py, bullets)
-                          bullets[#bullets + 1] = {
-                              x = px, y = py - 10, vx = 0, vy = -3,
-                              dmg = 5, color = rgb(240, 120, 60), kind = "missile",
-                              home = true,
-                              ttl = 120 }
+                      spawn = function(px, py, acquire)
+                          local b = acquire(); if not b then return end
+                          b.x = px; b.y = py - 10
+                          b.vx = 0; b.vy = -3
+                          b.dmg = 5; b.color = rgb(240, 120, 60)
+                          b.kind = "missile"
+                          b.home = true; b.ttl = 120
                       end },
 }
 
@@ -179,8 +197,13 @@ local enemies          -- list
 local bullets          -- list { x, y, vx, vy, dmg, color, kind, home?, ttl? }
 local items            -- list { x, y, vy, kind }
 local stars            -- background dots; {x, y, vy, color}
-local particles        -- short-lived sparks: {x, y, vx, vy, life, color}
-local popups           -- score popups: {x, y, life, text, color}
+-- Pool-allocated to avoid per-spawn table churn that was triggering
+-- visible GC stalls during combat. life <= 0 marks a free slot.
+local PARTICLE_POOL = 96
+local POPUP_POOL    = 24
+local BULLET_POOL   = 96
+local particles        -- pool of {x, y, vx, vy, life, color}
+local popups           -- pool of {x, y, life, max_life, text, color}
 local asteroids        -- destructible obstacles: {x, y, vy, hp, size, rot, rot_speed}
 local spawn_timer
 local wave
@@ -198,6 +221,10 @@ local status_text = ""
 local run_seed
 local encounter_plan
 local encounter_idx
+-- Cached resolution of encounter_plan[encounter_idx]. The plan uses a
+-- lazy __index metamethod, so reading it every frame dispatches a
+-- function call. Refresh only when encounter_idx advances.
+local current_encounter
 local encounter_pos        -- frames since the current encounter started
 local next_entry_idx       -- index into the current encounter's entries
 local boss_announce_frames -- HUD banner timer ("BOSS — XYZ"), 0 = idle
@@ -209,13 +236,19 @@ local boss_announce_frames -- HUD banner timer ("BOSS — XYZ"), 0 = idle
 local gen_run
 local spawn_particle_burst
 local spawn_popup
+-- Bullets are pool-allocated to avoid the per-shot table churn that
+-- showed up as visible GC stalls during combat. acquire_bullet()
+-- finds the next free slot (with `dead == true`) and returns it for
+-- the caller to populate; nil if the pool is exhausted (drop the
+-- shot — much less visible than a frame stutter).
+local acquire_bullet
 
 -- Generator difficulty envelope. The first ~30 encounters ramp from
--- 0 → 1 (gentle on-ramp); past that, difficulty stays at 1 so the
--- run keeps pressure constant rather than escalating into farce.
+-- 0 → 1 (gentle on-ramp); past that, difficulty continues to climb
+-- slowly (logarithmic) so late-game waves stay challenging without
+-- becoming impossible.
 local DIFF_RAMP_OVER = 30
 local BOSS_EVERY     = 5       -- every 5th encounter is a boss
-local N_ENCOUNTERS   = 60      -- generated up-front; ~10-15 minutes
 
 -- Pause-menu cursor index. 1 = Resume, 2 = Volume slider, 3 = Quit.
 -- Stored at module scope so render() and the input dispatch share
@@ -292,9 +325,22 @@ local function reset_world(n_players)
     end
     enemies = {}
     bullets = {}
+    for i = 1, BULLET_POOL do
+        bullets[i] = { x = 0, y = 0, vx = 0, vy = 0,
+                       dmg = 0, color = 0, kind = "blaster",
+                       hostile = false, home = false, ttl = nil,
+                       dead = true }
+    end
     items   = {}
     particles = {}
-    popups    = {}
+    for i = 1, PARTICLE_POOL do
+        particles[i] = { x = 0, y = 0, vx = 0, vy = 0, life = 0, color = 0 }
+    end
+    popups = {}
+    for i = 1, POPUP_POOL do
+        popups[i] = { x = 0, y = 0, life = 0, max_life = 1,
+                      text = "", color = 0 }
+    end
     asteroids = {}
     wave = 1
     spawn_timer = 0
@@ -309,6 +355,7 @@ local function reset_world(n_players)
     run_seed = ez.system.millis()
     encounter_plan = gen_run(run_seed)
     encounter_idx  = 1
+    current_encounter = encounter_plan[1]
     encounter_pos  = 0
     next_entry_idx = 1
     boss_announce_frames = 0
@@ -320,6 +367,24 @@ local function reset_world(n_players)
     math.randomseed(ez.system.millis())
 end
 
+-- Defined here (after reset_world's local definitions of `bullets`
+-- via the upvalue) and assigned with `=` to bind to the forward decl.
+acquire_bullet = function()
+    for i = 1, #bullets do
+        local b = bullets[i]
+        if b.dead then
+            b.dead = false
+            -- Clear optional fields so a previously-missile slot
+            -- doesn't accidentally home / TTL-out as a blaster shot.
+            b.hostile = false
+            b.home = false
+            b.ttl = nil
+            return b
+        end
+    end
+    return nil
+end
+
 -- Spawn N small spark particles flying out from (x, y) in random
 -- directions, tinted to match the source. Used for enemy deaths and
 -- bullet impacts. Particles are cheap (8 floats each), stepped in
@@ -328,16 +393,29 @@ end
 -- the top bind to the same upvalue.
 spawn_particle_burst = function(x, y, count, color, speed)
     speed = speed or 2.5
+    local pool_size = #particles
+    local search = 1
     for _ = 1, count do
+        -- Find the next free slot (life <= 0). If the pool is full,
+        -- silently drop the spark — a few missed pixels during a
+        -- mega-burst is invisible; a per-frame GC stall is not.
+        local slot = nil
+        for j = search, pool_size do
+            if particles[j].life <= 0 then
+                slot = j
+                search = j + 1
+                break
+            end
+        end
+        if not slot then break end
         local a = rand() * math.pi * 2
         local s = speed * (0.4 + rand() * 0.8)
-        particles[#particles + 1] = {
-            x = x, y = y,
-            vx = math.cos(a) * s,
-            vy = math.sin(a) * s,
-            life = 25 + math.floor(rand() * 12),
-            color = color,
-        }
+        local p = particles[slot]
+        p.x = x; p.y = y
+        p.vx = math.cos(a) * s
+        p.vy = math.sin(a) * s
+        p.life = 25 + math.floor(rand() * 12)
+        p.color = color
     end
 end
 
@@ -345,11 +423,18 @@ end
 -- it goes. Cheap and a noticeable hit of feedback every time the
 -- player gets a kill.
 spawn_popup = function(x, y, text, color)
-    popups[#popups + 1] = {
-        x = x, y = y,
-        life = 32, max_life = 32,
-        text = text, color = color or rgb(255, 240, 180),
-    }
+    for i = 1, #popups do
+        local p = popups[i]
+        if p.life <= 0 then
+            p.x = x; p.y = y
+            p.life = 32; p.max_life = 32
+            p.text = text
+            p.color = color or rgb(255, 240, 180)
+            return
+        end
+    end
+    -- Pool exhausted: drop the popup. The HUD score still updates;
+    -- losing one floating "+25" during a kill spree is invisible.
 end
 
 ---------------------------------------------------------------------------
@@ -358,12 +443,17 @@ end
 
 local function spawn_enemy(kind, x)
     local def = ENEMY_DEFS[kind]
+    -- Scale HP with wave difficulty past the initial ramp. Wave 30 =
+    -- base HP; wave 60 ≈ 1.3x; wave 120 ≈ 1.6x. Keeps late-game
+    -- enemies from being trivial as the player accumulates power-ups.
+    local diff = wave_difficulty(wave)
+    local hp_scale = diff > 1 and diff or 1
     enemies[#enemies + 1] = {
         kind = kind,
         x = x or rand(def.size + 2, SW - def.size - 2),
         y = FIELD_TOP - def.size,
-        hp = def.hp,
-        t = 0,              -- per-enemy time counter for patterns
+        hp = math.floor(def.hp * hp_scale),
+        t = 0,
         phase = rand() * math.pi * 2,
     }
 end
@@ -414,20 +504,25 @@ end
 -- Allocates a spawn budget proportional to difficulty, picks
 -- enemies, and spaces them out over a duration that also tightens
 -- with difficulty (later encounters arrive in faster bursts).
+-- Compute difficulty for a given wave index. Ramps linearly 0→1 over
+-- the first 30 waves, then continues to climb logarithmically so
+-- late-game waves stay fresh: wave 60 ≈ 1.3, wave 120 ≈ 1.6.
+local function wave_difficulty(i)
+    if i <= DIFF_RAMP_OVER then
+        return (i - 1) / DIFF_RAMP_OVER
+    end
+    return 1.0 + math.log(i / DIFF_RAMP_OVER) * 0.4
+end
+
 local function gen_normal_encounter(diff)
     local budget = math.floor(2 + diff * 10)
     local entries = {}
     local cursor = 0
-    -- Loop bound caps the worst case so a runaway random sequence
-    -- can't loop forever; in practice the budget exhausts well
-    -- before hitting it.
-    for _ = 1, 20 do
+    for _ = 1, 30 do
         if budget <= 0 then break end
-        local kind = roll_enemy(diff)
+        local kind = roll_enemy(math.min(diff, 1.0))
         local cost = ENEMY_COST[kind] or 1
         if cost > budget then
-            -- Fallback to a cheap enemy so we don't drop the last
-            -- few budget points.
             kind = E_SCOUT
             cost = 1
         end
@@ -435,17 +530,15 @@ local function gen_normal_encounter(diff)
         entries[#entries + 1] = {
             frame = cursor,
             kind  = kind,
-            x     = rand(),  -- 0..1 normalised; resolved in step_encounter_plan
+            x     = rand(),
         }
-        -- Inter-spawn spacing: 24..56 frames at diff=0, narrowing
-        -- toward 12..28 frames at diff=1. Keeps the pace from
-        -- feeling like a constant stream at every difficulty.
-        local space = math.floor(rand(24, 56) * (1 - diff * 0.5))
-        if space < 8 then space = 8 end
+        -- Spawn spacing tightens with difficulty
+        local space = math.floor(rand(24, 56) * math.max(0.3, 1 - diff * 0.5))
+        if space < 6 then space = 6 end
         cursor = cursor + space
     end
     return {
-        duration = cursor + 60,  -- short breather after the last spawn
+        duration = cursor + 60,
         entries  = entries,
     }
 end
@@ -454,69 +547,136 @@ end
 -- early bosses are dramatic but survivable. Each boss section also
 -- carries a `title` that the HUD banner reads when the encounter
 -- begins.
-local function gen_boss_encounter(diff)
-    if diff < 0.3 then
-        return {
-            duration = 540,
-            entries = {
-                { frame = 0,  kind = E_BOMBER, x = 0.5 },
-                { frame = 90, kind = E_DRONE,  x = 0.25 },
-                { frame = 90, kind = E_DRONE,  x = 0.75 },
-            },
-            title = "BOSS - Recon",
-        }
-    elseif diff < 0.65 then
-        return {
-            duration = 720,
-            entries = {
-                { frame = 0,   kind = E_BOMBER, x = 0.3 },
-                { frame = 0,   kind = E_BOMBER, x = 0.7 },
-                { frame = 60,  kind = E_ZIGZAG, x = 0.15 },
-                { frame = 60,  kind = E_ZIGZAG, x = 0.85 },
-                { frame = 180, kind = E_DRONE,  x = 0.5 },
-            },
-            title = "BOSS - Bomber Squadron",
-        }
-    else
-        return {
-            duration = 900,
-            entries = {
-                { frame = 0,   kind = E_HEAVY, x = 0.5 },
-                { frame = 120, kind = E_DRONE, x = 0.15 },
-                { frame = 120, kind = E_DRONE, x = 0.40 },
-                { frame = 120, kind = E_DRONE, x = 0.60 },
-                { frame = 120, kind = E_DRONE, x = 0.85 },
-                { frame = 360, kind = E_ZIGZAG, x = 0.3 },
-                { frame = 360, kind = E_ZIGZAG, x = 0.7 },
-            },
-            title = "BOSS - Heavy + Drones",
-        }
-    end
-end
+local BOSS_TEMPLATES = {
+    -- Tier 1 (diff < 0.3)
+    { diff_min = 0, diff_max = 0.3, duration = 540,
+      title = "BOSS - Recon",
+      entries = {
+          { frame = 0,  kind = E_BOMBER, x = 0.5 },
+          { frame = 90, kind = E_DRONE,  x = 0.25 },
+          { frame = 90, kind = E_DRONE,  x = 0.75 },
+      }},
+    -- Tier 2 (0.3..0.65)
+    { diff_min = 0.3, diff_max = 0.65, duration = 720,
+      title = "BOSS - Bomber Squadron",
+      entries = {
+          { frame = 0,   kind = E_BOMBER, x = 0.3 },
+          { frame = 0,   kind = E_BOMBER, x = 0.7 },
+          { frame = 60,  kind = E_ZIGZAG, x = 0.15 },
+          { frame = 60,  kind = E_ZIGZAG, x = 0.85 },
+          { frame = 180, kind = E_DRONE,  x = 0.5 },
+      }},
+    { diff_min = 0.3, diff_max = 0.65, duration = 660,
+      title = "BOSS - Drone Swarm",
+      entries = {
+          { frame = 0,   kind = E_DRONE,  x = 0.2 },
+          { frame = 0,   kind = E_DRONE,  x = 0.4 },
+          { frame = 0,   kind = E_DRONE,  x = 0.6 },
+          { frame = 0,   kind = E_DRONE,  x = 0.8 },
+          { frame = 90,  kind = E_ZIGZAG, x = 0.5 },
+          { frame = 180, kind = E_DRONE,  x = 0.3 },
+          { frame = 180, kind = E_DRONE,  x = 0.7 },
+      }},
+    -- Tier 3 (0.65+)
+    { diff_min = 0.65, diff_max = 99, duration = 900,
+      title = "BOSS - Heavy Assault",
+      entries = {
+          { frame = 0,   kind = E_HEAVY,  x = 0.5 },
+          { frame = 120, kind = E_DRONE,  x = 0.15 },
+          { frame = 120, kind = E_DRONE,  x = 0.40 },
+          { frame = 120, kind = E_DRONE,  x = 0.60 },
+          { frame = 120, kind = E_DRONE,  x = 0.85 },
+          { frame = 360, kind = E_ZIGZAG, x = 0.3 },
+          { frame = 360, kind = E_ZIGZAG, x = 0.7 },
+      }},
+    { diff_min = 0.65, diff_max = 99, duration = 960,
+      title = "BOSS - Twin Heavies",
+      entries = {
+          { frame = 0,   kind = E_HEAVY,  x = 0.3 },
+          { frame = 0,   kind = E_HEAVY,  x = 0.7 },
+          { frame = 180, kind = E_BOMBER, x = 0.5 },
+          { frame = 300, kind = E_DRONE,  x = 0.2 },
+          { frame = 300, kind = E_DRONE,  x = 0.8 },
+      }},
+    { diff_min = 0.65, diff_max = 99, duration = 840,
+      title = "BOSS - Bomber Wall",
+      entries = {
+          { frame = 0,   kind = E_BOMBER, x = 0.15 },
+          { frame = 0,   kind = E_BOMBER, x = 0.38 },
+          { frame = 0,   kind = E_BOMBER, x = 0.62 },
+          { frame = 0,   kind = E_BOMBER, x = 0.85 },
+          { frame = 120, kind = E_ZIGZAG, x = 0.3 },
+          { frame = 120, kind = E_ZIGZAG, x = 0.7 },
+      }},
+    { diff_min = 1.0, diff_max = 99, duration = 1080,
+      title = "BOSS - Armada",
+      entries = {
+          { frame = 0,   kind = E_HEAVY,  x = 0.5 },
+          { frame = 60,  kind = E_BOMBER, x = 0.2 },
+          { frame = 60,  kind = E_BOMBER, x = 0.8 },
+          { frame = 180, kind = E_DRONE,  x = 0.15 },
+          { frame = 180, kind = E_DRONE,  x = 0.35 },
+          { frame = 180, kind = E_DRONE,  x = 0.65 },
+          { frame = 180, kind = E_DRONE,  x = 0.85 },
+          { frame = 420, kind = E_ZIGZAG, x = 0.3 },
+          { frame = 420, kind = E_ZIGZAG, x = 0.7 },
+      }},
+}
 
--- Generate the full encounter plan for a run. Deterministic given
--- the seed: same seed always produces the same plan, which lets us
--- show the seed on game-over for a "share your run" feel without
--- adding any infrastructure.
--- Plain assignment (not `local function`) — gen_run was forward-
--- declared at the top so reset_world() can call it through the
--- same upvalue.
-gen_run = function(seed)
-    math.randomseed(seed or ez.system.millis())
-    local plan = {}
-    for i = 1, N_ENCOUNTERS do
-        local diff = math.min(1.0, (i - 1) / DIFF_RAMP_OVER)
-        if i % BOSS_EVERY == 0 then
-            plan[i] = gen_boss_encounter(diff)
-        else
-            plan[i] = gen_normal_encounter(diff)
+local function gen_boss_encounter(diff)
+    -- Collect all templates matching the current difficulty
+    local candidates = {}
+    for _, t in ipairs(BOSS_TEMPLATES) do
+        if diff >= t.diff_min and diff < t.diff_max then
+            candidates[#candidates + 1] = t
         end
     end
-    return plan
+    if #candidates == 0 then
+        candidates[1] = BOSS_TEMPLATES[#BOSS_TEMPLATES]
+    end
+    local pick = candidates[math.floor(rand() * #candidates) + 1]
+    -- Deep copy entries so the template stays immutable
+    local entries = {}
+    for _, e in ipairs(pick.entries) do
+        entries[#entries + 1] = { frame = e.frame, kind = e.kind, x = e.x }
+    end
+    return {
+        duration = pick.duration,
+        entries  = entries,
+        title    = pick.title,
+    }
+end
+
+-- Generate encounters on-demand. Returns a table with a custom __index
+-- that lazily creates encounters as they're accessed, so the game
+-- runs infinitely without pre-allocating hundreds of encounters.
+-- Deterministic given the seed.
+gen_run = function(seed)
+    math.randomseed(seed or ez.system.millis())
+    local cache = {}
+    return setmetatable({}, {
+        __index = function(t, i)
+            if cache[i] then return cache[i] end
+            if type(i) ~= "number" or i < 1 then return nil end
+            -- Ensure all earlier encounters are generated first so
+            -- the random sequence stays deterministic.
+            for j = 1, i do
+                if not cache[j] then
+                    local diff = wave_difficulty(j)
+                    if j % BOSS_EVERY == 0 then
+                        cache[j] = gen_boss_encounter(diff)
+                    else
+                        cache[j] = gen_normal_encounter(diff)
+                    end
+                end
+            end
+            return cache[i]
+        end,
+    })
 end
 
 local function step_encounter_plan()
-    local enc = encounter_plan and encounter_plan[encounter_idx]
+    local enc = current_encounter
     if not enc then return end
     encounter_pos = encounter_pos + 1
 
@@ -546,8 +706,8 @@ local function step_encounter_plan()
         wave = encounter_idx
         status_text = "Wave " .. wave
         play_sfx("wave_up", sfx.wave_up, 75)
-        local nxt = encounter_plan[encounter_idx]
-        if nxt and nxt.title then
+        current_encounter = encounter_plan[encounter_idx]
+        if current_encounter and current_encounter.title then
             boss_announce_frames = 90
         end
     end
@@ -573,13 +733,13 @@ local function drop_item(x, y, enemy_kind)
     -- pool so the buffs don't trivialise late-game pacing.
     local r = rand()
     local kind
-    if     r < 0.25 then kind = I_HEAL
-    elseif r < 0.43 then kind = I_GUN
-    elseif r < 0.53 then kind = I_SHIELD
-    elseif r < 0.61 then kind = I_THRUST
-    elseif r < 0.65 then kind = I_MULTI
-    elseif r < 0.77 then kind = I_RATE
-    elseif r < 0.89 then kind = I_SPEED
+    if     r < 0.22 then kind = I_HEAL
+    elseif r < 0.38 then kind = I_GUN
+    elseif r < 0.47 then kind = I_SHIELD
+    elseif r < 0.54 then kind = I_THRUST
+    elseif r < 0.58 then kind = I_MULTI
+    elseif r < 0.76 then kind = I_RATE
+    elseif r < 0.88 then kind = I_SPEED
     else                 kind = I_SLOW end
     items[#items + 1] = {
         x = x, y = y, vy = 0.8, kind = kind,
@@ -603,25 +763,29 @@ local function step_enemy(e)
         -- Periodic bomb drop (modeled as a downward bullet on the
         -- same list so the same vs-player logic handles it).
         if e.t % 60 == 30 then
-            bullets[#bullets + 1] = {
-                x = e.x, y = e.y + def.size,
-                vx = 0, vy = 3.0,
-                dmg = 1, color = rgb(240, 120, 40), kind = "bomb",
-                hostile = true,
-            }
+            local b = acquire_bullet()
+            if b then
+                b.x = e.x; b.y = e.y + def.size
+                b.vx = 0; b.vy = 3.0
+                b.dmg = 1; b.color = rgb(240, 120, 40)
+                b.kind = "bomb"
+                b.hostile = true
+            end
         end
     elseif e.kind == E_HEAVY then
         e.y = e.y + def.speed
         e.x = e.x + sin((e.t + e.phase) * 0.05) * 0.8
         if e.t % 40 == 0 then
             -- Three-bullet burst aimed roughly downward.
-            for _, a in ipairs({-0.3, 0, 0.3}) do
-                bullets[#bullets + 1] = {
-                    x = e.x, y = e.y + def.size,
-                    vx = sin(a) * 3, vy = cos(a) * 3,
-                    dmg = 1, color = rgb(240, 80, 80), kind = "bomb",
-                    hostile = true,
-                }
+            for _, a in ipairs(HEAVY_BURST_ANGLES) do
+                local b = acquire_bullet()
+                if b then
+                    b.x = e.x; b.y = e.y + def.size
+                    b.vx = sin(a) * 3; b.vy = cos(a) * 3
+                    b.dmg = 1; b.color = rgb(240, 80, 80)
+                    b.kind = "bomb"
+                    b.hostile = true
+                end
             end
         end
     elseif e.kind == E_DRONE then
@@ -678,10 +842,15 @@ local function step_bullet(b)
 end
 
 local function step_items()
-    for i = #items, 1, -1 do
+    local n = #items
+    for i = n, 1, -1 do
         local it = items[i]
         it.y = it.y + it.vy
-        if it.y > SH + 8 then table.remove(items, i) end
+        if it.y > SH + 8 then
+            -- swap-pop: O(1) instead of O(n) shift; order doesn't
+            -- matter for the items list.
+            items[i] = items[n]; items[n] = nil; n = n - 1
+        end
     end
 end
 
@@ -699,25 +868,28 @@ end
 -- Drag also bounds speed enough that long-lived particles don't
 -- drift fully off-screen by life=0.
 local function step_particles()
-    for i = #particles, 1, -1 do
+    for i = 1, #particles do
         local p = particles[i]
-        p.x = p.x + p.vx
-        p.y = p.y + p.vy
-        p.vx = p.vx * 0.92
-        p.vy = p.vy * 0.92
-        p.life = p.life - 1
-        if p.life <= 0 then table.remove(particles, i) end
+        if p.life > 0 then
+            p.x = p.x + p.vx
+            p.y = p.y + p.vy
+            p.vx = p.vx * 0.92
+            p.vy = p.vy * 0.92
+            p.life = p.life - 1
+            -- life ticks to 0 here; stays "free" until reused.
+        end
     end
 end
 
 -- Popups drift upward at a fixed slow rate; life ticks down each
 -- frame and the renderer fades the colour proportional to it.
 local function step_popups()
-    for i = #popups, 1, -1 do
+    for i = 1, #popups do
         local p = popups[i]
-        p.y = p.y - 0.6
-        p.life = p.life - 1
-        if p.life <= 0 then table.remove(popups, i) end
+        if p.life > 0 then
+            p.y = p.y - 0.6
+            p.life = p.life - 1
+        end
     end
 end
 
@@ -864,7 +1036,7 @@ local function apply_input(p, in_left, in_right, in_up, in_down, in_fire)
     if in_fire then
         if p.cooldown <= 0 then
             local g = GUNS[p.gun]
-            g.spawn(p.x, p.y, bullets)
+            g.spawn(p.x, p.y, acquire_bullet)
             -- Stackable rate modifier: lower rate_mod = shorter
             -- cooldown = faster fire. Floor at 1 so we never hit a
             -- zero-frame cooldown that lets the gun spam every tick.
@@ -879,13 +1051,7 @@ local function apply_input(p, in_left, in_right, in_up, in_down, in_fire)
             -- absent. Keeping this lookup local so g.sound stays the
             -- single source of truth for the legacy path.
             if p.id == 1 then
-                local gun_names = {
-                    [GUN_BLASTER] = "blaster",
-                    [GUN_SPREAD]  = "spread",
-                    [GUN_RAPID]   = "rapid",
-                    [GUN_MISSILE] = "missile",
-                }
-                play_sfx(gun_names[p.gun] or "blaster", g.sound, 70)
+                play_sfx(GUN_SFX_NAMES[p.gun] or "blaster", g.sound, 70)
             end
         end
     end
@@ -918,14 +1084,17 @@ local function step_authoritative()
         end
     end
 
-    -- Bullets.
-    for i = #bullets, 1, -1 do
+    -- Bullets. Pool-allocated; mark dead in place rather than
+    -- table.remove so we don't churn the GC every off-screen frame.
+    for i = 1, #bullets do
         local b = bullets[i]
-        step_bullet(b)
-        if b.y < FIELD_TOP - 8 or b.y > SH + 8
-                or b.x < -8 or b.x > SW + 8
-                or (b.ttl and b.ttl <= 0) then
-            table.remove(bullets, i)
+        if not b.dead then
+            step_bullet(b)
+            if b.y < FIELD_TOP - 8 or b.y > SH + 8
+                    or b.x < -8 or b.x > SW + 8
+                    or (b.ttl and b.ttl <= 0) then
+                b.dead = true
+            end
         end
     end
 
@@ -936,14 +1105,15 @@ local function step_authoritative()
 
     -- Collisions: bullets vs enemies (player-fired) and bullets vs
     -- players (enemy-fired). The `hostile` flag separates the two.
-    for bi = #bullets, 1, -1 do
+    for bi = 1, #bullets do
         local b = bullets[bi]
+        if b.dead then goto next_bullet end
         if b.hostile then
             for _, p in ipairs(players) do
                 if p.alive and circle_aabb(b.x, b.y, 4,
                         p.x - PLAYER_HW, p.y - 8, PLAYER_HW * 2, 14) then
                     damage_player(p, b.dmg)
-                    table.remove(bullets, bi)
+                    b.dead = true
                     goto next_bullet
                 end
             end
@@ -955,7 +1125,7 @@ local function step_authoritative()
                 local dy = b.y - e.y
                 if dx * dx + dy * dy <= def.size * def.size then
                     e.hp = e.hp - b.dmg
-                    table.remove(bullets, bi)
+                    b.dead = true
                     if e.hp <= 0 then
                         -- Credit score to player 1 for simplicity — a
                         -- real MP would track which bullet came from
@@ -1016,13 +1186,16 @@ local function step_authoritative()
     end
 
     -- Player vs items.
-    for ii = #items, 1, -1 do
+    local n_items = #items
+    for ii = n_items, 1, -1 do
         local it = items[ii]
         for _, p in ipairs(players) do
             if p.alive and circle_aabb(it.x, it.y, 6,
                     p.x - PLAYER_HW, p.y - 8, PLAYER_HW * 2, 14) then
                 apply_item(p, it.kind)
-                table.remove(items, ii)
+                items[ii] = items[n_items]
+                items[n_items] = nil
+                n_items = n_items - 1
                 break
             end
         end
@@ -1050,24 +1223,40 @@ end
 -- Rendering
 ---------------------------------------------------------------------------
 
+-- HUD strings only change when the underlying stats change; cache
+-- them so the per-frame redraw doesn't allocate two fresh strings via
+-- string.format every tick.
+local hud_p1_txt, hud_p1_key = "", nil
+local hud_p2_txt, hud_p2_txt_w, hud_p2_key = "", 0, nil
+
 local function draw_hud(d)
     d.fill_rect(0, 0, SW, HUD_H, rgb(0, 0, 0))
     theme.set_font("small_aa")
     local p1 = players and players[1]
     if p1 then
-        local txt = string.format("P1 %s  HP:%d  L:%d  %d",
-            GUN_NAMES[p1.gun], math.max(0, p1.hp), math.max(0, p1.lives),
-            p1.score)
-        d.draw_text(4, 4, txt, rgb(200, 230, 200))
+        local hp = math.max(0, p1.hp)
+        local lives = math.max(0, p1.lives)
+        local key = p1.gun * 1e9 + hp * 1e6 + lives * 1e4 + p1.score
+        if key ~= hud_p1_key then
+            hud_p1_txt = string.format("P1 %s  HP:%d  L:%d  %d",
+                GUN_NAMES[p1.gun], hp, lives, p1.score)
+            hud_p1_key = key
+        end
+        d.draw_text(4, 4, hud_p1_txt, rgb(200, 230, 200))
     end
     if players and players[2] then
         local p2 = players[2]
         theme.set_font("tiny_aa")
-        local txt = string.format("P2 %s HP:%d L:%d %d",
-            GUN_NAMES[p2.gun], math.max(0, p2.hp), math.max(0, p2.lives),
-            p2.score)
-        local tw = theme.text_width(txt)
-        d.draw_text(SW - tw - 4, 4, txt, rgb(180, 200, 240))
+        local hp = math.max(0, p2.hp)
+        local lives = math.max(0, p2.lives)
+        local key = p2.gun * 1e9 + hp * 1e6 + lives * 1e4 + p2.score
+        if key ~= hud_p2_key then
+            hud_p2_txt = string.format("P2 %s HP:%d L:%d %d",
+                GUN_NAMES[p2.gun], hp, lives, p2.score)
+            hud_p2_txt_w = theme.text_width(hud_p2_txt)
+            hud_p2_key = key
+        end
+        d.draw_text(SW - hud_p2_txt_w - 4, 4, hud_p2_txt, rgb(180, 200, 240))
     end
     theme.set_font("tiny_aa")
     if status_text and status_text ~= "" then
@@ -1274,13 +1463,16 @@ end
 -- text strings that fade as they age.
 local function draw_particles(d)
     if not particles then return end
-    for _, p in ipairs(particles) do
-        local px, py = floor(p.x), floor(p.y)
-        d.fill_rect(px, py, 2, 2, p.color)
-        if p.life > 18 then
-            -- Brighter core in the early phase so the spark "snaps"
-            -- before fading to match the death timing.
-            d.fill_rect(px, py, 1, 1, rgb(255, 255, 255))
+    for i = 1, #particles do
+        local p = particles[i]
+        if p.life > 0 then
+            local px, py = floor(p.x), floor(p.y)
+            d.fill_rect(px, py, 2, 2, p.color)
+            if p.life > 18 then
+                -- Brighter core in the early phase so the spark "snaps"
+                -- before fading to match the death timing.
+                d.fill_rect(px, py, 1, 1, rgb(255, 255, 255))
+            end
         end
     end
 end
@@ -1288,8 +1480,11 @@ end
 local function draw_popups(d)
     if not popups then return end
     theme.set_font("tiny_aa")
-    for _, p in ipairs(popups) do
-        d.draw_text(floor(p.x) - 6, floor(p.y), p.text, p.color)
+    for i = 1, #popups do
+        local p = popups[i]
+        if p.life > 0 then
+            d.draw_text(floor(p.x) - 6, floor(p.y), p.text, p.color)
+        end
     end
 end
 
@@ -1298,7 +1493,7 @@ end
 -- banner, slid below the HUD.
 local function draw_boss_banner(d)
     if boss_announce_frames <= 0 then return end
-    local enc = encounter_plan and encounter_plan[encounter_idx]
+    local enc = current_encounter
     if not (enc and enc.title) then return end
     theme.set_font("medium_aa", "bold")
     local t = enc.title
@@ -1364,7 +1559,12 @@ local function render(d)
     else
         draw_stars(d)
         for _, e in ipairs(enemies or {}) do draw_enemy(d, e) end
-        for _, b in ipairs(bullets or {}) do draw_bullet(d, b) end
+        if bullets then
+            for i = 1, #bullets do
+                local b = bullets[i]
+                if not b.dead then draw_bullet(d, b) end
+            end
+        end
         for _, it in ipairs(items   or {}) do draw_item(d, it) end
         for _, p in ipairs(players  or {}) do draw_player(d, p) end
         -- Particles draw above ships so a tight burst reads as
@@ -1501,14 +1701,24 @@ local function encode_snapshot()
         local e = enemies[i]
         out[#out + 1] = string.pack("<BHH", e.kind, floor(e.x), floor(e.y))
     end
-    -- Bullets
-    out[#out + 1] = string.char(math.min(#bullets, 40))
-    for i = 1, math.min(#bullets, 40) do
+    -- Bullets (skip pool slots marked dead).
+    local live_n = 0
+    for i = 1, #bullets do
+        if not bullets[i].dead then live_n = live_n + 1 end
+    end
+    if live_n > 40 then live_n = 40 end
+    out[#out + 1] = string.char(live_n)
+    local written = 0
+    for i = 1, #bullets do
+        if written >= live_n then break end
         local b = bullets[i]
-        local c = b.hostile and 1 or 0
-        out[#out + 1] = string.pack("<BBHH", c,
-            (b.kind == "missile") and 1 or 0,
-            floor(b.x), floor(b.y))
+        if not b.dead then
+            local c = b.hostile and 1 or 0
+            out[#out + 1] = string.pack("<BBHH", c,
+                (b.kind == "missile") and 1 or 0,
+                floor(b.x), floor(b.y))
+            written = written + 1
+        end
     end
     -- Items
     out[#out + 1] = string.char(math.min(#items, 20))

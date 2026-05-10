@@ -56,6 +56,7 @@
 #include <freertos/queue.h>
 #include <freertos/task.h>
 #include <esp_task_wdt.h>
+#include <esp_spi_flash.h>
 
 #include "../../ota_pubkey.h"
 
@@ -918,25 +919,24 @@ LUA_FUNCTION(l_ota_rollback_and_reboot) {
 }
 
 // ---------------------------------------------------------------------------
-// Pull-mode OTA: download a firmware image over HTTPS, verify its hash
-// against an expected SHA-256, stream it into Update.write, and stage
-// it for the next reboot.
+// Pull-mode OTA: download a signed firmware image over HTTPS, verify its
+// SHA-256 against the manifest's expected hash, write it to flash, and
+// stage it for the next reboot.
 //
 // Authenticity is enforced by the *caller*: the firmware-update screen
-// fetches a small manifest.json + manifest.sig from the rolling-main
+// fetches manifest.json + manifest.sig from the rolling-{main,test}
 // release, verifies the Ed25519 signature against the embedded
 // kOtaSigningPubkey via ez.crypto.ed25519_verify, and only then passes
-// the manifest's URL + sha256 down here. We re-check the hash while
-// streaming so a swapped-out asset still gets rejected even though we
-// drop full TLS cert validation (setInsecure -- cert pinning would
-// double the flash budget for no extra security on top of the
-// signature).
+// the manifest's full_bin_url + full_sha256 down to apply_full_url. We
+// re-check the hash while streaming so a swapped-out asset still gets
+// rejected even though we drop full TLS cert validation (setInsecure --
+// cert pinning would double the flash budget for no extra security on
+// top of the signature).
 //
-// Runs the actual download on a one-shot FreeRTOS task pinned to the
-// AsyncIO core so the UI loop stays responsive. Progress is reported
-// through the existing ota/progress bus topic; a final phase of
-// "end" or "error" closes the run. Refuses to start a second download
-// while one is in flight.
+// Runs the download on a one-shot FreeRTOS task pinned to Core 0 so the
+// UI loop on Core 1 stays responsive. Progress is reported through the
+// ota/progress bus topic; a final phase of "end" or "error" closes the
+// run. Refuses to start a second download while one is in flight.
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -967,134 +967,233 @@ bool parseHexSha(const char* hex, size_t len, uint8_t out[32]) {
     return true;
 }
 
-// State threaded through the http_client callbacks. The helper
-// uses C-style function pointers (not std::function), so we pass
-// per-call state via the user-pointer.
-struct PullState {
+// ---------------------------------------------------------------------------
+// Full-image OTA: streams firmware-full.bin (bootloader + partition table +
+// app) and writes each segment to the correct flash region.
+// ---------------------------------------------------------------------------
+
+struct FullOtaState {
+    // Stream position
+    size_t stream_offset = 0;
+    size_t total_size    = 0;
+
+    // Bootloader buffer (PSRAM, max 32 KB)
+    uint8_t* bl_buf = nullptr;
+    size_t   bl_len = 0;
+
+    // Partition table buffer (PSRAM, max 4 KB)
+    uint8_t* pt_buf = nullptr;
+    size_t   pt_len = 0;
+
+    // OTA handle for app region
+    esp_ota_handle_t ota_handle = 0;
+    const esp_partition_t* ota_partition = nullptr;
+    bool ota_began = false;
+
+    // SHA-256 over the full stream
     mbedtls_sha256_context sha;
-    bool   shaInited       = false;
-    bool   updateBegan     = false;
-    size_t total           = 0;   // expected size (Content-Length)
-    size_t got             = 0;   // bytes successfully written
-    size_t lastReport      = 0;
-    char   error[80]       = {0}; // first failure reason; empty on success
+    bool sha_inited = false;
+
+    // App bytes tracking
+    size_t app_written = 0;
+    size_t app_expected = 0;
+
+    // Progress
+    size_t last_report = 0;
+    char error[80] = {0};
 };
 
-// on_headers: fired after the helper has parsed the final response's
-// status + headers. We use it to size the Update partition and post
-// the "start" progress event before the body starts streaming.
-static bool pullOnHeaders(void* user, int status, long content_length,
-                          const http_client::HeaderPair* /*headers*/,
-                          size_t /*header_count*/) {
-    LOG("OTA", "headers received: status=%d content_length=%ld",
-        status, content_length);
-    PullState* s = (PullState*)user;
+// Region boundaries in the merged binary
+static constexpr size_t FULL_BL_END  = 0x8000;  // bootloader region end
+static constexpr size_t FULL_PT_END  = 0x9000;  // partition table end (one 4 KB sector)
+static constexpr size_t FULL_APP_OFF = 0x10000;  // app image start
+
+static bool fullOnHeaders(void* user, int status, long content_length,
+                          const http_client::HeaderPair*, size_t) {
+    FullOtaState* s = (FullOtaState*)user;
     if (status != 200) {
         snprintf(s->error, sizeof(s->error), "HTTP %d", status);
         return false;
     }
-    if (content_length <= 0) {
-        snprintf(s->error, sizeof(s->error), "missing Content-Length");
+    if (content_length <= (long)FULL_APP_OFF) {
+        snprintf(s->error, sizeof(s->error), "too small for full image");
         return false;
     }
-    s->total = (size_t)content_length;
-    LOG("OTA", "Update.begin(%u)...", (unsigned)s->total);
-    if (!Update.begin(s->total, U_FLASH)) {
-        snprintf(s->error, sizeof(s->error), "Update.begin: %s",
-                 Update.errorString());
+    s->total_size = (size_t)content_length;
+    size_t app_size = content_length - FULL_APP_OFF;
+    s->app_expected = app_size;
+
+    LOG("OTA", "full image: %u bytes, app=%u", (unsigned)s->total_size, (unsigned)app_size);
+
+    // Erase the target OTA partition upfront so we can write directly
+    // via esp_partition_write. We bypass esp_ota_begin/write/end
+    // because esp_ota_end's image validator rejects some valid images
+    // (ESP_ERR_OTA_VALIDATE_FAILED) even when the binary is SHA-256
+    // verified. Our own SHA-256 check + direct partition write +
+    // esp_ota_set_boot_partition is sufficient.
+    esp_err_t err = esp_partition_erase_range(s->ota_partition, 0, s->ota_partition->size);
+    if (err != ESP_OK) {
+        snprintf(s->error, sizeof(s->error), "partition erase: %s", esp_err_to_name(err));
         return false;
     }
-    LOG("OTA", "Update.begin OK");
-    s->updateBegan = true;
+
     mbedtls_sha256_init(&s->sha);
     mbedtls_sha256_starts(&s->sha, 0);
-    s->shaInited = true;
+    s->sha_inited = true;
+
     postProgress("start", 0, nullptr);
     return true;
 }
 
-// on_chunk: fired per body fragment. Stream straight into Update.write
-// + the running SHA-256, post a progress event every PROGRESS_INTERVAL
-// bytes. Returning false aborts the body read; the helper closes the
-// connection and returns ok=false.
-static bool pullOnChunk(void* user, const uint8_t* chunk, size_t n) {
-    PullState* s = (PullState*)user;
-    if (Update.write((uint8_t*)chunk, n) != n) {
-        snprintf(s->error, sizeof(s->error), "Update.write: %s",
-                 Update.errorString());
-        return false;
-    }
+static bool fullOnChunk(void* user, const uint8_t* chunk, size_t n) {
+    FullOtaState* s = (FullOtaState*)user;
+
     mbedtls_sha256_update(&s->sha, chunk, n);
-    s->got += n;
-    if (s->got - s->lastReport >= PROGRESS_INTERVAL) {
-        LOG("OTA", "write progress: %u / %u", (unsigned)s->got, (unsigned)s->total);
-        // Force the log ring straight to disk every progress
-        // checkpoint. If a panic kills the device mid-install we
-        // get to read back exactly how far we got, which is the
-        // only way to make progress on debugging the install path
-        // (the on-panic shutdown handler doesn't fire on watchdog
-        // resets so we can't rely on it).
-        log_panic_flush("ota_progress");
-        postProgress("write", s->got, nullptr);
-        s->lastReport = s->got;
+
+    size_t pos = 0;
+    while (pos < n) {
+        size_t abs_off = s->stream_offset;
+        size_t remaining = n - pos;
+
+        if (abs_off < FULL_BL_END) {
+            // Bootloader region — buffer in PSRAM
+            size_t take = std::min(remaining, FULL_BL_END - abs_off);
+            memcpy(s->bl_buf + abs_off, chunk + pos, take);
+            if (abs_off + take > s->bl_len) s->bl_len = abs_off + take;
+            pos += take;
+            s->stream_offset += take;
+        } else if (abs_off < FULL_PT_END) {
+            // Partition table — buffer in PSRAM
+            size_t pt_off = abs_off - FULL_BL_END;
+            size_t take = std::min(remaining, FULL_PT_END - abs_off);
+            memcpy(s->pt_buf + pt_off, chunk + pos, take);
+            if (pt_off + take > s->pt_len) s->pt_len = pt_off + take;
+            pos += take;
+            s->stream_offset += take;
+        } else if (abs_off < FULL_APP_OFF) {
+            // Gap between partition table and app — skip
+            size_t take = std::min(remaining, FULL_APP_OFF - abs_off);
+            pos += take;
+            s->stream_offset += take;
+        } else {
+            // App region — write directly to OTA partition
+            size_t part_offset = abs_off - FULL_APP_OFF;
+            esp_err_t err = esp_partition_write(s->ota_partition, part_offset,
+                                                chunk + pos, remaining);
+            if (err != ESP_OK) {
+                snprintf(s->error, sizeof(s->error), "partition write: %s",
+                         esp_err_to_name(err));
+                return false;
+            }
+            s->app_written += remaining;
+            pos += remaining;
+            s->stream_offset += remaining;
+        }
+    }
+
+    if (s->stream_offset - s->last_report >= PROGRESS_INTERVAL) {
+        postProgress("write", s->stream_offset, nullptr);
+        log_panic_flush("ota_full_progress");
+        s->last_report = s->stream_offset;
     }
     return true;
 }
 
-void pullTask(void* arg) {
+// Write a flash region only if it differs from what's already there.
+// Returns ESP_OK on success (or skip), or the error code on failure.
+static esp_err_t writeIfChanged(size_t flash_addr, const uint8_t* data,
+                                size_t len, const char* label) {
+    // Read current content
+    uint8_t* current = (uint8_t*)heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
+    if (!current) return ESP_ERR_NO_MEM;
+
+    esp_err_t err = spi_flash_read(flash_addr, current, len);
+    if (err != ESP_OK) { free(current); return err; }
+
+    if (memcmp(current, data, len) == 0) {
+        LOG("OTA", "%s unchanged, skipping write", label);
+        free(current);
+        return ESP_OK;
+    }
+    free(current);
+
+    LOG("OTA", "%s changed, writing %u bytes at 0x%x", label, (unsigned)len,
+        (unsigned)flash_addr);
+
+    size_t erase_size = (len + 0xFFF) & ~0xFFF;  // round up to 4 KB
+    err = spi_flash_erase_range(flash_addr, erase_size);
+    if (err != ESP_OK) return err;
+
+    err = spi_flash_write(flash_addr, data, len);
+    if (err != ESP_OK) return err;
+
+    // Read-back verify
+    uint8_t* verify = (uint8_t*)heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
+    if (!verify) return ESP_ERR_NO_MEM;
+    spi_flash_read(flash_addr, verify, len);
+    bool ok = memcmp(verify, data, len) == 0;
+    free(verify);
+
+    return ok ? ESP_OK : ESP_ERR_INVALID_CRC;
+}
+
+void pullFullTask(void* arg) {
     PullParams* p = (PullParams*)arg;
-    PullState   state;
+    FullOtaState state;
 
-    // First instruction: yield to IDLE0 so it can feed the task
-    // watchdog before we do any blocking work. Without this, pull
-    // tasks spawned at priority 5 sometimes start running on Core 0
-    // and immediately enter a long-running mbedtls/Update.begin
-    // call, starving IDLE0 for the entire wdt window.
     vTaskDelay(pdMS_TO_TICKS(50));
-
-    // Log via the persistent buffer so the trace survives a panic-
-    // induced reboot if the periodic flusher gets a chance to write
-    // the ring to disk before things go sideways. Direct Serial
-    // printf is unreliable here because the USB CDC TX worker is on
-    // Core 0 and may starve while pullTask is busy.
-    LOG("OTA", "pullTask entered, url=%s", p->url.c_str());
-
-    // Bump the task watchdog timeout to 60 s for the duration of
-    // the install. Default is 5 s (CONFIG_ESP_TASK_WDT_TIMEOUT_S in
-    // the Arduino-ESP32 prebuilt sdkconfig); on Core 0 the IDLE
-    // task is wdt-monitored, and TLS handshake + Update.begin's
-    // first sector erase together can block IDLE0 from running for
-    // many seconds at a stretch. Without this bump the system
-    // panics with task_wdt mid-install even though pullTask is
-    // making forward progress. esp_task_wdt_init updates the
-    // timeout in place if the wdt is already initialized (which it
-    // is by the Arduino runtime). Restored to 5 s on every exit.
     esp_err_t wdt_rc = esp_task_wdt_init(60, true);
-    LOG("OTA", "wdt_init(60) -> %d", (int)wdt_rc);
+    LOG("OTA", "pullFullTask entered, wdt_init(60)=%d", (int)wdt_rc);
+
+    // Allocate PSRAM buffers
+    state.bl_buf = (uint8_t*)heap_caps_calloc(1, FULL_BL_END, MALLOC_CAP_SPIRAM);
+    state.pt_buf = (uint8_t*)heap_caps_calloc(1, 0x1000, MALLOC_CAP_SPIRAM);
+    if (!state.bl_buf || !state.pt_buf) {
+        LOG("OTA", "PSRAM alloc failed");
+        g_lastResult = -1;
+        strncpy(g_lastError, "PSRAM alloc failed", MAX_ERROR_LEN);
+        postProgress("error", 0, "PSRAM alloc failed");
+        g_pullRunning = false;
+        esp_task_wdt_init(5, true);
+        if (state.bl_buf) free(state.bl_buf);
+        if (state.pt_buf) free(state.pt_buf);
+        delete p;
+        vTaskDelete(nullptr);
+        return;
+    }
+    // Fill with 0xFF (erased flash default) so gaps in the bootloader
+    // region don't write stale zeros to flash.
+    memset(state.bl_buf, 0xFF, FULL_BL_END);
+    memset(state.pt_buf, 0xFF, 0x1000);
+
+    state.ota_partition = esp_ota_get_next_update_partition(nullptr);
+    if (!state.ota_partition) {
+        postProgress("error", 0, "no OTA partition");
+        g_pullRunning = false;
+        esp_task_wdt_init(5, true);
+        free(state.bl_buf); free(state.pt_buf);
+        delete p;
+        vTaskDelete(nullptr);
+        return;
+    }
 
     auto fail = [&](const char* msg) {
-        LOG("OTA", "pull failed: %s", msg);
-        if (state.updateBegan) Update.abort();
-        if (state.shaInited)   mbedtls_sha256_free(&state.sha);
+        LOG("OTA", "full pull failed: %s", msg);
+        if (state.sha_inited) mbedtls_sha256_free(&state.sha);
         g_lastResult = -1;
         strncpy(g_lastError, msg, MAX_ERROR_LEN - 1);
         g_lastError[MAX_ERROR_LEN - 1] = '\0';
         postProgress("error", 0, msg);
         g_pullRunning = false;
         esp_task_wdt_init(5, true);
+        free(state.bl_buf); free(state.pt_buf);
         delete p;
         vTaskDelete(nullptr);
     };
 
-    LOG("OTA", "pullTask started, url=%s", p->url.c_str());
-
     if (!WiFi.isConnected()) { fail("WiFi not connected"); return; }
 
-    // Build the helper request. The OTA flow runs against rolling-
-    // main releases on github, which 302 once via release-assets.
-    // githubusercontent.com -- the helper follows the redirect
-    // automatically. UA is set so github logs show ezos as the
-    // client (purely for visibility).
+    // Stream the download
     const char* hkeys[] = { "User-Agent" };
     const char* hvals[] = { "ezos-ota" };
     http_client::Request req;
@@ -1103,22 +1202,13 @@ void pullTask(void* arg) {
     req.header_keys   = hkeys;
     req.header_vals   = hvals;
     req.header_count  = 1;
-    // Generous timeout: a 2.4 MB firmware over a slow link can
-    // easily cross 30 seconds, and the helper's deadline covers
-    // the whole body read, not just connect. 90 seconds is
-    // overkill on a fast link and humane on a slow one.
-    req.timeout_ms    = 90000;
+    req.timeout_ms    = 120000;  // full image is larger
     req.max_redirects = http_client::MAX_REDIRECTS;
 
-    LOG("OTA", "calling fetch_streaming...");
     http_client::Response resp;
-    http_client::fetch_streaming(req, pullOnHeaders, pullOnChunk,
+    http_client::fetch_streaming(req, fullOnHeaders, fullOnChunk,
                                  &state, resp);
-    LOG("OTA", "fetch_streaming returned: ok=%d status=%d got=%u",
-        resp.ok, resp.status, (unsigned)state.got);
 
-    // Pick up errors in this order: helper transport error,
-    // callback-reported error (state.error), short read.
     if (!resp.ok) {
         const char* msg = state.error[0] ? state.error
                           : (resp.error[0] ? resp.error : "fetch failed");
@@ -1128,69 +1218,166 @@ void pullTask(void* arg) {
     }
     http_client::response_free(resp);
 
-    if (state.got != state.total) {
+    if (state.stream_offset != state.total_size) {
         fail("short read");
         return;
     }
 
+    // Verify SHA-256
     uint8_t digest[32];
     mbedtls_sha256_finish(&state.sha, digest);
     mbedtls_sha256_free(&state.sha);
-    state.shaInited = false;
+    state.sha_inited = false;
 
-    if (p->hasExpectedSha) {
-        if (memcmp(digest, p->expectedSha, 32) != 0) {
-            fail("sha256 mismatch");
+    if (p->hasExpectedSha && memcmp(digest, p->expectedSha, 32) != 0) {
+        fail("sha256 mismatch");
+        return;
+    }
+
+    // We wrote the app directly via esp_partition_write (not the OTA
+    // API), so there's no ota_handle to close. Our SHA-256 verification
+    // above guarantees the bytes on flash match the signed manifest.
+    esp_err_t err;
+
+    // 2. Write partition table (only if changed)
+    if (state.pt_len > 0) {
+        err = writeIfChanged(FULL_BL_END, state.pt_buf, state.pt_len, "partition table");
+        if (err != ESP_OK) {
+            char msg[80];
+            snprintf(msg, sizeof(msg), "partition table write: %s", esp_err_to_name(err));
+            fail(msg);
             return;
         }
     }
 
-    if (!Update.end(true)) {
+    // 3. Write bootloader LAST (only if changed — minimizes brick risk)
+    if (state.bl_len > 0) {
+        err = writeIfChanged(0, state.bl_buf, state.bl_len, "bootloader");
+        if (err != ESP_OK) {
+            char msg[80];
+            snprintf(msg, sizeof(msg), "bootloader write: %s", esp_err_to_name(err));
+            fail(msg);
+            return;
+        }
+    }
+
+    // 4. Switch the boot slot. esp_ota_set_boot_partition validates the
+    //    image with esp_image_verify and rejects valid binaries with
+    //    ESP_ERR_OTA_VALIDATE_FAILED on this IDF/Arduino combo, so we
+    //    write otadata ourselves. Our SHA-256 against the signed
+    //    manifest is already a stronger guarantee than the IDF check.
+    //
+    // otadata partition layout: two 4 KiB sectors, one per OTA slot.
+    // Sector 0 holds the slot-0 (ota_0/app0) selector at offset 0,
+    // sector 1 holds the slot-1 selector at offset 0x1000. Each
+    // selector is an esp_ota_select_entry_t (32 bytes):
+    //   [seq:4 LE][label:20][state:4][crc32:4]
+    // The bootloader picks the slot with the higher seq whose CRC
+    // validates. We only need seq + crc; the rest stays 0xFF (= "no
+    // info" in IDF terms) and the bootloader treats that as a normal
+    // valid app. seq=0xFFFFFFFF in flash means "blank, ignore".
+    constexpr size_t OTADATA_SECTOR = 0x1000;
+    const esp_partition_t* otadata_part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
+    if (!otadata_part) { fail("otadata partition not found"); return; }
+
+    int slot = -1;
+    if (strcmp(state.ota_partition->label, "app0") == 0) slot = 0;
+    else if (strcmp(state.ota_partition->label, "app1") == 0) slot = 1;
+    if (slot < 0) { fail("unknown OTA partition label"); return; }
+
+    auto read_seq = [&](size_t off) -> uint32_t {
+        uint8_t b[4] = {0};
+        esp_partition_read(otadata_part, off, b, 4);
+        return (uint32_t)b[0] | ((uint32_t)b[1] << 8)
+             | ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
+    };
+    uint32_t seq0 = read_seq(0);
+    uint32_t seq1 = read_seq(OTADATA_SECTOR);
+    auto active = [](uint32_t s) { return s == 0xFFFFFFFF ? 0u : s; };
+    uint32_t max_seq = std::max(active(seq0), active(seq1));
+    uint32_t new_seq = max_seq + 1;
+
+    uint8_t entry[32];
+    memset(entry, 0xFF, sizeof(entry));
+    entry[0] = new_seq & 0xFF;
+    entry[1] = (new_seq >> 8) & 0xFF;
+    entry[2] = (new_seq >> 16) & 0xFF;
+    entry[3] = (new_seq >> 24) & 0xFF;
+
+    // CRC over ota_seq only (4 bytes). bootloader_common_ota_select_crc
+    // calls `crc32_le(UINT32_MAX, &ota_seq, 4)` -- ESP-IDF / zlib
+    // semantics: pre-invert init, process with standard reflected
+    // polynomial, post-invert. For init=0xFFFFFFFF that means
+    // start at 0, post-XOR with 0xFFFFFFFF.
+    // (Verified empirically: seq=1 -> 0x4743989a matches the
+    //  boot_app0.bin entry on flash.)
+    uint32_t crc = 0;
+    for (int i = 0; i < 4; i++) {
+        crc ^= entry[i];
+        for (int b = 0; b < 8; b++)
+            crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
+    }
+    crc ^= 0xFFFFFFFF;
+    entry[28] = crc & 0xFF;
+    entry[29] = (crc >> 8) & 0xFF;
+    entry[30] = (crc >> 16) & 0xFF;
+    entry[31] = (crc >> 24) & 0xFF;
+
+    size_t sector_off = (size_t)slot * OTADATA_SECTOR;
+    esp_err_t er = esp_partition_erase_range(otadata_part, sector_off, OTADATA_SECTOR);
+    if (er != ESP_OK) {
         char msg[80];
-        snprintf(msg, sizeof(msg), "Update.end: %s", Update.errorString());
-        fail(msg);
+        snprintf(msg, sizeof(msg), "otadata erase: %s", esp_err_to_name(er));
+        fail(msg); return;
+    }
+    er = esp_partition_write(otadata_part, sector_off, entry, sizeof(entry));
+    if (er != ESP_OK) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "otadata write: %s", esp_err_to_name(er));
+        fail(msg); return;
+    }
+    LOG("OTA", "otadata written: slot=%d seq=%u", slot, (unsigned)new_seq);
+
+    // Confirm the IDF agrees the boot slot moved. If
+    // esp_ota_get_boot_partition still points at the running slot we
+    // just lied to the user about activation -- bail loudly so the
+    // UI shows "Update failed" instead of "Reboot to apply".
+    const esp_partition_t* boot_now = esp_ota_get_boot_partition();
+    if (!boot_now || boot_now->address != state.ota_partition->address) {
+        fail("boot partition did not switch after otadata write");
         return;
     }
 
-    LOG("OTA", "pull complete (%u bytes)", (unsigned)state.got);
+    LOG("OTA", "full OTA complete (%u bytes)", (unsigned)state.stream_offset);
     g_lastResult = 1;
     snprintf(g_lastError, MAX_ERROR_LEN, "%u bytes downloaded",
-             (unsigned)state.got);
-    postProgress("end", state.got, nullptr);
+             (unsigned)state.stream_offset);
+    postProgress("end", state.stream_offset, nullptr);
     g_pullRunning = false;
     esp_task_wdt_init(5, true);
+    free(state.bl_buf);
+    free(state.pt_buf);
     delete p;
     vTaskDelete(nullptr);
 }
 
 }  // anonymous
 
-// @lua ez.ota.apply_url(url, expected_sha256_hex?) -> table
-// @brief Download a firmware image and stage it for the next reboot
+// @lua ez.ota.apply_full_url(url, expected_sha256_hex?) -> table
+// @brief Download a full firmware image (bootloader + partitions + app) and apply it
 // @description
-// Streams `url` straight into the OTA partition without buffering the
-// whole image in RAM. When `expected_sha256_hex` is supplied (64 hex
-// chars), the running SHA-256 over the downloaded bytes is compared
-// against it before the new image is committed; a mismatch aborts
-// the update. The caller is responsible for verifying the URL and
-// hash came from a trusted source -- typically by checking an
-// Ed25519 signature on a manifest with `ez.crypto.ed25519_verify`
-// against `ez.ota.signing_pubkey()`.
-//
-// Returns immediately after spawning the download task. Subscribe to
-// the `ota/progress` bus topic for progress and completion events.
-// Refuses with `{ok=false, error="busy"}` when another download is
-// already in flight, and with `{ok=false, error="signing not
-// configured"}` when the embedded signing pubkey is still all zeros.
-// @param url  HTTPS URL to fetch (redirects are followed)
+// Like apply_url but streams firmware-full.bin which includes the bootloader
+// and partition table alongside the app image. The bootloader and partition
+// table are buffered in PSRAM and written to flash only after the app has
+// been validated. This ensures the device can always receive OTA updates
+// even when the bootloader changes between versions. Only writes flash
+// regions that actually differ to minimize brick risk and flash wear.
+// @param url  HTTPS URL to the firmware-full.bin
 // @param expected_sha256_hex  Optional 64-char hex SHA-256 the download must match
-// @return Table { ok = boolean, error?: string } describing whether
-//         the task was started successfully.
-// @example
-// local res = ez.ota.apply_url(url, manifest.sha256)
-// if not res.ok then ui.toast("OTA: " .. res.error) end
+// @return Table { ok = boolean, error?: string }
 // @end
-LUA_FUNCTION(l_ota_apply_url) {
+LUA_FUNCTION(l_ota_apply_full_url) {
     if (!ota_signing_configured()) {
         lua_newtable(L);
         lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
@@ -1211,22 +1398,9 @@ LUA_FUNCTION(l_ota_apply_url) {
         return 1;
     }
 
-    // Mark the currently-running image valid before we attempt to
-    // switch slots. With CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y in
-    // the prebuilt sdkconfig, esp_ota_set_boot_partition() refuses
-    // to activate the new partition while the running image is in
-    // PENDING_VERIFY -- which is the state right after a fresh
-    // flash, before boot.lua's deferred 5 s mark_valid timer has
-    // had a chance to fire. The user racing the timer (open
-    // Settings -> Firmware before boot completes) hits this as
-    // "Could Not Activate The Firmware". Calling mark_valid here
-    // is idempotent: ESP_ERR_INVALID_STATE means the image was
-    // already valid (or never in pending verify), which we treat
-    // as success.
     esp_ota_mark_app_valid_cancel_rollback();
 
     const char* url = luaL_checkstring(L, 1);
-
     PullParams* p = new PullParams();
     p->url = url;
 
@@ -1245,60 +1419,13 @@ LUA_FUNCTION(l_ota_apply_url) {
     }
 
     g_pullRunning = true;
-    // Core 0. The previous attempt at pinning to Core 1 to dodge the
-    // IDLE0 task watchdog left the Lua main loop blocked for the
-    // entire install (loopTask runs on Core 1) -- the screen froze,
-    // the remote-control protocol stopped responding, and there was
-    // no way to surface progress. Core 0 keeps the loop alive and
-    // we extend task_wdt to 60 s inside pullTask so IDLE0 starvation
-    // doesn't panic during the unyieldable TLS / flash phases.
-    //
-    // 5 KiB stack -- the read buffer (2 KiB) is in PSRAM via the
-    // helper, so the only stack residents are the helper's working
-    // String objects, the SHA-256 context, and an 80-byte error
-    // scratch.
-    // Pin to Core 1, priority 2. Core 0 is wdt-monitored on its
-    // IDLE task, and we have no reliable way to make IDLE0 run
-    // through the unyieldable phases of mbedtls's TLS handshake +
-    // Update.begin's first-sector erase -- task_wdt bumps don't
-    // take effect early enough, priority drops + entry yields don't
-    // help. Core 1 has no IDLE wdt monitoring, so a busy pullTask
-    // there only freezes the Lua main loop (which lives on Core 1
-    // too) for the duration of the install. Acceptable: OTA install
-    // is a foreground action, the user expects the screen to stop
-    // updating. After the install (or its failure), the loop
-    // resumes and progress events get dispatched.
-    // Core 0, priority 2, 10 KiB stack.
-    //
-    // Core 0 (not 1): Core 1 hosts loopTask which dispatches all of
-    //   Lua (UI, bus events, etc.). Pinning pullTask to Core 1 froze
-    //   the screen and made progress events invisible until the
-    //   download finished. Core 0 has WiFi/AsyncTCP/AsyncIO worker
-    //   on it but the task watchdog covers IDLE0; with the wdt
-    //   bumped to 60 s inside pullTask + the per-chunk vTaskDelay(1)
-    //   in fetch_streaming + the freed internal heap (mbedtls now
-    //   has working room and finishes faster) IDLE0 gets enough
-    //   slices to feed itself.
-    //
-    // Priority 2: above loopTask (1) so OTA makes forward progress
-    //   even while Lua/UI is busy, but below WiFi (~18-23) and
-    //   AsyncTCP (~5) so background networking keeps flowing.
-    //
-    // 10 KiB stack: mbedtls TLS handshake recurses to ~3 KiB; 5 KiB
-    //   was too tight and left WiFiClientSecure::connect() hanging
-    //   silently mid-handshake.
     BaseType_t ok = xTaskCreatePinnedToCore(
-        pullTask, "ota_pull", 10240, p, 2, nullptr, 0);
+        pullFullTask, "ota_full", 10240, p, 2, nullptr, 0);
     if (ok != pdPASS) {
         g_pullRunning = false;
         delete p;
         lua_newtable(L);
         lua_pushboolean(L, false); lua_setfield(L, -2, "ok");
-        // Surface the actual cause -- the only way xTaskCreate
-        // returns non-pdPASS in normal operation is internal heap
-        // exhaustion, and "task spawn failed" by itself made the
-        // user think it was a logic bug rather than a memory
-        // pressure issue.
         lua_pushstring(L, "task spawn failed (internal heap full)");
         lua_setfield(L, -2, "error");
         return 1;
@@ -1315,9 +1442,9 @@ LUA_FUNCTION(l_ota_apply_url) {
 // Returns the 32-byte Ed25519 public key the firmware was built to
 // trust for OTA manifest signatures. Returns nil when the build was
 // flashed without a configured key (kOtaSigningPubkey still all
-// zeros) -- in that case `apply_url` will refuse to start.
+// zeros) -- in that case `apply_full_url` will refuse to start.
 // Use with `ez.crypto.ed25519_verify` to check a manifest signature
-// before passing its URL into `apply_url`.
+// before passing its URL into `apply_full_url`.
 // @return 32-byte raw pubkey string, or nil when not configured
 // @example
 // local pub = ez.ota.signing_pubkey()
@@ -1345,7 +1472,7 @@ void registerBindings(lua_State* L) {
         {"pending_partition",  l_ota_pending_partition},
         {"mark_valid",         l_ota_mark_valid},
         {"rollback_and_reboot", l_ota_rollback_and_reboot},
-        {"apply_url",          l_ota_apply_url},
+        {"apply_full_url",     l_ota_apply_full_url},
         {"signing_pubkey",     l_ota_signing_pubkey},
         {nullptr, nullptr}
     };

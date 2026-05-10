@@ -2,6 +2,7 @@
 #include "lua_runtime.h"
 #include "../config.h"
 #include "../util/log.h"
+#include "../hardware/sd_manager.h"
 #include <LittleFS.h>
 #include <SD.h>
 #include <SPI.h>
@@ -28,13 +29,15 @@ bool ScriptLoader::init() {
 
     LOG("ScriptLoader", "Initializing...");
 
-    // Try to initialize SD card
-    SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
-    if (SD.begin(SD_CS)) {
+    // Try to initialize SD card. SDManager owns the lifecycle so this
+    // call shares state with storage_bindings, async.cpp, etc; nobody
+    // is calling SD.begin() / SD.end() in parallel without going
+    // through the manager.
+    if (SDManager::ensureMounted()) {
         _sdAvailable = true;
         LOG("ScriptLoader", "SD card available");
 
-        // Check if scripts directory exists on SD
+        SDManager::ScopedLock lk;
         if (SD.exists("/scripts")) {
             LOG("ScriptLoader", "Found /scripts on SD card");
         }
@@ -55,6 +58,7 @@ bool ScriptLoader::fileExists(const char* path) {
     // Check if path starts with /sd/
     if (strncmp(path, "/sd/", 4) == 0) {
         if (!_sdAvailable) return false;
+        SDManager::ScopedLock lk;
         return SD.exists(path + 3);  // Skip "/sd" prefix
     }
 
@@ -67,6 +71,7 @@ const char* ScriptLoader::findScript(const char* scriptName) {
     // 1. Check SD card first
     if (_sdAvailable) {
         snprintf(_pathBuffer, sizeof(_pathBuffer), "/scripts/%s.lua", scriptName);
+        SDManager::ScopedLock lk;
         if (SD.exists(_pathBuffer)) {
             // Return with /sd prefix for consistency
             memmove(_pathBuffer + 3, _pathBuffer, strlen(_pathBuffer) + 1);
@@ -89,49 +94,56 @@ bool ScriptLoader::scriptExists(const char* scriptName) {
 }
 
 bool ScriptLoader::loadFromPath(lua_State* L, const char* path) {
-    File file;
+    const bool isSd = (strncmp(path, "/sd/", 4) == 0);
+    if (isSd && !_sdAvailable) {
+        LOG("ScriptLoader", "SD not available for: %s", path);
+        return false;
+    }
 
-    // Determine which filesystem to use
-    if (strncmp(path, "/sd/", 4) == 0) {
-        if (!_sdAvailable) {
-            LOG("ScriptLoader", "SD not available for: %s", path);
-            return false;
+    // Read the script into a heap buffer first; release the SD lock
+    // (if any) BEFORE handing the buffer to the Lua VM. Holding the SD
+    // mutex across executeString() blocks every other SD consumer
+    // (Core 0 AsyncIO worker, storage_bindings, screenshot, etc) for
+    // the entire duration of the script's lua_pcall, which can run
+    // arbitrary work and even spawn coroutines that themselves want
+    // SD I/O -- a recipe for serial deadlock with the recursive mutex
+    // misleading us into thinking we're safe.
+    auto readToBuffer = [&](File file) -> char* {
+        if (!file) {
+            LOG("ScriptLoader", "Cannot open: %s", path);
+            return nullptr;
         }
-        file = SD.open(path + 3, "r");  // Skip "/sd" prefix
+        size_t size = file.size();
+        if (size > 512 * 1024) {  // 512KB limit for scripts
+            LOG("ScriptLoader", "Script too large: %s (%u bytes)", path, size);
+            file.close();
+            return nullptr;
+        }
+        char* buffer = (char*)malloc(size + 1);
+        if (!buffer) {
+            LOG("ScriptLoader", "Out of memory loading: %s", path);
+            file.close();
+            return nullptr;
+        }
+        file.readBytes(buffer, size);
+        buffer[size] = '\0';
+        file.close();
+        LOG("ScriptLoader", "Loading: %s (%u bytes)", path, size);
+        return buffer;
+    };
+
+    char* buffer = nullptr;
+    if (isSd) {
+        SDManager::ScopedLock lk;
+        buffer = readToBuffer(SD.open(path + 3, "r"));  // Skip "/sd" prefix
+        // lk releases here, before executeString runs the script.
     } else {
-        file = LittleFS.open(path, "r");
+        buffer = readToBuffer(LittleFS.open(path, "r"));
     }
 
-    if (!file) {
-        LOG("ScriptLoader", "Cannot open: %s", path);
-        return false;
-    }
-
-    // Read file content
-    size_t size = file.size();
-    if (size > 512 * 1024) {  // 512KB limit for scripts
-        LOG("ScriptLoader", "Script too large: %s (%u bytes)", path, size);
-        file.close();
-        return false;
-    }
-
-    char* buffer = (char*)malloc(size + 1);
-    if (!buffer) {
-        LOG("ScriptLoader", "Out of memory loading: %s", path);
-        file.close();
-        return false;
-    }
-
-    file.readBytes(buffer, size);
-    buffer[size] = '\0';
-    file.close();
-
-    LOG("ScriptLoader", "Loading: %s (%u bytes)", path, size);
-
-    // Execute the script
+    if (!buffer) return false;
     bool success = LuaRuntime::instance().executeString(buffer, path);
     free(buffer);
-
     return success;
 }
 
@@ -171,8 +183,7 @@ bool ScriptLoader::reloadScripts(lua_State* L) {
 
     // Re-check SD card availability
     if (!_sdAvailable) {
-        SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
-        if (SD.begin(SD_CS)) {
+        if (SDManager::ensureMounted()) {
             _sdAvailable = true;
             LOG("ScriptLoader", "SD card now available");
         }
