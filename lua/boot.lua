@@ -416,6 +416,53 @@ local function boot_sequence()
         end
     end
 
+    -- ---- Channel messages ----
+    -- Honour the per-channel notify mode (none / mentions / all).
+    -- "Mentions" matches the user's node name as a case-insensitive
+    -- substring of the message text -- word-boundary matching would
+    -- be more accurate but Lua's patterns don't have a real \b and
+    -- the false-positive rate on a substring match is low for the
+    -- typical short device name.
+    local channels_svc = require("services.channels")
+    ez.bus.subscribe("channel/message", function(_topic, msg)
+        if type(msg) ~= "table" or msg.is_self then return end
+        local name = msg.channel
+        if not name then return end
+        local mode = channels_svc.get_notify_mode(name)
+        if mode == "none" then return end
+        if mode == "mentions" then
+            local my = ez.mesh and ez.mesh.get_node_name and ez.mesh.get_node_name()
+            if not my or my == "" then return end
+            local hit = msg.text and msg.text:lower():find(my:lower(), 1, true)
+            if not hit then return end
+        end
+        notifications.post_unless_focused({
+            title  = name,
+            body   = string.format("%s: %s",
+                                   msg.sender_name or "?",
+                                   (msg.text or ""):sub(1, 80)),
+            source = "channel",
+            action = {
+                label    = "Open",
+                on_press = function()
+                    local screen = require("ezui.screen")
+                    local Chat   = require("screens.chat.channel_chat")
+                    screen.push(screen.create(Chat, { channel = name }))
+                end,
+            },
+        }, function(inst)
+            -- Suppress only when the channel-chat screen for this
+            -- exact channel is on top. Gate on the screen *type*,
+            -- not just `_state.channel`, because the channel
+            -- settings sheet also carries the channel name in its
+            -- state and would otherwise eat notifications.
+            local Chat = require("screens.chat.channel_chat")
+            return inst._def == Chat
+                   and inst._state
+                   and inst._state.channel == name
+        end)
+    end)
+
     -- Apps registry: file-type → handler for the file manager. Built-in
     -- handlers register themselves here; screens opened from the registry
     -- are loaded lazily on first `open()` so unused apps don't pull their

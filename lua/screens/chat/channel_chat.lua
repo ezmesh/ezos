@@ -208,6 +208,16 @@ function ChannelChat:menu()
     local channel = self._state.channel or "#Public"
     return {
         {
+            title = "Channel settings",
+            subtitle = "History, notifications, hide / leave",
+            on_press = function()
+                local screen   = require("ezui.screen")
+                local Settings = require("screens.chat.channel_settings")
+                screen.push(screen.create(Settings,
+                    Settings.initial_state(channel)))
+            end,
+        },
+        {
             title = "Share time",
             subtitle = "Send your current clock to the channel",
             on_press = function()

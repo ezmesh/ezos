@@ -4,8 +4,46 @@
 local channels = {}
 
 -- Constants
-local MAX_HISTORY = 50
 local PREF_KEY = "joined_channels"  -- Preferences key for persistence
+
+-- Per-channel preferences live under their own keys so the joined-list
+-- format above (a single packed string) doesn't have to grow. NVS
+-- caps key length at 15 characters, so the prefixes must be short
+-- (`ch_h` / `ch_n`) and the sanitized channel name is truncated to
+-- fit. The truncation isn't ambiguous in practice because users join
+-- a handful of channels and they don't share long prefixes.
+local NVS_KEY_MAX = 15
+local function pref_key(prefix, name)
+    local sanitized = (name or ""):gsub("[^%w]", "_")
+    local budget = NVS_KEY_MAX - #prefix - 1   -- 1 for the separator
+    if budget < 1 then return prefix end       -- shouldn't happen
+    if #sanitized > budget then
+        sanitized = sanitized:sub(1, budget)
+    end
+    return prefix .. "_" .. sanitized
+end
+
+-- History limit options + lookup helpers. The actual setter that mutates
+-- live history lives further down (after `history` is declared);
+-- store_message references the getter via the local below.
+local HISTORY_OPTIONS = { 0, 50, 200, 500, 1000 }
+local NOTIFY_MODES    = { "all", "mentions", "none" }
+local function default_history_limit(name)
+    if name == "#Public" then return 50 end
+    return 200
+end
+local function get_history_limit(name)
+    local raw = ez.storage and ez.storage.get_pref
+                  and ez.storage.get_pref(pref_key("ch_h", name), nil)
+    if raw == nil or raw == "" then return default_history_limit(name) end
+    local n = tonumber(raw)
+    if not n or n < 0 then return default_history_limit(name) end
+    return math.floor(n)
+end
+local function default_notify_mode(name)
+    if name == "#Public" then return "mentions" end
+    return "all"
+end
 
 -- State
 --   key    -- 16-byte AES-128 key (the actual cipher key)
@@ -91,7 +129,15 @@ local function store_message(channel_name, msg)
     msg.count = 1
     fold_signal(msg, msg)
     h[#h + 1] = msg
-    while #h > MAX_HISTORY do
+    -- Trim to max(limit, 1): with limit=0 ("None"), the chat screen
+    -- still rebuilds from get_history() on the channel/message bus
+    -- event, so we have to keep the just-added message around for at
+    -- least the current frame. The next store_message call will
+    -- evict it, matching the "no retention beyond the next message"
+    -- intent. set_history_limit drains all the way down -- that's an
+    -- explicit user action on pre-existing history.
+    local limit = math.max(get_history_limit(channel_name), 1)
+    while #h > limit do
         table.remove(h, 1)
     end
 end
@@ -316,6 +362,37 @@ function channels.get_list()
         }
     end
     return result
+end
+
+-- Per-channel history limit. 0 disables retention beyond the next
+-- store_message call. Setting trims live history immediately so the
+-- user sees the new cap without waiting for fresh traffic.
+channels.HISTORY_OPTIONS = HISTORY_OPTIONS
+function channels.get_history_limit(name) return get_history_limit(name) end
+function channels.set_history_limit(name, limit)
+    limit = tonumber(limit) or 0
+    if limit < 0 then limit = 0 end
+    ez.storage.set_pref(pref_key("ch_h", name), tostring(math.floor(limit)))
+    local h = history[name]
+    if h then
+        while #h > limit do table.remove(h, 1) end
+    end
+end
+
+-- Per-channel notification mode: "all" / "mentions" / "none". Read by
+-- the boot-side channel/message subscriber that posts into
+-- services.notifications. Defaults: "mentions" for #Public,
+-- "all" for everything else.
+channels.NOTIFY_MODES = NOTIFY_MODES
+function channels.get_notify_mode(name)
+    local v = ez.storage and ez.storage.get_pref
+                and ez.storage.get_pref(pref_key("ch_n", name), nil)
+    if v == "all" or v == "mentions" or v == "none" then return v end
+    return default_notify_mode(name)
+end
+function channels.set_notify_mode(name, mode)
+    if mode ~= "all" and mode ~= "mentions" and mode ~= "none" then return end
+    ez.storage.set_pref(pref_key("ch_n", name), mode)
 end
 
 -- Initialize: set up group packet handler and join public channel
