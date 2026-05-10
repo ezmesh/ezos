@@ -22,6 +22,7 @@
 #include "settings.h"
 #include "lua/lua_runtime.h"
 #include "remote/remote_control.h"
+#include "boot_splash.h"
 
 
 // Track initialization status
@@ -112,6 +113,12 @@ void setup() {
         Serial.println("WARNING: Display init failed");
     }
 
+    // Show boot splash as soon as the display is up, so the user sees
+    // the logo within ~150 ms of power-on instead of staring at a black
+    // screen for 1-3 s while the rest of init runs. Each init block
+    // below calls boot_splash::step() to advance the progress bar.
+    boot_splash::show(display);
+
     // Initialize keyboard
     Serial.println("Initializing keyboard...");
     keyboard = new Keyboard();
@@ -121,6 +128,7 @@ void setup() {
     } else {
         Serial.println("WARNING: Keyboard init failed");
     }
+    boot_splash::step(display);
 
     // Initialize touchscreen. The GT911 lives on the same Wire bus
     // the keyboard just brought up, so this MUST run after the
@@ -134,6 +142,7 @@ void setup() {
     } else {
         Serial.println("WARNING: Touch init failed");
     }
+    boot_splash::step(display);
 
     // Load and apply saved settings
     Serial.println("Loading settings...");
@@ -145,6 +154,7 @@ void setup() {
     if (keyboardOk) {
         settings->applyToKeyboard(*keyboard);
     }
+    boot_splash::step(display);
 
     // Initialize radio
     Serial.println("Initializing radio...");
@@ -155,6 +165,7 @@ void setup() {
     } else {
         Serial.println("WARNING: Radio init failed");
     }
+    boot_splash::step(display);
 
     // Initialize GPS (T-Deck Plus with u-blox module)
     Serial.println("Initializing GPS...");
@@ -164,6 +175,7 @@ void setup() {
     } else {
         Serial.println("WARNING: GPS init failed");
     }
+    boot_splash::step(display);
 
     // Initialize mesh networking (only if radio is OK)
     if (radioOk) {
@@ -200,6 +212,7 @@ void setup() {
             Serial.println("WARNING: Mesh init failed");
         }
     }
+    boot_splash::step(display);
 
     // Initialize LittleFS for script storage
     Serial.println("Initializing LittleFS...");
@@ -209,6 +222,7 @@ void setup() {
     } else {
         Serial.println("WARNING: LittleFS init failed");
     }
+    boot_splash::step(display);
 
     // Register a shutdown handler that drains the in-memory log
     // ring to /logs/system.log before reboot. Covers every code
@@ -231,10 +245,14 @@ void setup() {
     } else {
         Serial.println("WARNING: Lua init failed");
     }
+    boot_splash::step(display);
 
-    // Run boot script (requires display and keyboard)
+    // Run boot script (requires display and keyboard). Fill the
+    // progress bar before handing off so the user sees it complete;
+    // Lua's first frame will repaint the screen on top of the splash.
     if (displayOk && keyboardOk && luaOk) {
         Serial.println("Running boot script...");
+        boot_splash::step(display);
         if (LuaRuntime::instance().executeFile("$boot.lua")) {
             Serial.println("Boot script executed - Lua shell active");
         } else {
