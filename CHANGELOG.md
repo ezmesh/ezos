@@ -2,8 +2,13 @@
 
 ## [0.0.71] - 2026-05-10
 
-### Other
-- **release:** add DeployKey bypass actor to branch rulesets (#84) (afc57b3)
+### Features
+- **channels:** per-channel history limit + notification mode (#80) (374eb45)
+
+## [0.0.71] - 2026-05-10
+
+### Features
+- **channels:** per-channel history limit + notification mode (#80) (374eb45)
 
 ## [0.0.71] - 2026-05-10
 
