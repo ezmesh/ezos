@@ -152,5 +152,11 @@ bool SDCardUSB::isSDAvailable() {
         SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
         return SD.begin(SD_CS);
     }
-    return SD.exists("/");
+    // SD.exists("/") can return false after USB MSC has desynced the
+    // wrapper's FATFS state (host wrote to the card while we held the
+    // mount). One unmount/remount cycle re-synchronises it; if that
+    // still fails the card is genuinely gone.
+    if (SD.exists("/")) return true;
+    SD.end();
+    return SD.begin(SD_CS);
 }

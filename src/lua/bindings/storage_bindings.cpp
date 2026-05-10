@@ -36,10 +36,18 @@ static const char* MOUNT_FS = "/fs";
 static const char* MOUNT_IMG = "/img";
 
 // Initialize SD card
+// Mount the SD via the Arduino SD wrapper. SPI.begin is idempotent on
+// Arduino-ESP32, but we still skip it after the first call to avoid
+// spurious bus resets while the user-mode app is mid-frame.
 static bool initSD() {
     if (sdInitialized) return true;
 
-    SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
+    static bool spiBegun = false;
+    if (!spiBegun) {
+        SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
+        spiBegun = true;
+    }
+
     if (SD.begin(SD_CS)) {
         sdInitialized = true;
         Serial.println("[Storage] SD card initialized");
@@ -48,6 +56,43 @@ static bool initSD() {
 
     Serial.println("[Storage] SD card not available");
     return false;
+}
+
+// Force an unmount + remount cycle. Used when an open() returned nullptr
+// despite initSD() having reported success: the Arduino SD wrapper isn't
+// guaranteed to stay consistent after USB MSC has touched the card --
+// the host's writes can desync the wrapper's internal FATFS state, after
+// which every open() returns nullptr until SD.end() + SD.begin() resets
+// it. Returning false propagates "really not available" up to callers.
+static bool remountSD() {
+    if (sdInitialized) {
+        SD.end();
+        sdInitialized = false;
+    }
+    if (SD.begin(SD_CS)) {
+        sdInitialized = true;
+        Serial.println("[Storage] SD card remounted");
+        return true;
+    }
+    Serial.println("[Storage] SD card remount failed");
+    return false;
+}
+
+// Open a file with one transparent remount-on-failure retry. Reads via
+// the bindings layer go through this so post-MSC desync auto-recovers
+// instead of falling over until the next reboot.
+static File openWithRetry(fs::FS* fs, const char* path, const char* mode) {
+    File f = fs->open(path, mode);
+    if (f) return f;
+    // Only the SD wrapper is known to desync; LittleFS doesn't have this
+    // failure mode, so retrying for it is harmless but wasted work. The
+    // probe is cheap (a pointer compare) so we always do it.
+    if (fs == &SD) {
+        if (remountSD()) {
+            f = fs->open(path, mode);
+        }
+    }
+    return f;
 }
 
 // Ensure preferences are open
@@ -181,7 +226,7 @@ LUA_FUNCTION(l_storage_read_bytes) {
         return 2;
     }
 
-    File file = fs->open(adjustedPath, "r");
+    File file = openWithRetry(fs, adjustedPath, "r");
     if (!file) {
         lua_pushnil(L);
         lua_pushstring(L, "File not found");
@@ -264,7 +309,7 @@ LUA_FUNCTION(l_storage_file_size) {
         return 2;
     }
 
-    File file = fs->open(adjustedPath, "r");
+    File file = openWithRetry(fs, adjustedPath, "r");
     if (!file) {
         lua_pushnil(L);
         lua_pushstring(L, "File not found");
@@ -329,7 +374,7 @@ LUA_FUNCTION(l_storage_read_file) {
         return 2;
     }
 
-    File file = fs->open(adjustedPath, "r");
+    File file = openWithRetry(fs, adjustedPath, "r");
     if (!file) {
         lua_pushnil(L);
         lua_pushstring(L, "File not found");
@@ -388,7 +433,7 @@ LUA_FUNCTION(l_storage_write_file) {
         return 2;
     }
 
-    File file = fs->open(adjustedPath, "w");
+    File file = openWithRetry(fs, adjustedPath, "w");
     if (!file) {
         lua_pushboolean(L, false);
         lua_pushstring(L, "Cannot create file");
@@ -435,7 +480,7 @@ LUA_FUNCTION(l_storage_append_file) {
         return 2;
     }
 
-    File file = fs->open(adjustedPath, "a");
+    File file = openWithRetry(fs, adjustedPath, "a");
     if (!file) {
         lua_pushboolean(L, false);
         lua_pushstring(L, "Cannot open file");
