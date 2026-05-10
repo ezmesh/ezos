@@ -71,8 +71,6 @@ local CATEGORIES = {
         entries = {
             { title = "Notifications", subtitle = "Recent system events",
               icon = icons.bell, mod = "screens.tools.notifications" },
-            { title = "Claude", subtitle = "Chat with the dev host",
-              icon = icons.bot, mod = "screens.tools.claude" },
             { title = "Help", subtitle = "On-device manual + API",
               icon = icons.help, mod = "screens.tools.help" },
             { title = "Terminal", subtitle = "Shell: cd, ls, run",
@@ -137,9 +135,9 @@ local CATEGORIES = {
         -- Settings used to be a separate sub-page (screens/settings/
         -- settings.lua); we flattened those rows directly into this
         -- tab so users only need one tap to reach Display / WiFi /
-        -- etc. The dev-flavoured operations (Dev OTA, Claude Bot,
-        -- Rollback) sit on the Dev tab below; this tab is just the
-        -- end-user "settings" view plus Repeat-onboarding / About.
+        -- etc. The dev-flavoured operations (Dev OTA, Rollback) sit
+        -- on the Dev tab below; this tab is just the end-user
+        -- "settings" view plus Repeat-onboarding / About.
         entries = {
             { title = "Display", subtitle = "Brightness, theme, wallpaper, accent",
               icon = icons.palette, mod = "screens.settings.display_settings" },
@@ -174,8 +172,6 @@ local CATEGORIES = {
         entries = {
             { title = "Dev OTA", subtitle = "Push firmware over WiFi from a host",
               icon = icons.cloud_upload, mod = "screens.settings.dev_ota" },
-            { title = "Claude Bot", subtitle = "Chat host URL + bearer token",
-              icon = icons.bot, mod = "screens.settings.claude_bot" },
             { title = "Rollback firmware", subtitle = "Revert to the previous OTA slot and reboot",
               icon = icons.rotate_ccw, action = function()
                   -- Pulled inline from the old system_settings.lua so
