@@ -94,52 +94,57 @@ bool ScriptLoader::scriptExists(const char* scriptName) {
 }
 
 bool ScriptLoader::loadFromPath(lua_State* L, const char* path) {
-    // Hold the SD lock for the whole open->read->close on the SD path.
-    // The recursive mutex is harmless on the LittleFS branch (we just
-    // never construct the lock), but we accept either branch entering
-    // and only the SD branch grabs the lock via ScopedLock below.
     const bool isSd = (strncmp(path, "/sd/", 4) == 0);
     if (isSd && !_sdAvailable) {
         LOG("ScriptLoader", "SD not available for: %s", path);
         return false;
     }
 
-    auto loadInner = [&](File file) -> bool {
+    // Read the script into a heap buffer first; release the SD lock
+    // (if any) BEFORE handing the buffer to the Lua VM. Holding the SD
+    // mutex across executeString() blocks every other SD consumer
+    // (Core 0 AsyncIO worker, storage_bindings, screenshot, etc) for
+    // the entire duration of the script's lua_pcall, which can run
+    // arbitrary work and even spawn coroutines that themselves want
+    // SD I/O -- a recipe for serial deadlock with the recursive mutex
+    // misleading us into thinking we're safe.
+    auto readToBuffer = [&](File file) -> char* {
         if (!file) {
             LOG("ScriptLoader", "Cannot open: %s", path);
-            return false;
+            return nullptr;
         }
-
         size_t size = file.size();
         if (size > 512 * 1024) {  // 512KB limit for scripts
             LOG("ScriptLoader", "Script too large: %s (%u bytes)", path, size);
             file.close();
-            return false;
+            return nullptr;
         }
-
         char* buffer = (char*)malloc(size + 1);
         if (!buffer) {
             LOG("ScriptLoader", "Out of memory loading: %s", path);
             file.close();
-            return false;
+            return nullptr;
         }
-
         file.readBytes(buffer, size);
         buffer[size] = '\0';
         file.close();
-
         LOG("ScriptLoader", "Loading: %s (%u bytes)", path, size);
-
-        bool success = LuaRuntime::instance().executeString(buffer, path);
-        free(buffer);
-        return success;
+        return buffer;
     };
 
+    char* buffer = nullptr;
     if (isSd) {
         SDManager::ScopedLock lk;
-        return loadInner(SD.open(path + 3, "r"));  // Skip "/sd" prefix
+        buffer = readToBuffer(SD.open(path + 3, "r"));  // Skip "/sd" prefix
+        // lk releases here, before executeString runs the script.
+    } else {
+        buffer = readToBuffer(LittleFS.open(path, "r"));
     }
-    return loadInner(LittleFS.open(path, "r"));
+
+    if (!buffer) return false;
+    bool success = LuaRuntime::instance().executeString(buffer, path);
+    free(buffer);
+    return success;
 }
 
 bool ScriptLoader::loadScript(lua_State* L, const char* scriptName) {

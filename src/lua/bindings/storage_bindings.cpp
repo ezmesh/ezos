@@ -57,19 +57,11 @@ struct SDOpScope {
     SDOpScope& operator=(const SDOpScope&) = delete;
 };
 
-// Open a file with one transparent remount-on-failure retry. CALLER
-// must already hold the SD lock for SD paths (via SDOpScope) -- this
-// helper does NOT take the lock itself, so the open + downstream
-// read/write/close all happen under one continuous lock. The recursive
-// mutex would let nested locking work, but holding one scope per
-// LUA_FUNCTION keeps the lock-window obvious in the call site.
-static File openWithRetry(fs::FS* fs, const char* path, const char* mode) {
-    File f = fs->open(path, mode);
-    if (f) return f;
-    if (fs == &SD && SDManager::remount()) {
-        f = fs->open(path, mode);
-    }
-    return f;
+// Local alias so existing call sites keep their shape; the actual retry
+// logic lives in SDManager so the AsyncIO worker on Core 0 and other
+// callers (copy_file, etc) can share it.
+static inline File openWithRetry(fs::FS* fs, const char* path, const char* mode) {
+    return SDManager::openWithRetry(fs, path, mode);
 }
 
 // Ensure preferences are open
@@ -1342,13 +1334,13 @@ LUA_FUNCTION(l_storage_copy_file) {
     SDOpScope srcLock(srcFs);
     SDOpScope dstLock(dstFs);
 
-    File srcFile = srcFs->open(srcPath, "r");
+    File srcFile = openWithRetry(srcFs, srcPath, "r");
     if (!srcFile) {
         lua_pushboolean(L, false);
         return 1;
     }
 
-    File dstFile = dstFs->open(dstPath, "w");
+    File dstFile = openWithRetry(dstFs, dstPath, "w");
     if (!dstFile) {
         srcFile.close();
         lua_pushboolean(L, false);

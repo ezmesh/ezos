@@ -398,7 +398,7 @@ void AsyncIO::workerTask(void* param) {
 
             switch (req.type) {
                 case OpType::READ: {
-                    File f = fs->open(adjustedPath, FILE_READ);
+                    File f = SDManager::openWithRetry(fs, adjustedPath, FILE_READ);
                     if (f) {
                         size_t size = f.size();
                         if (size > 0 && size <= MAX_FILE_SIZE) {
@@ -422,7 +422,7 @@ void AsyncIO::workerTask(void* param) {
                 }
 
                 case OpType::READ_BYTES: {
-                    File f = fs->open(adjustedPath, FILE_READ);
+                    File f = SDManager::openWithRetry(fs, adjustedPath, FILE_READ);
                     if (f) {
                         size_t fileSize = f.size();
                         if (req.offset < fileSize && req.length > 0) {
@@ -452,7 +452,7 @@ void AsyncIO::workerTask(void* param) {
 
                 case OpType::WRITE: {
                     if (req.data && req.dataLen > 0) {
-                        File f = fs->open(adjustedPath, FILE_WRITE);
+                        File f = SDManager::openWithRetry(fs, adjustedPath, FILE_WRITE);
                         if (f) {
                             size_t written = f.write(req.data, req.dataLen);
                             result.success = (written == req.dataLen);
@@ -467,10 +467,10 @@ void AsyncIO::workerTask(void* param) {
                 case OpType::WRITE_BYTES: {
                     if (req.data && req.dataLen > 0) {
                         // Open in read+write mode to preserve existing content
-                        File f = fs->open(adjustedPath, "r+");
+                        File f = SDManager::openWithRetry(fs, adjustedPath, "r+");
                         if (!f) {
                             // File doesn't exist, create it
-                            f = fs->open(adjustedPath, FILE_WRITE);
+                            f = SDManager::openWithRetry(fs, adjustedPath, FILE_WRITE);
                         }
                         if (f) {
                             f.seek(req.offset);
@@ -486,7 +486,7 @@ void AsyncIO::workerTask(void* param) {
 
                 case OpType::APPEND: {
                     if (req.data && req.dataLen > 0) {
-                        File f = fs->open(adjustedPath, FILE_APPEND);
+                        File f = SDManager::openWithRetry(fs, adjustedPath, FILE_APPEND);
                         if (f) {
                             size_t written = f.write(req.data, req.dataLen);
                             result.success = (written == req.dataLen);
@@ -504,7 +504,7 @@ void AsyncIO::workerTask(void* param) {
                 }
 
                 case OpType::JSON_READ: {
-                    File f = fs->open(adjustedPath, FILE_READ);
+                    File f = SDManager::openWithRetry(fs, adjustedPath, FILE_READ);
                     if (f) {
                         size_t size = f.size();
                         if (size > 0 && size <= MAX_JSON_DOC) {
@@ -524,7 +524,7 @@ void AsyncIO::workerTask(void* param) {
 
                 case OpType::JSON_WRITE: {
                     if (req.data && req.dataLen > 0) {
-                        File f = fs->open(adjustedPath, FILE_WRITE);
+                        File f = SDManager::openWithRetry(fs, adjustedPath, FILE_WRITE);
                         if (f) {
                             // Data is already JSON string from Lua
                             size_t written = f.write(req.data, req.dataLen);
@@ -537,7 +537,7 @@ void AsyncIO::workerTask(void* param) {
                 }
 
                 case OpType::RLE_READ: {
-                    File f = fs->open(adjustedPath, FILE_READ);
+                    File f = SDManager::openWithRetry(fs, adjustedPath, FILE_READ);
                     if (f) {
                         size_t fileSize = f.size();
                         if (req.offset < fileSize && req.length > 0) {
@@ -567,7 +567,7 @@ void AsyncIO::workerTask(void* param) {
                 }
 
                 case OpType::RLE_READ_RGB565: {
-                    File f = fs->open(adjustedPath, FILE_READ);
+                    File f = SDManager::openWithRetry(fs, adjustedPath, FILE_READ);
                     if (f) {
                         size_t fileSize = f.size();
                         if (req.offset < fileSize && req.length > 0) {

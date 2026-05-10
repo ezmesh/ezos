@@ -80,4 +80,13 @@ bool remount() {
     return false;
 }
 
+File openWithRetry(fs::FS* fs, const char* path, const char* mode) {
+    File f = fs->open(path, mode);
+    if (f) return f;
+    if (fs == &SD && remount()) {
+        f = fs->open(path, mode);
+    }
+    return f;
+}
+
 }  // namespace SDManager

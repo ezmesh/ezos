@@ -22,6 +22,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <FS.h>
 
 namespace SDManager {
 
@@ -60,5 +61,20 @@ struct ScopedLock {
     ScopedLock(const ScopedLock&) = delete;
     ScopedLock& operator=(const ScopedLock&) = delete;
 };
+
+// Open a file with one transparent remount-on-failure retry. Used by
+// every SD-touching consumer (storage_bindings LUA_FUNCTIONs, the
+// AsyncIO worker on Core 0, copy_file, etc) so a USB-MSC-induced
+// FATFS desync auto-recovers on the very next call instead of
+// hard-failing until the next reboot.
+//
+// CALLER must hold the SD lock (via ScopedLock) for SD paths so the
+// open and the subsequent read/write/close all run under one
+// continuous mutex. The recursive mutex would let nested locking
+// work, but holding one scope per LUA_FUNCTION / per worker request
+// keeps the lock-window obvious in the call site. Pass nullptr or
+// a non-SD fs to skip the retry entirely (the helper still does the
+// initial open so callers don't need to branch).
+File openWithRetry(fs::FS* fs, const char* path, const char* mode);
 
 }  // namespace SDManager
