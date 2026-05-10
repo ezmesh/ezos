@@ -1,0 +1,131 @@
+name: PR Checks
+
+# Gates merges into main and test on:
+#   1. Conventional Commits format -- both the PR title (which becomes the
+#      squash-merge commit subject) and every commit in the PR. The local
+#      .githooks/commit-msg catches direct pushes; this catches GitHub's
+#      "Merge pull request" / squash flows that bypass client hooks.
+#   2. A real version bump -- xtr-changelog must compute a `next version`
+#      that's different from the one already published in versions.json.
+#      Otherwise the auto-publish workflows would republish the same
+#      version with new bytes, producing duplicate "rolling-{main,test}"
+#      releases that quietly differ.
+#
+# Both jobs run on every PR targeting main or test. They are required
+# status checks via branch protection -- run scripts/branch-protection.sh
+# once (after this workflow has run on a PR so GitHub knows the check
+# names exist) to apply the protection rules.
+
+on:
+  pull_request:
+    branches: [main, test]
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  conventional-commits:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          # Same regex as .githooks/commit-msg. The PR title becomes the
+          # default merge commit message (squash or merge), so it must
+          # parse as a Conventional Commit on its own.
+          re='^(feat|fix|build|chore|ci|docs|refactor|perf|test|style)(\([a-zA-Z0-9_-]+\))?(!)?: .+'
+          if ! printf '%s\n' "$TITLE" | grep -qE "$re"; then
+            echo "::error title=PR title is not a Conventional Commit::$TITLE"
+            echo ""
+            echo "Expected: type(scope)?: description"
+            echo "Got:      $TITLE"
+            echo ""
+            echo "Allowed types: feat fix build chore ci docs refactor perf test style"
+            exit 1
+          fi
+          echo "PR title OK: $TITLE"
+
+      - name: Checkout PR commits
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Validate commits in PR
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Same regex as the title check. Merge commits and release
+          # commits are exempt (mirrors .githooks/commit-msg).
+          re='^(feat|fix|build|chore|ci|docs|refactor|perf|test|style)(\([a-zA-Z0-9_-]+\))?(!)?: .+'
+
+          fail=0
+          while IFS= read -r line; do
+            sha=${line%% *}
+            msg=${line#* }
+            # Skip merges
+            parents=$(git rev-list --parents -n 1 "$sha" | awk '{print NF-1}')
+            if [ "$parents" -gt 1 ]; then continue; fi
+            # Skip changelog release commits
+            case "$msg" in
+              "[skip ci]"*|"chore(release)"*) continue;;
+            esac
+            if ! printf '%s\n' "$msg" | grep -qE "$re"; then
+              echo "::error::Commit $sha message is not a Conventional Commit:"
+              echo "  $msg"
+              fail=1
+            fi
+          done < <(git log --format='%H %s' "$BASE_SHA..$HEAD_SHA")
+
+          if [ "$fail" -ne 0 ]; then
+            echo ""
+            echo "Fix locally with `git rebase -i $BASE_SHA` and reword the offending commits."
+            exit 1
+          fi
+          echo "All PR commits parse as Conventional Commits."
+
+  version-bump:
+    name: Version bump required
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR HEAD
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compare next-version against the released head
+        run: |
+          set -euo pipefail
+          # versions.json on the PR HEAD is the last published version.
+          # xtr-changelog `unreleased` computes what the next release
+          # WOULD be given the commits since that head. If the commits
+          # don't bump the version (no Conventional Commits, or commits
+          # that don't qualify), the version field stays equal -- which
+          # means publishing this PR would republish the same version
+          # over a different binary. Block the merge.
+          PUBLISHED=$(node -e "const v=require('./changelog/versions.json'); console.log(v.versions[0]?.version || 'none')")
+          npx xtr-changelog unreleased --json > /tmp/unreleased.json
+          NEXT=$(node -e "const v=require('/tmp/unreleased.json'); console.log(v.version || 'none')")
+          echo "Published head: $PUBLISHED"
+          echo "Computed next:  $NEXT"
+          if [ "$NEXT" = "$PUBLISHED" ] || [ "$NEXT" = "none" ]; then
+            echo "::error title=Version not bumped::No Conventional Commits in this PR cause xtr-changelog to bump the version. Add at least one feat/fix/etc. commit, or check that your messages parse correctly."
+            exit 1
+          fi
+          echo "Version bump OK: $PUBLISHED -> $NEXT"
