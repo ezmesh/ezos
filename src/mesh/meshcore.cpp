@@ -397,7 +397,8 @@ void MeshCore::handleGroupTextPacket(const MeshPacket& packet, const RxMetadata&
 
     // Pass to Lua callback for decryption and handling
     if (_onGroupPacket) {
-        _onGroupPacket(channelIdx, encryptedData, encryptedLen, senderHash, meta.rssi, meta.snr);
+        _onGroupPacket(channelIdx, encryptedData, encryptedLen, senderHash, meta.rssi, meta.snr,
+                       packet.pathLen);
     }
 }
 
