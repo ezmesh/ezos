@@ -1,16 +1,17 @@
 -- Firmware update: pull the rolling-main or rolling-test manifest from
 -- GitHub Releases, verify its Ed25519 signature against the embedded
--- ez.ota.signing_pubkey(), and stream the firmware.bin straight into
--- the inactive OTA partition via ez.ota.apply_url. Authenticity comes
--- entirely from the signature -- TLS is opportunistic (setInsecure).
+-- ez.ota.signing_pubkey(), and stream the firmware-full.bin (bootloader
+-- + partition table + app) straight into the inactive OTA partition via
+-- ez.ota.apply_full_url. Authenticity comes entirely from the
+-- signature -- TLS is opportunistic (setInsecure).
 --
 -- Flow:
 --   on_enter: fetch manifest.json + manifest.json.sig, verify, compare
---             current build_sha against manifest.sha. Show whether
---             we're up to date.
---   Install:  call ez.ota.apply_url(bin_url, manifest.sha256). Stream
---             progress via the existing "ota/progress" bus topic.
---   On end:   surface a "Reboot to apply" button.
+--             current build_sha against manifest.sha.
+--   Install:  call ez.ota.apply_full_url(full_bin_url, full_sha256).
+--             Progress arrives via the "ota/progress" bus topic.
+--   On end:   ez.ota.pending_partition() flips non-nil; surface a
+--             "Reboot to apply" button.
 
 local ui     = require("ezui")
 local dialog = require("ezui.dialog")
@@ -207,22 +208,22 @@ end
 
 local function install(self)
     local m = self._state.manifest
-    if not m then return end
+    if not m or not m.full_bin_url or not m.full_sha256 then
+        self:set_state({
+            progress_phase = "error",
+            progress_error = "manifest missing full_bin_url -- republish " ..
+                "the rolling-" .. (CHANNELS[self._state.channel] or {}).label
+                .. " release",
+        })
+        return
+    end
     self:set_state({
         installing     = true,
         progress_phase = "start",
         progress_bytes = 0,
         progress_error = nil,
     })
-    -- Prefer full-image OTA (bootloader + partitions + app) when
-    -- the manifest includes it. Falls back to app-only for older
-    -- manifests that only have bin_url.
-    local res
-    if m.full_bin_url and m.full_sha256 and ez.ota.apply_full_url then
-        res = ez.ota.apply_full_url(m.full_bin_url, m.full_sha256)
-    else
-        res = ez.ota.apply_url(m.bin_url, m.sha256)
-    end
+    local res = ez.ota.apply_full_url(m.full_bin_url, m.full_sha256)
     if not res.ok then
         self:set_state({
             installing     = false,
@@ -323,9 +324,13 @@ end
 
 function FirmwareUpdate:build(state)
     local content = {}
+    -- pending_partition() flips non-nil only after the C++ side has
+    -- moved the boot slot, so it's the source of truth for "ready to
+    -- reboot" -- both for a fresh install and for resuming a session
+    -- where the OTA finished before the screen was opened.
+    local pending = ez.ota.pending_partition()
 
-    -- Channel selector (only when not mid-install)
-    if not state.installing and state.progress_phase ~= "end" then
+    if not state.installing and not pending then
         content[#content + 1] = ui.padding({ 8, 8, 4, 8 },
             ui.text_widget("Release channel", { color = "ACCENT", font = "small_aa" }))
         local me = self
@@ -358,7 +363,6 @@ function FirmwareUpdate:build(state)
             content[#content + 1] = n
         end
 
-        -- "What's changed" button when remote changelog is available
         if state.remote_versions and #state.remote_versions > 0 then
             content[#content + 1] = ui.padding({ 4, 8, 4, 8 },
                 ui.button("What's changed", {
@@ -384,12 +388,7 @@ function FirmwareUpdate:build(state)
                 }))
         end
 
-        local pending = ez.ota.pending_partition()
-        local can_install = state.manifest and not state.installing
-                            and state.progress_phase ~= "end"
-                            and not pending
-
-        if can_install then
+        if state.manifest and not state.installing and not pending then
             local downgrade  = is_downgrade(state)
             local btn_label  = downgrade and "Install (downgrade)"
                                           or "Install update"
@@ -413,7 +412,7 @@ function FirmwareUpdate:build(state)
                 }))
         end
 
-        if pending or state.progress_phase == "end" then
+        if pending then
             content[#content + 1] = ui.padding({ 4, 8, 8, 8 },
                 ui.button("Reboot now", {
                     on_press = function() ez.system.restart() end,
