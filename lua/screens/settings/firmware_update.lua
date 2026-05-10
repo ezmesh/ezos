@@ -163,6 +163,23 @@ local function fetch_manifest(self, tag)
             return
         end
 
+        -- Cross-check the signed channel tag against the channel the
+        -- user picked. Without this, a network-position attacker can
+        -- swap a rolling-test manifest in for a rolling-main request:
+        -- both are signed by the same key, signature verification
+        -- passes, and the device silently installs the wrong build.
+        -- The tag field is part of the signed payload, so checking
+        -- here adds no new trust assumption.
+        if manifest.tag ~= tag then
+            this:set_state({
+                loading = false,
+                error   = "Manifest channel mismatch (got '"
+                          .. tostring(manifest.tag) .. "', expected '"
+                          .. tag .. "') -- update refused.",
+            })
+            return
+        end
+
         this:set_state({
             loading  = false,
             verified = true,

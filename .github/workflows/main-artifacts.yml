@@ -17,7 +17,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   build:
@@ -247,6 +246,13 @@ jobs:
   prune:
     needs: build
     runs-on: ubuntu-latest
+    # actions: write lives only on this job (the one that calls
+    # deleteArtifact) so a supply-chain compromise during the build
+    # job's npm/pip installs can't silently delete other workflow
+    # artifacts. contents: write is inherited from the workflow
+    # level but isn't used here.
+    permissions:
+      actions: write
     steps:
       - name: Keep only the 3 most recent main builds
         uses: actions/github-script@v7
