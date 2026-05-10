@@ -233,9 +233,12 @@ local boss_announce_frames -- HUD banner timer ("BOSS — XYZ"), 0 = idle
 -- gen_run, and the kill-path closures refer to spawn_particle_burst
 -- and spawn_popup. Without these forward decls the closures
 -- capture them as globals that resolve to nil at call time.
+-- spawn_enemy() (defined before wave_difficulty) calls into it for
+-- per-wave HP/speed scaling, so it needs the same treatment.
 local gen_run
 local spawn_particle_burst
 local spawn_popup
+local wave_difficulty
 -- Bullets are pool-allocated to avoid the per-shot table churn that
 -- showed up as visible GC stalls during combat. acquire_bullet()
 -- finds the next free slot (with `dead == true`) and returns it for
@@ -507,7 +510,7 @@ end
 -- Compute difficulty for a given wave index. Ramps linearly 0→1 over
 -- the first 30 waves, then continues to climb logarithmically so
 -- late-game waves stay fresh: wave 60 ≈ 1.3, wave 120 ≈ 1.6.
-local function wave_difficulty(i)
+wave_difficulty = function(i)
     if i <= DIFF_RAMP_OVER then
         return (i - 1) / DIFF_RAMP_OVER
     end
