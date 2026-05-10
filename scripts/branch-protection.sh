@@ -11,26 +11,29 @@
 #   - Linear history (no merge commits land on the branch).
 #   - No force-push, no deletion.
 #
-# Bypass:
-#   The GitHub Actions runner identity isn't a queryable Integration
-#   on the repo, so we can't add it via the rulesets API. After this
-#   script runs, manually add "github-actions" as a bypass actor in
-#   the GitHub UI for both rulesets (Settings -> Rules -> ezos-branch-
-#   <branch> -> Bypass list -> Add bypass -> "GitHub Actions"). Without
-#   it, the auto-release workflow's xtr-changelog --push will fail
-#   with GH006.
+# Bypass for the auto-release workflow:
+#   The "GitHub Actions" identity does not appear in the bypass-actor
+#   picker on the free org plan, so the runner can't be added to the
+#   rulesets' bypass list. The auto-release workflow instead pushes
+#   over SSH using a write-enabled deploy key (repo secret
+#   RELEASE_PUSH_KEY, public half registered as deploy key
+#   "auto-release-push"). Deploy-key pushes bypass branch rulesets by
+#   design, so `bypass_actors` here stays empty -- there is no actor
+#   to preserve across re-runs. See CLAUDE.md "Rolling OTA updates"
+#   for the wiring.
 #
 # Why rulesets, not classic branch protection:
 #   Classic protection's "required_status_checks" applies to *every*
-#   push, and GITHUB_TOKEN can't bypass it -- so the auto-release
-#   workflow gets rejected (GH006) when the gate is on. Rulesets
-#   support per-actor bypass, which is exactly what we want.
+#   push and GITHUB_TOKEN can't bypass it. Rulesets support per-actor
+#   bypass (and deploy-key exemption), which is what we want.
 #
 #   Classic protection on these branches is removed in the same step
 #   to avoid two competing layers of policy.
 #
-# Run once. Re-running replaces the existing rulesets idempotently
-# (delete-then-create per branch).
+# Run once. Re-running is idempotent: it snapshots existing
+# ezos-branch-* rulesets, creates fresh ones, drops classic
+# protection, then prunes the snapshotted IDs (create-then-delete,
+# so a creation failure leaves the existing protection intact).
 #
 # Requires: gh auth login (admin on the repo).
 
