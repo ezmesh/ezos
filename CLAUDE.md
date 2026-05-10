@@ -74,7 +74,7 @@ re-test the chord on the device, not the remote tool.
 
 ## On-device font character set
 
-The built-in bitmap fonts (`src/fonts/FreeSans7pt7b.h`, `FreeMono5pt7b.h`) only cover
+The built-in bitmap fonts (`src/fonts/InterAA*.h`, `Spleen*.h`) only cover
 **printable ASCII 0x20..0x7E**. Any other codepoint renders as a `[]` missing-glyph box.
 
 This commonly bites when:
@@ -197,12 +197,24 @@ ezos/
 │   │   ├── text.lua       # Text measurement and wrapping
 │   │   ├── theme.lua      # Palettes, map palette, fonts, dimensions
 │   │   ├── icons.lua      # PNG icon definitions
+│   │   ├── markdown.lua   # On-device markdown renderer
+│   │   ├── dialog.lua     # Modal dialogs
+│   │   ├── persist.lua    # Per-screen state persistence
+│   │   ├── shadows.lua    # Drop-shadow primitives
+│   │   ├── touch_input.lua# Touch / trackball input plumbing
+│   │   ├── transient.lua  # Transient overlays (toasts, etc.)
 │   │   └── async.lua      # Async file I/O helpers
-│   ├── screens/           # Screen definitions (about, chat, dialog,
-│   │                      #   games, settings, tools)
-│   └── services/          # Background services (apps registry, channels,
-│                          #   contacts, direct_messages, file_transfer,
-│                          #   gps, map_archive, prefs_registry, ui_sounds)
+│   ├── screens/           # Screen definitions (about, apps, chat,
+│   │                      #   desktop, dev, dialog, games, menu,
+│   │                      #   onboarding, pickers, settings, test_mode,
+│   │                      #   tools)
+│   ├── services/          # Background services (apps, channels,
+│   │                      #   contacts, custom_packets, direct_messages,
+│   │                      #   file_transfer, gps, log_persist,
+│   │                      #   map_archive, migrations, notifications,
+│   │                      #   ntp, prefs_registry, sharing, signal_test,
+│   │                      #   ui_sounds)
+│   └── util/              # Shared helpers (timezones, etc.)
 ├── scripts/                # Build-time generators (Lua embedder)
 ├── tools/                  # Host utilities (map gen, remote control,
 │                          #   doc generator, font/icon/sound gen)
@@ -252,17 +264,24 @@ Timers and bus messages are processed by C++ `LuaRuntime::update()` before the L
 ### Services
 
 Services are initialized in order in `lua/boot.lua`:
-1. **contacts** — Contact list CRUD with persistence
-2. **channels** — Channel management, GRP_TXT decryption
-3. **direct_messages** — Encrypted DMs via TXT_MSG packets
-4. **custom_packets** — Custom (non-MeshCore) packet handlers
-5. **file_transfer** — Mesh-based file send/receive
-6. **ui_sounds** — UI sound effects via the audio engine
-7. **apps** — Registered file-type → screen handlers (used by the file manager)
-8. **gps** — Started lazily based on the user pref
+1. **log_persist** — Runs first so subsequent service init lines are captured to the persisted log
+2. **contacts** — Contact list CRUD with persistence
+3. **channels** — Channel management, GRP_TXT decryption
+4. **direct_messages** — Encrypted DMs via TXT_MSG packets
+5. **sharing** — Share-card construction and dispatch
+6. **custom_packets** — Custom (non-MeshCore) packet handlers
+7. **file_transfer** — Mesh-based file send/receive
+8. **ui_sounds** — UI sound effects via the audio engine
+9. **notifications** — Bus subscriber for OTA / system notifications
+10. **apps** — Registered file-type → screen handlers (used by the file manager)
+11. **gps** — `gps_svc.start_sync_loop()` is always called; the loop itself
+    respects the user's "never / at boot / hourly" pref and is a no-op when
+    GPS is disabled
 
-Other modules under `lua/services/` (e.g. `map_archive`, `prefs_registry`)
-are loaded on demand by the screens that need them.
+After services start, `migrations.run()` runs version migrations and an
+`ntp` sync is kicked. Other modules under `lua/services/` (e.g.
+`map_archive`, `prefs_registry`, `signal_test`) are loaded on demand by
+the screens that need them.
 
 ### Module Loading
 
@@ -399,7 +418,7 @@ Example primitive output for map tiles:
 
 - Baudrate: 921600
 - Request: `[CMD:1][LEN:2][PAYLOAD:LEN]`
-- Response: `[STATUS:1][LEN:2][DATA:LEN]`
+- Response: `[STATUS:1][LEN:4 little-endian][DATA:LEN]` (4-byte length so file reads can return >64 KiB)
 
 Commands:
 - `0x01` PING - Test connection
@@ -410,6 +429,9 @@ Commands:
 - `0x06` WAIT_FRAME_TEXT - Capture text from next rendered frame
 - `0x07` LUA_EXEC - Execute Lua code and return result
 - `0x08` WAIT_FRAME_PRIMITIVES - Capture draw primitives from next frame
+- `0x09` WRITE_FILE - Write file: `[path_len:2][path][data]`
+- `0x0A` READ_FILE - Read file:  `[path_len:2][path][offset:4][length:4]`
+- `0x0B` WRITE_AT  - Patch file: `[path_len:2][path][offset:4][data]`
 
 ## Development Workflow
 
@@ -543,8 +565,8 @@ the function may be called from a Lua coroutine. The coroutine's state becomes i
 after it is garbage collected, causing crashes when the stored pointer is later used.
 
 This bug has occurred multiple times:
-- `callbackState` in `mesh_bindings.cpp` — stored boot coroutine's state, crashed on packet callbacks
-- `timerLuaState` in `system_bindings.cpp` — stored boot coroutine's state, crashed on 30-second timer
+- Packet callbacks in `mesh_bindings.cpp` — used to capture the registering coroutine's state and crashed once that coroutine was GC'd; fixed by switching to `LUA_STATE` at the call sites (see e.g. `mesh_bindings.cpp:166`).
+- `timerLuaState` in `system_bindings.cpp` — stored boot coroutine's state, crashed on 30-second timer; now resolved via `LUA_STATE` (see comment at `system_bindings.cpp:103`).
 
 **Fix pattern:** Use the `LUA_STATE` macro (`LuaRuntime::instance().getState()`) which
 always returns the main Lua state. Include `lua_runtime.h` for access.
