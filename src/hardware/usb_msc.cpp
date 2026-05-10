@@ -1,4 +1,5 @@
 #include "usb_msc.h"
+#include "sd_manager.h"
 #include "../config.h"
 #include <SD.h>
 #include <SPI.h>
@@ -148,9 +149,14 @@ bool SDCardUSB::isActive() {
 }
 
 bool SDCardUSB::isSDAvailable() {
-    if (!_initialized) {
-        SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
-        return SD.begin(SD_CS);
-    }
-    return SD.exists("/");
+    // Delegate to the shared SDManager so we don't fight the storage
+    // bindings or the AsyncIO worker over SD lifecycle. ensureMounted()
+    // is the first-mount path; if the card was previously known good
+    // but the wrapper's FATFS state has gone stale (USB MSC let the
+    // host scribble on the card while we held the mount), the SD.exists
+    // probe below catches it and triggers a single remount cycle.
+    if (!SDManager::ensureMounted()) return false;
+    SDManager::ScopedLock lk;
+    if (SD.exists("/")) return true;
+    return SDManager::remount();
 }

@@ -1,4 +1,5 @@
 #include "display.h"
+#include "sd_manager.h"
 #include <cstring>
 #include <Arduino.h>
 #include <SD.h>
@@ -785,19 +786,20 @@ bool Display::saveScreenshot(const char* path) {
         return false;
     }
 
-    // Initialize SD if needed
-    SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
-    if (!SD.begin(SD_CS)) {
+    // Initialize SD if needed. Lock around the entire screenshot write
+    // so a Core 0 worker remount can't tear FATFS out from under us.
+    if (!SDManager::ensureMounted()) {
         Serial.println("[Screenshot] SD card not available");
         return false;
     }
+    SDManager::ScopedLock lk;
 
     // Create screenshots directory if it doesn't exist
     if (!SD.exists("/screenshots")) {
         SD.mkdir("/screenshots");
     }
 
-    File file = SD.open(path, FILE_WRITE);
+    File file = SDManager::openWithRetry(&SD, path, FILE_WRITE);
     if (!file) {
         Serial.printf("[Screenshot] Cannot create file: %s\n", path);
         return false;
