@@ -2,6 +2,7 @@
 #include "embedded_scripts.h"
 #include "../config.h"
 #include "../util/log.h"
+#include "../hardware/sd_manager.h"
 #include <Arduino.h>
 #include <SD.h>
 #include <LittleFS.h>
@@ -385,6 +386,16 @@ void AsyncIO::workerTask(void* param) {
             const char* adjustedPath;
             fs::FS* fs = getFS(req.path, &adjustedPath);
 
+            // SD ops on this Core 0 worker must serialise against the
+            // Lua bindings on Core 1 -- otherwise a Core 1 remount can
+            // tear FATFS state out from under our File handle here.
+            // Non-FS ops (AES, HMAC, X25519, HTTP_FETCH) skip the lock
+            // entirely; they don't touch SD. The conditional struct
+            // construction with bool is awkward in C++ so we use a
+            // pointer-or-null and an explicit destructor scope.
+            const bool needSdLock = (fs == &SD);
+            if (needSdLock) SDManager::lock();
+
             switch (req.type) {
                 case OpType::READ: {
                     File f = fs->open(adjustedPath, FILE_READ);
@@ -673,6 +684,8 @@ void AsyncIO::workerTask(void* param) {
                 }
             }
 
+            if (needSdLock) SDManager::unlock();
+
             xQueueSend(self->_resultQueue, &result, portMAX_DELAY);
         }
     }
@@ -831,8 +844,18 @@ int AsyncIO::l_async_read(lua_State* L) {
 
     // Legacy /scripts/ paths: try SD > FS > embedded
     if (strncmp(path, "/scripts/", 9) == 0) {
-        // 1. Check SD card first
-        if (SD.begin(SD_CS) && SD.exists(path)) {
+        // 1. Check SD card first. Lock around the probe so we don't
+        // race with a remount. The SD.exists check is dropped quickly
+        // -- if the path is on SD, the actual read happens either via
+        // the worker (which takes its own lock for the request) or in
+        // the sync fallback below (which re-acquires the lock for the
+        // duration of the file ops).
+        bool onSd = false;
+        if (SDManager::ensureMounted()) {
+            SDManager::ScopedLock lk;
+            onSd = SD.exists(path);
+        }
+        if (onSd) {
             if (lua_isyieldable(L)) {
                 char sdPath[MAX_PATH];
                 snprintf(sdPath, sizeof(sdPath), "/sd%s", path);
@@ -852,6 +875,7 @@ int AsyncIO::l_async_read(lua_State* L) {
                 return lua_yield(L, 0);
             } else {
                 // Synchronous fallback for calls outside a coroutine
+                SDManager::ScopedLock lk;
                 File file = SD.open(path, "r");
                 if (file) {
                     size_t fileSize = file.size();

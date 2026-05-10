@@ -5,6 +5,7 @@
 #include "../embedded_scripts.h"
 #include "../async.h"
 #include "../../config.h"
+#include "../../hardware/sd_manager.h"
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <SD.h>
@@ -25,8 +26,9 @@
 // Also provides persistent key-value preferences stored in NVS flash.
 // @end
 
-// Storage state
-static bool sdInitialized = false;
+// Storage state. SD lifecycle (mount + remount + lock) is delegated to
+// hardware/sd_manager so the same shared state is honoured by the Lua
+// bindings, the AsyncIO worker on Core 0, and the USB MSC subsystem.
 static Preferences prefs;
 static bool prefsOpened = false;
 
@@ -35,62 +37,37 @@ static const char* MOUNT_SD = "/sd";
 static const char* MOUNT_FS = "/fs";
 static const char* MOUNT_IMG = "/img";
 
-// Initialize SD card
-// Mount the SD via the Arduino SD wrapper. SPI.begin is idempotent on
-// Arduino-ESP32, but we still skip it after the first call to avoid
-// spurious bus resets while the user-mode app is mid-frame.
-static bool initSD() {
-    if (sdInitialized) return true;
+static bool initSD() { return SDManager::ensureMounted(); }
 
-    static bool spiBegun = false;
-    if (!spiBegun) {
-        SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS);
-        spiBegun = true;
+// RAII lock that's held only for SD operations. LittleFS calls construct
+// a no-op instance and pay nothing. Used by every LUA_FUNCTION that
+// touches the filesystem so the open AND subsequent read/write/close
+// run under one continuous lock -- otherwise the AsyncIO worker on
+// Core 0 could call SD.end() between our open and our read and tear
+// FATFS out from under our File handle.
+struct SDOpScope {
+    bool held;
+    explicit SDOpScope(fs::FS* fs) : held(fs == &SD) {
+        if (held) SDManager::lock();
     }
-
-    if (SD.begin(SD_CS)) {
-        sdInitialized = true;
-        Serial.println("[Storage] SD card initialized");
-        return true;
+    ~SDOpScope() {
+        if (held) SDManager::unlock();
     }
+    SDOpScope(const SDOpScope&) = delete;
+    SDOpScope& operator=(const SDOpScope&) = delete;
+};
 
-    Serial.println("[Storage] SD card not available");
-    return false;
-}
-
-// Force an unmount + remount cycle. Used when an open() returned nullptr
-// despite initSD() having reported success: the Arduino SD wrapper isn't
-// guaranteed to stay consistent after USB MSC has touched the card --
-// the host's writes can desync the wrapper's internal FATFS state, after
-// which every open() returns nullptr until SD.end() + SD.begin() resets
-// it. Returning false propagates "really not available" up to callers.
-static bool remountSD() {
-    if (sdInitialized) {
-        SD.end();
-        sdInitialized = false;
-    }
-    if (SD.begin(SD_CS)) {
-        sdInitialized = true;
-        Serial.println("[Storage] SD card remounted");
-        return true;
-    }
-    Serial.println("[Storage] SD card remount failed");
-    return false;
-}
-
-// Open a file with one transparent remount-on-failure retry. Reads via
-// the bindings layer go through this so post-MSC desync auto-recovers
-// instead of falling over until the next reboot.
+// Open a file with one transparent remount-on-failure retry. CALLER
+// must already hold the SD lock for SD paths (via SDOpScope) -- this
+// helper does NOT take the lock itself, so the open + downstream
+// read/write/close all happen under one continuous lock. The recursive
+// mutex would let nested locking work, but holding one scope per
+// LUA_FUNCTION keeps the lock-window obvious in the call site.
 static File openWithRetry(fs::FS* fs, const char* path, const char* mode) {
     File f = fs->open(path, mode);
     if (f) return f;
-    // Only the SD wrapper is known to desync; LittleFS doesn't have this
-    // failure mode, so retrying for it is harmless but wasted work. The
-    // probe is cheap (a pointer compare) so we always do it.
-    if (fs == &SD) {
-        if (remountSD()) {
-            f = fs->open(path, mode);
-        }
+    if (fs == &SD && SDManager::remount()) {
+        f = fs->open(path, mode);
     }
     return f;
 }
@@ -225,6 +202,9 @@ LUA_FUNCTION(l_storage_read_bytes) {
         lua_pushstring(L, "SD card not available");
         return 2;
     }
+    // Hold the SD lock for the full open->read->close so a remount on
+    // Core 0 can't tear FATFS out from under our File handle mid-read.
+    SDOpScope sdLock(fs);
 
     File file = openWithRetry(fs, adjustedPath, "r");
     if (!file) {
@@ -308,6 +288,7 @@ LUA_FUNCTION(l_storage_file_size) {
         lua_pushstring(L, "SD card not available");
         return 2;
     }
+    SDOpScope sdLock(fs);
 
     File file = openWithRetry(fs, adjustedPath, "r");
     if (!file) {
@@ -373,6 +354,7 @@ LUA_FUNCTION(l_storage_read_file) {
         lua_pushstring(L, "Filesystem not available");
         return 2;
     }
+    SDOpScope sdLock(fs);
 
     File file = openWithRetry(fs, adjustedPath, "r");
     if (!file) {
@@ -432,6 +414,7 @@ LUA_FUNCTION(l_storage_write_file) {
         lua_pushstring(L, "SD card not available");
         return 2;
     }
+    SDOpScope sdLock(fs);
 
     File file = openWithRetry(fs, adjustedPath, "w");
     if (!file) {
@@ -479,6 +462,7 @@ LUA_FUNCTION(l_storage_append_file) {
         lua_pushstring(L, "SD card not available");
         return 2;
     }
+    SDOpScope sdLock(fs);
 
     File file = openWithRetry(fs, adjustedPath, "a");
     if (!file) {
@@ -566,6 +550,7 @@ LUA_FUNCTION(l_storage_exists) {
         lua_pushboolean(L, false);
         return 1;
     }
+    SDOpScope sdLock(fs);
 
     lua_pushboolean(L, fs->exists(adjustedPath));
     return 1;
@@ -593,6 +578,7 @@ LUA_FUNCTION(l_storage_remove) {
         lua_pushboolean(L, false);
         return 1;
     }
+    SDOpScope sdLock(fs);
 
     lua_pushboolean(L, fs->remove(adjustedPath));
     return 1;
@@ -626,6 +612,7 @@ LUA_FUNCTION(l_storage_rename) {
         lua_pushboolean(L, false);
         return 1;
     }
+    SDOpScope sdLock(fsOld);
 
     lua_pushboolean(L, fsOld->rename(adjustedOld, adjustedNew));
     return 1;
@@ -651,6 +638,7 @@ LUA_FUNCTION(l_storage_mkdir) {
         lua_pushboolean(L, false);
         return 1;
     }
+    SDOpScope sdLock(fs);
 
     lua_pushboolean(L, fs->mkdir(adjustedPath));
     return 1;
@@ -680,6 +668,7 @@ LUA_FUNCTION(l_storage_rmdir) {
         lua_pushboolean(L, false);
         return 1;
     }
+    SDOpScope sdLock(fs);
 
     lua_pushboolean(L, fs->rmdir(adjustedPath));
     return 1;
@@ -817,6 +806,7 @@ LUA_FUNCTION(l_storage_list_dir) {
         if (!initSD()) {
             return 1;
         }
+        SDOpScope sdLock(&SD);
         File dir = SD.open(adjustedPath);
         if (!dir || !dir.isDirectory()) {
             return 1;
@@ -1111,6 +1101,7 @@ LUA_FUNCTION(l_storage_get_sd_info) {
         lua_pushnil(L);
         return 1;
     }
+    SDOpScope sdLock(&SD);
 
     lua_newtable(L);
 
@@ -1346,6 +1337,10 @@ LUA_FUNCTION(l_storage_copy_file) {
         lua_pushboolean(L, false);
         return 1;
     }
+    // Lock if either side is SD. The recursive mutex makes the same
+    // scope cheap if both sides are SD.
+    SDOpScope srcLock(srcFs);
+    SDOpScope dstLock(dstFs);
 
     File srcFile = srcFs->open(srcPath, "r");
     if (!srcFile) {
@@ -1400,6 +1395,7 @@ LUA_FUNCTION(l_storage_get_free_space) {
             lua_pushinteger(L, 0);
             return 1;
         }
+        SDOpScope sdLock(&SD);
         uint64_t freeSpace = SD.totalBytes() - SD.usedBytes();
         lua_pushinteger(L, (lua_Integer)freeSpace);
     } else {

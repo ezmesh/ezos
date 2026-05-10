@@ -3,6 +3,7 @@
 #include "embedded_scripts.h"
 #include "../config.h"
 #include "../util/log.h"
+#include "../hardware/sd_manager.h"
 #include <esp_heap_caps.h>
 #include <LittleFS.h>
 #include <SD.h>
@@ -297,7 +298,8 @@ bool LuaRuntime::executeFile(const char* path) {
     // Handle explicit /sd/ path
     if (strncmp(path, "/sd/", 4) == 0) {
         const char* fsPath = path + 3;  // Strip "/sd"
-        if (SD.begin(SD_CS)) {
+        if (SDManager::ensureMounted()) {
+            SDManager::ScopedLock lk;
             File file = SD.open(fsPath, "r");
             if (file) {
                 size_t fileSize = file.size();
@@ -359,7 +361,8 @@ bool LuaRuntime::executeFile(const char* path) {
     // Legacy /scripts/ paths: try SD > FS > embedded
     if (strncmp(path, "/scripts/", 9) == 0) {
         // 1. Try SD card
-        if (SD.begin(SD_CS)) {
+        if (SDManager::ensureMounted()) {
+            SDManager::ScopedLock lk;
             File file = SD.open(path, "r");
             if (file) {
                 size_t fileSize = file.size();
