@@ -976,7 +976,7 @@
           {
             "type": "tetris",
             "scope": null,
-            "description": "address review feedback — closure capture + lines split",
+            "description": "address review feedback - closure capture + lines split",
             "commit": "bf33a58",
             "author": "Bas van den Aakster",
             "breaking": false,
@@ -1934,7 +1934,7 @@
           {
             "type": "tetris",
             "scope": null,
-            "description": "address review feedback — closure capture + lines split",
+            "description": "address review feedback - closure capture + lines split",
             "commit": "bf33a58",
             "author": "Bas van den Aakster",
             "breaking": false,

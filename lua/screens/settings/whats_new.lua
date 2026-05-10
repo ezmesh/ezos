@@ -6,6 +6,30 @@ local ui = require("ezui")
 
 local WhatsNew = { title = "What's New", granular_scroll = true }
 
+-- Sanitise commit-message-derived strings before they hit text_widget.
+-- The on-device fonts only cover printable ASCII (0x20..0x7E); anything
+-- else renders as a [] missing-glyph box. Commit messages routinely
+-- include em-dashes, curly quotes, ellipses, and the like, so we map
+-- the common ones to ASCII and strip the rest.
+local function ascii_safe(s)
+    if not s or s == "" then return s end
+    -- Common typographic substitutions first (applied to the raw UTF-8
+    -- byte sequences so we don't have to decode codepoints).
+    s = s:gsub("\xE2\x80\x94", "--")  -- em-dash
+    s = s:gsub("\xE2\x80\x93", "-")   -- en-dash
+    s = s:gsub("\xE2\x80\xA6", "...") -- ellipsis
+    s = s:gsub("\xE2\x80\x98", "'")   -- left single quote
+    s = s:gsub("\xE2\x80\x99", "'")   -- right single quote
+    s = s:gsub("\xE2\x80\x9C", '"')   -- left double quote
+    s = s:gsub("\xE2\x80\x9D", '"')   -- right double quote
+    s = s:gsub("\xE2\x80\xA2", "*")   -- bullet
+    s = s:gsub("\xC2\xB7", "*")       -- middle dot
+    -- Strip any remaining bytes outside printable ASCII (covers leftover
+    -- multi-byte sequences from non-Latin scripts, control chars, etc.).
+    s = s:gsub("[^\x20-\x7E\t\n]", "")
+    return s
+end
+
 -- Parse the versions.json content. Returns a list of version entries
 -- sorted newest-first, or nil on error.
 local function parse_versions(json_str)
@@ -64,7 +88,7 @@ function WhatsNew.build_version_list(versions, current_sha)
                         font = "small_aa", color = "TEXT_SEC",
                     }))
                 for _, entry in ipairs(group) do
-                    local desc = entry.description or "?"
+                    local desc = ascii_safe(entry.description) or "?"
                     if entry.scope and entry.scope ~= "" then
                         desc = entry.scope .. ": " .. desc
                     end
