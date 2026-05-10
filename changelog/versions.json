@@ -3,6 +3,30 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.71",
+      "date": "2026-05-10",
+      "commit": "84da3d7",
+      "breaking": false,
+      "groups": {
+        "other": [
+          {
+            "type": "ci",
+            "scope": "branch-protection",
+            "description": "drop required-status-checks enforcement",
+            "commit": "84da3d7",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.78",
       "date": "2026-05-09",
       "commit": "f2370c9",
