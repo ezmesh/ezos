@@ -298,6 +298,7 @@ function Messages:on_enter()
     -- half of the bar's width contains the touch x".
     self._sub_touch = ez.bus.subscribe("touch/down", function(_, data)
         if type(data) ~= "table" then return end
+        if require("ezui.touch_input").is_wake_event() then return end
         local n = self._tab_bar_node
         if not n or not n._x then return end
         if data.y < n._y or data.y >= n._y + (n._ah or 0) then return end

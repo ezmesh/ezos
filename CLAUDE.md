@@ -318,6 +318,48 @@ require("module.name")      -- Standard Lua require (loads embedded scripts firs
 spawn(fn)                   -- Run function in coroutine
 ```
 
+### Touch input and the screensaver wake gate
+
+`lua/ezui/touch_input.lua` is the global touch-to-widget bridge. It
+subscribes once at boot to `touch/down` / `touch/move` / `touch/up`
+and turns single-finger taps into focus-chain activations on the
+widget under the finger. Most screens get touch for free.
+
+Two developer-facing APIs participate in the screensaver wake-event
+flow and must be used by anyone writing new touch code:
+
+- **`screen.notify_input()`** (`lua/ezui/screen.lua`) -- bumps
+  `last_input_time` and, if the screensaver overlay is currently
+  drawn, dismisses it. Returns `true` when the screensaver was just
+  dismissed so the caller can swallow the originating event. The
+  keyboard read loop calls this; you usually don't, but it's the
+  single chokepoint if you ever need to synthesise a wake.
+
+- **`touch_input.is_wake_event()`** -- predicate that returns true
+  for ~250 ms after a touch dismissed the screensaver. The bridge
+  sets the timestamp from inside its own `screensaver_swallow()`
+  guard. Call this **at the top of every `touch/*` bus subscriber a
+  screen registers**:
+
+  ```lua
+  ez.bus.subscribe("touch/down", function(_, data)
+      if require("ezui.touch_input").is_wake_event() then return end
+      -- ... real handler
+  end)
+  ```
+
+  Without this guard, a tap that wakes the device from the
+  screensaver also fires the screen's handler -- a wake-tap on the
+  desktop would launch an icon, a wake-tap in Paint would seed a
+  stroke, etc. The bus broadcasts to every subscriber, so the
+  bridge can't suppress them on its own; each direct subscriber
+  has to opt in.
+
+  `touch/tap` and `touch/long_press` subscribers (games, custom
+  views) are **not** affected -- those are synthesised inside the
+  bridge's own `on_up`, which already returns early on a wake
+  event, so they're covered transitively.
+
 ### Settings
 
 Settings are stored via `ez.storage.set_pref(key, value)` and restored in

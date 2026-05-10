@@ -1127,16 +1127,27 @@ function Paint:_install_touch_handlers()
         end
     end
 
+    -- Wake-event guard on all three: a tap that just dismissed the
+    -- screensaver shouldn't seed a stroke, hit a header button, or
+    -- fire end_stroke (which would commit a phantom one-pixel stroke
+    -- to the undo stack).
     table.insert(self._touch_subs, ez.bus.subscribe("touch/down",
         function(_, data)
+            if require("ezui.touch_input").is_wake_event() then return end
             end_stroke()
             header_touch(data)
             paint_touch(data, true)
         end))
     table.insert(self._touch_subs, ez.bus.subscribe("touch/move",
-        function(_, data) paint_touch(data, false) end))
+        function(_, data)
+            if require("ezui.touch_input").is_wake_event() then return end
+            paint_touch(data, false)
+        end))
     table.insert(self._touch_subs, ez.bus.subscribe("touch/up",
-        function(_, _) end_stroke() end))
+        function(_, _)
+            if require("ezui.touch_input").is_wake_event() then return end
+            end_stroke()
+        end))
 end
 
 -- ---------------------------------------------------------------------------
