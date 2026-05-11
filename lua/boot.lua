@@ -463,6 +463,20 @@ local function boot_sequence()
         end)
     end)
 
+    -- MIC side key: if the voice-notes screen is already on top it
+    -- handles its own MIC key locally (to toggle record without
+    -- racing this global handler). From anywhere else, the side key
+    -- opens the voice-notes screen so the user can start a clip
+    -- without navigating into Apps -> Voice notes manually.
+    ez.bus.subscribe("key/down", function(_topic, k)
+        if type(k) ~= "table" or k.special ~= "MIC" then return end
+        local screen_mod = require("ezui.screen")
+        local top = screen_mod.peek and screen_mod.peek()
+        local VoiceNotes = require("screens.tools.voice_notes")
+        if top and top._def == VoiceNotes then return end
+        screen_mod.push(screen_mod.create(VoiceNotes, {}))
+    end)
+
     -- Apps registry: file-type → handler for the file manager. Built-in
     -- handlers register themselves here; screens opened from the registry
     -- are loaded lazily on first `open()` so unused apps don't pull their

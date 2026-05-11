@@ -62,6 +62,8 @@ local CATEGORIES = {
               icon = icons.folder, mod = "screens.tools.file_manager" },
             { title = "Map", subtitle = "Offline maps",
               icon = icons.map, mod = "screens.tools.map_loader" },
+            { title = "Voice notes", subtitle = "Record clips with the onboard mic",
+              icon = icons.volume, mod = "screens.tools.voice_notes" },
         },
     },
     {
