@@ -437,18 +437,29 @@ end
 screen.last_pop_time = 0
 screen.pop_cooldown_ms = 500
 
-function screen.handle_input()
-    local key = ez.keyboard.read()
-    if not key or not key.valid then return false end
-
-    -- Reset idle timer on any input
+-- Reset the idle timer and, if the screensaver is currently up,
+-- dismiss it. Returns true when the screensaver was just dismissed
+-- so the caller can swallow the originating event (key or touch) --
+-- a tap that wakes the device should not also activate whatever sat
+-- under the overlay. Called from the keyboard path here and from
+-- ezui/touch_input.lua's on_down/move/up.
+function screen.notify_input()
     screen.last_input_time = ez.system.millis()
-
-    -- Dismiss screensaver overlay on any key (consume the key)
     local ss_ok, ss = pcall(require, "screens.tools.screensaver")
     if ss_ok and ss.is_active() then
         ss.stop()
         screen.dirty = true
+        return true
+    end
+    return false
+end
+
+function screen.handle_input()
+    local key = ez.keyboard.read()
+    if not key or not key.valid then return false end
+
+    -- Reset idle timer + dismiss-and-consume any active screensaver.
+    if screen.notify_input() then
         return true  -- consume the key that woke the screen
     end
 

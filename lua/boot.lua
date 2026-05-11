@@ -208,12 +208,14 @@ local function boot_sequence()
     local ui_sounds = require("services.ui_sounds")
     ui_sounds.init()
 
-    -- Notifications service + OTA hookup. The service is just an
+    -- Notifications service + integrations. The service is just an
     -- in-memory queue; the toast overlay in ezui.screen subscribes to
     -- "notifications/changed" and shows the latest one for a few
-    -- seconds. Hooking ota/progress here means a successful OTA push
-    -- announces itself wherever the user happens to be.
+    -- seconds. Hooking events here means they announce themselves
+    -- wherever the user happens to be.
     local notifications = require("services.notifications")
+
+    -- ---- OTA ----
     ez.bus.subscribe("ota/progress", function(_topic, data)
         if type(data) ~= "table" then return end
         if data.phase == "end" and not data.error then
@@ -235,6 +237,244 @@ local function boot_sequence()
                 source = "ota",
             })
         end
+    end)
+
+    -- ---- Direct messages ----
+    -- Skip the toast when the user is already in the conversation
+    -- with that contact -- the screen itself shows the new bubble.
+    ez.bus.subscribe("dm/message", function(_topic, msg)
+        if type(msg) ~= "table" or msg.is_self then return end
+        local key  = msg.sender_key
+        local name = msg.sender_name or "Unknown"
+        local body = msg.text and msg.text:sub(1, 80) or nil
+        notifications.post_unless_focused({
+            title  = name,
+            body   = body,
+            source = "dm",
+            action = {
+                label    = "Open",
+                on_press = function()
+                    local screen   = require("ezui.screen")
+                    local DMConv   = require("screens.chat.dm_conversation")
+                    screen.push(screen.create(DMConv, { contact_key = key }))
+                end,
+            },
+        }, function(inst)
+            -- Suppress when the active screen is the DM conversation
+            -- with this very contact.
+            return inst._state and inst._state.contact_key == key
+        end)
+    end)
+    ez.bus.subscribe("dm/status", function(_topic, data)
+        if type(data) ~= "table" then return end
+        if data.status ~= "unconfirmed" then return end
+        notifications.post({
+            title  = "DM not delivered",
+            body   = "No ACK received -- recipient may be offline.",
+            source = "dm",
+        })
+    end)
+
+    -- ---- File transfer ----
+    local function open_transfer_screen()
+        local screen = require("ezui.screen")
+        local FT     = require("screens.tools.file_transfer")
+        screen.push(screen.create(FT, {}))
+    end
+    ez.bus.subscribe("file/offer", function(_topic, data)
+        if type(data) ~= "table" then return end
+        local who = data.sender_name or (data.sender_pub
+                       and data.sender_pub:sub(1, 8)) or "someone"
+        notifications.post({
+            title  = "File offered",
+            body   = string.format("%s -- %s", data.name or "?", who),
+            source = "file",
+            action = { label = "Open", on_press = open_transfer_screen },
+        })
+    end)
+    ez.bus.subscribe("file/done", function(_topic, data)
+        -- Only RX completions are user-facing -- the sender already
+        -- saw their progress bar fill.
+        if type(data) ~= "table" or data.role ~= "rx" then return end
+        local name = data.path and data.path:match("([^/]+)$") or "file"
+        notifications.post({
+            title  = "Received " .. name,
+            body   = data.bytes and (data.bytes .. " bytes") or nil,
+            source = "file",
+            action = { label = "Open", on_press = open_transfer_screen },
+        })
+    end)
+    ez.bus.subscribe("file/error", function(_topic, data)
+        if type(data) ~= "table" or data.role ~= "rx" then return end
+        notifications.post({
+            title  = "File transfer failed",
+            body   = data.error or data.reason,
+            source = "file",
+        })
+    end)
+
+    -- ---- Battery + SD polling ----
+    -- One periodic timer covers both: cheap polls (one ADC + one
+    -- bool), and there's no driver-side bus event for either today.
+    -- 30 s is fast enough that an SD swap or a steep battery drop
+    -- surfaces well before the user notices a missing map tile.
+    local battery_state = { last_threshold = nil }   -- last crossed threshold int
+    local sd_state      = { present = nil }          -- nil until the first poll
+    local function check_battery()
+        if not (ez.system and ez.system.get_battery_percent) then return end
+        local pct = ez.system.get_battery_percent()
+        if not pct or pct < 0 then return end
+        local charging = ez.system.is_charging and ez.system.is_charging() or false
+        -- Climbing back up (or plugged in) clears the latch so a
+        -- subsequent dip will warn again.
+        if charging or pct > 25 then
+            battery_state.last_threshold = nil
+            return
+        end
+        -- Check most-severe (lowest %) first. A new toast only
+        -- fires when crossing into a *more-severe* threshold than
+        -- the one currently latched -- ratcheting downward, never
+        -- back up. Without that gate, partial recovery from 4% to
+        -- 7% (still below 25, still discharging) would replace the
+        -- sticky 5% warning with a non-sticky 10% one. Iteration
+        -- always stops at the first matching threshold so we
+        -- don't fall through to a less-severe row.
+        local thresholds = { 5, 10, 20 }
+        for _, t in ipairs(thresholds) do
+            if pct <= t then
+                local last = battery_state.last_threshold
+                if last == nil or last > t then
+                    battery_state.last_threshold = t
+                    notifications.dismiss_source("battery")
+                    notifications.post({
+                        title  = "Battery low",
+                        body   = string.format("%d%% remaining", pct),
+                        source = "battery",
+                        sticky = (t <= 5),
+                    })
+                end
+                return
+            end
+        end
+    end
+    local function check_sd()
+        if not (ez.storage and ez.storage.is_sd_available) then return end
+        local now = ez.storage.is_sd_available()
+        if sd_state.present == nil then
+            sd_state.present = now
+            return                          -- seed only; no notification
+        end
+        if now == sd_state.present then return end
+        sd_state.present = now
+        if now then
+            notifications.post({
+                title  = "SD card connected",
+                source = "sd",
+            })
+        else
+            notifications.post({
+                title  = "SD card removed",
+                body   = "Maps and large transfers will be unavailable.",
+                source = "sd",
+            })
+        end
+    end
+    local POLL_MS = 30000
+    local function poll_tick()
+        check_battery()
+        check_sd()
+        ez.system.set_timer(POLL_MS, poll_tick)
+    end
+    -- First poll at +5 s so the value isn't read mid-init while the
+    -- ADC is still settling, then every POLL_MS thereafter.
+    ez.system.set_timer(5000, poll_tick)
+
+    -- ---- Reset reason ----
+    -- Surface a panic / brownout from the previous boot once. The
+    -- log_persist init wrote the reset reason to flash; here we just
+    -- raise a sticky toast that takes the user to the on-device log
+    -- so they can see what happened. Action loads the screen lazily
+    -- to avoid pulling it into memory at boot.
+    if ez.system.get_reset_reason then
+        local reason = ez.system.get_reset_reason()
+        if reason == "panic" or reason == "brownout" then
+            notifications.post({
+                title  = (reason == "panic") and "Recovered from crash"
+                                              or "Recovered from brownout",
+                body   = "Tap to view the log.",
+                source = "system",
+                sticky = true,
+                action = {
+                    label    = "Logs",
+                    on_press = function()
+                        local screen = require("ezui.screen")
+                        local Logs   = require("screens.tools.logs")
+                        screen.push(screen.create(Logs, {}))
+                    end,
+                },
+            })
+        end
+    end
+
+    -- ---- Channel messages ----
+    -- Honour the per-channel notify mode (none / mentions / all).
+    -- "Mentions" matches the user's node name as a case-insensitive
+    -- substring of the message text -- word-boundary matching would
+    -- be more accurate but Lua's patterns don't have a real \b and
+    -- the false-positive rate on a substring match is low for the
+    -- typical short device name.
+    local channels_svc = require("services.channels")
+    ez.bus.subscribe("channel/message", function(_topic, msg)
+        if type(msg) ~= "table" or msg.is_self then return end
+        local name = msg.channel
+        if not name then return end
+        local mode = channels_svc.get_notify_mode(name)
+        if mode == "none" then return end
+        if mode == "mentions" then
+            local my = ez.mesh and ez.mesh.get_node_name and ez.mesh.get_node_name()
+            if not my or my == "" then return end
+            local hit = msg.text and msg.text:lower():find(my:lower(), 1, true)
+            if not hit then return end
+        end
+        notifications.post_unless_focused({
+            title  = name,
+            body   = string.format("%s: %s",
+                                   msg.sender_name or "?",
+                                   (msg.text or ""):sub(1, 80)),
+            source = "channel",
+            action = {
+                label    = "Open",
+                on_press = function()
+                    local screen = require("ezui.screen")
+                    local Chat   = require("screens.chat.channel_chat")
+                    screen.push(screen.create(Chat, { channel = name }))
+                end,
+            },
+        }, function(inst)
+            -- Suppress only when the channel-chat screen for this
+            -- exact channel is on top. Gate on the screen *type*,
+            -- not just `_state.channel`, because the channel
+            -- settings sheet also carries the channel name in its
+            -- state and would otherwise eat notifications.
+            local Chat = require("screens.chat.channel_chat")
+            return inst._def == Chat
+                   and inst._state
+                   and inst._state.channel == name
+        end)
+    end)
+
+    -- MIC side key: if the voice-notes screen is already on top it
+    -- handles its own MIC key locally (to toggle record without
+    -- racing this global handler). From anywhere else, the side key
+    -- opens the voice-notes screen so the user can start a clip
+    -- without navigating into Apps -> Voice notes manually.
+    ez.bus.subscribe("key/down", function(_topic, k)
+        if type(k) ~= "table" or k.special ~= "MIC" then return end
+        local screen_mod = require("ezui.screen")
+        local top = screen_mod.peek and screen_mod.peek()
+        local VoiceNotes = require("screens.tools.voice_notes")
+        if top and top._def == VoiceNotes then return end
+        screen_mod.push(screen_mod.create(VoiceNotes, {}))
     end)
 
     -- Apps registry: file-type → handler for the file manager. Built-in

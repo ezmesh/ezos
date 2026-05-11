@@ -37,6 +37,14 @@ jobs:
         with:
           ssh-key: ${{ secrets.RELEASE_PUSH_KEY }}
           persist-credentials: true
+          # xtr-changelog reads the latest `v*` tag locally to pick
+          # `previousVersion`; without this the action fetches
+          # depth=1 with no tags and falls back to package.json
+          # (which doesn't move), so every release re-stamps the
+          # same patch number. fetch-depth: 0 also gives the tool
+          # the full commit list it needs to build the changelog.
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -75,12 +83,12 @@ jobs:
         id: changelog
         run: |
           npm ci
-          # --push pushes the release commit + tag back to main so
-          # versions.json[0].commit advances each run. Without this,
-          # subsequent runs all compute "next version" against a frozen
-          # anchor and the published version label drifts non-
-          # monotonically; the version-bump-required PR gate also has
-          # nothing real to anchor against.
+          # --push pushes the release commit + tag back to main so the
+          # next run sees the freshly-created `vX.Y.Z` tag, which is
+          # how xtr-changelog picks `previousVersion` (it greps local
+          # tags, hence the `fetch-tags: true` on checkout). Without
+          # the tag fetch, every run falls back to package.json#version
+          # and re-stamps the same patch number.
           #
           # [skip ci] in the message keeps the resulting push from
           # re-triggering this workflow (paths-ignore above is the

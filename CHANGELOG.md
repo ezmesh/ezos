@@ -1,14 +1,53 @@
 # Changelog
 
+## [0.0.87] - 2026-05-11
+
+### Other
+- **claude:** add /next, /work-issue, /autopilot skills (#92) (61e4ff1)
+
+## [0.0.87] - 2026-05-11
+
+### Other
+- **claude:** add /next, /work-issue, /autopilot skills (#92) (61e4ff1)
+
+## [0.0.86] - 2026-05-11
+
+### Other
+- **manual:** regenerate menu + settings pages from current sources (#91) (a0e097e)
+
+## [0.0.85] - 2026-05-11
+
+### Features
+- **audio:** wire up onboard ES7210 microphone for audio recording (#89) (b628ef6)
+
+## [0.0.84] - 2026-05-11
+
+### Features
+- **boot:** show firmware version and channel on splash (#90) (951f46f)
+
+## [0.0.83] - 2026-05-10
+
+### Features
+- **channels:** per-channel history limit + notification mode (#80) (374eb45)
+
+### Fixes
+- **release:** packageJson must be an object, not the literal true (#86) (9d253e7)
+- **release:** fetch tags so xtr-changelog can advance the version (#85) (d389651)
+
+## [0.0.80] - 2026-05-10
+
+### Features
+- **channels:** per-channel history limit + notification mode (#80) (374eb45)
+
 ## [0.0.71] - 2026-05-10
 
 ### Other
-- **branch-protection:** drop required-status-checks enforcement (84da3d7)
+- **release:** add DeployKey bypass actor to branch rulesets (#84) (afc57b3)
 
-## [0.0.71] - 2026-05-10
+## [0.0.79] - 2026-05-10
 
-### Other
-- **branch-protection:** drop required-status-checks enforcement (84da3d7)
+### Features
+- **notifications:** wire DM/file/battery/SD/panic events (#79) (5478bde)
 
 ## [0.0.78] - 2026-05-09
 
@@ -87,7 +126,7 @@
 - cooperative coroutine scheduler + Lua trace log + EU freq nudge (be93d32)
 - seed-based encounter plan + boss sections + drone enemy + thrust pickup + particles / popups / sprite polish (4849cfa)
 - in-game pause menu (P toggles) (85e48e2)
-- address review feedback — closure capture + lines split (bf33a58)
+- address review feedback - closure capture + lines split (bf33a58)
 - Easy / Hard modes with drop-preview on Easy (950960c)
 - distinct enemy sprites + ship accel + hold-to-shoot (698ca63)
 - TDMAP v4/v5 drop, version macro, http+system binding fixes, docs CI (4457967)
@@ -162,7 +201,7 @@
 - cooperative coroutine scheduler + Lua trace log + EU freq nudge (be93d32)
 - seed-based encounter plan + boss sections + drone enemy + thrust pickup + particles / popups / sprite polish (4849cfa)
 - in-game pause menu (P toggles) (85e48e2)
-- address review feedback — closure capture + lines split (bf33a58)
+- address review feedback - closure capture + lines split (bf33a58)
 - Easy / Hard modes with drop-preview on Easy (950960c)
 - distinct enemy sprites + ship accel + hold-to-shoot (698ca63)
 - TDMAP v4/v5 drop, version macro, http+system binding fixes, docs CI (4457967)

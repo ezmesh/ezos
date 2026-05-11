@@ -1,5 +1,8 @@
 #include "boot_splash.h"
 #include "generated/embedded_assets.h"
+#include <Preferences.h>
+#include <cstdio>
+#include <cstring>
 
 namespace boot_splash {
 
@@ -19,10 +22,41 @@ constexpr int kBarGap = 36;  // vertical gap between logo and bar
 constexpr uint16_t kBgColor = 0x0000;            // black
 constexpr uint16_t kBarBgColor = 0x2104;         // very dark gray
 constexpr uint16_t kBarFgColor = 0x07E0;         // green (matches Colors::FOREGROUND)
+constexpr uint16_t kVersionColor = 0x5AAB;       // dim gray-green, less prominent than logo
 
 static int s_completed = 0;
 static int s_barX = 0;
 static int s_barY = 0;
+
+// Read the user's selected OTA channel from NVS. The Lua side stores
+// this as an int under the "lua_storage" namespace (see
+// lua/screens/settings/firmware_update.lua); index into CHANNELS where
+// 1 = "main", 2 = "test". We re-implement the lookup here in C++ so the
+// splash can paint the channel suffix before Lua is up.
+static const char* otaChannelLabel() {
+    Preferences p;
+    if (!p.begin("lua_storage", true)) {
+        return "main";  // namespace not yet created -> first boot, default channel
+    }
+    int idx = p.getInt("ota_channel", 1);
+    p.end();
+    switch (idx) {
+        case 2:  return "test";
+        case 1:
+        default: return "main";
+    }
+}
+
+// Build "v<version>" or "v<version> (<channel>)" into `out`.
+// The font set only covers printable ASCII, so we keep the format ASCII-only.
+static void formatVersionLine(char* out, size_t outLen) {
+    const char* channel = otaChannelLabel();
+    if (std::strcmp(channel, "main") == 0) {
+        std::snprintf(out, outLen, "v%s", EZOS_VERSION);
+    } else {
+        std::snprintf(out, outLen, "v%s (%s)", EZOS_VERSION, channel);
+    }
+}
 
 static void drawProgress(Display* display) {
     int filled = (kBarW * s_completed) / kTotalSteps;
@@ -59,6 +93,20 @@ void show(Display* display) {
                 kLogoW, kLogoH,
                 0, 0,
                 kLogoScale, kLogoScale);
+
+    // Version line, centered between the logo and the progress bar.
+    // Drawn before the progress bar so it shares the same kBarGap budget
+    // (36 px) without nudging anything else around.
+    char versionLine[48];
+    formatVersionLine(versionLine, sizeof(versionLine));
+    FontSize prevFont = display->getFontSize();
+    display->setFontSize(FontSize::SMALL_AA);
+    const int textW = display->textWidth(versionLine);
+    const int textH = display->getFontHeight();
+    const int textX = (sw - textW) / 2;
+    const int textY = logoY + kLogoH + (kBarGap - textH) / 2;
+    display->drawText(textX, textY, versionLine, kVersionColor);
+    display->setFontSize(prevFont);
 
     // Progress bar background. Drawn once; step() only repaints the
     // filled portion so we don't have to rebuild the whole splash.

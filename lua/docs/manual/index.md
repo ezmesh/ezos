@@ -11,6 +11,7 @@ work even with no SD card and no network.
 - Key bindings
 - Mesh basics
 - Maps
+- Voice notes
 - Settings
 - Customization (advanced)
 

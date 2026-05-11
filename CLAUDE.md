@@ -182,21 +182,40 @@ scope. The "GitHub Actions" identity does not appear in the bypass
 picker on the free org plan, so we can't put it on the bypass list.
 
 Workaround in use: a write-enabled **deploy key** (`auto-release-push`,
-private half stored in repo secret `RELEASE_PUSH_KEY`). Deploy-key
-pushes bypass branch rulesets by design. Both `*-artifacts.yml`
+private half stored in repo secret `RELEASE_PUSH_KEY`) **plus a
+DeployKey bypass actor on each ruleset**. Both `*-artifacts.yml`
 workflows load the key into ssh-agent via `webfactory/ssh-agent`
 and check the repo out over SSH so the subsequent `git push` from
-xtr-changelog flows through the same key.
+xtr-changelog flows through the same key, and the bypass actor
+on `ezos-branch-main` / `ezos-branch-test` lets that push land
+despite the `pull_request` rule. **Deploy keys do NOT bypass
+rulesets implicitly** -- the bypass actor must be present, of
+type `DeployKey` (which covers any deploy key on the repo, so the
+API stores it with `actor_id: null`).
 
 If OTA releases ever stop publishing, check the failing workflow
 run's "Generate changelog, sync version, and push back" step. A
 GH013 / "Changes must be made through a pull request" error means
-the SSH push fell back to HTTPS+GITHUB_TOKEN -- usually because the
-checkout step's `ssh-key` input was lost or the secret was rotated
-without updating the deploy key. Regenerate the keypair with
-`ssh-keygen -t ed25519`, register the public half via
-`POST /repos/ezmesh/ezos/keys` with `read_only: false`, and re-upload
-the private half to the `RELEASE_PUSH_KEY` secret.
+the push reached GitHub but the `pull_request` rule fired anyway.
+The two common causes:
+
+1. The DeployKey bypass entry is missing from the ruleset's
+   `bypass_actors`. Re-run `scripts/branch-protection.sh` (which
+   includes it now), or add it manually:
+   ```sh
+   gh api repos/ezmesh/ezos/rulesets        # find the ruleset id
+   gh api -X PUT repos/ezmesh/ezos/rulesets/<id> -f \
+       'bypass_actors[][actor_type]=DeployKey' \
+       -f 'bypass_actors[][bypass_mode]=always' ...
+   ```
+   (Pass the full ruleset payload; the PUT replaces it.)
+2. The SSH push genuinely fell back to HTTPS+GITHUB_TOKEN because
+   the deploy key is missing or the secret was rotated. Regenerate
+   the keypair with `ssh-keygen -t ed25519`, register the public
+   half via `POST /repos/ezmesh/ezos/keys` with `read_only: false`,
+   and re-upload the private half to `RELEASE_PUSH_KEY`. The
+   `webfactory/ssh-agent` step's log lines (`Identity added: ...`,
+   key fingerprint) confirm whether auth got off the ground.
 
 ## Project Structure
 
@@ -299,7 +318,10 @@ Services are initialized in order in `lua/boot.lua`:
 6. **custom_packets** — Custom (non-MeshCore) packet handlers
 7. **file_transfer** — Mesh-based file send/receive
 8. **ui_sounds** — UI sound effects via the audio engine
-9. **notifications** — Bus subscriber for OTA / system notifications
+9. **notifications** — Toast queue + bus subscribers for OTA, DMs,
+   file transfer, low battery, SD connect/disconnect, and panic /
+   brownout recovery. See "Notifications service" below for the
+   public API and per-source mute pref namespace.
 10. **apps** — Registered file-type → screen handlers (used by the file manager)
 11. **gps** — `gps_svc.start_sync_loop()` is always called; the loop itself
     respects the user's "never / at boot / hourly" pref and is a no-op when
@@ -310,6 +332,36 @@ After services start, `migrations.run()` runs version migrations and an
 `map_archive`, `prefs_registry`, `signal_test`) are loaded on demand by
 the screens that need them.
 
+### Notifications service
+
+`services/notifications` is an in-memory toast queue. The bus topic
+`notifications/changed` fires on every change; `ezui/screen.lua`
+subscribes once and renders the most recent entry as a toast.
+
+Public API:
+
+- `notifications.post(opts)` — `{ title, body?, source?, sticky?,
+  action? = { label, on_press }, read? }`. Returns the new id, or
+  nil if suppressed (muted source, missing title). `title` and
+  `body` are sanitized to printable ASCII before being stored — the
+  on-device fonts can't render anything else (see "On-device font
+  character set" above), and titles/bodies often come from
+  peer-originated mesh data.
+- `notifications.post_unless_focused(opts, predicate)` — posts only
+  when `predicate(top_screen_inst)` returns false. Use for events
+  that lead to a screen the user might already be looking at (the
+  DM message → DM conversation flow is the canonical example).
+- `notifications.dismiss(id)` / `notifications.dismiss_source(s)` /
+  `notifications.list()` / `notifications.unread_count()` /
+  `notifications.mark_all_read()`.
+
+Per-source mute pref: every `post()` consults `notify_<source>` in
+NVS (default `"1"` = on). Setting `notify_dm = "0"`, for instance,
+silences every DM toast without touching the wiring. The namespace
+is meant for a future Settings panel; pref keys must stay under
+NVS's 15-character limit, so source tags should be short
+(`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `system`).
+
 ### Module Loading
 
 ```lua
@@ -317,6 +369,48 @@ load_module(path)           -- Async load from LittleFS (yields in coroutine)
 require("module.name")      -- Standard Lua require (loads embedded scripts first)
 spawn(fn)                   -- Run function in coroutine
 ```
+
+### Touch input and the screensaver wake gate
+
+`lua/ezui/touch_input.lua` is the global touch-to-widget bridge. It
+subscribes once at boot to `touch/down` / `touch/move` / `touch/up`
+and turns single-finger taps into focus-chain activations on the
+widget under the finger. Most screens get touch for free.
+
+Two developer-facing APIs participate in the screensaver wake-event
+flow and must be used by anyone writing new touch code:
+
+- **`screen.notify_input()`** (`lua/ezui/screen.lua`) -- bumps
+  `last_input_time` and, if the screensaver overlay is currently
+  drawn, dismisses it. Returns `true` when the screensaver was just
+  dismissed so the caller can swallow the originating event. The
+  keyboard read loop calls this; you usually don't, but it's the
+  single chokepoint if you ever need to synthesise a wake.
+
+- **`touch_input.is_wake_event()`** -- predicate that returns true
+  for ~250 ms after a touch dismissed the screensaver. The bridge
+  sets the timestamp from inside its own `screensaver_swallow()`
+  guard. Call this **at the top of every `touch/*` bus subscriber a
+  screen registers**:
+
+  ```lua
+  ez.bus.subscribe("touch/down", function(_, data)
+      if require("ezui.touch_input").is_wake_event() then return end
+      -- ... real handler
+  end)
+  ```
+
+  Without this guard, a tap that wakes the device from the
+  screensaver also fires the screen's handler -- a wake-tap on the
+  desktop would launch an icon, a wake-tap in Paint would seed a
+  stroke, etc. The bus broadcasts to every subscriber, so the
+  bridge can't suppress them on its own; each direct subscriber
+  has to opt in.
+
+  `touch/tap` and `touch/long_press` subscribers (games, custom
+  views) are **not** affected -- those are synthesised inside the
+  bridge's own `on_up`, which already returns early on a wake
+  event, so they're covered transitively.
 
 ### Settings
 
