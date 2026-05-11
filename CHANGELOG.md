@@ -1,9 +1,14 @@
 # Changelog
 
-## [0.0.85] - 2026-05-11
+## [0.0.86] - 2026-05-11
 
-### Features
-- **audio:** wire up onboard ES7210 microphone for audio recording (#89) (b628ef6)
+### Other
+- **manual:** regenerate menu + settings pages from current sources (#91) (a0e097e)
+
+## [0.0.86] - 2026-05-11
+
+### Other
+- **manual:** regenerate menu + settings pages from current sources (#91) (a0e097e)
 
 ## [0.0.85] - 2026-05-11
 
