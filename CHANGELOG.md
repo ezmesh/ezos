@@ -1,13 +1,14 @@
 # Changelog
 
-## [0.0.83] - 2026-05-10
+## [0.0.84] - 2026-05-11
 
 ### Features
-- **channels:** per-channel history limit + notification mode (#80) (374eb45)
+- **boot:** show firmware version and channel on splash (#90) (951f46f)
 
-### Fixes
-- **release:** packageJson must be an object, not the literal true (#86) (9d253e7)
-- **release:** fetch tags so xtr-changelog can advance the version (#85) (d389651)
+## [0.0.84] - 2026-05-11
+
+### Features
+- **boot:** show firmware version and channel on splash (#90) (951f46f)
 
 ## [0.0.83] - 2026-05-10
 
