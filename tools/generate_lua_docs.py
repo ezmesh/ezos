@@ -169,11 +169,18 @@ class SettingsCategory:
 
 @dataclass
 class MenuItem:
-    """A menu item from the main menu."""
-    label: str
-    description: str
-    shortcut: str = ""
-    enabled: bool = True
+    """A single entry inside a main-menu tab."""
+    label: str          # entry `title` field
+    description: str    # entry `subtitle` field
+    target: str = ""    # "mod:foo.bar" / "screen:$screens/..." / "action"
+
+@dataclass
+class MenuCategory:
+    """A tab on the main menu (Communication, Apps, Tools, ...)."""
+    id: str
+    label: str          # short label shown in the tab strip
+    title: str          # heading text used inside that tab
+    entries: List[MenuItem] = field(default_factory=list)
 
 # Introduction content for the documentation (HTML format)
 INTRODUCTION = """
@@ -676,42 +683,148 @@ def parse_settings_file(filepath: Path) -> List[SettingsCategory]:
 
     return categories
 
-def parse_menu_file(filepath: Path) -> List[MenuItem]:
-    """Parse menu items from main_menu.lua file."""
-    items = []
+def _lua_balanced_block(text: str, start: int) -> Tuple[int, int]:
+    """Return (open_index, close_index) of the Lua table that starts with a
+    `{` at or after `start`, balancing nested braces and ignoring braces
+    inside strings or comments.
+
+    Handles Lua line comments (`-- ...`) and long comments (`--[[ ... ]]`)
+    -- without that, quote characters or braces inside comments throw the
+    balance count off and the function never converges.
+    """
+    depth = 0
+    in_str = None  # quote char if inside a string, else None
+    i = start
+    open_idx = -1
+    while i < len(text):
+        c = text[i]
+        # Comment handling (only outside strings)
+        if not in_str and c == '-' and i + 1 < len(text) and text[i + 1] == '-':
+            # Long comment: --[[ ... ]]
+            if text.startswith('--[[', i):
+                end = text.find(']]', i + 4)
+                if end == -1:
+                    return -1, -1
+                i = end + 2
+                continue
+            # Line comment: skip to end of line
+            nl = text.find('\n', i)
+            if nl == -1:
+                return -1, -1
+            i = nl + 1
+            continue
+        if in_str:
+            if c == '\\' and i + 1 < len(text):
+                i += 2
+                continue
+            if c == in_str:
+                in_str = None
+        elif c in ('"', "'"):
+            in_str = c
+        elif c == '{':
+            if depth == 0:
+                open_idx = i
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                return open_idx, i
+        i += 1
+    return -1, -1
+
+def _split_lua_entries(body: str) -> List[str]:
+    """Split a Lua array body into top-level `{ ... }` entries."""
+    entries = []
+    i = 0
+    while i < len(body):
+        # find the next `{`
+        brace = body.find('{', i)
+        if brace == -1:
+            break
+        open_i, close_i = _lua_balanced_block(body, brace)
+        if open_i == -1:
+            break
+        entries.append(body[open_i + 1:close_i])
+        i = close_i + 1
+    return entries
+
+def parse_menu_file(filepath: Path) -> List[MenuCategory]:
+    """Parse the categorised main menu from lua/screens/menu.lua.
+
+    The expected source shape is::
+
+        local CATEGORIES = {
+            { id = "comm", label = "Communication", title = "Communication",
+              entries = {
+                { title = "Messages", subtitle = "...",
+                  icon = icons.mail, screen = "$screens/chat/messages.lua" },
+                ...
+              } },
+            ...
+        }
+    """
+    categories: List[MenuCategory] = []
 
     with open(filepath, 'r') as f:
         content = f.read()
 
-    # Find the items table
-    items_match = re.search(r'items\s*=\s*\{(.+?)\n\s*\}', content, re.DOTALL)
-    if not items_match:
-        return items
+    cat_marker = re.search(r'\bCATEGORIES\s*=\s*', content)
+    if not cat_marker:
+        return categories
 
-    items_block = items_match.group(1)
+    open_i, close_i = _lua_balanced_block(content, cat_marker.end())
+    if open_i == -1:
+        return categories
 
-    # Parse each menu item: {label = "...", description = "...", ...}
-    item_pattern = re.compile(r'\{[^}]+\}', re.DOTALL)
+    categories_body = content[open_i + 1:close_i]
+    cat_blocks = _split_lua_entries(categories_body)
 
-    for match in item_pattern.finditer(items_block):
-        block = match.group(0)
+    for cat_block in cat_blocks:
+        id_m    = re.search(r'\bid\s*=\s*"([^"]+)"', cat_block)
+        label_m = re.search(r'\blabel\s*=\s*"([^"]+)"', cat_block)
+        title_m = re.search(r'\btitle\s*=\s*"([^"]+)"', cat_block)
+        entries_m = re.search(r'\bentries\s*=\s*', cat_block)
+        if not (id_m and label_m and entries_m):
+            continue
 
-        # Extract fields
-        label_match = re.search(r'label\s*=\s*"([^"]+)"', block)
-        desc_match = re.search(r'description\s*=\s*"([^"]+)"', block)
-        shortcut_match = re.search(r'shortcut\s*=\s*"([^"]+)"', block)
-        enabled_match = re.search(r'enabled\s*=\s*(true|false)', block)
+        e_open, e_close = _lua_balanced_block(cat_block, entries_m.end())
+        if e_open == -1:
+            continue
 
-        if label_match:
-            item = MenuItem(
-                label=label_match.group(1),
-                description=desc_match.group(1) if desc_match else "",
-                shortcut=shortcut_match.group(1) if shortcut_match else "",
-                enabled=enabled_match.group(1) != 'false' if enabled_match else True
-            )
-            items.append(item)
+        category = MenuCategory(
+            id=id_m.group(1),
+            label=label_m.group(1),
+            title=(title_m.group(1) if title_m else label_m.group(1)),
+        )
 
-    return items
+        entry_blocks = _split_lua_entries(cat_block[e_open + 1:e_close])
+        for entry_block in entry_blocks:
+            t_m  = re.search(r'\btitle\s*=\s*"([^"]+)"', entry_block)
+            s_m  = re.search(r'\bsubtitle\s*=\s*"([^"]+)"', entry_block)
+            mod_m    = re.search(r'\bmod\s*=\s*"([^"]+)"', entry_block)
+            scr_m    = re.search(r'\bscreen\s*=\s*"([^"]+)"', entry_block)
+            action_m = re.search(r'\baction\s*=\s*function', entry_block)
+
+            if not t_m:
+                continue
+            target = ""
+            if mod_m:
+                target = f"mod:{mod_m.group(1)}"
+            elif scr_m:
+                target = f"screen:{scr_m.group(1)}"
+            elif action_m:
+                target = "action"
+
+            category.entries.append(MenuItem(
+                label=t_m.group(1),
+                description=(s_m.group(1) if s_m else ""),
+                target=target,
+            ))
+
+        if category.entries:
+            categories.append(category)
+
+    return categories
 
 def group_by_module(functions: List[LuaFunction], module_infos: Optional[Dict[str, ModuleInfo]] = None) -> Dict[str, LuaModule]:
     """Group functions by their module and apply module descriptions."""
@@ -2126,10 +2239,11 @@ def generate_bus_markdown(bus_messages: List[BusMessage], func_index: Dict[str, 
     return '\n'.join(lines)
 
 def generate_shell_guide_index(categories: List[SettingsCategory], modules: Dict[str, LuaModule],
-                               menu_items: List[MenuItem] = None) -> str:
+                               menu_categories: List[MenuCategory] = None) -> str:
     """Generate the main index for user-facing shell documentation."""
     total_settings = sum(len(c.settings) for c in categories)
     total_funcs = sum(len(m.functions) for m in modules.values())
+    total_menu = sum(len(c.entries) for c in (menu_categories or []))
 
     lines = [
         "# ezOS Shell Guide",
@@ -2148,10 +2262,11 @@ def generate_shell_guide_index(categories: List[SettingsCategory], modules: Dict
         "",
         "## Navigation",
         "",
-        "- **Arrow keys** or **Trackball**: Navigate menus and lists",
-        "- **Enter**: Select/confirm",
-        "- **Escape** or **Q**: Go back",
-        "- **Menu Hotkey** (default: LShift+RShift): Open app menu from any screen",
+        "- **Arrow keys** or **Trackball**: Move focus through the list",
+        "- **Enter**: Open the focused item",
+        "- **Backspace** (back-arrow key): Go back to the previous screen",
+        "- **Tab** (Alt+M): Open the main menu from the desktop",
+        "- **Left** / **Right**: Switch between menu tabs",
         "",
         "## Contents",
         "",
@@ -2160,7 +2275,7 @@ def generate_shell_guide_index(categories: List[SettingsCategory], modules: Dict
     contents_table = format_markdown_table(
         ["Section", "Description"],
         [
-            ["[Menu Items](./menu/)", "Main menu screens and keyboard shortcuts"],
+            ["[Main Menu](./menu/)", f"All {total_menu} screens reachable from the menu, grouped by tab"],
             ["[Settings Reference](./settings/)", f"All {total_settings} device settings organized by category"],
             ["[Offline Maps](./maps/)", "How to generate and use offline map tiles"],
             ["[API Reference](../api/)", f"Developer documentation ({total_funcs} functions)"],
@@ -2171,24 +2286,23 @@ def generate_shell_guide_index(categories: List[SettingsCategory], modules: Dict
         "",
     ])
 
-    # Menu items section with shortcuts
-    if menu_items:
+    # One section per top-level menu tab so the index gives a glance of
+    # what every category contains without having to open the menu page.
+    if menu_categories:
         lines.extend([
             "## Main Menu",
             "",
-            "Press the **Menu Hotkey** (default: LShift+RShift) to access the main menu from any screen.",
-            "Use keyboard shortcuts for quick navigation:",
+            "The menu is organized into tabs. Use **Left/Right** to switch tabs and **Up/Down** to move within the current tab.",
             "",
         ])
-
-        menu_rows = []
-        for item in menu_items:
-            shortcut = f"`{item.shortcut}`" if item.shortcut else "—"
-            status = "" if item.enabled else " *(disabled)*"
-            menu_rows.append([item.label + status, shortcut, item.description])
-
-        lines.append(format_markdown_table(["Screen", "Hotkey", "Description"], menu_rows))
-        lines.extend(["", ""])
+        for cat in menu_categories:
+            lines.extend([
+                f"### {cat.title}",
+                "",
+            ])
+            rows = [[e.label, e.description or "—"] for e in cat.entries]
+            lines.append(format_markdown_table(["Screen", "Description"], rows))
+            lines.extend(["", ""])
 
     lines.extend([
         "## Settings Categories",
@@ -2315,71 +2429,61 @@ def generate_settings_reference(categories: List[SettingsCategory]) -> str:
 
     return '\n'.join(lines)
 
-def generate_menu_reference(menu_items: List[MenuItem]) -> str:
-    """Generate the menu items reference page."""
+def generate_menu_reference(menu_categories: List[MenuCategory]) -> str:
+    """Generate the main-menu reference page.
+
+    The menu is laid out as a horizontal tab strip (Communication, Apps,
+    Tools, Games, Diagnostics, System, Dev, ...) with a vertical list of
+    entries underneath. There are no per-item hotkey shortcuts on this
+    board -- entries are reached via Left/Right (switch tab) and
+    Up/Down (move focus), then Enter to open.
+    """
     lines = [
         "# Menu Reference",
         "",
-        "ezOS uses a main menu for navigation between screens. Access it by pressing the",
-        "**Menu Hotkey** (default: LShift+RShift) from any screen.",
+        "Press **Tab** (or Alt+M) on the desktop to open the main menu. The menu is",
+        "organised into a horizontal tab strip; each tab lists the screens it owns.",
         "",
-        "## Keyboard Shortcuts",
+        "## Navigation",
         "",
-        "Many menu items have keyboard shortcuts for quick access. Press the shortcut key",
-        "while viewing the main menu to jump directly to that screen.",
+        "- **Left** / **Right**: switch between menu tabs",
+        "- **Up** / **Down** (or **Trackball**): move focus through the current tab's entries",
+        "- **Enter**: open the focused screen",
+        "- **Backspace** (the back-arrow key on the device): go back to the desktop",
+        "",
+        "The current tab and last focused entry are remembered, so re-opening the menu",
+        "lands you back where you were.",
+        "",
+        "---",
         "",
     ]
 
-    menu_rows = []
-    for item in menu_items:
-        shortcut = f"`{item.shortcut}`" if item.shortcut else "—"
-        status = " *(disabled)*" if not item.enabled else ""
-        menu_rows.append([item.label + status, shortcut, item.description])
-
-    lines.append(format_markdown_table(["Screen", "Hotkey", "Description"], menu_rows))
-
-    # Detailed descriptions for each menu item
-    lines.extend(["", "---", "", "## Screen Details", ""])
-
-    menu_details = {
-        "Messages": "View and compose direct messages with other nodes in the mesh network. Messages are encrypted end-to-end using the recipient's public key.",
-        "Channels": "Join group messaging channels for broadcast communication. Channels can be public (#Public) or encrypted with a shared password.",
-        "Contacts": "Manage your saved contacts. Add nodes you've communicated with to quickly find them later.",
-        "Nodes": "View all nodes heard on the mesh network. Shows signal strength, last seen time, and distance if GPS is available.",
-        "Node Info": "Display detailed information about your device including Node ID, GPS coordinates, memory usage, and radio status.",
-        "Map": "Offline map viewer for navigation. Requires a TDMAP file on the SD card. See the Maps Guide for setup instructions.",
-        "Packets": "Live view of raw mesh network packets. Useful for debugging and understanding network activity.",
-        "Settings": "Configure all device settings including WiFi, radio parameters, display options, and hotkeys.",
-        "Storage": "View disk space usage for internal flash (LittleFS) and SD card storage.",
-        "Files": "Browse files on the SD card and internal storage.",
-        "Diagnostics": "Access testing and diagnostic tools for hardware verification and debugging.",
-        "Games": "Collection of classic games including Snake, Tetris, Pong, 2048, and more.",
-    }
-
-    for item in menu_items:
-        if not item.enabled:
-            continue
+    if not menu_categories:
         lines.extend([
-            f"### {item.label}",
+            "_The menu source file (`lua/screens/menu.lua`) was not parseable when these",
+            "docs were generated -- the per-tab entry tables are missing._",
             "",
         ])
-        if item.shortcut:
-            lines.append(f"**Shortcut:** `{item.shortcut}`")
-            lines.append("")
-        detail = menu_details.get(item.label, item.description)
-        lines.extend([detail, "", "---", ""])
+        return '\n'.join(lines)
 
-    # Navigation tips
-    lines.extend([
-        "## Navigation Tips",
-        "",
-        "- **Arrow keys** or **Trackball**: Move selection up/down",
-        "- **Enter** or **Space**: Open selected screen",
-        "- **Left/Right**: Page up/down through menu",
-        "- **First letter**: Jump to item starting with that letter",
-        "- **Escape** or **Q**: Go back to previous screen",
-        "",
-    ])
+    # Per-category table: one section per tab, every screen in that tab.
+    for cat in menu_categories:
+        lines.extend([
+            f"## {cat.title}",
+            "",
+        ])
+        rows = []
+        for entry in cat.entries:
+            target_label = "—"
+            if entry.target.startswith("mod:"):
+                target_label = f"`{entry.target[4:]}`"
+            elif entry.target.startswith("screen:"):
+                target_label = f"`{entry.target[7:]}`"
+            elif entry.target == "action":
+                target_label = "_in-place action_"
+            rows.append([entry.label, entry.description or "—", target_label])
+        lines.append(format_markdown_table(["Screen", "Description", "Target"], rows))
+        lines.extend(["", ""])
 
     return '\n'.join(lines)
 
@@ -2626,13 +2730,16 @@ def main():
         total_settings = sum(len(c.settings) for c in settings_categories)
         print(f"  Found {total_settings} settings in {len(settings_categories)} categories")
 
-    # Parse menu items from main_menu.lua
-    menu_file = data_dir / 'scripts' / 'ui' / 'screens' / 'main_menu.lua'
-    menu_items = []
+    # Parse the main menu (lua/screens/menu.lua). Used to be
+    # data/scripts/ui/screens/main_menu.lua with a flat shortcut-per-item
+    # model; the new menu groups entries into category tabs.
+    menu_file = project_root / 'lua' / 'screens' / 'menu.lua'
+    menu_categories: List[MenuCategory] = []
     if menu_file.exists():
-        print(f"Parsing menu items from {menu_file.name}...")
-        menu_items = parse_menu_file(menu_file)
-        print(f"  Found {len(menu_items)} menu items")
+        print(f"Parsing menu from {menu_file.relative_to(project_root)}...")
+        menu_categories = parse_menu_file(menu_file)
+        total_menu = sum(len(c.entries) for c in menu_categories)
+        print(f"  Found {total_menu} menu entries across {len(menu_categories)} tabs")
 
     docs_dir.mkdir(parents=True, exist_ok=True)
     user_docs_dir.mkdir(parents=True, exist_ok=True)
@@ -2689,7 +2796,7 @@ def main():
     print("\n--- User Documentation ---")
 
     # Main shell guide index
-    shell_content = generate_shell_guide_index(settings_categories, modules, menu_items)
+    shell_content = generate_shell_guide_index(settings_categories, modules, menu_categories)
     shell_index_path = user_docs_dir / 'index.md'
     with open(shell_index_path, 'w') as f:
         f.write(shell_content)
@@ -2701,7 +2808,7 @@ def main():
     # Menu reference
     menu_dir = user_docs_dir / 'menu'
     menu_dir.mkdir(parents=True, exist_ok=True)
-    menu_content = generate_menu_reference(menu_items)
+    menu_content = generate_menu_reference(menu_categories)
     menu_md_path = menu_dir / 'index.md'
     with open(menu_md_path, 'w') as f:
         f.write(menu_content)
