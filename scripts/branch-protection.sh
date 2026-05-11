@@ -35,6 +35,18 @@
 #   Classic protection on these branches is removed in the same step
 #   to avoid two competing layers of policy.
 #
+# Why no `required_linear_history`:
+#   We used to require linear history on both branches, which only
+#   works as long as `test` is a strict superset of `main`. The moment
+#   anything lands directly on `main` (hotfix, CI bootstrap commit),
+#   the next `test -> main` promote PR can't merge cleanly within
+#   that constraint -- the only conflict-resolution path is rebase +
+#   force-push, which fights the rest of the policy. The trade is
+#   "merge bubbles in `git log`" vs. "force-pushes whenever main
+#   drifts"; for this repo the former is cheaper. `merge` is in
+#   `allowed_merge_methods` so the promote PR's conflict-resolution
+#   merge commits can land via the normal PR button.
+#
 # Run once. Re-running is idempotent: it snapshots existing
 # ezos-branch-* rulesets, creates fresh ones, drops classic
 # protection, then prunes the snapshotted IDs (create-then-delete,
@@ -94,7 +106,6 @@ create_ruleset() {
   "rules": [
     { "type": "deletion" },
     { "type": "non_fast_forward" },
-    { "type": "required_linear_history" },
     {
       "type": "pull_request",
       "parameters": {
@@ -103,7 +114,7 @@ create_ruleset() {
         "require_code_owner_review": false,
         "require_last_push_approval": false,
         "required_review_thread_resolution": false,
-        "allowed_merge_methods": ["squash", "rebase"]
+        "allowed_merge_methods": ["squash", "rebase", "merge"]
       }
     }
   ]
