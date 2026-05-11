@@ -2243,7 +2243,7 @@ def generate_shell_guide_index(categories: List[SettingsCategory], modules: Dict
         "- **Arrow keys** or **Trackball**: Move focus through the list",
         "- **Enter**: Open the focused item",
         "- **Backspace** (back-arrow key): Go back to the previous screen",
-        "- **Tab** (Alt+M): Open the main menu from the desktop",
+        "- **Alt+M**: Open the main menu from the desktop",
         "- **Left** / **Right**: Switch between menu tabs",
         "",
         "## Contents",
@@ -2407,7 +2407,7 @@ def generate_menu_reference(menu_categories: List[MenuCategory]) -> str:
     lines = [
         "# Menu Reference",
         "",
-        "Press **Tab** (or Alt+M) on the desktop to open the main menu. The menu is",
+        "Press **Alt+M** on the desktop to open the main menu. The menu is",
         "organised into a horizontal tab strip; each tab lists the screens it owns.",
         "",
         "## Navigation",
