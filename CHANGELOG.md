@@ -1,9 +1,14 @@
 # Changelog
 
-## [0.0.84] - 2026-05-11
+## [0.0.85] - 2026-05-11
 
 ### Features
-- **boot:** show firmware version and channel on splash (#90) (951f46f)
+- **audio:** wire up onboard ES7210 microphone for audio recording (#89) (b628ef6)
+
+## [0.0.85] - 2026-05-11
+
+### Features
+- **audio:** wire up onboard ES7210 microphone for audio recording (#89) (b628ef6)
 
 ## [0.0.84] - 2026-05-11
 

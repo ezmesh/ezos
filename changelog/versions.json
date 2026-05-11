@@ -3,6 +3,34 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.85",
+      "date": "2026-05-11",
+      "commit": "b628ef6",
+      "breaking": false,
+      "groups": {
+        "features": [
+          {
+            "type": "feat",
+            "scope": "audio",
+            "description": "wire up onboard ES7210 microphone for audio recording (#89)",
+            "commit": "b628ef6",
+            "author": "XTR Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Bas van den Aakster <bvdaakster@gmail.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.84",
       "date": "2026-05-11",
       "commit": "951f46f",
