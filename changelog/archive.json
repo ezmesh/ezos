@@ -3,6 +3,30 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.79",
+      "date": "2026-05-10",
+      "commit": "5478bde",
+      "breaking": false,
+      "groups": {
+        "features": [
+          {
+            "type": "feat",
+            "scope": "notifications",
+            "description": "wire DM/file/battery/SD/panic events (#79)",
+            "commit": "5478bde",
+            "author": "XTR Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.78",
       "date": "2026-05-09",
       "commit": "f2370c9",

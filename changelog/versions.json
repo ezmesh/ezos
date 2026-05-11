@@ -3,6 +3,30 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.94",
+      "date": "2026-05-11",
+      "commit": "8ea3fa7",
+      "breaking": false,
+      "groups": {
+        "other": [
+          {
+            "type": "ci",
+            "scope": "release",
+            "description": "name rolling-main \"ezOS v<version>\" and mark as full release",
+            "commit": "8ea3fa7",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.93",
       "date": "2026-05-11",
       "commit": "4e80bd9",
@@ -324,30 +348,6 @@
             "scope": "release",
             "description": "add DeployKey bypass actor to branch rulesets (#84)",
             "commit": "afc57b3",
-            "author": "XTR Bas",
-            "breaking": false,
-            "notes": [
-              {
-                "title": "Co-authored-by",
-                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "version": "0.0.79",
-      "date": "2026-05-10",
-      "commit": "5478bde",
-      "breaking": false,
-      "groups": {
-        "features": [
-          {
-            "type": "feat",
-            "scope": "notifications",
-            "description": "wire DM/file/battery/SD/panic events (#79)",
-            "commit": "5478bde",
             "author": "XTR Bas",
             "breaking": false,
             "notes": [

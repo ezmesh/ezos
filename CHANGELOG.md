@@ -1,9 +1,14 @@
 # Changelog
 
-## [0.0.93] - 2026-05-11
+## [0.0.94] - 2026-05-11
 
 ### Other
-- ignore .worktrees/ (4e80bd9)
+- **release:** name rolling-main "ezOS v<version>" and mark as full release (8ea3fa7)
+
+## [0.0.94] - 2026-05-11
+
+### Other
+- **release:** name rolling-main "ezOS v<version>" and mark as full release (8ea3fa7)
 
 ## [0.0.93] - 2026-05-11
 
