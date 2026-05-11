@@ -1,15 +1,25 @@
 // ES7210 + I2S RX implementation. See mic.h for the contract.
 //
-// Init sequence is derived from the ES7210 datasheet (Everest Semi
-// rev 1.0). The codec is wired as I2S slave -- ESP32 supplies MCLK,
-// BCLK, LRCK on I2S_NUM_1 in master mode. Only MIC1 is enabled to
-// keep the data stream mono; the chip can do up to 4 channels but
-// that's a follow-up.
+// Board wiring (T-Deck Plus): the codec is on I2C (SDA=18, SCL=8, addr
+// 0x40) and its SDOUT2 line is wired to GPIO 14 -- SDOUT1 is *not*
+// connected. We therefore have to route the on-board MEMS mic's data
+// through SDOUT2 to be able to read it at all.
 //
-// Clock plan @ 16 kHz: MCLK = 256*fs = 4.096 MHz, BCLK = 32*fs (16-bit
-// stereo frame so LRCK toggles per word and we read the L slot only).
-// We let the ESP32 I2S peripheral derive MCLK from the APLL so the
-// codec sees a clean clock independent of the CPU PLL.
+// Codec config: 4-channel TDM mode (REG_SDP_INTERFACE2 = 0x02). In
+// non-TDM mode MIC1/MIC2 go on SDOUT1 (unreadable on this board), but
+// in TDM mode all four ADC channels are time-multiplexed onto SDOUT2
+// and we can pick out the slot that carries the mic. The init
+// sequence is modelled on LilyGo's own T-Deck mic example
+// (Xinyuan-LilyGO/T-Deck examples/Microphone) plus the esp-adf
+// ES7210 driver -- both are authoritative references for this chip.
+//
+// I2S RX: standard stereo (not TDM at the ESP32 side), 16-bit per
+// channel. The TDM frame on the wire has 4 ADC slots per LRCK; the
+// ESP32 in stereo mode only consumes 2 slots per LRCK, which halves
+// the effective rate. To get the user-requested LRCK out the other
+// side, we configure the I2S sample_rate at 2x and the capture task
+// extracts CH0 (MIC1's slot) into a mono PCM stream. Result: caller
+// asks for 16 kHz mono and gets a 16 kHz mono WAV.
 
 #include "mic.h"
 #include "../config.h"
@@ -29,31 +39,44 @@ namespace {
 
 constexpr i2s_port_t kRxPort = I2S_NUM_1;
 
-// ES7210 register addresses we touch. The chip has ~0x4F regs in
-// total; these are the ones needed for "boot, single mic channel,
-// I2S slave, 16-bit @ 16 kHz".
-constexpr uint8_t REG_RESET        = 0x00;
-constexpr uint8_t REG_CLK_ON       = 0x01;
-constexpr uint8_t REG_MCLK_CTL     = 0x02;
-constexpr uint8_t REG_MCLK_DIV     = 0x03;
-constexpr uint8_t REG_LRCK_DIV_H   = 0x04;
-constexpr uint8_t REG_LRCK_DIV_L   = 0x05;
-constexpr uint8_t REG_OSR          = 0x07;
-constexpr uint8_t REG_MODE         = 0x08;
-constexpr uint8_t REG_DIGI_PWR     = 0x06;
-constexpr uint8_t REG_SDP_FMT      = 0x11;
-constexpr uint8_t REG_SDP_LRCK     = 0x12;
-constexpr uint8_t REG_ADC_AUTOMUTE = 0x14;
-constexpr uint8_t REG_ADC_DIGI_VOL = 0x15;
-constexpr uint8_t REG_ANA_PWR      = 0x3F;
-constexpr uint8_t REG_MIC12_PWR    = 0x41;
-constexpr uint8_t REG_MIC34_PWR    = 0x42;
-constexpr uint8_t REG_MIC1_GAIN    = 0x43;
-constexpr uint8_t REG_MIC2_GAIN    = 0x44;
-constexpr uint8_t REG_MIC1_BIAS    = 0x47;
-constexpr uint8_t REG_MIC2_BIAS    = 0x48;
-constexpr uint8_t REG_MIC1_PGA     = 0x4B;
-constexpr uint8_t REG_MIC2_PGA     = 0x4C;
+// ES7210 register addresses we touch. Names and addresses follow
+// Espressif's ESP-ADF es7210 driver (the authoritative reference for
+// this codec). An earlier version of this file used hand-rolled names
+// with several mis-mapped addresses (REG_ANA_PWR at 0x3F instead of
+// 0x40, MIC POWER and BIAS swapped, etc.), which left the analog
+// front-end in its default powered-down state and the ADC streamed
+// zeros forever. If you're tempted to "clean up" these names, cross-
+// check against ES7210.h in esp-adf first.
+constexpr uint8_t REG_RESET           = 0x00;
+constexpr uint8_t REG_CLOCK_OFF       = 0x01;  // per-channel ADC clock gating
+constexpr uint8_t REG_MAINCLK         = 0x02;  // adc_div / doubler / dll
+constexpr uint8_t REG_MASTER_CLK      = 0x03;  // MCLK source + SCLK division
+constexpr uint8_t REG_LRCK_DIVH       = 0x04;
+constexpr uint8_t REG_LRCK_DIVL       = 0x05;
+constexpr uint8_t REG_POWER_DOWN      = 0x06;  // digital power-down mask
+constexpr uint8_t REG_OSR             = 0x07;
+constexpr uint8_t REG_MODE_CONFIG     = 0x08;  // master/slave + channels
+constexpr uint8_t REG_TIME_CONTROL0   = 0x09;
+constexpr uint8_t REG_TIME_CONTROL1   = 0x0A;
+constexpr uint8_t REG_SDP_INTERFACE1  = 0x11;  // word length + I2S format
+constexpr uint8_t REG_SDP_INTERFACE2  = 0x12;  // TDM mode
+constexpr uint8_t REG_ADC34_HPF2      = 0x20;
+constexpr uint8_t REG_ADC34_HPF1      = 0x21;
+constexpr uint8_t REG_ADC12_HPF1      = 0x22;
+constexpr uint8_t REG_ADC12_HPF2      = 0x23;
+constexpr uint8_t REG_ANALOG_PWR      = 0x40;  // analog power + VMID
+constexpr uint8_t REG_MIC12_BIAS      = 0x41;  // MIC1/2 bias voltage
+constexpr uint8_t REG_MIC34_BIAS      = 0x42;  // MIC3/4 bias voltage
+constexpr uint8_t REG_MIC1_GAIN       = 0x43;  // PGA enable (bit 4) + 4-bit gain
+constexpr uint8_t REG_MIC2_GAIN       = 0x44;
+constexpr uint8_t REG_MIC3_GAIN       = 0x45;
+constexpr uint8_t REG_MIC4_GAIN       = 0x46;
+constexpr uint8_t REG_MIC1_POWER      = 0x47;  // per-channel analog power
+constexpr uint8_t REG_MIC2_POWER      = 0x48;
+constexpr uint8_t REG_MIC3_POWER      = 0x49;
+constexpr uint8_t REG_MIC4_POWER      = 0x4A;
+constexpr uint8_t REG_MIC12_POWER     = 0x4B;  // MIC1/2 PGA + ADC power (0 = on)
+constexpr uint8_t REG_MIC34_POWER     = 0x4C;
 
 bool i2c_write(uint8_t reg, uint8_t val) {
     Wire.beginTransmission(ES7210_I2C_ADDR);
@@ -71,6 +94,14 @@ bool i2c_read(uint8_t reg, uint8_t* out) {
     return true;
 }
 
+bool i2c_update(uint8_t reg, uint8_t mask, uint8_t val) {
+    uint8_t cur = 0;
+    if (!i2c_read(reg, &cur)) return false;
+    uint8_t next = (cur & ~mask) | (val & mask);
+    if (next == cur) return true;
+    return i2c_write(reg, next);
+}
+
 // Gain selector mapping. ES7210 PGA gain register field (0x43, bits 3:0)
 // is in 3 dB steps from 0 dB (0x00) to 36 dB (0x0E). We clamp into the
 // usable range; values above 36 dB on this codec saturate quickly.
@@ -80,83 +111,133 @@ uint8_t pga_step_for_db(uint8_t db) {
 }
 
 // Full ES7210 power-on init for 16-bit, 1-channel, slave-mode capture.
-// Every register write is checked. If any of them NAKs (loose connection,
-// bus contention with keyboard / touch on the same I2C bus, codec held in
-// reset), bail out -- a partially-configured codec captures silence or
-// garbage with no surface indication of the underlying fault.
+// Sequence mirrors esp-adf's es7210_adc_init + mic_select + start path
+// for MIC1, 16-bit I2S, fs=16 kHz, MCLK=256*fs. Every write is checked:
+// if any NAKs (loose connection, bus contention with the keyboard /
+// touch controller on the same I2C bus, codec held in reset), bail
+// out so a partially-configured codec can't silently stream garbage.
 bool codec_init(uint32_t sample_rate, uint8_t gain_db) {
     auto W = [](uint8_t reg, uint8_t val) -> bool {
         if (i2c_write(reg, val)) return true;
         Serial.printf("[Mic] codec_init: I2C write failed at reg 0x%02X\n", reg);
         return false;
     };
+    auto U = [](uint8_t reg, uint8_t mask, uint8_t val) -> bool {
+        if (i2c_update(reg, mask, val)) return true;
+        Serial.printf("[Mic] codec_init: I2C rmw failed at reg 0x%02X\n", reg);
+        return false;
+    };
 
-    // Soft reset, hold ~1 ms, then clear reset.
-    if (!W(REG_RESET, 0xFF)) return false;
+    // Soft reset, then bring the chip back up with all ADC clocks gated.
+    if (!W(REG_RESET, 0xFF))     return false;
     delay(1);
-    if (!W(REG_RESET, 0x32)) return false;
-    delay(1);
-    if (!W(REG_RESET, 0x00)) return false;
+    if (!W(REG_RESET, 0x41))     return false;
+    if (!W(REG_CLOCK_OFF, 0x3F)) return false;
 
-    // Clock manager: enable MCLK/ADC clock, MCLK from MCLK pin.
-    if (!W(REG_CLK_ON,   0x3F)) return false;
-    // MCLK source = from external pin (we drive it from the ESP32
-    // I2S peripheral), no inversion, normal divider path.
-    if (!W(REG_MCLK_CTL, 0xC1)) return false;
+    // Power-on / state-machine timing.
+    if (!W(REG_TIME_CONTROL0, 0x30)) return false;
+    if (!W(REG_TIME_CONTROL1, 0x30)) return false;
 
-    // Clock dividers for 16 kHz @ 256*fs MCLK.
-    // OSR = 64 (default), LRCK divider = MCLK / fs = 256.
-    // 256 = 0x0100 -> high=0x01, low=0x00.
-    if (!W(REG_MCLK_DIV, 0x02))   return false;
-    if (!W(REG_LRCK_DIV_H, 0x01)) return false;
-    if (!W(REG_LRCK_DIV_L, 0x00)) return false;
-    if (!W(REG_OSR, 0x20))        return false;
-    // Mode: slave, normal phase.
-    if (!W(REG_MODE, 0x14))       return false;
-    // Digital power: enable ADC channel 1 only.
-    if (!W(REG_DIGI_PWR, 0x00))   return false;
+    // HPF defaults for both ADC pairs ("quick setup" values from the
+    // reference driver -- enables HPF, reasonable cutoff).
+    if (!W(REG_ADC12_HPF2, 0x2A)) return false;
+    if (!W(REG_ADC12_HPF1, 0x0A)) return false;
+    if (!W(REG_ADC34_HPF2, 0x0A)) return false;
+    if (!W(REG_ADC34_HPF1, 0x2A)) return false;
 
-    // Serial port: I2S, 16-bit, MSB first.
-    // 0x11 = [7:4 word len][3:0 fmt]. Word len 16-bit = 0b0011, fmt I2S = 0b0000.
-    if (!W(REG_SDP_FMT, 0x30))    return false;
-    // LRCK active high, BCLK normal phase.
-    if (!W(REG_SDP_LRCK, 0x00))   return false;
+    // Slave mode: ESP32 drives MCLK / BCLK / LRCK. Bit 0 = master enable.
+    if (!U(REG_MODE_CONFIG, 0x01, 0x00)) return false;
 
-    // Auto-mute disabled, digital volume = 0 dB.
-    if (!W(REG_ADC_AUTOMUTE, 0x00)) return false;
-    if (!W(REG_ADC_DIGI_VOL, 0xC0)) return false;  // 0xC0 = 0 dB after lookup table
+    // Analog power up + MIC bias rails. Skipping this register (it sits
+    // at 0x40, NOT 0x3F) is what kept the previous version of this code
+    // silent -- the analog front-end stayed in default power-down and
+    // the ADC streamed zeros. 0xC3 (bit 7 set = internal regulator
+    // enabled) is what LilyGo's own T-Deck example uses; esp-adf's
+    // 0x43 leaves the regulator off and the codec runs dry on this
+    // board even though I2C still ACKs.
+    if (!W(REG_ANALOG_PWR, 0xC3)) return false;
+    if (!W(REG_MIC12_BIAS, 0x70)) return false;  // 2.87 V bias for MIC1/2
+    if (!W(REG_MIC34_BIAS, 0x70)) return false;
 
-    // Analog power on (full chip), enable MIC1+MIC2 PGAs and bias.
-    if (!W(REG_ANA_PWR,   0x00)) return false;
-    if (!W(REG_MIC12_PWR, 0x00)) return false;
-    if (!W(REG_MIC34_PWR, 0xFF)) return false;  // MIC3/4 off (T-Deck has 1 mic)
-    if (!W(REG_MIC1_BIAS, 0x08)) return false;  // ~2.6V bias for the MEMS element
-    if (!W(REG_MIC2_BIAS, 0x08)) return false;
+    // Clocking for 16 kHz with MCLK = 256*fs = 4.096 MHz, sourced from
+    // the ESP32 I2S APLL. Values from coeff_div[] in esp-adf for
+    // {mclk=4_096_000, lrck=16_000}: adc_div=1, doubler=1, dll=1,
+    // osr=0x20, lrckh=1, lrckl=0 (LRCK divider = 256).
+    if (!W(REG_OSR, 0x20))     return false;
+    // MAINCLK: dll<<7 | doubler<<6 | adc_div. Esp-adf's coefficient
+    // table uses 0xC1 (doubler ON) for {MCLK=4.096 MHz, LRCK=16 kHz}
+    // but on this board that produces LRCK ~= 7.4 kHz. Clearing the
+    // doubler bit (0x81) gives the correct 16 kHz LRCK.
+    if (!W(REG_MAINCLK, 0x81)) return false;
+    if (!W(REG_LRCK_DIVH, 0x01)) return false;
+    if (!W(REG_LRCK_DIVL, 0x00)) return false;
 
-    uint8_t pga = pga_step_for_db(gain_db);
-    if (!W(REG_MIC1_GAIN, 0x10 | pga)) return false;
-    if (!W(REG_MIC2_GAIN, 0x10 | pga)) return false;
-    if (!W(REG_MIC1_PGA, 0x00))        return false;
-    if (!W(REG_MIC2_PGA, 0x00))        return false;
+    // Serial port: I2S format (bits[1:0]=00), 16-bit word length
+    // (bits[7:5]=011). The earlier 0x30 value misread the layout as
+    // a 4+4 split and ended up selecting a wider word length, which
+    // bit-slipped against the I2S RX's 16-bit framing.
+    if (!W(REG_SDP_INTERFACE1, 0x60)) return false;
+    // TDM mode (0x02): time-multiplex all four ADCs onto SDOUT2,
+    // which is the codec data pin actually wired to GPIO 14 on
+    // T-Deck Plus. Non-TDM puts ADC1/2 on SDOUT1 (unconnected on
+    // this board) and ADC3/4 on SDOUT2, but empirically MIC3/MIC4
+    // produce no signal here, so we use TDM and pick MIC1's slot
+    // out of the TDM stream in capture_task.
+    if (!W(REG_SDP_INTERFACE2, 0x02)) return false;
 
-    (void)sample_rate;  // currently fixed by the dividers above
+    // Digital power up (clear power-down mask).
+    if (!W(REG_POWER_DOWN, 0x00)) return false;
+
+    // Per-channel analog power: 0x00 = fully powered.
+    if (!W(REG_MIC1_POWER, 0x00)) return false;
+    if (!W(REG_MIC2_POWER, 0x00)) return false;
+    if (!W(REG_MIC3_POWER, 0x00)) return false;
+    if (!W(REG_MIC4_POWER, 0x00)) return false;
+
+    // Ungate all four ADC clocks so the TDM stream has every slot
+    // filled.
+    if (!W(REG_CLOCK_OFF, 0x00))   return false;
+    if (!W(REG_MIC12_POWER, 0x00)) return false;
+    if (!W(REG_MIC34_POWER, 0x00)) return false;
+
+    // PGAs all enabled at the user-requested gain. The capture task
+    // only keeps MIC1's slot but enabling the others fills the rest
+    // of the TDM frame so BCLK timing stays correct.
+    uint8_t gain_step = pga_step_for_db(gain_db);
+    if (!W(REG_MIC1_GAIN, 0x10 | gain_step)) return false;
+    if (!W(REG_MIC2_GAIN, 0x10 | gain_step)) return false;
+    if (!W(REG_MIC3_GAIN, 0x10 | gain_step)) return false;
+    if (!W(REG_MIC4_GAIN, 0x10 | gain_step)) return false;
+
+    (void)sample_rate;  // clock dividers above are fixed for 16 kHz
     return true;
 }
 
 bool i2s_rx_install(uint32_t sample_rate) {
-    i2s_config_t cfg = {
-        .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-        .sample_rate = sample_rate,
-        .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-        .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-        .dma_buf_count = 4,
-        .dma_buf_len = 512,
-        .use_apll = true,
-        .tx_desc_auto_clear = false,
-        .fixed_mclk = (int)(sample_rate * 256),
-    };
+    // I2S RX config for ES7210 in TDM mode. The codec packs its ADC
+    // channels onto SDOUT2 (the line wired to GPIO 14 on T-Deck Plus
+    // -- SDOUT1 is unconnected, which is why non-TDM mode produced
+    // all-zero recordings). We capture two TDM channels: CH0 = MIC1
+    // (the on-board MEMS element) and CH1 = MIC2 (unused on this
+    // board). The capture_task discards CH1 and writes CH0 as mono
+    // PCM. This matches the I2S config in LilyGo's own T-Deck mic
+    // example (examples/Microphone).
+    i2s_config_t cfg = {};
+    cfg.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX);
+    cfg.sample_rate = sample_rate;
+    cfg.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
+    cfg.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
+    cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
+    cfg.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
+    cfg.dma_buf_count = 8;
+    cfg.dma_buf_len = 64;
+    cfg.use_apll = false;
+    cfg.tx_desc_auto_clear = false;
+    cfg.fixed_mclk = 0;
+    cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+    cfg.bits_per_chan = I2S_BITS_PER_CHAN_16BIT;
+    // Standard stereo I2S (not TDM) -- the codec is in non-TDM mode
+    // driving 2 channels on SDOUT2.
     esp_err_t err = i2s_driver_install(kRxPort, &cfg, 0, nullptr);
     if (err != ESP_OK) {
         Serial.printf("[Mic] I2S install failed: %d\n", err);
@@ -240,16 +321,45 @@ static void capture_task(void* arg) {
         return;
     }
 
+    // De-interleave scratch: i2s_read returns 2 interleaved channels
+    // (CH0 + CH1) at 16-bit each = 4 bytes per LRCK frame. We keep
+    // CH0 (which carries the on-board mic signal in TDM mode) and
+    // pack consecutive frames into a mono 16-bit stream.
+    int16_t mono[kBufBytes / 4];
+
+    // Discard a warm-up window before we start writing samples to the
+    // file. The I2S driver pre-fills its DMA buffers with zeros in
+    // i2s_zero_dma_buffer, and the codec needs a few ms to start
+    // producing real samples after MCLK comes up -- without this,
+    // the first ~100 ms of every recording is the zeroed DMA buffer
+    // being drained, which the user hears as the start of their
+    // utterance being clipped.
+    size_t warmup_bytes_remaining = sess->sample_rate / 10 * 4;  // ~100 ms
+
     bool auto_stopped = false;
     while (!sess->stop_requested) {
         size_t bytes_read = 0;
         esp_err_t err = i2s_read(kRxPort, buf, kBufBytes, &bytes_read, pdMS_TO_TICKS(100));
-        if (err == ESP_OK && bytes_read > 0) {
-            size_t w = sess->file.write(buf, bytes_read);
+        if (err == ESP_OK && bytes_read >= 4) {
+            if (warmup_bytes_remaining > 0) {
+                size_t drop = bytes_read < warmup_bytes_remaining ? bytes_read : warmup_bytes_remaining;
+                warmup_bytes_remaining -= drop;
+                if (drop == bytes_read) continue;
+                // partial warm-up consumed: keep the tail of this read
+                memmove(buf, buf + drop, bytes_read - drop);
+                bytes_read -= drop;
+            }
+            int16_t* s16 = reinterpret_cast<int16_t*>(buf);
+            size_t frames = bytes_read / 4;
+            for (size_t f = 0; f < frames; ++f) {
+                mono[f] = s16[f * 2];  // CH0
+            }
+            size_t mono_bytes = frames * 2;
+            size_t w = sess->file.write(reinterpret_cast<uint8_t*>(mono), mono_bytes);
             sess->data_bytes += (uint32_t)w;
-            if (w != bytes_read) {
+            if (w != mono_bytes) {
                 Serial.printf("[Mic] short write: wrote %u of %u\n",
-                              (unsigned)w, (unsigned)bytes_read);
+                              (unsigned)w, (unsigned)mono_bytes);
                 break;
             }
         }
@@ -387,28 +497,41 @@ int16_t* capture_buffer(uint32_t duration_ms, const RecordOpts& opts,
     if (!codec_init(opts.sample_rate, opts.gain_db)) return nullptr;
     if (!i2s_rx_install(opts.sample_rate)) return nullptr;
 
+    // i2s_read returns 2-channel interleaved data (CH0 = MIC1, CH1 =
+    // MIC2). Allocate enough space for the user-requested duration of
+    // mono PCM, plus a scratch staging buffer for the raw stereo
+    // stream we have to de-interleave from.
     size_t total_samples = (opts.sample_rate * duration_ms) / 1000;
     size_t total_bytes = total_samples * 2;
-    int16_t* buf = (int16_t*)ps_malloc(total_bytes);
-    if (!buf) {
+    int16_t* mono = (int16_t*)ps_malloc(total_bytes);
+    if (!mono) {
+        i2s_rx_uninstall();
+        return nullptr;
+    }
+    uint8_t* raw = (uint8_t*)heap_caps_malloc(1024, MALLOC_CAP_DMA);
+    if (!raw) {
+        free(mono);
         i2s_rx_uninstall();
         return nullptr;
     }
 
-    size_t written = 0;
-    while (written < total_bytes) {
+    size_t mono_written = 0;
+    while (mono_written < total_bytes) {
         size_t got = 0;
-        size_t want = total_bytes - written;
-        if (want > 1024) want = 1024;
-        esp_err_t err = i2s_read(kRxPort, (uint8_t*)buf + written, want,
-                                 &got, pdMS_TO_TICKS(200));
+        esp_err_t err = i2s_read(kRxPort, raw, 1024, &got, pdMS_TO_TICKS(200));
         if (err != ESP_OK || got == 0) break;
-        written += got;
+        int16_t* s16 = reinterpret_cast<int16_t*>(raw);
+        size_t frames = got / 4;
+        for (size_t f = 0; f < frames && mono_written < total_bytes; ++f) {
+            mono[mono_written / 2] = s16[f * 2];  // CH0
+            mono_written += 2;
+        }
     }
 
+    free(raw);
     i2s_rx_uninstall();
-    if (out_size) *out_size = written;
-    return buf;
+    if (out_size) *out_size = mono_written;
+    return mono;
 }
 
 }  // namespace mic

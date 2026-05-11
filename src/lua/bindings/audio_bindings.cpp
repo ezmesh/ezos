@@ -679,8 +679,27 @@ LUA_FUNCTION(l_audio_play_wav) {
             srcPos += 1.0f / resampleRatio;
         }
 
-        // Adjust source position for next chunk
-        srcPos -= srcSamples;
+        // Carry over to the next chunk. If playBuf saturated before we
+        // walked through all source samples (true whenever the input
+        // rate is well below SAMPLE_RATE -- e.g. 16 kHz voice notes
+        // upsampled 2.76x to 44.1 kHz produce ~706 output samples per
+        // 256 input samples but playBuf only fits 512), rewind the
+        // file by the unread bytes so the next read starts where this
+        // chunk stopped consuming. Keep just the fractional part of
+        // srcPos for accurate sub-sample tracking. The previous code
+        // unconditionally did srcPos -= srcSamples, which on 16 kHz
+        // input drove srcPos negative and turned `src16[srcIdx]` into
+        // an out-of-bounds read of nearby heap -- the "electrical
+        // glitch" sound users heard when playing recorded voice notes.
+        int srcConsumed = (int)srcPos;
+        if (srcConsumed > srcSamples) srcConsumed = srcSamples;
+        int unusedSamples = srcSamples - srcConsumed;
+        if (unusedSamples > 0) {
+            size_t unusedBytes = (size_t)unusedSamples * bytesPerSample;
+            file.seek(file.position() - unusedBytes);
+            bytesRemaining += unusedBytes;
+        }
+        srcPos -= srcConsumed;
 
         // Write to I2S
         if (playPos > 0) {
