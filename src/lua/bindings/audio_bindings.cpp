@@ -5,6 +5,7 @@
 #include "../../config.h"
 #include "../../audio/synth.h"
 #include "../../audio/mic.h"
+#include "bus_bindings.h"
 #include <Arduino.h>
 #include <driver/i2s.h>
 #include <cmath>
@@ -1358,5 +1359,26 @@ static const luaL_Reg audio_funcs[] = {
 // Register the audio module
 void registerAudioModule(lua_State* L) {
     lua_register_module(L, "audio", audio_funcs);
+
+    // The capture task self-terminates when it hits the 5-minute
+    // safety cap; it can't finalise the WAV / I2S itself without
+    // racing the Lua main loop. It posts "audio/recording_overflow"
+    // instead, and we handle the teardown here on the main loop --
+    // same code path the user-facing stop_record() takes, so both
+    // g_session (mic.cpp) and g_record_session (this file) end up
+    // cleared together. Without this, an auto-stopped session would
+    // leave is_recording() pinned at true and the WAV header
+    // un-patched until reboot.
+    MessageBus::instance().subscribeCpp("audio/recording_overflow",
+        [](lua_State*, const std::string&) {
+            if (!g_record_session) return;
+            uint32_t bytes = 0;
+            ezos::mic::stop_recording(g_record_session, &bytes);
+            g_record_session = nullptr;
+            // Post a second event so any Lua screen showing a
+            // "Recording... N s" indicator can refresh its UI.
+            MessageBus::instance().post("audio/recording_stopped", "overflow");
+        });
+
     Serial.println("[LuaRuntime] Registered ez.audio");
 }

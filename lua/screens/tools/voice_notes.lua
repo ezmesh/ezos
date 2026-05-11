@@ -121,7 +121,7 @@ local function start_record(self)
         require("services.notifications").post({
             title = "No microphone",
             body  = "ES7210 not detected on this device.",
-            source = "voice_notes",
+            source = "voice",
             ttl_ms = 3000,
         })
         return
@@ -131,7 +131,7 @@ local function start_record(self)
         require("services.notifications").post({
             title = "Recording failed",
             body  = "Could not start capture",
-            source = "voice_notes",
+            source = "voice",
             ttl_ms = 3000,
         })
         return
@@ -156,7 +156,7 @@ local function stop_record(self)
         require("services.notifications").post({
             title = "Empty clip",
             body  = "No audio captured",
-            source = "voice_notes",
+            source = "voice",
             ttl_ms = 3000,
         })
     end
@@ -191,6 +191,22 @@ function Voice:on_enter()
             end
         end
     end)
+    -- The 5-minute safety cap (audio/mic.cpp) self-terminates the capture
+    -- task and posts this event after the WAV is finalised. Reflect that
+    -- in the screen state so the live timer flips off and the new clip
+    -- appears in the list -- otherwise the UI would show "Recording... N s"
+    -- climbing past the actual cutoff with no way to stop short of leaving
+    -- the screen.
+    self._overflow_sub = ez.bus.subscribe("audio/recording_stopped", function()
+        if me._state and me._state.recording then
+            me:set_state({
+                recording      = false,
+                recording_path = nil,
+                record_started = nil,
+                clips          = load_clips(),
+            })
+        end
+    end)
 end
 
 function Voice:on_exit()
@@ -201,6 +217,10 @@ function Voice:on_exit()
     if self._mic_sub then
         ez.bus.unsubscribe(self._mic_sub)
         self._mic_sub = nil
+    end
+    if self._overflow_sub then
+        ez.bus.unsubscribe(self._overflow_sub)
+        self._overflow_sub = nil
     end
     -- Make sure we don't strand the codec/I2S if the user backs out
     -- mid-record.

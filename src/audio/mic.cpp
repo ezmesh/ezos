@@ -13,6 +13,7 @@
 
 #include "mic.h"
 #include "../config.h"
+#include "../lua/bindings/bus_bindings.h"
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -79,54 +80,64 @@ uint8_t pga_step_for_db(uint8_t db) {
 }
 
 // Full ES7210 power-on init for 16-bit, 1-channel, slave-mode capture.
+// Every register write is checked. If any of them NAKs (loose connection,
+// bus contention with keyboard / touch on the same I2C bus, codec held in
+// reset), bail out -- a partially-configured codec captures silence or
+// garbage with no surface indication of the underlying fault.
 bool codec_init(uint32_t sample_rate, uint8_t gain_db) {
+    auto W = [](uint8_t reg, uint8_t val) -> bool {
+        if (i2c_write(reg, val)) return true;
+        Serial.printf("[Mic] codec_init: I2C write failed at reg 0x%02X\n", reg);
+        return false;
+    };
+
     // Soft reset, hold ~1 ms, then clear reset.
-    if (!i2c_write(REG_RESET, 0xFF)) return false;
+    if (!W(REG_RESET, 0xFF)) return false;
     delay(1);
-    if (!i2c_write(REG_RESET, 0x32)) return false;
+    if (!W(REG_RESET, 0x32)) return false;
     delay(1);
-    i2c_write(REG_RESET, 0x00);
+    if (!W(REG_RESET, 0x00)) return false;
 
     // Clock manager: enable MCLK/ADC clock, MCLK from MCLK pin.
-    i2c_write(REG_CLK_ON,   0x3F);
+    if (!W(REG_CLK_ON,   0x3F)) return false;
     // MCLK source = from external pin (we drive it from the ESP32
     // I2S peripheral), no inversion, normal divider path.
-    i2c_write(REG_MCLK_CTL, 0xC1);
+    if (!W(REG_MCLK_CTL, 0xC1)) return false;
 
     // Clock dividers for 16 kHz @ 256*fs MCLK.
     // OSR = 64 (default), LRCK divider = MCLK / fs = 256.
     // 256 = 0x0100 -> high=0x01, low=0x00.
-    i2c_write(REG_MCLK_DIV, 0x02);
-    i2c_write(REG_LRCK_DIV_H, 0x01);
-    i2c_write(REG_LRCK_DIV_L, 0x00);
-    i2c_write(REG_OSR, 0x20);
+    if (!W(REG_MCLK_DIV, 0x02))   return false;
+    if (!W(REG_LRCK_DIV_H, 0x01)) return false;
+    if (!W(REG_LRCK_DIV_L, 0x00)) return false;
+    if (!W(REG_OSR, 0x20))        return false;
     // Mode: slave, normal phase.
-    i2c_write(REG_MODE, 0x14);
+    if (!W(REG_MODE, 0x14))       return false;
     // Digital power: enable ADC channel 1 only.
-    i2c_write(REG_DIGI_PWR, 0x00);
+    if (!W(REG_DIGI_PWR, 0x00))   return false;
 
     // Serial port: I2S, 16-bit, MSB first.
     // 0x11 = [7:4 word len][3:0 fmt]. Word len 16-bit = 0b0011, fmt I2S = 0b0000.
-    i2c_write(REG_SDP_FMT, 0x30);
+    if (!W(REG_SDP_FMT, 0x30))    return false;
     // LRCK active high, BCLK normal phase.
-    i2c_write(REG_SDP_LRCK, 0x00);
+    if (!W(REG_SDP_LRCK, 0x00))   return false;
 
     // Auto-mute disabled, digital volume = 0 dB.
-    i2c_write(REG_ADC_AUTOMUTE, 0x00);
-    i2c_write(REG_ADC_DIGI_VOL, 0xC0);  // 0xC0 = 0 dB after lookup table
+    if (!W(REG_ADC_AUTOMUTE, 0x00)) return false;
+    if (!W(REG_ADC_DIGI_VOL, 0xC0)) return false;  // 0xC0 = 0 dB after lookup table
 
     // Analog power on (full chip), enable MIC1+MIC2 PGAs and bias.
-    i2c_write(REG_ANA_PWR, 0x00);
-    i2c_write(REG_MIC12_PWR, 0x00);
-    i2c_write(REG_MIC34_PWR, 0xFF);  // MIC3/4 off (T-Deck has 1 mic)
-    i2c_write(REG_MIC1_BIAS, 0x08);  // ~2.6V bias for the MEMS element
-    i2c_write(REG_MIC2_BIAS, 0x08);
+    if (!W(REG_ANA_PWR,   0x00)) return false;
+    if (!W(REG_MIC12_PWR, 0x00)) return false;
+    if (!W(REG_MIC34_PWR, 0xFF)) return false;  // MIC3/4 off (T-Deck has 1 mic)
+    if (!W(REG_MIC1_BIAS, 0x08)) return false;  // ~2.6V bias for the MEMS element
+    if (!W(REG_MIC2_BIAS, 0x08)) return false;
 
     uint8_t pga = pga_step_for_db(gain_db);
-    i2c_write(REG_MIC1_GAIN, 0x10 | pga);
-    i2c_write(REG_MIC2_GAIN, 0x10 | pga);
-    i2c_write(REG_MIC1_PGA, 0x00);
-    i2c_write(REG_MIC2_PGA, 0x00);
+    if (!W(REG_MIC1_GAIN, 0x10 | pga)) return false;
+    if (!W(REG_MIC2_GAIN, 0x10 | pga)) return false;
+    if (!W(REG_MIC1_PGA, 0x00))        return false;
+    if (!W(REG_MIC2_PGA, 0x00))        return false;
 
     (void)sample_rate;  // currently fixed by the dividers above
     return true;
@@ -229,6 +240,7 @@ static void capture_task(void* arg) {
         return;
     }
 
+    bool auto_stopped = false;
     while (!sess->stop_requested) {
         size_t bytes_read = 0;
         esp_err_t err = i2s_read(kRxPort, buf, kBufBytes, &bytes_read, pdMS_TO_TICKS(100));
@@ -247,6 +259,7 @@ static void capture_task(void* arg) {
         // stop_recording().
         if (sess->data_bytes > 5UL * 60 * sess->sample_rate * 2) {
             Serial.println("[Mic] hit 5-min cap, auto-stop");
+            auto_stopped = true;
             break;
         }
     }
@@ -254,6 +267,17 @@ static void capture_task(void* arg) {
     free(buf);
     sess->task_alive = false;
     xSemaphoreGive(sess->done_sem);
+
+    // If the task self-terminated (5-minute cap), nothing in the Lua
+    // layer knows it should clean up. Post a bus event so a subscriber
+    // can call ez.audio.stop_record() and finalise the WAV header,
+    // close the file, uninstall I2S, and clear the binding's mirror
+    // of g_session. The actual teardown all happens through the
+    // existing stop_recording() path -- this just kicks it.
+    if (auto_stopped) {
+        MessageBus::instance().post("audio/recording_overflow", "");
+    }
+
     vTaskDelete(nullptr);
 }
 
@@ -321,10 +345,17 @@ bool stop_recording(MicSession* sess, uint32_t* out_bytes_written) {
     if (!sess || sess != g_session) return false;
 
     sess->stop_requested = true;
-    // Wait up to 1s for the capture task to drain and exit. After
-    // that we tear down regardless -- the task will check stop_requested
-    // again on its next i2s_read timeout.
-    xSemaphoreTake(sess->done_sem, pdMS_TO_TICKS(1000));
+    // Wait unconditionally for the capture task to finish. The task
+    // wakes at most ~100 ms after stop_requested goes true (the i2s_read
+    // timeout), but an in-flight SD write can stall for hundreds of ms
+    // when FAT flushes. A finite timeout here used to race against
+    // that: we tore down sess->file, the I2S driver, and the semaphore
+    // while the task was still inside i2s_read or file.write, which
+    // is undefined behaviour (use-after-free / double-free of the
+    // semaphore handle). The task always signals done_sem before
+    // exiting -- including on the 5-minute auto-stop path -- so this
+    // wait is bounded in practice.
+    xSemaphoreTake(sess->done_sem, portMAX_DELAY);
 
     // Patch the WAV header now that we know the final size.
     uint32_t data_size = sess->data_bytes;
