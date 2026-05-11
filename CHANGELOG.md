@@ -1,9 +1,14 @@
 # Changelog
 
-## [0.0.86] - 2026-05-11
+## [0.0.87] - 2026-05-11
 
 ### Other
-- **manual:** regenerate menu + settings pages from current sources (#91) (a0e097e)
+- **claude:** add /next, /work-issue, /autopilot skills (#92) (61e4ff1)
+
+## [0.0.87] - 2026-05-11
+
+### Other
+- **claude:** add /next, /work-issue, /autopilot skills (#92) (61e4ff1)
 
 ## [0.0.86] - 2026-05-11
 

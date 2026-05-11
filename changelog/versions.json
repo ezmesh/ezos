@@ -3,6 +3,30 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.87",
+      "date": "2026-05-11",
+      "commit": "61e4ff1",
+      "breaking": false,
+      "groups": {
+        "other": [
+          {
+            "type": "chore",
+            "scope": "claude",
+            "description": "add /next, /work-issue, /autopilot skills (#92)",
+            "commit": "61e4ff1",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.86",
       "date": "2026-05-11",
       "commit": "a0e097e",
