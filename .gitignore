@@ -41,8 +41,10 @@ node_modules/
 /docs/manual/
 /docs/index.html
 
-# Claude session cache
-.claude/
+# Claude local state (per-machine). Shared skills under .claude/skills/
+# are tracked; settings.local.json holds machine-specific permissions.
+.claude/settings.local.json
+.claude/projects/
 
 # Raw asset source trees (only processed outputs are tracked)
 wallpapers-in/
