@@ -52,3 +52,6 @@ tools/bin/
 tools/fonts/
 Inter-4.1.zip
 Nederland-schoolkaart-461-scaled.jpg
+
+# Autopilot worktrees
+.worktrees/
