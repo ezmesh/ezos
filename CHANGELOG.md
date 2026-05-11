@@ -1,13 +1,14 @@
 # Changelog
 
-## [0.0.92] - 2026-05-11
+## [0.0.93] - 2026-05-11
 
 ### Other
-- **ci:** allow merge commits + drop required_linear_history (b77b256)
-- resolve test<->main conflicts ahead of promote PR #87 (#93) (fd0a231)
-- **release:** promote test to main (#63) (f6fcb0b)
-- **pr-checks:** drop per-commit validation, gate on PR title only (#65) (5ea9b29)
-- **pr-checks:** bootstrap workflow on main so GitHub registers it (1b0b014)
+- ignore .worktrees/ (4e80bd9)
+
+## [0.0.93] - 2026-05-11
+
+### Other
+- ignore .worktrees/ (4e80bd9)
 
 ## [0.0.92] - 2026-05-11
 

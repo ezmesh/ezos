@@ -3,6 +3,1078 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.78",
+      "date": "2026-05-09",
+      "commit": "f2370c9",
+      "breaking": false,
+      "groups": {
+        "features": [
+          {
+            "type": "feat",
+            "scope": "boot",
+            "description": "version migration system for pref/data upgrades",
+            "commit": "f2370c9",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "feat",
+            "scope": null,
+            "description": "changelog integration with @xtr-dev/changelog",
+            "commit": "57de627",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ],
+        "fixes": [
+          {
+            "type": "fix",
+            "scope": null,
+            "description": "list_wallpapers crashed on list_dir table entries",
+            "commit": "f0cef26",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": null,
+            "description": "write default otadata instead of erasing to zeros",
+            "commit": "4d5f9cf",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": null,
+            "description": "docs: Added a link to the documentation site for more information",
+            "commit": "e6bca70",
+            "author": "orbitwebsites-cloud",
+            "breaking": false,
+            "notes": []
+          }
+        ],
+        "other": [
+          {
+            "type": "ci",
+            "scope": null,
+            "description": "sync platformio version from changelog + show in updater",
+            "commit": "f0c4124",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "chore",
+            "scope": null,
+            "description": "add conventional commits hook + CLAUDE.md rule",
+            "commit": "03239e2",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "build",
+            "scope": null,
+            "description": "auto-erase otadata after upload to fix OTA activation",
+            "commit": "20cf019",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "chat",
+            "scope": null,
+            "description": "confirmation dialogs on all share actions",
+            "commit": "0ffe867",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "desktop",
+            "scope": null,
+            "description": "random wallpaper from filesystem instead of hardcoded list",
+            "commit": "1c5c885",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "display",
+            "scope": null,
+            "description": "charging indicator, wallpaper rotate in settings, dropdown touch fix",
+            "commit": "4d0c840",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "sharing",
+            "scope": null,
+            "description": "time share URLs + bold focused desktop label",
+            "commit": "17f83fe",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "desktop",
+            "scope": null,
+            "description": "drop icon border glow, strengthen pulse highlight",
+            "commit": "17aeba4",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "desktop",
+            "scope": null,
+            "description": "remove geometric wallpaper + replace icon glow with border",
+            "commit": "62bee00",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "chat",
+            "scope": null,
+            "description": "fix repeat-send on others' msgs + add channel context menu",
+            "commit": "ea3cc17",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "screensaver",
+            "scope": null,
+            "description": "alpha-blended overlay with mixed floating shapes",
+            "commit": "2ac1d03",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "wallpapers",
+            "scope": null,
+            "description": "rename remaining wallpapers to descriptive names",
+            "commit": "b50c45a",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "wallpapers",
+            "scope": null,
+            "description": "remove unused wallpapers to reduce repo size",
+            "commit": "f1a46b8",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "contacts",
+            "scope": null,
+            "description": "sync names on ADVERT + fix chat not updating while typing",
+            "commit": "09557c9",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "chat",
+            "scope": null,
+            "description": "force rebuild on incoming messages while compose box is focused",
+            "commit": "37f7e6e",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "decode_invite",
+            "scope": null,
+            "description": "meshcore-cli returns clamped X25519 scalar, not Ed25519 seed",
+            "commit": "3355593",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "decode_invite",
+            "scope": null,
+            "description": "tolerate shell-escaped URL chars + add --debug",
+            "commit": "fad287a",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "tools",
+            "scope": null,
+            "description": "decode_invite.py -- ezme.sh invite -> meshcore-cli channel key",
+            "commit": "d026ae3",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "sharing",
+            "scope": null,
+            "description": "card-style bubbles for share URLs + drop redeemed flag",
+            "commit": "01d2ca3",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "sharing",
+            "scope": null,
+            "description": "ezme.sh share URLs for contacts + channel invites",
+            "commit": "f8bfa61",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "channels",
+            "scope": null,
+            "description": "send path + HMAC validation + compose UI",
+            "commit": "7f851e1",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "mesh",
+            "scope": null,
+            "description": "fix three stacked bugs that broke DM delivery",
+            "commit": "f459744",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ez",
+            "scope": null,
+            "description": "colour + restructure the help output",
+            "commit": "d9cb306",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ez",
+            "scope": null,
+            "description": "dev-wrapper script with build + remote-control delegation",
+            "commit": "09242cf",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ota",
+            "scope": null,
+            "description": "working install path -- PSRAM-back dev-tool buffers + 10 KiB stack",
+            "commit": "d9df0ef",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ota",
+            "scope": null,
+            "description": "Core 1 pin + watchdog/priority/log instrumentation",
+            "commit": "3685e31",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "http",
+            "scope": null,
+            "description": "consolidate outbound stack into util/http_client",
+            "commit": "7ba6d82",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ota",
+            "scope": null,
+            "description": "shrink pull-task stack to fit squeezed internal heap",
+            "commit": "b26fa88",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "http",
+            "scope": null,
+            "description": "redirect-following + larger URL/header caps",
+            "commit": "b7e2acb",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "http",
+            "scope": null,
+            "description": "PSRAM mbedtls allocator + raise per-line header cap",
+            "commit": "b877488",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "screens",
+            "scope": null,
+            "description": "drop orphan settings.lua + system_settings.lua",
+            "commit": "3391473",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "menu",
+            "scope": null,
+            "description": "surface Firmware entry on the System tab",
+            "commit": "bd582ea",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "log",
+            "scope": null,
+            "description": "PSRAM-allocate the panic-flush scratch buffer",
+            "commit": "0ff7966",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ota",
+            "scope": null,
+            "description": "embed signing pubkey from the 2026-05-06 ceremony",
+            "commit": "1576aad",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "radio",
+            "scope": null,
+            "description": "re-issue HW writes on rollback + document raw_rx + manual",
+            "commit": "8e42da2",
+            "author": "Claude",
+            "breaking": false,
+            "notes": []
+          },
+          {
+            "type": "radio",
+            "scope": null,
+            "description": "roll back _config on partial setProfile failure",
+            "commit": "6da5ddb",
+            "author": "Claude",
+            "breaking": false,
+            "notes": []
+          },
+          {
+            "type": "radio",
+            "scope": null,
+            "description": "multi-protocol profile + configurable TX queue spacing",
+            "commit": "8464974",
+            "author": "Claude",
+            "breaking": false,
+            "notes": []
+          },
+          {
+            "type": "firmware_update",
+            "scope": null,
+            "description": "warn on downgrades, confirm before installing",
+            "commit": "bb18092",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "logs",
+            "scope": null,
+            "description": "trackball and touch scrolling for the log viewer",
+            "commit": "7a80ea0",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ui_sounds",
+            "scope": null,
+            "description": "tolerate missing variant samples",
+            "commit": "9278a9f",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "logs",
+            "scope": null,
+            "description": "persistent log file + crash flush hooks + viewer screen",
+            "commit": "3b26899",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "image",
+            "scope": null,
+            "description": "JPEG/PNG encode bindings + paint save + PNG wallpapers",
+            "commit": "8ba40f8",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "chat",
+            "scope": null,
+            "description": "tappable Private/Channels + Added/Nearby tab strips",
+            "commit": "9cc6f3e",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "tools",
+            "scope": null,
+            "description": "packet sniffer + tap sound on main-menu tab switch",
+            "commit": "f34721d",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "games",
+            "scope": null,
+            "description": "touch + mouse-mode wiring (minesweeper + solitaire)",
+            "commit": "6f714fa",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "editor",
+            "scope": null,
+            "description": "100-step undo (Alt+Z) + exit confirm on dirty buffer",
+            "commit": "67cf4cd",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "paint",
+            "scope": null,
+            "description": "full rewrite -- toolbar, pan/zoom, select, undo, mouse mode",
+            "commit": "f1a23c4",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "touch",
+            "scope": null,
+            "description": "mouse mode + tap/long-press synthesis + confirm dialog helper",
+            "commit": "8a92218",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "wallpapers",
+            "scope": null,
+            "description": "regenerate set + drop pannable / pan-mode feature",
+            "commit": "f5e5d87",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "boot",
+            "scope": null,
+            "description": "wire up touch bridge, notifications, OTA hookup, WiFi auto-connect, NTP",
+            "commit": "62d87f1",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "claude",
+            "scope": null,
+            "description": "on-device chat tool + bearer settings + bot.py polish",
+            "commit": "a7d4513",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ui",
+            "scope": null,
+            "description": "main menu redesign + Apps category + Paint + Editor + display tweaks",
+            "commit": "8410a57",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "touch",
+            "scope": null,
+            "description": "UI bridge + widget min sizes + slider drag + diagnostic screen",
+            "commit": "1954b50",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "radio",
+            "scope": null,
+            "description": "band-preset picker in radio settings",
+            "commit": "a7a8114",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "tools",
+            "scope": null,
+            "description": "channel sniffer (live GRP_TXT channel hashes seen on the air)",
+            "commit": "65b13ed",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "markdown",
+            "scope": null,
+            "description": "render pipe tables (header + alignment + body rows)",
+            "commit": "ba19d2d",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "notifications",
+            "scope": null,
+            "description": "in-memory service + viewer + global toast overlay",
+            "commit": "e747ee2",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ntp",
+            "scope": null,
+            "description": "service + settings screen + Time integration",
+            "commit": "181d89f",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ui",
+            "scope": null,
+            "description": "WiFi settings screen with async scan + saved-credentials rejoin",
+            "commit": "51fac64",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ui",
+            "scope": null,
+            "description": "Dev OTA push + Rollback firmware screens",
+            "commit": "887d64e",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "bindings",
+            "scope": null,
+            "description": "HTTP server overhaul + OTA push + WiFi async scan + NTP + GT911 touch",
+            "commit": "05a4aaa",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "icons",
+            "scope": null,
+            "description": "extend Lucide catalogue + opt-in `padding` background",
+            "commit": "bba3f54",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "infra",
+            "scope": null,
+            "description": "cooperative coroutine scheduler + Lua trace log + EU freq nudge",
+            "commit": "be93d32",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "starshot",
+            "scope": null,
+            "description": "seed-based encounter plan + boss sections + drone enemy + thrust pickup + particles / popups / sprite polish",
+            "commit": "4849cfa",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "starshot",
+            "scope": null,
+            "description": "in-game pause menu (P toggles)",
+            "commit": "85e48e2",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "tetris",
+            "scope": null,
+            "description": "address review feedback - closure capture + lines split",
+            "commit": "bf33a58",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "tetris",
+            "scope": null,
+            "description": "Easy / Hard modes with drop-preview on Easy",
+            "commit": "950960c",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "starshot",
+            "scope": null,
+            "description": "distinct enemy sprites + ship accel + hold-to-shoot",
+            "commit": "698ca63",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "cleanup",
+            "scope": null,
+            "description": "TDMAP v4/v5 drop, version macro, http+system binding fixes, docs CI",
+            "commit": "4457967",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ezui",
+            "scope": null,
+            "description": "dialog / persist / transient modules + prefs registry",
+            "commit": "c3aa8c2",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "gps",
+            "scope": null,
+            "description": "extended diagnostics, time-without-fix sync, DST in set_time",
+            "commit": "d360c60",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "map",
+            "scope": null,
+            "description": "GPS settings, user-position marker + off-screen arrow, H key; fix road-seam artifact with render-halo crop",
+            "commit": "1e420c2",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.70",
       "date": "2026-05-09",
       "commit": "1c5c885",
