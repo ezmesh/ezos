@@ -548,140 +548,118 @@ def format_markdown_table(headers: List[str], rows: List[List[str]], min_width: 
     return "\n".join([header_line, sep_line] + data_lines)
 
 def parse_settings_file(filepath: Path) -> List[SettingsCategory]:
-    """Parse settings from Lua settings_category.lua file."""
-    categories = []
+    """Parse the prefs registry (lua/services/prefs_registry.lua).
+
+    Each registry entry looks like::
+
+        { key = "screen_bright", type = "int32", default = 200,
+          min = 10, max = 255,
+          description = "LCD backlight brightness (10-255)" },
+
+    Section comments (``-- ---- Display ----``) inside the ENTRIES
+    table break the flat list into named categories.
+    """
+    categories: List[SettingsCategory] = []
 
     with open(filepath, 'r') as f:
         content = f.read()
 
-    # Parse CATEGORY_INFO table for category metadata
-    category_info = {}
-    cat_info_match = re.search(r'CATEGORY_INFO\s*=\s*\{(.+?)\n\}', content, re.DOTALL)
-    if cat_info_match:
-        cat_block = cat_info_match.group(1)
-        # Parse each category's info
-        for cat_match in re.finditer(r'(\w+)\s*=\s*\{[^}]*title\s*=\s*"([^"]+)"[^}]*desc\s*=\s*"([^"]+)"', cat_block):
-            key = cat_match.group(1)
-            title = cat_match.group(2)
-            desc = cat_match.group(3)
-            category_info[key] = {'title': title, 'desc': desc}
-
-    # Find ALL_SETTINGS block start
-    all_settings_start = content.find('ALL_SETTINGS')
-    if all_settings_start == -1:
+    entries_marker = re.search(r'\bENTRIES\s*=\s*', content)
+    if not entries_marker:
         return categories
 
-    # Use a simple state machine to find balanced braces for each category
-    # Look for patterns like: category_name = {
-    category_starts = list(re.finditer(r'^\s+(\w+)\s*=\s*\{', content[all_settings_start:], re.MULTILINE))
+    open_i, close_i = _lua_balanced_block(content, entries_marker.end())
+    if open_i == -1:
+        return categories
 
-    for i, cat_match in enumerate(category_starts):
-        cat_key = cat_match.group(1)
-        if cat_key in ('CATEGORY_INFO', 'ALL_SETTINGS'):
+    body = content[open_i + 1:close_i]
+
+    # Walk the body in lockstep, recognising "-- ---- Name ----" section
+    # headers and {...} entry blocks. Anything not in a category yet goes
+    # into an "Uncategorised" bucket.
+    current = SettingsCategory(key="general", title="General", description="")
+    i = 0
+    seen_first_section = False
+
+    section_re = re.compile(r'^[ \t]*--\s*---+\s*([^\-\n]+?)\s*-+\s*$', re.MULTILINE)
+
+    while i < len(body):
+        # Look for the next section header or entry brace, whichever comes first.
+        section_match = section_re.search(body, i)
+        brace = body.find('{', i)
+        if brace == -1 and not section_match:
+            break
+
+        if section_match and (brace == -1 or section_match.start() < brace):
+            # Flush current category if non-empty before starting a new one.
+            if current.settings or seen_first_section:
+                if current.settings:
+                    categories.append(current)
+            title = section_match.group(1).strip().rstrip('-').strip()
+            current = SettingsCategory(
+                key=_slug(title),
+                title=title,
+                description="",
+            )
+            seen_first_section = True
+            i = section_match.end()
             continue
 
-        start_pos = all_settings_start + cat_match.end() - 1  # Position of opening {
-        brace_count = 1
-        pos = start_pos + 1
+        # Found an entry; balance its braces (this also skips comments
+        # cleanly so nested function bodies wouldn't trip us up if any
+        # registry entries grow them later).
+        e_open, e_close = _lua_balanced_block(body, brace)
+        if e_open == -1:
+            break
+        entry_block = body[e_open + 1:e_close]
+        i = e_close + 1
 
-        # Find matching closing brace
-        while brace_count > 0 and pos < len(content):
-            if content[pos] == '{':
-                brace_count += 1
-            elif content[pos] == '}':
-                brace_count -= 1
-            pos += 1
+        key_m  = re.search(r'\bkey\s*=\s*"([^"]+)"', entry_block)
+        if not key_m:
+            continue
+        type_m = re.search(r'\btype\s*=\s*"([^"]+)"', entry_block)
+        desc_m = re.search(r'\bdescription\s*=\s*"([^"]*)"', entry_block)
+        min_m  = re.search(r'\bmin\s*=\s*(-?\d+)', entry_block)
+        max_m  = re.search(r'\bmax\s*=\s*(-?\d+)', entry_block)
 
-        cat_content = content[start_pos:pos]
+        # Default may be a string ("foo"), number (200), or boolean.
+        default_str = ""
+        default_str_m = re.search(r'\bdefault\s*=\s*"([^"]*)"', entry_block)
+        if default_str_m:
+            default_str = default_str_m.group(1)
+        else:
+            default_num_m = re.search(r'\bdefault\s*=\s*([^,\n}]+)', entry_block)
+            if default_num_m:
+                default_str = default_num_m.group(1).strip()
 
-        info = category_info.get(cat_key, {})
-        category = SettingsCategory(
-            key=cat_key,
-            title=info.get('title', cat_key.title()),
-            description=info.get('desc', '')
-        )
+        options: List[str] = []
+        opt_m = re.search(r'\boptions\s*=\s*', entry_block)
+        if opt_m:
+            o_open, o_close = _lua_balanced_block(entry_block, opt_m.end())
+            if o_open != -1:
+                options = re.findall(r'"([^"]+)"', entry_block[o_open + 1:o_close])
 
-        # Find each setting block: {...}
-        # Use brace matching for each setting
-        setting_starts = list(re.finditer(r'\{[^{}]*name\s*=\s*"', cat_content))
-        for setting_start in setting_starts:
-            brace_pos = setting_start.start()
-            brace_count = 1
-            pos = brace_pos + 1
+        current.settings.append(Setting(
+            name=key_m.group(1),
+            label=key_m.group(1),  # NVS key is the canonical "label" here
+            setting_type=type_m.group(1) if type_m else "",
+            default_value=default_str,
+            description=(desc_m.group(1) if desc_m else ""),
+            options=options,
+            min_val=(min_m.group(1) if min_m else None),
+            max_val=(max_m.group(1) if max_m else None),
+            suffix="",
+        ))
 
-            # Find matching closing brace
-            while brace_count > 0 and pos < len(cat_content):
-                if cat_content[pos] == '{':
-                    brace_count += 1
-                elif cat_content[pos] == '}':
-                    brace_count -= 1
-                pos += 1
-
-            setting_block = cat_content[brace_pos:pos]
-
-            # Extract name
-            name_match = re.search(r'name\s*=\s*"([^"]+)"', setting_block)
-            if not name_match:
-                continue
-            name = name_match.group(1)
-
-            # Extract fields from setting block
-            def extract_field(field_name, default=""):
-                match = re.search(rf'{field_name}\s*=\s*"([^"]*)"', setting_block)
-                if match:
-                    return match.group(1)
-                # Try non-string values (but stop at comma or closing brace, not newline)
-                match = re.search(rf'{field_name}\s*=\s*([^,\}}\n]+)', setting_block)
-                if match:
-                    val = match.group(1).strip()
-                    if val.startswith('"') or val.startswith("'"):
-                        return val.strip('"\'')
-                    return val
-                return default
-
-            label = extract_field('label')
-            setting_type = extract_field('type')
-            value = extract_field('value')
-            desc = extract_field('desc')
-            min_val = extract_field('min')
-            max_val = extract_field('max')
-            suffix = extract_field('suffix')
-
-            # Parse options array if present (handle nested braces)
-            options = []
-            options_start = setting_block.find('options')
-            if options_start != -1:
-                # Find the opening brace
-                brace_start = setting_block.find('{', options_start)
-                if brace_start != -1:
-                    brace_count = 1
-                    pos = brace_start + 1
-                    while brace_count > 0 and pos < len(setting_block):
-                        if setting_block[pos] == '{':
-                            brace_count += 1
-                        elif setting_block[pos] == '}':
-                            brace_count -= 1
-                        pos += 1
-                    opts_str = setting_block[brace_start:pos]
-                    options = re.findall(r'"([^"]+)"', opts_str)
-
-            setting = Setting(
-                name=name,
-                label=label,
-                setting_type=setting_type,
-                default_value=str(value) if value else "",
-                description=desc,
-                options=options,
-                min_val=min_val if min_val else None,
-                max_val=max_val if max_val else None,
-                suffix=suffix
-            )
-            category.settings.append(setting)
-
-        if category.settings:
-            categories.append(category)
+    if current.settings:
+        categories.append(current)
 
     return categories
+
+
+def _slug(text: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-') or 'general'
+
 
 def _lua_balanced_block(text: str, start: int) -> Tuple[int, int]:
     """Return (open_index, close_index) of the Lua table that starts with a
@@ -2357,14 +2335,23 @@ def generate_shell_guide_index(categories: List[SettingsCategory], modules: Dict
     return '\n'.join(lines)
 
 def generate_settings_reference(categories: List[SettingsCategory]) -> str:
-    """Generate complete settings reference markdown."""
+    """Generate the settings / preferences reference markdown.
+
+    The settings UI is split across multiple screens (Display, WiFi,
+    GPS, etc.) -- the canonical list of every NVS pref the firmware
+    reads lives in lua/services/prefs_registry.lua. We document each
+    registry entry as a "setting" and group them by the section
+    comments in that file. Reach the matching editor screen from
+    **Menu → System → <Screen>**.
+    """
     total = sum(len(c.settings) for c in categories)
 
     lines = [
         "# Settings Reference",
         "",
-        f"ezOS has {total} configurable settings organized into {len(categories)} categories.",
-        "Access settings from the main menu: **Menu → Settings**.",
+        f"ezOS has {total} preference keys, grouped here by purpose.",
+        "Editor screens live under **Menu → System** (Display, WiFi, GPS, Time, ...);",
+        "the **Prefs Editor** under **Menu → Dev** exposes every key directly.",
         "",
         "## Categories",
         "",
@@ -2372,60 +2359,39 @@ def generate_settings_reference(categories: List[SettingsCategory]) -> str:
 
     cat_rows = []
     for cat in categories:
-        cat_rows.append([f"[{cat.title}](#{cat.key})", str(len(cat.settings)), cat.description])
+        cat_rows.append([f"[{cat.title}](#{cat.key})", str(len(cat.settings)), cat.description or "—"])
 
     lines.append(format_markdown_table(["Category", "Settings", "Description"], cat_rows))
     lines.extend(["", "---", ""])
 
-    # Detailed settings per category
     for cat in categories:
         lines.extend([
             f"## {cat.title}",
             "",
-            f"*{cat.description}*",
-            "",
-            f"**Menu path:** Settings → {cat.title}",
-            "",
         ])
+        if cat.description:
+            lines.extend([f"*{cat.description}*", ""])
 
-        for setting in cat.settings:
-            lines.extend([
-                f"### {setting.label}",
-                "",
-            ])
-
-            # Setting metadata
-            meta_parts = [f"**Type:** {setting.setting_type}"]
-            if setting.default_value and setting.default_value != '""':
-                default = setting.default_value
-                if setting.setting_type == 'toggle':
-                    default = 'On' if default == 'true' else 'Off'
-                elif setting.setting_type == 'option' and setting.options:
-                    try:
-                        idx = int(default)
-                        if 0 < idx <= len(setting.options):
-                            default = setting.options[idx - 1]
-                    except (ValueError, IndexError):
-                        pass
-                meta_parts.append(f"**Default:** {default}")
-
-            if setting.min_val and setting.max_val:
-                meta_parts.append(f"**Range:** {setting.min_val} - {setting.max_val}{setting.suffix}")
-
-            lines.append(" | ".join(meta_parts))
-            lines.append("")
-
-            if setting.options:
-                lines.append("**Options:**")
-                for opt in setting.options:
-                    lines.append(f"- {opt}")
-                lines.append("")
-
-            if setting.description:
-                lines.extend([setting.description, ""])
-
-            lines.append(f"*Preference key:* `{setting.name}`")
-            lines.extend(["", "---", ""])
+        # Compact per-setting table for at-a-glance scanning. The
+        # description is the full sentence the user sees in the editor;
+        # min/max/options are spelled out so this page stands on its own
+        # without having to cross-reference the source.
+        rows = []
+        for s in cat.settings:
+            range_str = ""
+            if s.min_val is not None and s.max_val is not None:
+                range_str = f"{s.min_val}..{s.max_val}"
+            elif s.options:
+                range_str = ", ".join(f"`{o}`" for o in s.options)
+            default = s.default_value or ""
+            rows.append([f"`{s.name}`", s.setting_type or "—",
+                         default or "—", range_str or "—",
+                         s.description or "—"])
+        lines.append(format_markdown_table(
+            ["NVS key", "Type", "Default", "Range / Options", "Description"],
+            rows,
+        ))
+        lines.extend(["", ""])
 
     return '\n'.join(lines)
 
@@ -2721,11 +2687,13 @@ def main():
     print(f"  Deprecated: {deprecated_count}")
     print(f"  Bus messages: {len(all_bus_messages)}")
 
-    # Parse settings from Lua file
-    settings_file = data_dir / 'scripts' / 'ui' / 'screens' / 'settings_category.lua'
+    # Parse the prefs registry (was data/scripts/ui/screens/settings_category.lua,
+    # which doesn't exist any more -- the canonical pref list lives next
+    # to the rest of the runtime services now).
+    settings_file = project_root / 'lua' / 'services' / 'prefs_registry.lua'
     settings_categories = []
     if settings_file.exists():
-        print(f"\nParsing settings from {settings_file.name}...")
+        print(f"\nParsing settings from {settings_file.relative_to(project_root)}...")
         settings_categories = parse_settings_file(settings_file)
         total_settings = sum(len(c.settings) for c in settings_categories)
         print(f"  Found {total_settings} settings in {len(settings_categories)} categories")
