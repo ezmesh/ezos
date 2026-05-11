@@ -4,6 +4,7 @@
 #include "../lua_bindings.h"
 #include "../../config.h"
 #include "../../audio/synth.h"
+#include "../../audio/mic.h"
 #include <Arduino.h>
 #include <driver/i2s.h>
 #include <cmath>
@@ -1168,6 +1169,166 @@ LUA_FUNCTION(l_audio_unload) {
     return 0;
 }
 
+// ---- Microphone recording ----
+//
+// The recording session is process-global (see audio/mic.cpp). Only
+// one of record() / record_buffer() can be active at a time -- both
+// return false / nil if a session is already open. Stop with
+// stop_record() before starting a new one.
+
+static ezos::mic::MicSession* g_record_session = nullptr;
+
+// @lua ez.audio.mic_available() -> boolean
+// @brief Check whether the onboard ES7210 microphone is reachable
+// @description Pings the codec over I2C and returns true if it
+// acknowledges. Useful for hiding recording UI on boards that don't
+// have the microphone populated (or for diagnosing wiring faults).
+// Does not change any state; safe to call before or during a recording
+// session.
+// @return true if the codec responded
+// @example
+// if not ez.audio.mic_available() then
+//     print("No mic on this device")
+// end
+// @end
+LUA_FUNCTION(l_audio_mic_available) {
+    lua_pushboolean(L, ezos::mic::probe());
+    return 1;
+}
+
+// @lua ez.audio.record(path, opts) -> boolean
+// @brief Start streaming WAV recording to a file
+// @description Opens `path` (typically under /sd/recordings/) and
+// streams 16-bit mono PCM from the onboard MEMS microphone into a
+// WAV file. Recording continues until you call ez.audio.stop_record()
+// or the 5-minute safety cap fires. Only one recording can be active
+// at a time. Returns false if the mic isn't present, the file can't
+// be opened, or a session is already running.
+// @param path Full filesystem path to the .wav file to create (e.g. "/sd/recordings/clip.wav")
+// @param opts Table { sample_rate = 16000, gain_db = 24 } -- both optional
+// @return true if recording started
+// @example
+// ez.audio.record("/sd/recordings/note.wav", { sample_rate = 16000, gain_db = 24 })
+// ez.system.delay(2000)
+// ez.audio.stop_record()
+// @end
+LUA_FUNCTION(l_audio_record) {
+    const char* path = luaL_checkstring(L, 1);
+
+    ezos::mic::RecordOpts opts{16000, 16, 24};
+    if (lua_istable(L, 2)) {
+        lua_getfield(L, 2, "sample_rate");
+        if (lua_isnumber(L, -1)) opts.sample_rate = (uint32_t)lua_tointeger(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "gain_db");
+        if (lua_isnumber(L, -1)) opts.gain_db = (uint8_t)lua_tointeger(L, -1);
+        lua_pop(L, 1);
+    }
+
+    if (g_record_session) {
+        Serial.println("[Audio] record(): session already active");
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    g_record_session = ezos::mic::start_recording(path, opts);
+    lua_pushboolean(L, g_record_session != nullptr);
+    return 1;
+}
+
+// @lua ez.audio.stop_record() -> integer | nil
+// @brief Finalise the active recording
+// @description Stops the streaming task started by ez.audio.record(),
+// patches the WAV header with the final size, and closes the file.
+// Returns the number of PCM bytes captured, or nil if no recording
+// was active.
+// @return Number of PCM bytes written, or nil if not recording
+// @example
+// local bytes = ez.audio.stop_record()
+// if bytes then print(string.format("captured %d bytes", bytes)) end
+// @end
+LUA_FUNCTION(l_audio_stop_record) {
+    if (!g_record_session) {
+        lua_pushnil(L);
+        return 1;
+    }
+    uint32_t bytes = 0;
+    bool ok = ezos::mic::stop_recording(g_record_session, &bytes);
+    g_record_session = nullptr;
+    if (!ok) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushinteger(L, (lua_Integer)bytes);
+    return 1;
+}
+
+// @lua ez.audio.is_recording() -> boolean
+// @brief Check whether a recording is currently active
+// @description Returns true between ez.audio.record() and
+// ez.audio.stop_record(). Useful for screens that want to show a
+// recording indicator or block other audio operations while the mic
+// is busy.
+// @return true if recording
+// @example
+// while ez.audio.is_recording() do
+//     ez.system.delay(50)
+// end
+// @end
+LUA_FUNCTION(l_audio_is_recording) {
+    lua_pushboolean(L, g_record_session != nullptr);
+    return 1;
+}
+
+// @lua ez.audio.record_buffer(duration_ms, opts) -> string | nil
+// @brief Capture a short PCM clip into a Lua string
+// @description Blocks for `duration_ms` while capturing 16-bit mono
+// PCM from the microphone, then returns the raw little-endian PCM as
+// a Lua string. Use this for short clips (a few seconds at most) that
+// fit comfortably in RAM; for longer recordings, use ez.audio.record()
+// which streams to a file. Returns nil if the mic isn't present or a
+// streaming recording is already active.
+// @param duration_ms Capture length in milliseconds
+// @param opts Optional table { sample_rate = 16000, gain_db = 24 }
+// @return Raw 16-bit LE PCM as a Lua string, or nil on error
+// @example
+// local pcm = ez.audio.record_buffer(500, { sample_rate = 16000 })
+// if pcm then print(#pcm, "bytes captured") end
+// @end
+LUA_FUNCTION(l_audio_record_buffer) {
+    int duration_ms = luaL_checkinteger(L, 1);
+    if (duration_ms <= 0 || duration_ms > 30000) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    ezos::mic::RecordOpts opts{16000, 16, 24};
+    if (lua_istable(L, 2)) {
+        lua_getfield(L, 2, "sample_rate");
+        if (lua_isnumber(L, -1)) opts.sample_rate = (uint32_t)lua_tointeger(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "gain_db");
+        if (lua_isnumber(L, -1)) opts.gain_db = (uint8_t)lua_tointeger(L, -1);
+        lua_pop(L, 1);
+    }
+
+    if (g_record_session) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    size_t bytes = 0;
+    int16_t* buf = ezos::mic::capture_buffer((uint32_t)duration_ms, opts, &bytes);
+    if (!buf || bytes == 0) {
+        if (buf) free(buf);
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushlstring(L, reinterpret_cast<const char*>(buf), bytes);
+    free(buf);
+    return 1;
+}
+
 // Function table for ez.audio
 static const luaL_Reg audio_funcs[] = {
     {"play",          l_audio_play},
@@ -1186,6 +1347,11 @@ static const luaL_Reg audio_funcs[] = {
     {"start",         l_audio_start},
     {"set_volume",    l_audio_set_volume},
     {"get_volume",    l_audio_get_volume},
+    {"mic_available", l_audio_mic_available},
+    {"record",        l_audio_record},
+    {"stop_record",   l_audio_stop_record},
+    {"is_recording",  l_audio_is_recording},
+    {"record_buffer", l_audio_record_buffer},
     {nullptr, nullptr}
 };
 
