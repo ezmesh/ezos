@@ -1,9 +1,14 @@
 # Changelog
 
-## [0.0.94] - 2026-05-11
+## [0.0.95] - 2026-05-12
 
-### Other
-- **release:** name rolling-main "ezOS v<version>" and mark as full release (8ea3fa7)
+### Features
+- **chat:** show RSSI footer on received share/URI cards (939e359)
+
+## [0.0.95] - 2026-05-12
+
+### Features
+- **chat:** show RSSI footer on received share/URI cards (939e359)
 
 ## [0.0.94] - 2026-05-11
 

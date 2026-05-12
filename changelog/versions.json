@@ -3,6 +3,30 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.95",
+      "date": "2026-05-12",
+      "commit": "939e359",
+      "breaking": false,
+      "groups": {
+        "features": [
+          {
+            "type": "feat",
+            "scope": "chat",
+            "description": "show RSSI footer on received share/URI cards",
+            "commit": "939e359",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.94",
       "date": "2026-05-11",
       "commit": "8ea3fa7",
@@ -324,30 +348,6 @@
             "scope": "channels",
             "description": "per-channel history limit + notification mode (#80)",
             "commit": "374eb45",
-            "author": "XTR Bas",
-            "breaking": false,
-            "notes": [
-              {
-                "title": "Co-authored-by",
-                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "version": "0.0.71",
-      "date": "2026-05-10",
-      "commit": "afc57b3",
-      "breaking": false,
-      "groups": {
-        "other": [
-          {
-            "type": "docs",
-            "scope": "release",
-            "description": "add DeployKey bypass actor to branch rulesets (#84)",
-            "commit": "afc57b3",
             "author": "XTR Bas",
             "breaking": false,
             "notes": [
