@@ -575,7 +575,7 @@ function Menu:on_enter()
 
         table.insert(self._touch_subs, ez.bus.subscribe("touch/move",
             function(_, data)
-                if touch_input.is_locked() then return end
+                if touch_input.is_locked() or touch_input.is_wake_event() then return end
                 if not pending or type(data) ~= "table" then return end
                 local strip = me._tab_strip_node
                 if not strip then return end
@@ -597,7 +597,7 @@ function Menu:on_enter()
 
         table.insert(self._touch_subs, ez.bus.subscribe("touch/up",
             function(_, data)
-                if touch_input.is_locked() then
+                if touch_input.is_locked() or touch_input.is_wake_event() then
                     pending = nil
                     return
                 end

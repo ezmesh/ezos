@@ -216,7 +216,8 @@ function Logs:on_enter()
 
     table.insert(self._touch_subs, ez.bus.subscribe("touch/move",
         function(_, d)
-            if require("ezui.touch_input").is_locked() then return end
+            local ti = require("ezui.touch_input")
+            if ti.is_locked() or ti.is_wake_event() then return end
             if not drag or type(d) ~= "table" then return end
             local dy_px    = d.y - drag.start_y
             local dy_lines = -math.floor(dy_px / drag.row_h)
