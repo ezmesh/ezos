@@ -1,6 +1,6 @@
 {
   "name": "ezos",
-  "version": "0.0.97",
+  "version": "0.0.103",
   "description": "A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 with LoRa), featuring encrypted mesh networking, offline maps, and a Lua-scripted user interface.",
   "main": "index.js",
   "directories": {

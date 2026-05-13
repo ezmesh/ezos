@@ -1,12 +1,28 @@
 # Changelog
 
-## [0.0.97] - 2026-05-13
+## [0.0.103] - 2026-05-13
 
 ### Features
 - **signal-test:** scroll viewport + ezme.sh URI for SIGT DMs (8c9b46b)
 
 ### Fixes
 - **signal-test:** stamp protocol flag at the DM seam, not in chat render (d92b953)
+
+### Other
+- **claude:** tighten scope note per review (4a19285)
+- **claude:** scope the on-device-fonts ASCII rule to on-device surfaces only (de3dcb3)
+
+## [0.0.103] - 2026-05-13
+
+### Features
+- **signal-test:** scroll viewport + ezme.sh URI for SIGT DMs (8c9b46b)
+
+### Fixes
+- **signal-test:** stamp protocol flag at the DM seam, not in chat render (d92b953)
+
+### Other
+- **claude:** tighten scope note per review (4a19285)
+- **claude:** scope the on-device-fonts ASCII rule to on-device surfaces only (de3dcb3)
 
 ## [0.0.97] - 2026-05-13
 
