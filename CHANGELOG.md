@@ -1,16 +1,28 @@
 # Changelog
 
-## [0.0.103] - 2026-05-13
+## [0.0.107] - 2026-05-13
 
 ### Features
-- **signal-test:** scroll viewport + ezme.sh URI for SIGT DMs (8c9b46b)
+- **console:** web flasher + first-boot pref pre-seed for #24 (bff85ac)
 
 ### Fixes
-- **signal-test:** stamp protocol flag at the DM seam, not in chat render (d92b953)
+- **console:** guard app+erase brick, rename eraseAll, update rotation docs (ba4ae71)
+- **console:** verify Ed25519 manifest + SHA-256 before flash; drop blob type (7f555bf)
 
 ### Other
-- **claude:** tighten scope note per review (4a19285)
-- **claude:** scope the on-device-fonts ASCII rule to on-device surfaces only (de3dcb3)
+- list console/ in CLAUDE.md project-structure tree (4f7c6ea)
+
+## [0.0.107] - 2026-05-13
+
+### Features
+- **console:** web flasher + first-boot pref pre-seed for #24 (bff85ac)
+
+### Fixes
+- **console:** guard app+erase brick, rename eraseAll, update rotation docs (ba4ae71)
+- **console:** verify Ed25519 manifest + SHA-256 before flash; drop blob type (7f555bf)
+
+### Other
+- list console/ in CLAUDE.md project-structure tree (4f7c6ea)
 
 ## [0.0.103] - 2026-05-13
 

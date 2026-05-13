@@ -3,6 +3,56 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.107",
+      "date": "2026-05-13",
+      "commit": "ba4ae71",
+      "breaking": false,
+      "groups": {
+        "features": [
+          {
+            "type": "feat",
+            "scope": "console",
+            "description": "web flasher + first-boot pref pre-seed for #24",
+            "commit": "bff85ac",
+            "author": "Claude",
+            "breaking": false,
+            "notes": []
+          }
+        ],
+        "fixes": [
+          {
+            "type": "fix",
+            "scope": "console",
+            "description": "guard app+erase brick, rename eraseAll, update rotation docs",
+            "commit": "ba4ae71",
+            "author": "Claude",
+            "breaking": false,
+            "notes": []
+          },
+          {
+            "type": "fix",
+            "scope": "console",
+            "description": "verify Ed25519 manifest + SHA-256 before flash; drop blob type",
+            "commit": "7f555bf",
+            "author": "Claude",
+            "breaking": false,
+            "notes": []
+          }
+        ],
+        "other": [
+          {
+            "type": "docs",
+            "scope": null,
+            "description": "list console/ in CLAUDE.md project-structure tree",
+            "commit": "4f7c6ea",
+            "author": "Claude",
+            "breaking": false,
+            "notes": []
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.103",
       "date": "2026-05-13",
       "commit": "4a19285",
@@ -346,60 +396,6 @@
             "scope": "boot",
             "description": "show firmware version and channel on splash (#90)",
             "commit": "951f46f",
-            "author": "XTR Bas",
-            "breaking": false,
-            "notes": [
-              {
-                "title": "Co-authored-by",
-                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "version": "0.0.83",
-      "date": "2026-05-10",
-      "commit": "9d253e7",
-      "breaking": false,
-      "groups": {
-        "features": [
-          {
-            "type": "feat",
-            "scope": "channels",
-            "description": "per-channel history limit + notification mode (#80)",
-            "commit": "374eb45",
-            "author": "XTR Bas",
-            "breaking": false,
-            "notes": [
-              {
-                "title": "Co-authored-by",
-                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
-              }
-            ]
-          }
-        ],
-        "fixes": [
-          {
-            "type": "fix",
-            "scope": "release",
-            "description": "packageJson must be an object, not the literal true (#86)",
-            "commit": "9d253e7",
-            "author": "XTR Bas",
-            "breaking": false,
-            "notes": [
-              {
-                "title": "Co-authored-by",
-                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
-              }
-            ]
-          },
-          {
-            "type": "fix",
-            "scope": "release",
-            "description": "fetch tags so xtr-changelog can advance the version (#85)",
-            "commit": "d389651",
             "author": "XTR Bas",
             "breaking": false,
             "notes": [
