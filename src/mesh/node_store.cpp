@@ -222,6 +222,18 @@ bool NodeStore::deserialize(const uint8_t* data, size_t len,
         if (copy > MAX_NODE_NAME) copy = MAX_NODE_NAME;
         if (copy > 0) std::memcpy(node.name, p, copy);
         node.name[copy] = '\0';
+        // Names originate in peer-sent ADVERTs and may contain bytes
+        // outside printable ASCII. The on-device bitmap fonts only
+        // render 0x20..0x7E; anything else shows up as a `[]` glyph
+        // box on the Map screen / node browser. Replace at the
+        // deserialise boundary so a hand-edited blob or an older-
+        // firmware save can't poison the rendering pipeline. (The
+        // same fix at the updateNode() seam would catch live ADVERTs
+        // too -- out of scope for this change.)
+        for (size_t i = 0; i < copy; i++) {
+            uint8_t b = static_cast<uint8_t>(node.name[i]);
+            if (b < 0x20 || b > 0x7E) node.name[i] = '?';
+        }
         if (nameLen == 0) {
             // Synthesise a name from the path hash, matching the
             // updateNode() fallback so downstream code doesn't trip on
