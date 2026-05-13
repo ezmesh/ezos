@@ -689,6 +689,44 @@ After making a fix:
 - `!RF` indicator means radio failed to initialize
 - Check LoRa module wiring if this appears
 
+### Node Store (persisted ADVERT cache)
+- Storage path: `/sd/nodes.bin` when SD is mounted, otherwise NVS blob
+  `nodes` in the existing `meshcore` namespace (factory reset wipes the
+  blob alongside the identity keys).
+- Header: `[magic:4 'EZNS' / 0x534E5A45][version:2 LE][count:2 LE]`.
+  `kVersion = 1` -- bump in lockstep with any layout change so older
+  firmware loading a newer blob fails fast.
+- Per-node record: `[pathHash:1][role:1][flags:1][nameLen:1]
+  [advertTimestamp:4 LE][lastSeenUnix:4 LE]
+  [pubKey:32 if flags&0x01]
+  [lat:f32 LE][lon:f32 LE if flags&0x02]
+  [name:nameLen]`. Flags: bit 0 = `hasPublicKey`, bit 1 = `hasLocation`.
+- Caps: 128 entries on SD, 64 on NVS. On overflow at save time,
+  oldest-by-`advertTimestamp` entries are evicted from the *written*
+  set (the in-memory vector is left untouched).
+- Aging: entries with a `lastSeenUnix` more than 7 days behind the
+  current wall clock are dropped at load time. Skipped when the
+  system clock is unset (year < 2020), so a cold boot before NTP/GPS
+  sync doesn't wipe the list.
+- Save policy: `_nodesDirty` flips true the first time `updateNode()`
+  changes a persisted field (new node, name, pubkey, role, location,
+  advert timestamp). `MeshCore::update()` flushes once
+  `millis() - _nodesDirtyAt >= 30000`. The dirty timestamp is *not*
+  re-armed on subsequent changes so a steady ADVERT stream still
+  gets persisted promptly.
+- What is NOT persisted: `lastRssi`, `lastSnr`, `hopCount` describe
+  the last *packet*, not the node, and would be stale and misleading
+  after a reboot. They are zeroed on restore and refilled by the next
+  ADVERT.
+- SD writes are atomic: written to `/sd/nodes.bin.tmp`, then renamed
+  over `/sd/nodes.bin`. A power loss mid-save loses the *previous*
+  save, never corrupts the active blob.
+- Names are sanitized to printable ASCII at the deserialise boundary
+  (`?` substituted for any byte outside `0x20..0x7E`) so hand-edited
+  blobs or older-firmware saves can't poison `draw_text` callers.
+  Live ADVERT names still flow unsanitized through `updateNode()`;
+  fixing that seam is out of scope.
+
 ## Theming
 
 `lua/ezui/theme.lua` is the single source of truth for colors and fonts.
