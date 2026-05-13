@@ -8,14 +8,33 @@ reference. Tracking issue: [#24](https://github.com/ezmesh/ezos/issues/24).
 ## What it does
 
 - **Flash** the latest `firmware-full.bin` (or `firmware.bin` for an
-  app-only update) from any GitHub release, including the rolling-main /
-  rolling-test channels. Drives `esptool-js` over Web Serial.
+  app-only update) from a signed GitHub release. Drives `esptool-js`
+  over Web Serial.
 - **Pre-seed** first-boot settings by building a binary NVS partition
   image in the browser and flashing it to offset `0x9000` (see
   `partitions_16MB.csv`). The device boots once into a fully-configured
   state -- no second handshake required.
 
 Tier 3 (bulk identity/contact/map upload) is deferred; see the issue.
+
+## Integrity / trust model
+
+Same threat model as the on-device updater
+(`lua/screens/settings/firmware_update.lua`): every rolling-main /
+rolling-test release ships `manifest.json` + `manifest.json.sig`. The
+console:
+
+1. Fetches both, verifies the Ed25519 signature against the public key
+   vendored from `src/ota_pubkey.cpp` (`src/flash/manifest.ts`).
+2. Downloads the firmware blob the manifest points at.
+3. Verifies the blob's SHA-256 against the corresponding manifest
+   field (`full_sha256` for the full image, `sha256` for app-only).
+4. Only then hands the bytes to `esptool-js`.
+
+A release without manifest + sig (tagged releases from
+`build-release.yml` currently fall into this bucket) is rejected at the
+"Flash options" step. The on-device updater would refuse it too --
+trust flows from the signing key, not from TLS to GitHub.
 
 ## Local dev
 

@@ -68,6 +68,12 @@ const T_U64 = 0x08;
 const T_I64 = 0x18;
 const T_SZ = 0x21;
 
+// String prefs use T_SZ; the registry has no blob prefs yet, and emitting
+// one as a string descriptor (T_SZ) would silently corrupt it since
+// blobs use the chunked BLOB_DATA / BLOB_IDX type codes (0x42 / 0x48)
+// with a completely different on-disk layout. The PrefType union
+// excludes "blob" to make wiring up a blob pref a compile error until
+// proper chunked-blob encoding lands.
 const TYPE_FOR: Record<PrefType, number> = {
     uint8: T_U8,
     int8: T_I8,
@@ -78,7 +84,6 @@ const TYPE_FOR: Record<PrefType, number> = {
     uint64: T_U64,
     int64: T_I64,
     string: T_SZ,
-    blob: T_SZ,
 };
 
 // Namespaces are written as U8 entries in namespace index 0; their value is
@@ -329,7 +334,7 @@ function lookupDef(key: string): { ns: string; def: PrefDef } | undefined {
 }
 
 function coerceValue(def: PrefDef, raw: string | number): string | number {
-    if (def.type === "string" || def.type === "blob") {
+    if (def.type === "string") {
         return typeof raw === "string" ? raw : String(raw);
     }
     const n = typeof raw === "number" ? raw : Number(raw);
@@ -389,7 +394,7 @@ export function encodeNvsImage(
 
     for (const e of entries) {
         const nsIdx = NS_INDEX[e.namespace];
-        if (e.type === "string" || e.type === "blob") {
+        if (e.type === "string") {
             writeStringEntry(page, nsIdx, e.key, e.value as string);
         } else {
             writePrimitiveEntry(page, nsIdx, e.key, e.type, e.value as number);

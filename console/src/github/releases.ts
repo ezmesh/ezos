@@ -73,7 +73,8 @@ export async function fetchReleases(opts: { force?: boolean } = {}): Promise<Rel
         const releases: Release[] = json
             .filter((r) => !r.draft)
             .map((r) => ({ ...r, channel: classifyChannel(r) }))
-            // Stable first, then rolling-main, then rolling-test, then tagged.
+            // rolling-main first (latest stable build), then rolling-test
+            // (preview), then stable tagged releases, then other tagged.
             .sort((a, b) => {
                 const rank = (c: Release["channel"]) =>
                     c === "rolling-main" ? 0 :
@@ -105,6 +106,18 @@ export interface FlashImage {
     appUrl?: string;
     appName?: string;
     appSize?: number;
+    /**
+     * URLs of the signed manifest and detached Ed25519 signature, if the
+     * release publishes them (every rolling-main / rolling-test build
+     * does; tagged releases from build-release.yml currently don't).
+     * The console refuses to flash a release without these.
+     */
+    manifestUrl?: string;
+    sigUrl?: string;
+}
+
+export function isSigned(image: FlashImage): boolean {
+    return !!(image.manifestUrl && image.sigUrl);
 }
 
 /**
@@ -122,6 +135,8 @@ export function pickImages(release: Release): FlashImage | null {
         release.assets.find(
             (a) => /\.bin$/.test(a.name) && !/full|bootloader|partitions/i.test(a.name),
         );
+    const manifest = release.assets.find((a) => a.name === "manifest.json");
+    const sig = release.assets.find((a) => a.name === "manifest.json.sig");
     return {
         fullUrl: full.browser_download_url,
         fullName: full.name,
@@ -129,5 +144,7 @@ export function pickImages(release: Release): FlashImage | null {
         appUrl: app?.browser_download_url,
         appName: app?.name,
         appSize: app?.size,
+        manifestUrl: manifest?.browser_download_url,
+        sigUrl: sig?.browser_download_url,
     };
 }

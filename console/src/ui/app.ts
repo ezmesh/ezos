@@ -10,7 +10,7 @@ import {
     renderDone,
     type FlashUiState,
 } from "./steps";
-import { fetchReleases, pickImages, type Release } from "../github/releases";
+import { fetchReleases, pickImages, isSigned, type Release } from "../github/releases";
 import { makeState, buildSeedValues, type AppState, type Variant } from "./state";
 import { encodeNvsImage } from "../nvs/encoder";
 import {
@@ -21,6 +21,11 @@ import {
     NVS_OFFSET,
     type FlashFile,
 } from "../flash/esptool";
+import {
+    fetchAndVerifyManifest,
+    verifySha256,
+    ManifestError,
+} from "../flash/manifest";
 
 export class App {
     private state: AppState = makeState();
@@ -276,6 +281,20 @@ export class App {
 
         const flasher = new Flasher();
         try {
+            // Verify the release manifest BEFORE we ask for a serial port,
+            // so a tampered or unsigned release fails fast without the
+            // user having to pick the device.
+            if (!isSigned(this.state.images)) {
+                throw new ManifestError(
+                    "This release is unsigned. Refusing to flash.",
+                );
+            }
+            this.appendLog("Fetching manifest.json + manifest.json.sig...");
+            const manifest = await fetchAndVerifyManifest(this.state.release);
+            this.appendLog(
+                `Manifest verified (Ed25519). Built at ${manifest.built_at}, version ${manifest.version}.`,
+            );
+
             this.appendLog("Requesting serial port...");
             const { chip } = await flasher.connect({
                 onLog: (s) => this.appendLog(s.trim()),
@@ -285,12 +304,12 @@ export class App {
 
             const files: FlashFile[] = [];
 
-            const imageUrl =
-                this.state.variant === "full"
-                    ? this.state.images.fullUrl
-                    : this.state.images.appUrl ?? this.state.images.fullUrl;
-            const imageOffset =
-                this.state.variant === "full" ? FULL_OFFSET : APP_OFFSET;
+            const variantIsFull = this.state.variant === "full";
+            const imageUrl = variantIsFull
+                ? manifest.full_bin_url
+                : manifest.bin_url;
+            const expectedSha = variantIsFull ? manifest.full_sha256 : manifest.sha256;
+            const imageOffset = variantIsFull ? FULL_OFFSET : APP_OFFSET;
 
             this.appendLog(`Downloading ${imageUrl}...`);
             const fwBytes = await downloadBinary(imageUrl, (rec, total) => {
@@ -300,6 +319,13 @@ export class App {
                 this.render();
             });
             this.appendLog(`Downloaded ${fwBytes.length} bytes.`);
+            this.appendLog(`Verifying SHA-256...`);
+            await verifySha256(
+                fwBytes,
+                expectedSha,
+                variantIsFull ? "firmware-full.bin" : "firmware.bin",
+            );
+            this.appendLog("SHA-256 OK.");
             files.push({
                 address: imageOffset,
                 data: fwBytes,

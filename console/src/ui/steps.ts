@@ -10,7 +10,7 @@ import {
 } from "../nvs/schema";
 import type { AppState, Variant } from "./state";
 import type { Release, FlashImage } from "../github/releases";
-import { pickImages } from "../github/releases";
+import { pickImages, isSigned } from "../github/releases";
 
 function stepsBar(active: AppState["step"]): HTMLElement {
     const labels: Array<{ step: AppState["step"]; label: string }> = [
@@ -172,6 +172,7 @@ export function renderVariant(
     seedPrefs: boolean,
 ): HTMLElement {
     const sizeKB = (n: number) => `${(n / 1024).toFixed(0)} KB`;
+    const signed = isSigned(images);
     return el("div", {}, [
         stepsBar("variant"),
         el("div", { class: "card" }, [
@@ -181,7 +182,14 @@ export function renderVariant(
                 el("dd", {}, [release.tag_name]),
                 el("dt", {}, ["Published"]),
                 el("dd", {}, [new Date(release.published_at).toLocaleString()]),
+                el("dt", {}, ["Signed"]),
+                el("dd", {}, [signed ? "yes (Ed25519)" : "no"]),
             ]),
+            !signed
+                ? el("div", { class: "banner err" }, [
+                      "This release has no manifest.json + manifest.json.sig. The on-device updater would refuse it too. Pick a rolling-main or rolling-test release.",
+                  ])
+                : null,
             el("h2", {}, ["Image"]),
             el("div", { class: "checkbox" }, [
                 el("input", {
@@ -240,9 +248,15 @@ export function renderVariant(
             el("div", { class: "btn-row" }, [
                 el("button", { class: "btn secondary", id: "btn-back" }, ["Back"]),
                 el("span", { class: "spacer" }, []),
-                el("button", { class: "btn", id: "btn-next" }, [
-                    seedPrefs ? "Configure" : "Skip to flash",
-                ]),
+                el(
+                    "button",
+                    {
+                        class: "btn",
+                        id: "btn-next",
+                        disabled: signed ? null : true,
+                    },
+                    [seedPrefs ? "Configure" : "Skip to flash"],
+                ),
             ]),
         ]),
     ]);

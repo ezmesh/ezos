@@ -13,8 +13,7 @@ export type PrefType =
     | "uint32"
     | "int64"
     | "uint64"
-    | "string"
-    | "blob";
+    | "string";
 
 export interface PrefDef {
     key: string;

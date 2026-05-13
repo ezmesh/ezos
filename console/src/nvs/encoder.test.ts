@@ -126,11 +126,21 @@ if (pwOff > 0) {
 }
 
 // Empty strings should be skipped, not emitted as zero-length entries.
+// Walk the entry table directly -- byte-scanning for 'w' (0x77) used to
+// pass trivially because the header CRC / bitmap area happens to be
+// before offset 64, and the lookup never actually checked the key.
+function findEntryIn(img: Uint8Array, key: string): number {
+    let s = 0;
+    while (s < 126) {
+        const off = 64 + s * ENTRY;
+        if (img[off] === 0xff) break;
+        if (readKey(img, off + 8) === key) return off;
+        s += Math.max(1, img[off + 2]);
+    }
+    return -1;
+}
 const imgNoSsid = encodeNvsImage({ onboarded: "1", wifi_ssid: "" });
-assert(
-    !imgNoSsid.includes(0x77) || !(imgNoSsid.indexOf("wifi_ssid".charCodeAt(0)) > 64),
-    "empty wifi_ssid is omitted",
-);
+assert(findEntryIn(imgNoSsid, "wifi_ssid") === -1, "empty wifi_ssid is omitted");
 
 // Header CRC.
 const headerCrc = u32le(img, 28);
