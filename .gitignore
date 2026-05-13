@@ -33,6 +33,7 @@ tools/maps/*.checkpoint
 # Screenshots
 *.png
 !/docs/screenshots/*.png
+!/docs/tdeck-composite.png
 !/assets/**/*.png
 node_modules/
 

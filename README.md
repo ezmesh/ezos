@@ -29,6 +29,8 @@ A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 wi
 
 ## Features
 
+<img src="docs/tdeck-composite.png" alt="ezOS running on a LilyGo T-Deck Plus" width="240" align="right"/>
+
 - 📡 **Mesh Networking** - MeshCore protocol with Ed25519 signatures and AES-256-GCM encryption
 - 💬 **Channel Chat** - Public and encrypted group channels
 - 🔒 **Direct Messages** - Private encrypted messaging
