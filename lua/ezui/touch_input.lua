@@ -207,8 +207,36 @@ function M.is_wake_event()
     return ez.system.millis() < M._wake_until_ms
 end
 
+-- True when the global input lock is engaged. The touch bridge has
+-- to consult this on every touch/* event because the input lock is
+-- meant to swallow taps and drags too, not just keypresses; without
+-- this, a locked device in a pocket would still let stray finger
+-- presses scroll lists or activate buttons.
+--
+-- Exported as M.is_locked so every direct `touch/down`/`touch/move`/
+-- `touch/up` subscriber on a screen can opt in to the same gate --
+-- the bus broadcasts to every subscriber, so this bridge can't
+-- suppress them on its own. Mirrors how is_wake_event opt-in works
+-- for the screensaver wake gate (see CLAUDE.md "Touch input and
+-- the screensaver wake gate"). `touch/tap` and `touch/long_press`
+-- are synthesised inside the bridge's own on_up, which already
+-- returns early while locked, so they're covered transitively
+-- without per-subscriber changes.
+function M.is_locked()
+    local ok, lock_svc = pcall(require, "services.input_lock")
+    return ok and lock_svc.is_locked()
+end
+
+local locked_swallow = M.is_locked
+
 local function on_down(_topic, data)
     if type(data) ~= "table" or not data.x or not data.y then return end
+
+    if locked_swallow() then
+        _pending = nil
+        _mouse_pending = nil
+        return
+    end
 
     if screensaver_swallow() then
         -- Drop any in-flight gesture so the matching touch/up
@@ -275,6 +303,12 @@ local function on_down(_topic, data)
 end
 
 local function on_move(_topic, data)
+    if locked_swallow() then
+        _pending = nil
+        _mouse_pending = nil
+        return
+    end
+
     -- Keep the idle timer warm during long drags (paint, slider scrub,
     -- map pan) so the screensaver doesn't pop while the user is
     -- actively interacting. Also catches the rare case where on_down
@@ -359,6 +393,12 @@ local function on_move(_topic, data)
 end
 
 local function on_up(_topic, data)
+    if locked_swallow() then
+        _pending = nil
+        _mouse_pending = nil
+        return
+    end
+
     if screensaver_swallow() then
         _pending = nil
         _mouse_pending = nil

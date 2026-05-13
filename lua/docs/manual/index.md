@@ -13,6 +13,7 @@ work even with no SD card and no network.
 - Maps
 - Voice notes
 - Settings
+- Input lock
 - Customization (advanced)
 
 Open any page from the Help app's main list. Use Backspace or Escape
