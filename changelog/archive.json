@@ -3,6 +3,30 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.84",
+      "date": "2026-05-11",
+      "commit": "951f46f",
+      "breaking": false,
+      "groups": {
+        "features": [
+          {
+            "type": "feat",
+            "scope": "boot",
+            "description": "show firmware version and channel on splash (#90)",
+            "commit": "951f46f",
+            "author": "XTR Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.83",
       "date": "2026-05-10",
       "commit": "9d253e7",

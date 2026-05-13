@@ -1,16 +1,32 @@
 # Changelog
 
-## [0.0.107] - 2026-05-13
+## [0.0.113] - 2026-05-13
 
 ### Features
-- **console:** web flasher + first-boot pref pre-seed for #24 (bff85ac)
+- **input-lock:** Shift+Alt+L / Shift+Alt+U global input lock (8b2df8d)
 
 ### Fixes
-- **console:** guard app+erase brick, rename eraseAll, update rotation docs (ba4ae71)
-- **console:** verify Ed25519 manifest + SHA-256 before flash; drop blob type (7f555bf)
+- **input-lock:** pair is_wake_event with is_locked in remaining touch handlers (4ead538)
+- **input-lock:** plug touch-lock bypass in direct touch/* subscribers (c53240b)
+- **input-lock:** black banner with white text instead of accent fill (b068d9c)
 
 ### Other
-- list console/ in CLAUDE.md project-structure tree (4f7c6ea)
+- **claude-md:** consolidate and tighten project guidelines (6d3407c)
+- **input-lock:** pair guards, fix stale drag, document service (cee3914)
+
+## [0.0.113] - 2026-05-13
+
+### Features
+- **input-lock:** Shift+Alt+L / Shift+Alt+U global input lock (8b2df8d)
+
+### Fixes
+- **input-lock:** pair is_wake_event with is_locked in remaining touch handlers (4ead538)
+- **input-lock:** plug touch-lock bypass in direct touch/* subscribers (c53240b)
+- **input-lock:** black banner with white text instead of accent fill (b068d9c)
+
+### Other
+- **claude-md:** consolidate and tighten project guidelines (6d3407c)
+- **input-lock:** pair guards, fix stale drag, document service (cee3914)
 
 ## [0.0.107] - 2026-05-13
 
