@@ -198,7 +198,8 @@ function Logs:on_enter()
     table.insert(self._touch_subs, ez.bus.subscribe("touch/down",
         function(_, d)
             if type(d) ~= "table" then return end
-            if require("ezui.touch_input").is_wake_event() then return end
+            local ti = require("ezui.touch_input")
+            if ti.is_locked() or ti.is_wake_event() then return end
             local v = me._view
             if not v._x then return end  -- not laid out yet
             -- Reject touches that started in the title bar so back-
@@ -215,6 +216,7 @@ function Logs:on_enter()
 
     table.insert(self._touch_subs, ez.bus.subscribe("touch/move",
         function(_, d)
+            if require("ezui.touch_input").is_locked() then return end
             if not drag or type(d) ~= "table" then return end
             local dy_px    = d.y - drag.start_y
             local dy_lines = -math.floor(dy_px / drag.row_h)
@@ -237,7 +239,10 @@ function Logs:on_enter()
         end))
 
     table.insert(self._touch_subs, ez.bus.subscribe("touch/up",
-        function() drag = nil end))
+        function()
+            if require("ezui.touch_input").is_locked() then return end
+            drag = nil
+        end))
 end
 
 function Logs:on_exit()

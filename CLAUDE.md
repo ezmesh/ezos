@@ -381,8 +381,8 @@ subscribes once at boot to `touch/down` / `touch/move` / `touch/up`
 and turns single-finger taps into focus-chain activations on the
 widget under the finger. Most screens get touch for free.
 
-Two developer-facing APIs participate in the screensaver wake-event
-flow and must be used by anyone writing new touch code:
+Three developer-facing APIs gate raw `touch/*` events and must be
+consulted by anyone writing new touch code:
 
 - **`screen.notify_input()`** (`lua/ezui/screen.lua`) -- bumps
   `last_input_time` and, if the screensaver overlay is currently
@@ -399,7 +399,8 @@ flow and must be used by anyone writing new touch code:
 
   ```lua
   ez.bus.subscribe("touch/down", function(_, data)
-      if require("ezui.touch_input").is_wake_event() then return end
+      local ti = require("ezui.touch_input")
+      if ti.is_locked() or ti.is_wake_event() then return end
       -- ... real handler
   end)
   ```
@@ -411,10 +412,20 @@ flow and must be used by anyone writing new touch code:
   bridge can't suppress them on its own; each direct subscriber
   has to opt in.
 
-  `touch/tap` and `touch/long_press` subscribers (games, custom
-  views) are **not** affected -- those are synthesised inside the
-  bridge's own `on_up`, which already returns early on a wake
-  event, so they're covered transitively.
+- **`touch_input.is_locked()`** -- predicate that returns true while
+  the global input lock is engaged (Shift+Alt+L; see
+  `lua/services/input_lock.lua`). Same opt-in contract as
+  `is_wake_event`: the bus broadcasts to every subscriber, so a
+  screen with a direct `touch/*` subscription has to consult this
+  itself or a pocket touch will still drive the screen's handler
+  while the device is "locked". Always pair the two checks at the
+  top of the handler, as shown above.
+
+`touch/tap` and `touch/long_press` subscribers (games, custom
+views) are **not** affected by either gate -- those are synthesised
+inside the bridge's own `on_up`, which already returns early on a
+wake event AND while locked, so they're covered transitively.
+Raw `touch/down|move|up` subscribers don't get that for free.
 
 ### Settings
 

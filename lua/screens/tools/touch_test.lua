@@ -171,16 +171,19 @@ function Touch:on_enter()
 
     local function on_down(_, data)
         if type(data) ~= "table" then return end
+        if require("ezui.touch_input").is_locked() then return end
         add_trail(data.id, data.x, data.y)
         require("ezui.screen").invalidate()
     end
     local function on_move(_, data)
         if type(data) ~= "table" then return end
+        if require("ezui.touch_input").is_locked() then return end
         add_trail(data.id, data.x, data.y)
         require("ezui.screen").invalidate()
     end
     local function on_up(_, data)
         if type(data) ~= "table" then return end
+        if require("ezui.touch_input").is_locked() then return end
         -- Keep the trail visible briefly after release. We just stop
         -- adding new samples; the trail fades the next time the same
         -- track id is reused for a new contact.
