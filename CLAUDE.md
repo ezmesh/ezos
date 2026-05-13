@@ -393,15 +393,36 @@ subscribes once at boot to `touch/down` / `touch/move` / `touch/up`
 and turns single-finger taps into focus-chain activations on the
 widget under the finger. Most screens get touch for free.
 
-Two developer-facing APIs participate in the screensaver wake-event
+Several developer-facing APIs participate in the screensaver wake-event
 flow and must be used by anyone writing new touch code:
 
 - **`screen.notify_input()`** (`lua/ezui/screen.lua`) -- bumps
-  `last_input_time` and, if the screensaver overlay is currently
-  drawn, dismisses it. Returns `true` when the screensaver was just
-  dismissed so the caller can swallow the originating event. The
-  keyboard read loop calls this; you usually don't, but it's the
-  single chokepoint if you ever need to synthesise a wake.
+  `last_input_time` and, if the idle ladder is anywhere past stage 0
+  (pre-dim, screensaver-active, or panel-off), unwinds it: restores
+  the LCD backlight, dismisses the screensaver overlay if drawn, and
+  resets the stage to 0. Returns `true` when the call cleared a
+  non-zero stage (dim, screensaver, OR panel-off) so the caller can
+  swallow the originating event -- a tap that wakes the device
+  should not also click whatever sat under the finger. The keyboard
+  read loop calls this; you usually don't, but it's the single
+  chokepoint if you ever need to synthesise a wake.
+
+- **`screen.acquire_wakelock(tag)`** / **`screen.release_wakelock(tag)`**
+  (`lua/ezui/screen.lua`) -- tag-keyed counter that pins the idle
+  ladder at stage 0 regardless of `ss_timeout`. Pass the same string
+  tag to both calls; releasing a tag that was never acquired is a
+  no-op. Multiple distinct tags can be held concurrently and the
+  ladder only resumes once the last one is released. `release_wakelock`
+  also resets `last_input_time` so a long-held wakelock (e.g. a
+  multi-minute file transfer) doesn't make the next idle tick jump
+  straight to panel-off. There is one implicit wakelock built in:
+  `_wakelocks_held()` polls `ez.audio.is_recording()`, so the
+  voice-notes / signal-test capture paths stay lit without their
+  screens having to acquire anything. Prefer wakelocks over
+  per-frame `notify_input()` pings when a background activity needs
+  the display alive for an unbounded duration -- they don't fight
+  the user's chosen `ss_timeout` for the *next* idle period after
+  release.
 
 - **`touch_input.is_wake_event()`** -- predicate that returns true
   for ~250 ms after a touch dismissed the screensaver. The bridge

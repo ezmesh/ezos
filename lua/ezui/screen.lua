@@ -498,6 +498,14 @@ end
 function screen.release_wakelock(tag)
     if not tag then return end
     screen._wakelocks[tag] = nil
+    -- Restart the idle countdown from the release moment. Without
+    -- this, last_input_time stays frozen at whenever the user last
+    -- touched the device before acquiring the wakelock; a long-held
+    -- wakelock (e.g. a multi-minute file transfer) would then make
+    -- the next update() tick see an idle_s already past
+    -- ss_timeout + disp_off_delay*60 and jump straight to stage 3
+    -- with no dim or screensaver in between.
+    screen.last_input_time = ez.system.millis()
 end
 
 local function _wakelocks_held()
@@ -532,12 +540,17 @@ end
 -- ezui/touch_input.lua's on_down/move/up.
 function screen.notify_input()
     screen.last_input_time = ez.system.millis()
-    local was_dim_or_off = (screen.idle_stage == 1 or screen.idle_stage == 3)
+    -- Any non-zero stage clamped the LCD backlight (stage 1 dim,
+    -- stage 2 screensaver-active, stage 3 panel off), so restoring
+    -- on wake has to cover all three. Excluding stage 2 here would
+    -- leave the LCD pinned at ss_bright after the key press that
+    -- dismisses the screensaver, since ss.stop() only restores the
+    -- keyboard backlight.
+    local was_dim_or_off = (screen.idle_stage ~= 0)
     if was_dim_or_off then
         _restore_brightness()
         screen.dirty = true
     end
-    local prev_stage = screen.idle_stage
     screen.idle_stage = 0
     local ss_ok, ss = pcall(require, "screens.tools.screensaver")
     if ss_ok and ss.is_active() then
@@ -548,7 +561,7 @@ function screen.notify_input()
     -- Treat a wake from dim or panel-off as a "swallow this input"
     -- event too: a tap to wake shouldn't also click whatever sat
     -- under the finger.
-    return was_dim_or_off or prev_stage == 2
+    return was_dim_or_off
 end
 
 function screen.handle_input()

@@ -16,7 +16,27 @@ under `ez.storage.set_pref`, so changes survive reboots.
 - Screensaver: pick a timeout (Off / 1 min / 2 min / 5 min /
   10 min / 30 min). After that long without input the device draws
   an animated pixel-exerciser overlay on top of the current screen,
-  dismissed by any keypress.
+  dismissed by any keypress. Setting the timeout to Off disables
+  the dim and panel-off stages below too.
+- Auto-dim: on by default. About 30 s before the screensaver fires
+  the LCD steps down to the "Screensaver brightness" level below,
+  as a heads-up that the screen is about to blank. Turn off if you
+  want the display to stay at full brightness right up to the
+  screensaver edge. Skipped automatically when the screensaver
+  timeout is shorter than the pre-dim lead so the dim never lands
+  on top of the screensaver itself.
+- Screensaver brightness: 10-100 %, default 30. The level both the
+  auto-dim stage and the screensaver overlay clamp the LCD to.
+  Lower values save more power; pick the lowest value that's still
+  comfortable to glance at in your usual lighting.
+- Turn off screen after: Never / 1 / 2 / 5 / 15 / 30 min, default
+  5. How long after the screensaver fires the device takes the
+  next step: backlight to 0 and the render loop suspended until
+  input arrives or a notification posts. Any key, touch, or
+  incoming high-priority notification (DM, file transfer, low
+  battery, OTA available) restores the screen. Set to Never to
+  keep the screensaver running indefinitely without ever blanking
+  the panel.
 
 ## Sound
 
