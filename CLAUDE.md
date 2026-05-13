@@ -77,11 +77,19 @@ re-test the chord on the device, not the remote tool.
 **Scope:** this section applies ONLY to strings rendered by the on-device
 bitmap fonts -- any Lua `draw_text` call, the on-device markdown viewer
 (`lua/ezui/markdown.lua`), and the firmware-embedded markdown under
-`lua/docs/`. It does NOT apply to commit messages, PR bodies / titles, issue
-text, GitHub comments, code comments, host-side tools, or anything that
-only renders on github.com or in a normal terminal. Those surfaces are
+`lua/docs/manual/`. It does NOT apply to PR bodies / titles, issue text,
+GitHub comments, code comments, host-side tools, or anything that only
+renders on github.com or in a normal terminal. Those surfaces are
 Unicode-capable; substituting `--` for em-dashes or `->` for arrows there
 just makes the text harder to read.
+
+**Commit descriptions are a partial exception.** They appear on-device in
+the What's New screen (`lua/screens/settings/whats_new.lua`), which runs
+them through `ascii_safe()`. That helper maps the common typographic
+characters (em-dash, en-dash, ellipsis, curly quotes, bullet, middle dot)
+to ASCII -- but any other non-ASCII byte (e.g. `→`, accented letters,
+emoji) is silently **stripped**, not boxed. Prefer ASCII in commit
+subjects so on-device changelog entries don't lose characters.
 
 The built-in bitmap fonts (`src/fonts/InterAA*.h`, `Spleen*.h`) only cover
 **printable ASCII 0x20..0x7E**. Any other codepoint renders as a `[]` missing-glyph box.
