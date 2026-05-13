@@ -1,9 +1,20 @@
 # Changelog
 
-## [0.0.95] - 2026-05-12
+## [0.0.99] - 2026-05-13
 
 ### Features
 - **chat:** show RSSI footer on received share/URI cards (939e359)
+
+### Other
+- **readme:** add T-Deck Plus device photo to Features section (f918b09)
+
+## [0.0.99] - 2026-05-13
+
+### Features
+- **chat:** show RSSI footer on received share/URI cards (939e359)
+
+### Other
+- **readme:** add T-Deck Plus device photo to Features section (f918b09)
 
 ## [0.0.95] - 2026-05-12
 
