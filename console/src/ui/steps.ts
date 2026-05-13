@@ -168,7 +168,7 @@ export function renderVariant(
     release: Release,
     images: FlashImage,
     variant: Variant,
-    eraseNvs: boolean,
+    eraseAll: boolean,
     seedPrefs: boolean,
 ): HTMLElement {
     const sizeKB = (n: number) => `${(n / 1024).toFixed(0)} KB`;
@@ -234,13 +234,19 @@ export function renderVariant(
                 el("input", {
                     type: "checkbox",
                     id: "chk-erase",
-                    checked: eraseNvs,
+                    checked: eraseAll && variant === "full",
+                    disabled: variant !== "full" ? true : null,
                 }),
                 el("label", { for: "chk-erase" }, [
                     "Erase entire flash before writing (factory reset, wipes identity)",
                 ]),
             ]),
-            eraseNvs
+            variant !== "full"
+                ? el("div", { class: "hint" }, [
+                      "Disabled in app-only mode: erasing the whole chip without rewriting the bootloader and partition table would brick the device. Switch to the full image to combine with a factory erase.",
+                  ])
+                : null,
+            eraseAll && variant === "full"
                 ? el("div", { class: "banner warn" }, [
                       "Full erase wipes the device's Ed25519 identity, channel keys, and contacts. Only do this for a fresh setup or when you really mean it.",
                   ])

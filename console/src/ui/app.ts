@@ -80,7 +80,7 @@ export class App {
                         this.state.release,
                         this.state.images,
                         this.state.variant,
-                        this.state.eraseNvs,
+                        this.state.eraseAll,
                         this.state.seedPrefs,
                     ),
                 );
@@ -156,7 +156,16 @@ export class App {
         this.root.querySelectorAll<HTMLInputElement>("input[name='variant']").forEach(
             (input) => {
                 input.addEventListener("change", () => {
-                    if (input.checked) this.state.variant = input.value as Variant;
+                    if (!input.checked) return;
+                    this.state.variant = input.value as Variant;
+                    // Force-clear eraseAll when leaving full mode -- a full
+                    // chip erase without rewriting bootloader + partitions
+                    // would brick the device. Also re-render so the
+                    // checkbox visibly toggles to disabled/unchecked.
+                    if (this.state.variant !== "full") {
+                        this.state.eraseAll = false;
+                    }
+                    this.render();
                 });
             },
         );
@@ -170,7 +179,7 @@ export class App {
         this.root
             .querySelector<HTMLInputElement>("#chk-erase")
             ?.addEventListener("change", (e) => {
-                this.state.eraseNvs = (e.target as HTMLInputElement).checked;
+                this.state.eraseAll = (e.target as HTMLInputElement).checked;
                 this.render();
             });
         this.root.querySelector("#btn-back")?.addEventListener("click", () => {
@@ -289,6 +298,18 @@ export class App {
                     "This release is unsigned. Refusing to flash.",
                 );
             }
+            // Defense-in-depth: the UI prevents this combination, but
+            // double-check before invoking erase + write -- a full-chip
+            // erase with an app-only write leaves the bootloader and
+            // partition table wiped and never rewrites them.
+            if (this.state.eraseAll && this.state.variant !== "full") {
+                throw new Error(
+                    'Erasing the full chip with the app-only image would ' +
+                    'wipe the bootloader and partition table without ' +
+                    'rewriting them, bricking the device. Switch to the ' +
+                    'full image or uncheck "Erase entire flash".',
+                );
+            }
             this.appendLog("Fetching manifest.json + manifest.json.sig...");
             const manifest = await fetchAndVerifyManifest(this.state.release);
             this.appendLog(
@@ -346,7 +367,7 @@ export class App {
 
             await flasher.flash({
                 files,
-                eraseAll: this.state.eraseNvs,
+                eraseAll: this.state.eraseAll,
                 onLog: (s) => this.appendLog(s),
                 onProgress: (label, written, total) => {
                     this.flashUi.label = label;

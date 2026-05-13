@@ -64,7 +64,15 @@ export interface AppState {
     release: Release | null;
     images: FlashImage | null;
     variant: Variant;
-    eraseNvs: boolean;
+    /**
+     * Full-chip erase before writing. Routed to
+     * `esptool-js`'s `loader.eraseFlash()`, which wipes the entire
+     * 16 MB chip -- bootloader, partition table, NVS, identity, OTA
+     * slots, the lot. Only meaningful with `variant === "full"`; the
+     * UI keeps this unchecked and disabled for `app` to avoid wiping
+     * the bootloader without rewriting it.
+     */
+    eraseAll: boolean;
     seedPrefs: boolean;
     wizard: WizardValues;
 }
@@ -75,7 +83,7 @@ export function makeState(): AppState {
         release: null,
         images: null,
         variant: "full",
-        eraseNvs: false,
+        eraseAll: false,
         seedPrefs: true,
         wizard: defaultWizardValues(),
     };

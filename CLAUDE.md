@@ -168,8 +168,17 @@ writing.
    the screen shows "OTA signing not configured on this device".
 
 Key rotation is "burn a new firmware containing the new pubkey, then
-rotate the secret". Don't lose the private key — there's no recovery
-path other than reflashing every device manually.
+rotate the secret, then update every consumer of the pubkey". Concretely:
+(a) regenerate the keypair with `tools/ota/gen_signing_key.py`,
+(b) replace the C array in `src/ota_pubkey.cpp`'s `kOtaSigningPubkey`,
+(c) replace the hex constant `OTA_PUBKEY_HEX` in
+`console/src/flash/manifest.ts` (the web flasher verifies the same
+manifest signature, and missing this step makes every new release look
+"unsigned" to the console even though the on-device updater still
+accepts it), (d) rotate the `OTA_SIGNING_PRIVKEY` GitHub secret,
+(e) reflash every device in the field with the new firmware. Don't
+lose the private key — there's no recovery path other than reflashing
+every device manually.
 
 **Branch ruleset push gate** (already wired, documented for context):
 the auto-release workflow's `xtr-changelog --push` step pushes the
