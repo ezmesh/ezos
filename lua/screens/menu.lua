@@ -149,6 +149,8 @@ local CATEGORIES = {
               icon = icons.keyboard, mod = "screens.settings.keyboard_settings" },
             { title = "GPS", subtitle = "Power, clock sync",
               icon = icons.navigation, mod = "screens.settings.gps_settings" },
+            { title = "Map", subtitle = "Peer pins, staleness",
+              icon = icons.map, mod = "screens.settings.map_settings" },
             { title = "Time", subtitle = "Timezone, 12 / 24h format, NTP",
               icon = icons.clock, mod = "screens.settings.time_settings" },
             { title = "Radio", subtitle = "Mesh advert, announce cadence",
