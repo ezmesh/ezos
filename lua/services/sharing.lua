@@ -266,12 +266,22 @@ end
 -- True when a DM message is a protocol carrier that should not appear
 -- in user-facing chat views. Currently only signal-test pings/replies
 -- qualify; other share kinds (contact, channel invite, time) are
--- meant for the user to see as a card-style bubble. Centralised here
--- so future protocol verbs can opt out of chat rendering by name.
+-- meant for the user to see as a card-style bubble.
+--
+-- This reads a stamped `msg.protocol` flag rather than re-parsing the
+-- text every time. Stamping happens at the DM seam
+-- (services/direct_messages.lua) under a scope predicate: the
+-- signal_test service must be active (i.e. the signal-test screen is
+-- open) for the recogniser to fire. That closes the silent-send
+-- vector earlier revisions opened up -- a peer who hand-types
+-- "https://ezme.sh/#sigt/v1?..." outside of an active test now
+-- surfaces as a normal chat bubble (notification, unread badge,
+-- conversation preview) because nothing stamped the flag. Legacy
+-- "[SIGT]P/R <nonce>" history entries left over from before the URL
+-- switch likewise show up as plain bubbles; users can delete them or
+-- run the test screen's `p` shortcut to purge in bulk.
 function sharing.is_protocol_message(msg)
-    if not msg or type(msg.text) ~= "string" then return false end
-    local share = sharing.parse(msg.text)
-    return share ~= nil and share.kind == "sigt"
+    return msg ~= nil and msg.protocol == "sigt"
 end
 
 -- Decrypt a channel-invite token from a known sender. Returns the
