@@ -30,6 +30,15 @@ local ENTRIES = {
       description = "Keyboard backlight brightness (0-255)" },
     { key = "accent_color",       type = "int32", default = 0,
       description = "Accent colour (RGB565; 0 uses the first preset)" },
+    { key = "ss_timeout",         type = "int32", default = 0, min = 0, max = 1800,
+      description = "Seconds of idle before the screensaver fires (0 disables)" },
+    { key = "ss_autodim",         type = "string", default = "1",
+      options = { "0", "1" },
+      description = "Pre-dim the display ~30s before the screensaver fires" },
+    { key = "ss_bright",          type = "int32", default = 30, min = 10, max = 100,
+      description = "Screensaver / pre-dim brightness, percent of normal" },
+    { key = "disp_off_delay",     type = "int32", default = 5, min = 0, max = 60,
+      description = "Minutes after screensaver before backlight turns off (0 = never)" },
 
     -- ---- Wallpaper --------------------------------------------------
     { key = "wallpaper",      type = "string", default = "synthwave",
