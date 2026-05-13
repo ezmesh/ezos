@@ -260,10 +260,10 @@ ezos/
 │   │                      #   tools)
 │   ├── services/          # Background services (apps, channels,
 │   │                      #   contacts, custom_packets, direct_messages,
-│   │                      #   file_transfer, gps, log_persist,
-│   │                      #   map_archive, migrations, notifications,
-│   │                      #   ntp, prefs_registry, sharing, signal_test,
-│   │                      #   ui_sounds)
+│   │                      #   file_transfer, gps, input_lock,
+│   │                      #   log_persist, map_archive, migrations,
+│   │                      #   notifications, ntp, prefs_registry,
+│   │                      #   sharing, signal_test, ui_sounds)
 │   └── util/              # Shared helpers (timezones, etc.)
 ├── scripts/                # Build-time generators (Lua embedder)
 ├── tools/                  # Host utilities (map gen, remote control,
@@ -333,8 +333,8 @@ Services are initialized in order in `lua/boot.lua`:
 
 After services start, `migrations.run()` runs version migrations and an
 `ntp` sync is kicked. Other modules under `lua/services/` (e.g.
-`map_archive`, `prefs_registry`, `signal_test`) are loaded on demand by
-the screens that need them.
+`input_lock`, `map_archive`, `prefs_registry`, `signal_test`) are
+loaded on demand by the screens / framework code that needs them.
 
 ### Notifications service
 
@@ -365,6 +365,38 @@ silences every DM toast without touching the wiring. The namespace
 is meant for a future Settings panel; pref keys must stay under
 NVS's 15-character limit, so source tags should be short
 (`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `system`).
+
+### Input lock service
+
+`services/input_lock` is a tiny in-memory gate consulted by the
+keyboard and touch chokepoints. While locked, `screen.handle_input`
+swallows every key except the unlock chord, the touch bridge
+swallows every `touch/*` event, and a bottom banner is drawn on top
+of every screen. Boot always starts unlocked -- state is in-memory
+only by design, so a regression in the chord path can't soft-brick
+the device across reboots.
+
+Public API:
+
+- `input_lock.is_locked() -> bool` -- current state.
+- `input_lock.set(new_locked)` -- coerces to bool, deduplicates
+  no-ops (won't fire the bus event when state doesn't change).
+- `input_lock.toggle()` -- flip; thin wrapper over `set`.
+
+Bus topic: `input_lock/changed`, payload `{ locked = bool }`. Fired
+on every real transition so other services can react (dim backlight,
+suppress sounds, etc.) without polling.
+
+Chord: **Shift+Alt+L** locks, **Shift+Alt+U** unlocks. Recognised
+inside `screen.handle_input` before everything else (including
+`notify_input` / screensaver dismissal), so the unlock chord works
+even when the screensaver is up. The matrix path uppercases letters
+when shift is held; the remote-control inject path forwards them
+as-is, so the handler accepts both cases.
+
+Touch subscribers: per "Touch input and the screensaver wake gate"
+below, the lock gate is opt-in for direct `touch/*` subscribers via
+`touch_input.is_locked()`, the same way `is_wake_event` is opt-in.
 
 ### Module Loading
 

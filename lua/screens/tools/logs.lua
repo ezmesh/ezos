@@ -240,7 +240,11 @@ function Logs:on_enter()
 
     table.insert(self._touch_subs, ez.bus.subscribe("touch/up",
         function()
-            if require("ezui.touch_input").is_locked() then return end
+            -- Always clear: if the lock engaged mid-drag, swallowing
+            -- this touch/up without resetting `drag` leaves stale
+            -- start_y/row_h pinned, and the next touch/move after
+            -- unlock would compute a huge spurious scroll against
+            -- the old anchor. Clearing is unconditional and cheap.
             drag = nil
         end))
 end

@@ -256,7 +256,7 @@ end
 local function on_touch_move(_, _data)
     if game_over then return end
     local ti = require("ezui.touch_input")
-    if ti.is_locked() then return end
+    if ti.is_locked() or ti.is_wake_event() then return end
     if not ti.mouse_mode then return end
     local r, c = cell_at(ti.cursor_x, ti.cursor_y)
     if r then cursor_r, cursor_c = r, c end
