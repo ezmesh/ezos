@@ -5,10 +5,17 @@
 -- URL formats:
 --   https://ezme.sh/#add/v1?k=<64-hex pubkey>&n=<urlencoded name>
 --   https://ezme.sh/#join/v1?t=<base64url(nonce8 || aes128_ecb(secret, blob))>
+--   https://ezme.sh/#time/v1?t=<unix_ts>
+--   https://ezme.sh/#sigt/v1?k=<P|R>&n=<nonce hex>
 --
 -- The fragment-only design means non-ezOS receivers see a normal
 -- clickable link; the ezme.sh landing page reads location.hash
 -- client-side, so no payload data ever reaches the web server.
+--
+-- The sigt verb is a protocol carrier for the signal tester, not a
+-- user-actionable share. Chat screens filter messages whose parsed
+-- share kind is "sigt" out of conversations and previews so the
+-- pingpong doesn't clutter the user's chat history.
 --
 -- Channel invites are encrypted to the recipient's identity using the
 -- same X25519 shared secret the DM service uses, so a leaked URL is
@@ -31,6 +38,7 @@ local URL_PREFIX = "https://ezme.sh/#"
 local CONTACT_VERB = "add/v1"
 local INVITE_VERB = "join/v1"
 local TIME_VERB = "time/v1"
+local SIGT_VERB = "sigt/v1"
 
 local NONCE_SIZE = 8
 local AES_BLOCK_SIZE = 16
@@ -182,6 +190,20 @@ function sharing.encode_channel_invite(recipient_pub_key_hex, channel_name, chan
     return URL_PREFIX .. INVITE_VERB .. "?t=" .. token
 end
 
+-- Encode a signal-test ping or reply. `kind` is "P" (ping) or "R"
+-- (reply); nonce is the short hex string the tester uses to correlate
+-- send to receive. The result rides through the normal DM path as
+-- regular text but is recognised by the chat screens (and filtered
+-- out of conversation views) via sharing.parse.
+function sharing.encode_sigt(kind, nonce)
+    if kind ~= "P" and kind ~= "R" then return nil, "bad kind" end
+    if not nonce or nonce == "" then return nil, "missing nonce" end
+    -- The receive side restricts nonce charset on parse; keep
+    -- emission to the same alphabet so the round-trip survives.
+    if not nonce:match("^[A-Za-z0-9]+$") then return nil, "bad nonce" end
+    return URL_PREFIX .. SIGT_VERB .. "?k=" .. kind .. "&n=" .. nonce
+end
+
 -- Encode the current unix time into a share URL.
 function sharing.encode_time()
     local ts = ez.system.get_time_unix()
@@ -227,8 +249,39 @@ function sharing.parse(text)
             kind = "time",
             timestamp = ts,
         }
+    elseif verb == SIGT_VERB then
+        local k = params.k
+        local n = params.n
+        if (k ~= "P" and k ~= "R") or not n or n == "" then return nil end
+        if not n:match("^[A-Za-z0-9]+$") then return nil end
+        return {
+            kind = "sigt",
+            sigt_kind = k,
+            nonce = n,
+        }
     end
     return nil
+end
+
+-- True when a DM message is a protocol carrier that should not appear
+-- in user-facing chat views. Currently only signal-test pings/replies
+-- qualify; other share kinds (contact, channel invite, time) are
+-- meant for the user to see as a card-style bubble.
+--
+-- This reads a stamped `msg.protocol` flag rather than re-parsing the
+-- text every time. Stamping happens at the DM seam
+-- (services/direct_messages.lua) under a scope predicate: the
+-- signal_test service must be active (i.e. the signal-test screen is
+-- open) for the recogniser to fire. That closes the silent-send
+-- vector earlier revisions opened up -- a peer who hand-types
+-- "https://ezme.sh/#sigt/v1?..." outside of an active test now
+-- surfaces as a normal chat bubble (notification, unread badge,
+-- conversation preview) because nothing stamped the flag. Legacy
+-- "[SIGT]P/R <nonce>" history entries left over from before the URL
+-- switch likewise show up as plain bubbles; users can delete them or
+-- run the test screen's `p` shortcut to purge in bulk.
+function sharing.is_protocol_message(msg)
+    return msg ~= nil and msg.protocol == "sigt"
 end
 
 -- Decrypt a channel-invite token from a known sender. Returns the

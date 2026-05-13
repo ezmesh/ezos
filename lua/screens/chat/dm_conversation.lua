@@ -369,7 +369,20 @@ function DMConversation:build(state)
     local msgs = dm_svc.get_history(key)
     local content_items = {}
 
-    if #msgs == 0 then
+    -- Hide signal-test pingpong DMs from the conversation view. They
+    -- still live in history (the tester's `p` shortcut purges them on
+    -- demand) but rendering them as bubbles would bury the actual chat
+    -- under a wall of "https://ezme.sh/#sigt/..." entries.
+    local visible_msgs = {}
+    local visible_indexes = {}
+    for i, m in ipairs(msgs) do
+        if not sharing_svc.is_protocol_message(m) then
+            visible_msgs[#visible_msgs + 1] = m
+            visible_indexes[#visible_indexes + 1] = i
+        end
+    end
+
+    if #visible_msgs == 0 then
         content_items[#content_items + 1] = ui.padding({ 20, 10, 10, 10 },
             ui.text_widget("No messages yet", {
                 color = "TEXT_MUTED",
@@ -389,14 +402,17 @@ function DMConversation:build(state)
         -- context menu uses the same dispatch.)
         local self_pub = ez.mesh.get_public_key_hex()
         content_items[#content_items + 1] = { type = "spacer", h = 2, grow = 0 }
-        for i, msg in ipairs(msgs) do
+        for vi, msg in ipairs(visible_msgs) do
             local share_sender = msg.is_self and self_pub or key
+            -- Preserve the real history index for the context menu's
+            -- delete action; SIGT entries change the mapping.
+            local orig_index = visible_indexes[vi]
             content_items[#content_items + 1] = {
                 type = "chat_bubble",
                 msg = msg,
                 share = self:_share_for_message(msg, share_sender),
                 on_press = function()
-                    show_context_menu(self, key, msg, i)
+                    show_context_menu(self, key, msg, orig_index)
                 end,
             }
         end
