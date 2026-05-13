@@ -264,6 +264,17 @@ ezos/
 ├── scripts/                # Build-time generators (Lua embedder)
 ├── tools/                  # Host utilities (map gen, remote control,
 │                          #   doc generator, font/icon/sound gen)
+├── console/                # Browser-based flasher + first-boot
+│   │                      #   pref pre-seed tool, hosted at
+│   │                      #   ezmesh.github.io/ezos/console/
+│   ├── src/
+│   │   ├── nvs/           # ESP-IDF NVS partition image encoder
+│   │   │                  #   (mirrors lua_storage + meshcore namespaces)
+│   │   ├── flash/         # esptool-js wrapper (Web Serial)
+│   │   ├── github/        # GitHub Releases fetch w/ localStorage cache
+│   │   ├── protocol/      # ezOS remote-control protocol client
+│   │   └── ui/            # Vanilla-TS controller / steps / state
+│   └── vite.config.ts     # base = /ezos/console/, outDir = ../docs/console
 └── docs/                   # User manual + Lua API reference (see below)
 ```
 
