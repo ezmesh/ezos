@@ -207,8 +207,24 @@ function M.is_wake_event()
     return ez.system.millis() < M._wake_until_ms
 end
 
+-- True when the global input lock is engaged. The touch bridge has
+-- to consult this on every touch/* event because the input lock is
+-- meant to swallow taps and drags too, not just keypresses; without
+-- this, a locked device in a pocket would still let stray finger
+-- presses scroll lists or activate buttons.
+local function locked_swallow()
+    local ok, lock_svc = pcall(require, "services.input_lock")
+    return ok and lock_svc.is_locked()
+end
+
 local function on_down(_topic, data)
     if type(data) ~= "table" or not data.x or not data.y then return end
+
+    if locked_swallow() then
+        _pending = nil
+        _mouse_pending = nil
+        return
+    end
 
     if screensaver_swallow() then
         -- Drop any in-flight gesture so the matching touch/up
@@ -275,6 +291,12 @@ local function on_down(_topic, data)
 end
 
 local function on_move(_topic, data)
+    if locked_swallow() then
+        _pending = nil
+        _mouse_pending = nil
+        return
+    end
+
     -- Keep the idle timer warm during long drags (paint, slider scrub,
     -- map pan) so the screensaver doesn't pop while the user is
     -- actively interacting. Also catches the rare case where on_down
@@ -359,6 +381,12 @@ local function on_move(_topic, data)
 end
 
 local function on_up(_topic, data)
+    if locked_swallow() then
+        _pending = nil
+        _mouse_pending = nil
+        return
+    end
+
     if screensaver_swallow() then
         _pending = nil
         _mouse_pending = nil
