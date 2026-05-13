@@ -5,6 +5,7 @@
 #include "../hardware/radio.h"
 #include "packet.h"
 #include "identity.h"
+#include "node_store.h"
 
 // Node role constants (matches MeshCore ADV_TYPE values)
 enum NodeRole : uint8_t {
@@ -134,6 +135,17 @@ private:
 
     std::vector<NodeInfo> _nodes;
     std::vector<Message> _messages;
+
+    // Persistence: see node_store.h. _nodesDirty flips true the moment
+    // updateNode() makes a user-visible change to a persisted field;
+    // _nodesDirtyAt records when that happened so the 30 s debounce
+    // window is measured from the *first* unsaved change, not the
+    // latest one. Without that, a steady stream of ADVERTs could
+    // re-arm the timer indefinitely and we'd never save.
+    NodeStore _nodeStore;
+    bool _nodesDirty = false;
+    uint32_t _nodesDirtyAt = 0;
+    static constexpr uint32_t kNodesSaveDebounceMs = 30 * 1000;
 
     MessageCallback _onMessage;
     NodeCallback _onNode;
