@@ -74,6 +74,15 @@ re-test the chord on the device, not the remote tool.
 
 ## On-device font character set
 
+**Scope:** this section applies ONLY to strings rendered by the on-device
+bitmap fonts -- any Lua `draw_text` call, the on-device markdown viewer
+(`lua/ezui/markdown.lua`), and the firmware-embedded markdown under
+`lua/docs/`. It does NOT apply to commit messages, PR bodies / titles, issue
+text, GitHub comments, code comments, host-side tools, or anything that
+only renders on github.com or in a normal terminal. Those surfaces are
+Unicode-capable; substituting `--` for em-dashes or `->` for arrows there
+just makes the text harder to read.
+
 The built-in bitmap fonts (`src/fonts/InterAA*.h`, `Spleen*.h`) only cover
 **printable ASCII 0x20..0x7E**. Any other codepoint renders as a `[]` missing-glyph box.
 
