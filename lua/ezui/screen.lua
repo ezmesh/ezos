@@ -196,17 +196,19 @@ function screen._draw_lock_overlay(d)
     local y = theme.SCREEN_H - h
     local w = theme.SCREEN_W
 
-    -- Strong accent fill so the banner reads as a hard system state,
-    -- not a passing toast. Lock icon glyphs aren't in the ASCII font
-    -- (see CLAUDE.md "On-device font character set"), so the prefix
-    -- is plain text.
-    d.fill_rect(0, y, w, h, theme.color("ACCENT"))
-    d.fill_rect(0, y, w, 1, theme.color("BORDER"))
+    -- Black bar with white text, regardless of theme/accent. The lock
+    -- is a system-level state, not user-themed content, and a fixed
+    -- high-contrast pair stays readable when the user has picked a
+    -- light accent (green, yellow) that would otherwise wash out the
+    -- label. Lock icon glyphs aren't in the ASCII font (see CLAUDE.md
+    -- "On-device font character set"), so the prefix is plain text.
+    d.fill_rect(0, y, w, h, 0x0000)         -- black
+    d.fill_rect(0, y, w, 1, theme.color("ACCENT"))  -- thin accent top edge
 
     local label = "Locked -- Shift+Alt+U to unlock"
     local lw = theme.text_width(label)
     local lx = math.floor((w - lw) / 2)
-    d.draw_text(lx, y + pad, label, theme.color("TEXT"))
+    d.draw_text(lx, y + pad, label, 0xFFFF)  -- white
 end
 
 -- ---------------------------------------------------------------------------
