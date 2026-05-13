@@ -1,9 +1,20 @@
 # Changelog
 
-## [0.0.94] - 2026-05-11
+## [0.0.97] - 2026-05-13
 
-### Other
-- **release:** name rolling-main "ezOS v<version>" and mark as full release (8ea3fa7)
+### Features
+- **signal-test:** scroll viewport + ezme.sh URI for SIGT DMs (8c9b46b)
+
+### Fixes
+- **signal-test:** stamp protocol flag at the DM seam, not in chat render (d92b953)
+
+## [0.0.97] - 2026-05-13
+
+### Features
+- **signal-test:** scroll viewport + ezme.sh URI for SIGT DMs (8c9b46b)
+
+### Fixes
+- **signal-test:** stamp protocol flag at the DM seam, not in chat render (d92b953)
 
 ## [0.0.94] - 2026-05-11
 
