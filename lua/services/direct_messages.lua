@@ -339,7 +339,11 @@ local function try_decrypt_pending(id, pending, candidate_pub_key_hex)
         retroactive = true,
     }
     store_message(candidate_pub_key_hex, msg)
-    unread[candidate_pub_key_hex] = (unread[candidate_pub_key_hex] or 0) + 1
+    -- Same protocol-message filter as the live RX path -- a SIGT ping
+    -- that decrypts retroactively shouldn't surface as an unread.
+    if not require("services.sharing").is_protocol_message(msg) then
+        unread[candidate_pub_key_hex] = (unread[candidate_pub_key_hex] or 0) + 1
+    end
 
     pending_ciphertexts[id] = nil
     pending_count = pending_count - 1
@@ -786,7 +790,15 @@ function dm.init()
                                 }
 
                                 store_message(candidate.pub_key_hex, msg)
-                                unread[candidate.pub_key_hex] = (unread[candidate.pub_key_hex] or 0) + 1
+                                -- Don't bump unread for protocol carriers
+                                -- (signal-test pingpong). The conversation
+                                -- index already filters them out of last_msg;
+                                -- bumping unread would make the message list
+                                -- show a phantom "1" badge for every ping
+                                -- during a test.
+                                if not require("services.sharing").is_protocol_message(msg) then
+                                    unread[candidate.pub_key_hex] = (unread[candidate.pub_key_hex] or 0) + 1
+                                end
                                 ez.bus.post("dm/message", msg)
 
                                 -- Receiving a DM proves the sender has our
@@ -1143,12 +1155,23 @@ function dm.get_pending_summary()
     return out
 end
 
--- Get list of conversations with last message info, sorted by recency
+-- Get list of conversations with last message info, sorted by recency.
+-- Signal-test pingpong DMs (sharing kind "sigt") are protocol traffic;
+-- they're skipped here so an active test doesn't yank the contact to
+-- the top of the chat list every ping cycle or replace the real last
+-- message with a "https://ezme.sh/#sigt/..." preview.
 function dm.get_conversations()
+    local sharing = require("services.sharing")
     local result = {}
     for key, msgs in pairs(conversations) do
-        if #msgs > 0 then
-            local last = msgs[#msgs]
+        local last
+        for i = #msgs, 1, -1 do
+            if not sharing.is_protocol_message(msgs[i]) then
+                last = msgs[i]
+                break
+            end
+        end
+        if last then
             local contact = contacts_svc.get(key)
             result[#result + 1] = {
                 pub_key_hex = key,

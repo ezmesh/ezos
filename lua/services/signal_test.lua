@@ -17,9 +17,12 @@
 --     RAW_CUSTOM is not re-flooded by stock MeshCore repeaters, so the
 --     RSSI charted in this mode reflects raw direct radio contact.
 --   DM (TXT_MSG)
---     Text: "[SIGT]P <nonce>" / "[SIGT]R <nonce>". Goes through the
+--     Text is a sharing URL: "https://ezme.sh/#sigt/v1?k=P&n=<nonce>"
+--     for pings and "...?k=R&n=<nonce>" for replies. Goes through the
 --     normal encrypted DM path, which WILL be forwarded by repeaters —
---     the chart then reflects last-hop RSSI, not end-to-end.
+--     the chart then reflects last-hop RSSI, not end-to-end. The chat
+--     screens filter these out of conversation views (the URL is a
+--     protocol carrier, not user-readable chatter).
 --
 -- The `signal_test/sample` bus event fires with:
 --   { mode, pub_key_hex, nonce, rssi, snr, t_ms, name }
@@ -27,26 +30,24 @@
 -- can treat both modes uniformly.
 
 local cp = require("services.custom_packets")
+local sharing = require("services.sharing")
 
 local M = {}
 
-local SUBTYPE     = "SIGT"
-local DM_PREFIX   = "[SIGT]"
-local DM_PING_TAG = "P "
-local DM_PONG_TAG = "R "
+local SUBTYPE = "SIGT"
 
 local active    = false
 local dm_sub_id = nil
 
+-- Parse a DM body as a SIGT carrier. Accepts the share URL form
+-- emitted by sharing.encode_sigt and returns { kind, nonce } if it
+-- matches; nil otherwise. parse_dm is also used by purge_dm_history
+-- to recognise (and only recognise) protocol carriers when sweeping
+-- a contact's history after a DM-mode run.
 local function parse_dm(text)
-    if not text or #text < (#DM_PREFIX + 3) then return nil end
-    if text:sub(1, #DM_PREFIX) ~= DM_PREFIX then return nil end
-    local tag = text:sub(#DM_PREFIX + 1, #DM_PREFIX + 2)
-    if tag ~= DM_PING_TAG and tag ~= DM_PONG_TAG then return nil end
-    return {
-        kind  = tag:sub(1, 1),
-        nonce = text:sub(#DM_PREFIX + #DM_PING_TAG + 1),
-    }
+    local share = sharing.parse(text)
+    if not share or share.kind ~= "sigt" then return nil end
+    return { kind = share.sigt_kind, nonce = share.nonce }
 end
 
 -- Both kinds post a sample so BOTH peers chart a live RSSI trace:
@@ -99,7 +100,8 @@ local function on_dm_message(_topic, msg)
 
     if parsed.kind == "P" then
         local dm = require("services.direct_messages")
-        dm.send(msg.sender_key, DM_PREFIX .. DM_PONG_TAG .. parsed.nonce)
+        local url = sharing.encode_sigt("R", parsed.nonce)
+        if url then dm.send(msg.sender_key, url) end
     end
 end
 
@@ -146,7 +148,8 @@ end
 
 function M.ping_dm(pub_key_hex, nonce)
     local dm = require("services.direct_messages")
-    dm.send(pub_key_hex, DM_PREFIX .. DM_PING_TAG .. nonce)
+    local url = sharing.encode_sigt("P", nonce)
+    if url then dm.send(pub_key_hex, url) end
 end
 
 -- After a DM-mode run, the pings/replies sit in the regular DM history
