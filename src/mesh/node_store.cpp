@@ -89,14 +89,18 @@ std::vector<uint8_t> NodeStore::serialize(const std::vector<NodeInfo>& nodes,
     // sections keyed off flags keep the per-node footprint small for
     // the common case (NVS-friendly).
 
-    // Build a working copy of indices sorted newest-first by
-    // lastSeenUnix, so the truncation step keeps the freshest entries.
+    // Build a working copy of indices sorted newest-first by lastSeen
+    // (local millis() observation time), so the truncation step keeps
+    // the entries we heard most recently. Deliberately not sorted by
+    // advertTimestamp: that field is peer-chosen and a node with a
+    // future-dated or wrap-around ADVERT would always survive
+    // truncation over genuinely-fresh local observations.
     std::vector<size_t> idx;
     idx.reserve(nodes.size());
     for (size_t i = 0; i < nodes.size(); ++i) idx.push_back(i);
     std::sort(idx.begin(), idx.end(),
               [&](size_t a, size_t b) {
-                  return nodes[a].advertTimestamp > nodes[b].advertTimestamp;
+                  return nodes[a].lastSeen > nodes[b].lastSeen;
               });
     if (idx.size() > cap) idx.resize(cap);
 
@@ -316,7 +320,8 @@ bool NodeStore::saveToSd(const std::vector<NodeInfo>& nodes) {
         return false;
     }
 
-    // SD library has no rename(); remove-then-rename is the workaround.
+    // SD.rename() on FAT cannot overwrite an existing file; remove the
+    // target first, then rename the tmp into place.
     if (SD.exists(kSdPath)) SD.remove(kSdPath);
     if (!SD.rename(tmpPath, kSdPath)) {
         SD.remove(tmpPath);
