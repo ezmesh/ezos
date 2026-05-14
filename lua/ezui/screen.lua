@@ -145,8 +145,15 @@ local function ensure_toast_subscribed()
         -- An incoming notification is a "high-priority" wake signal:
         -- if the panel is off or dim the user should see the toast
         -- without having to touch the device. notify_input() handles
-        -- restoring brightness + clearing the idle stage.
-        screen.notify_input()
+        -- restoring brightness + clearing the idle stage. Gate on
+        -- idle_stage so dismiss()/dismiss_source()/mark_all_read()
+        -- (which fire the same bus event) don't wake the panel from
+        -- background subscribers -- e.g. the OTA flow calling
+        -- dismiss_source("ota") after an update would otherwise pull
+        -- the device out of stage 3 every time.
+        if screen.idle_stage ~= 0 then
+            screen.notify_input()
+        end
     end)
     _toast_subscribed = true
 end
@@ -497,6 +504,12 @@ end
 
 function screen.release_wakelock(tag)
     if not tag then return end
+    -- Releasing a tag that was never acquired must be a no-op: file
+    -- transfer's early-fail paths (key-derivation failure, AP-start
+    -- failure, OFFER undelivered) post `file/error` before any
+    -- `file/progress`, so the subscriber on file/error would otherwise
+    -- silently reset the user's idle countdown on every such failure.
+    if screen._wakelocks[tag] == nil then return end
     screen._wakelocks[tag] = nil
     -- Restart the idle countdown from the release moment. Without
     -- this, last_input_time stays frozen at whenever the user last
@@ -508,16 +521,23 @@ function screen.release_wakelock(tag)
     screen.last_input_time = ez.system.millis()
 end
 
+local _prev_recording = false
 local function _wakelocks_held()
     for _ in pairs(screen._wakelocks) do return true end
     -- Implicit wakelock: audio recording in progress. The voice-notes
     -- and signal-test screens flip ez.audio.is_recording() and may
     -- run unattended; blanking the panel mid-capture is confusing
     -- (and stops the user from seeing the "Recording... N s" timer).
-    if ez.audio and ez.audio.is_recording and ez.audio.is_recording() then
-        return true
+    local recording = ez.audio and ez.audio.is_recording and ez.audio.is_recording() or false
+    -- Falling edge: capture just ended. Restart the idle countdown so
+    -- the next update() tick doesn't see an idle_s already past
+    -- ss_timeout + disp_off_delay*60 and jump straight to panel-off.
+    -- Mirrors the explicit release_wakelock() behaviour.
+    if _prev_recording and not recording then
+        screen.last_input_time = ez.system.millis()
     end
-    return false
+    _prev_recording = recording
+    return recording
 end
 
 -- Restore the LCD backlight to the user's stored brightness, or to

@@ -425,9 +425,11 @@ flow and must be used by anyone writing new touch code:
   release.
 
 - **`touch_input.is_wake_event()`** -- predicate that returns true
-  for ~250 ms after a touch dismissed the screensaver. The bridge
-  sets the timestamp from inside its own `screensaver_swallow()`
-  guard. Call this **at the top of every `touch/*` bus subscriber a
+  for ~250 ms after a touch woke the device from any non-zero idle
+  stage (pre-dim, screensaver-active, or panel-off). The bridge sets
+  the timestamp from inside its own `screensaver_swallow()` guard
+  whenever `notify_input()` reports the wake cleared a non-zero
+  stage. Call this **at the top of every `touch/*` bus subscriber a
   screen registers**:
 
   ```lua
