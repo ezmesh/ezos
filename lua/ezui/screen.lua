@@ -230,6 +230,38 @@ function screen._draw_toast(d)
     screen.dirty = true
 end
 
+-- Lock-mode overlay: a banner pinned to the bottom of the screen
+-- whenever services.input_lock reports locked. Drawn last so it sits
+-- above screensaver, toast, and any modal -- it has to stay visible
+-- even when the input chain is rejecting everything. The hint says
+-- exactly what unlocks the device so the user isn't left wondering
+-- why nothing responds.
+function screen._draw_lock_overlay(d)
+    local ok, lock_svc = pcall(require, "services.input_lock")
+    if not ok or not lock_svc.is_locked() then return end
+
+    theme.set_font("small_aa")
+    local fh = theme.font_height()
+    local pad = 4
+    local h = fh + pad * 2
+    local y = theme.SCREEN_H - h
+    local w = theme.SCREEN_W
+
+    -- Black bar with white text, regardless of theme/accent. The lock
+    -- is a system-level state, not user-themed content, and a fixed
+    -- high-contrast pair stays readable when the user has picked a
+    -- light accent (green, yellow) that would otherwise wash out the
+    -- label. Lock icon glyphs aren't in the ASCII font (see CLAUDE.md
+    -- "On-device font character set"), so the prefix is plain text.
+    d.fill_rect(0, y, w, h, 0x0000)         -- black
+    d.fill_rect(0, y, w, 1, theme.color("ACCENT"))  -- thin accent top edge
+
+    local label = "Locked -- Shift+Alt+U to unlock"
+    local lw = theme.text_width(label)
+    local lx = math.floor((w - lw) / 2)
+    d.draw_text(lx, y + pad, label, 0xFFFF)  -- white
+end
+
 -- ---------------------------------------------------------------------------
 -- Status polling
 -- ---------------------------------------------------------------------------
@@ -588,6 +620,36 @@ function screen.handle_input()
     local key = ez.keyboard.read()
     if not key or not key.valid then return false end
 
+    -- Global input lock. Shift+Alt+L locks, Shift+Alt+U unlocks. Both
+    -- chords are recognised before notify_input / screensaver so a
+    -- locked device can still be unlocked even when the screensaver
+    -- is up; the unlock chord wakes the screen *and* clears the lock
+    -- in one keypress. While locked, every other key is swallowed
+    -- here -- handle_input returns true so update() keeps draining
+    -- the input queue but no screen sees the press.
+    -- Recognise the chord on either case: the on-device matrix path
+    -- uppercases letters when shift is held (keyboard.cpp:704), while
+    -- the remote-control injection path passes the raw char through
+    -- verbatim plus the shift flag, so accept both 'L'/'l' and 'U'/'u'.
+    local input_lock = require("services.input_lock")
+    if key.alt and key.shift and key.character then
+        local ch = key.character
+        if ch == "L" or ch == "l" then
+            input_lock.set(true)
+            screen.notify_input()
+            screen.dirty = true
+            return true
+        elseif ch == "U" or ch == "u" then
+            input_lock.set(false)
+            screen.notify_input()
+            screen.dirty = true
+            return true
+        end
+    end
+    if input_lock.is_locked() then
+        return true  -- swallow; only the unlock chord above gets through
+    end
+
     -- Reset idle timer + dismiss-and-consume any active screensaver.
     if screen.notify_input() then
         return true  -- consume the key that woke the screen
@@ -714,6 +776,11 @@ function screen.render()
     if ok_ti and touch_input.render_cursor then
         touch_input.render_cursor(d)
     end
+
+    -- Input-lock banner sits above even the mouse cursor: while
+    -- locked, the cursor can't be moved anyway, and the banner is
+    -- the user's only affordance for getting out of the lock.
+    screen._draw_lock_overlay(d)
 
     d.flush()
 end

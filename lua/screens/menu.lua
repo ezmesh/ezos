@@ -538,6 +538,13 @@ function Menu:on_enter()
         table.insert(self._touch_subs, ez.bus.subscribe("touch/down",
             function(_, data)
                 if type(data) ~= "table" then return end
+                -- Drop input while the global lock is on; the bus
+                -- broadcasts to every subscriber so this bridge has
+                -- to opt in just like is_wake_event.
+                if touch_input.is_locked() then
+                    pending = nil
+                    return
+                end
                 -- A touch that just woke the screensaver shouldn't
                 -- also start a tab-strip drag. The bridge has already
                 -- bumped the idle timer; we just bail.
@@ -570,6 +577,7 @@ function Menu:on_enter()
 
         table.insert(self._touch_subs, ez.bus.subscribe("touch/move",
             function(_, data)
+                if touch_input.is_locked() or touch_input.is_wake_event() then return end
                 if not pending or type(data) ~= "table" then return end
                 local strip = me._tab_strip_node
                 if not strip then return end
@@ -591,6 +599,10 @@ function Menu:on_enter()
 
         table.insert(self._touch_subs, ez.bus.subscribe("touch/up",
             function(_, data)
+                if touch_input.is_locked() or touch_input.is_wake_event() then
+                    pending = nil
+                    return
+                end
                 local p = pending
                 pending = nil
                 if not p or p.dragged or not p.tappable

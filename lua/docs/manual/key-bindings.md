@@ -12,6 +12,8 @@ listed in each app's section.
 | Backspace / Esc | Go back                                 |
 | Q               | Quit the current screen (alias for back)|
 | LShift+RShift   | Open the app menu from any screen       |
+| Shift+Alt+L     | Lock all input (see Input lock)         |
+| Shift+Alt+U     | Unlock input                            |
 
 ## Lists and forms
 
