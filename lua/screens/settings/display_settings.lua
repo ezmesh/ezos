@@ -76,11 +76,27 @@ local SCREENSAVER_OPTIONS = {
     { label = "30 min",  value = 1800 },
 }
 
+-- Panel-off delay is added AFTER the screensaver fires, so the user-
+-- visible "turn off screen after" is ss_timeout + this. 0 disables.
+local DISPLAY_OFF_OPTIONS = {
+    { label = "Never",   value = 0 },
+    { label = "1 min",   value = 1 },
+    { label = "2 min",   value = 2 },
+    { label = "5 min",   value = 5 },
+    { label = "15 min",  value = 15 },
+    { label = "30 min",  value = 30 },
+}
+
 function Display.initial_state()
     local ss_val = tonumber(ez.storage.get_pref("ss_timeout", 0)) or 0
     local ss_idx = 1
     for i, opt in ipairs(SCREENSAVER_OPTIONS) do
         if opt.value == ss_val then ss_idx = i break end
+    end
+    local off_val = tonumber(ez.storage.get_pref("disp_off_delay", 5)) or 5
+    local off_idx = 4  -- default to "5 min"
+    for i, opt in ipairs(DISPLAY_OFF_OPTIONS) do
+        if opt.value == off_val then off_idx = i break end
     end
     local wp_val = ez.storage.get_pref("wp_rotate", "boot")
     local wp_idx = 1
@@ -91,6 +107,9 @@ function Display.initial_state()
         brightness   = tonumber(ez.storage.get_pref("screen_bright", 200)) or 200,
         kb_backlight = tonumber(ez.storage.get_pref("kb_backlight", 0)) or 0,
         screensaver  = ss_idx,
+        autodim      = (ez.storage.get_pref("ss_autodim", "1") == "1"),
+        ss_bright    = tonumber(ez.storage.get_pref("ss_bright", 30)) or 30,
+        disp_off     = off_idx,
         wp_rotate    = wp_idx,
     }
 end
@@ -161,6 +180,49 @@ function Display:build(state)
         ui.text_widget(
             "Cycles animated patterns to exercise all subpixels and "
             .. "prevent LCD image persistence.",
+            { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
+    )
+
+    content[#content + 1] = ui.padding({ 8, 6, 2, 6 },
+        ui.toggle("Auto-dim before screensaver", state.autodim, {
+            on_change = function(on)
+                state.autodim = on
+                ez.storage.set_pref("ss_autodim", on and "1" or "0")
+            end,
+        })
+    )
+
+    content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+        ui.slider({
+            label = "Screensaver brightness %",
+            value = state.ss_bright,
+            min = 10, max = 100, step = 5,
+            on_change = function(val)
+                ez.storage.set_pref("ss_bright", val)
+                state.ss_bright = val
+            end,
+        })
+    )
+
+    content[#content + 1] = ui.padding({ 8, 8, 2, 8 },
+        ui.text_widget("Turn off screen after",
+            { color = "TEXT", font = "small_aa" })
+    )
+    content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+        ui.dropdown(DISPLAY_OFF_OPTIONS, {
+            value = state.disp_off,
+            on_change = function(idx)
+                local val = DISPLAY_OFF_OPTIONS[idx].value
+                ez.storage.set_pref("disp_off_delay", val)
+                state.disp_off = idx
+            end,
+        })
+    )
+    content[#content + 1] = ui.padding({ 2, 8, 4, 8 },
+        ui.text_widget(
+            "Added on top of the screensaver timeout. The backlight "
+            .. "turns fully off and the display stops rendering until "
+            .. "input or a notification wakes it.",
             { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
     )
 

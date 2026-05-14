@@ -39,6 +39,20 @@ screen.status_last = -10000    -- negative so the first update() runs the poll i
 -- is exactly the scenario the screensaver is designed for.
 screen.last_input_time = ez.system.millis()  -- millis() of last keypress (or boot)
 
+-- Idle ladder: dim -> screensaver -> panel-off. Driven from screen.update()
+-- by comparing now - last_input_time against ss_timeout and disp_off_delay.
+-- Stage 0 = active, 1 = dim, 2 = screensaver (existing behaviour), 3 = panel
+-- off (backlight 0, render loop suspended). Wakelocks held in `_wakelocks`
+-- keep the ladder pinned to stage 0; an empty table means "no inhibitors".
+screen.idle_stage = 0
+screen._normal_brightness = nil  -- cached on first dim, restored on wake
+screen._wakelocks = {}
+
+-- Pre-dim lead time: ramp to dim brightness this many ms BEFORE the
+-- screensaver fires. The issue spec calls this out as 30 s; tunable
+-- via ss_predim pref (seconds, 0 disables the dim stage).
+screen.predim_lead_default = 30
+
 -- Node reused every frame to render the global status bar. Keeping one
 -- instance avoids a garbage-generating allocation per frame.
 local _status_node = { type = "status_bar" }
@@ -128,8 +142,45 @@ local function ensure_toast_subscribed()
         if list and list[1] then
             screen.show_toast(list[1])
         end
+        -- An incoming notification is a "high-priority" wake signal:
+        -- if the panel is off or dim the user should see the toast
+        -- without having to touch the device. notify_input() handles
+        -- restoring brightness + clearing the idle stage. Gate on
+        -- idle_stage so dismiss()/dismiss_source()/mark_all_read()
+        -- (which fire the same bus event) don't wake the panel from
+        -- background subscribers -- e.g. the OTA flow calling
+        -- dismiss_source("ota") after an update would otherwise pull
+        -- the device out of stage 3 every time.
+        if screen.idle_stage ~= 0 then
+            screen.notify_input()
+        end
     end)
     _toast_subscribed = true
+end
+
+-- Wire bus events that should hold a wakelock for the duration of an
+-- activity. Lazy for the same reason as the toast subscriber: ez.bus
+-- must be live. The tags are namespaced so multiple subsystems can
+-- coexist without one releasing another's lock.
+local _wakelock_subscribed = false
+local function ensure_wakelock_subscribed()
+    if _wakelock_subscribed then return end
+    if not (ez and ez.bus and ez.bus.subscribe) then return end
+
+    -- File transfer in progress: hold a wakelock from the first
+    -- progress event (which fires on connect/transferring) until
+    -- file/done or file/error.
+    ez.bus.subscribe("file/progress", function(_t, _d)
+        screen.acquire_wakelock("file_transfer")
+    end)
+    ez.bus.subscribe("file/done", function(_t, _d)
+        screen.release_wakelock("file_transfer")
+    end)
+    ez.bus.subscribe("file/error", function(_t, _d)
+        screen.release_wakelock("file_transfer")
+    end)
+
+    _wakelock_subscribed = true
 end
 
 function screen._draw_toast(d)
@@ -437,6 +488,70 @@ end
 screen.last_pop_time = 0
 screen.pop_cooldown_ms = 500
 
+-- Wakelock API: any non-nil tag in screen._wakelocks pins the idle
+-- ladder at stage 0. Use this for foreground actions that need the
+-- display alive (file transfers in progress, audio recording, etc.).
+-- Releasing the same tag clears it; the next idle tick re-evaluates.
+function screen.acquire_wakelock(tag)
+    if not tag then return end
+    screen._wakelocks[tag] = true
+    if screen.idle_stage ~= 0 then
+        -- Pretend the user just touched the device so the ladder
+        -- unwinds via the same path as a real wake.
+        screen.notify_input()
+    end
+end
+
+function screen.release_wakelock(tag)
+    if not tag then return end
+    -- Releasing a tag that was never acquired must be a no-op: file
+    -- transfer's early-fail paths (key-derivation failure, AP-start
+    -- failure, OFFER undelivered) post `file/error` before any
+    -- `file/progress`, so the subscriber on file/error would otherwise
+    -- silently reset the user's idle countdown on every such failure.
+    if screen._wakelocks[tag] == nil then return end
+    screen._wakelocks[tag] = nil
+    -- Restart the idle countdown from the release moment. Without
+    -- this, last_input_time stays frozen at whenever the user last
+    -- touched the device before acquiring the wakelock; a long-held
+    -- wakelock (e.g. a multi-minute file transfer) would then make
+    -- the next update() tick see an idle_s already past
+    -- ss_timeout + disp_off_delay*60 and jump straight to stage 3
+    -- with no dim or screensaver in between.
+    screen.last_input_time = ez.system.millis()
+end
+
+local _prev_recording = false
+local function _wakelocks_held()
+    for _ in pairs(screen._wakelocks) do return true end
+    -- Implicit wakelock: audio recording in progress. The voice-notes
+    -- and signal-test screens flip ez.audio.is_recording() and may
+    -- run unattended; blanking the panel mid-capture is confusing
+    -- (and stops the user from seeing the "Recording... N s" timer).
+    local recording = ez.audio and ez.audio.is_recording and ez.audio.is_recording() or false
+    -- Falling edge: capture just ended. Restart the idle countdown so
+    -- the next update() tick doesn't see an idle_s already past
+    -- ss_timeout + disp_off_delay*60 and jump straight to panel-off.
+    -- Mirrors the explicit release_wakelock() behaviour.
+    if _prev_recording and not recording then
+        screen.last_input_time = ez.system.millis()
+    end
+    _prev_recording = recording
+    return recording
+end
+
+-- Restore the LCD backlight to the user's stored brightness, or to
+-- the value cached when we first started dimming. Either way, idempotent.
+local function _restore_brightness()
+    if screen._normal_brightness then
+        ez.display.set_brightness(screen._normal_brightness)
+        screen._normal_brightness = nil
+    else
+        local b = tonumber(ez.storage.get_pref("screen_bright", 200)) or 200
+        ez.display.set_brightness(b)
+    end
+end
+
 -- Reset the idle timer and, if the screensaver is currently up,
 -- dismiss it. Returns true when the screensaver was just dismissed
 -- so the caller can swallow the originating event (key or touch) --
@@ -445,13 +560,28 @@ screen.pop_cooldown_ms = 500
 -- ezui/touch_input.lua's on_down/move/up.
 function screen.notify_input()
     screen.last_input_time = ez.system.millis()
+    -- Any non-zero stage clamped the LCD backlight (stage 1 dim,
+    -- stage 2 screensaver-active, stage 3 panel off), so restoring
+    -- on wake has to cover all three. Excluding stage 2 here would
+    -- leave the LCD pinned at ss_bright after the key press that
+    -- dismisses the screensaver, since ss.stop() only restores the
+    -- keyboard backlight.
+    local was_dim_or_off = (screen.idle_stage ~= 0)
+    if was_dim_or_off then
+        _restore_brightness()
+        screen.dirty = true
+    end
+    screen.idle_stage = 0
     local ss_ok, ss = pcall(require, "screens.tools.screensaver")
     if ss_ok and ss.is_active() then
         ss.stop()
         screen.dirty = true
         return true
     end
-    return false
+    -- Treat a wake from dim or panel-off as a "swallow this input"
+    -- event too: a tap to wake shouldn't also click whatever sat
+    -- under the finger.
+    return was_dim_or_off
 end
 
 function screen.handle_input()
@@ -596,20 +726,86 @@ function screen.update()
     -- Wire up the notifications -> toast subscription on the first
     -- frame, when ez.bus is guaranteed to be live.
     ensure_toast_subscribed()
+    ensure_wakelock_subscribed()
 
     -- Drain all pending input
     while screen.handle_input() do end
 
-    -- Screensaver: activate overlay after idle timeout.
-    -- Dismissed on any keypress in handle_input above.
+    -- Idle ladder: dim -> screensaver -> panel-off.
+    --
+    -- Stage transitions are evaluated against the screensaver timeout
+    -- (the existing `ss_timeout` pref, seconds, 0 disables the whole
+    -- ladder). Stage 1 ramps brightness down a configurable lead time
+    -- before the screensaver kicks in; stage 2 is the existing
+    -- screensaver overlay; stage 3 turns the backlight off entirely
+    -- after `disp_off_delay` minutes past the screensaver fire.
+    --
+    -- A held wakelock pins the ladder at stage 0 regardless of
+    -- timeout. Bus subscribers below wire file_transfer / audio
+    -- recording into the wakelock table so foreground activity
+    -- doesn't get blanked mid-transfer.
+    local panel_off = false
     do
         local timeout = tonumber(ez.storage.get_pref("ss_timeout", 0)) or 0
-        if timeout > 0 and screen.last_input_time > 0 then
+        if timeout > 0 and screen.last_input_time > 0
+                and not _wakelocks_held() then
+            local idle_s = (ez.system.millis() - screen.last_input_time) / 1000
+            local autodim = (ez.storage.get_pref("ss_autodim", "1") == "1")
+            local predim_lead = autodim and screen.predim_lead_default or 0
+            local off_delay_min = tonumber(
+                ez.storage.get_pref("disp_off_delay", 5)) or 5
+            local off_at_s = (off_delay_min > 0)
+                and (timeout + off_delay_min * 60) or nil
+
             local ss_ok2, ss2 = pcall(require, "screens.tools.screensaver")
-            if ss_ok2 and not ss2.is_active() then
-                local idle = ez.system.millis() - screen.last_input_time
-                if idle >= timeout * 1000 then
+
+            -- Stage 3: panel off (latest, so check first).
+            if off_at_s and idle_s >= off_at_s then
+                if screen.idle_stage ~= 3 then
+                    if not screen._normal_brightness then
+                        screen._normal_brightness = tonumber(
+                            ez.storage.get_pref("screen_bright", 200)) or 200
+                    end
+                    ez.display.set_brightness(0)
+                    screen.idle_stage = 3
+                end
+                panel_off = true
+
+            -- Stage 2: screensaver firing.
+            elseif idle_s >= timeout then
+                if ss_ok2 and not ss2.is_active() then
+                    local ss_bright_pct = tonumber(
+                        ez.storage.get_pref("ss_bright", 30)) or 30
+                    if not screen._normal_brightness then
+                        screen._normal_brightness = tonumber(
+                            ez.storage.get_pref("screen_bright", 200)) or 200
+                    end
+                    local clamped = math.floor(
+                        screen._normal_brightness * ss_bright_pct / 100)
+                    if clamped < 10 then clamped = 10 end
+                    ez.display.set_brightness(clamped)
                     ss2.start()
+                end
+                screen.idle_stage = 2
+
+            -- Stage 1: pre-dim before screensaver. Skip when the
+            -- screensaver timeout is shorter than the lead -- the
+            -- dim stage only makes sense as a chain ahead of the
+            -- screensaver, never coincident with it or earlier.
+            elseif predim_lead > 0 and timeout > predim_lead
+                    and idle_s >= (timeout - predim_lead) then
+                if screen.idle_stage ~= 1 then
+                    if not screen._normal_brightness then
+                        screen._normal_brightness = tonumber(
+                            ez.storage.get_pref("screen_bright", 200)) or 200
+                    end
+                    local ss_bright_pct = tonumber(
+                        ez.storage.get_pref("ss_bright", 30)) or 30
+                    local dimmed = math.floor(
+                        screen._normal_brightness * ss_bright_pct / 100)
+                    if dimmed < 10 then dimmed = 10 end
+                    ez.display.set_brightness(dimmed)
+                    screen.idle_stage = 1
                 end
             end
         end
@@ -624,7 +820,12 @@ function screen.update()
         inst:update()
     end
 
-    screen.render()
+    -- Stage 3: backlight is off, skip the render path entirely so the
+    -- panel keeps the framebuffer it already had and the CPU stops
+    -- driving SPI. The next notify_input() re-enables both.
+    if not panel_off then
+        screen.render()
+    end
 end
 
 return screen
