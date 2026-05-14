@@ -274,8 +274,8 @@ ezos/
 │   │                      #   contacts, custom_packets, direct_messages,
 │   │                      #   file_transfer, gps, log_persist,
 │   │                      #   map_archive, migrations, notifications,
-│   │                      #   ntp, prefs_registry, sharing, signal_test,
-│   │                      #   ui_sounds)
+│   │                      #   ntp, prefs_registry, reminders, sharing,
+│   │                      #   signal_test, ui_sounds)
 │   └── util/              # Shared helpers (timezones, etc.)
 ├── scripts/                # Build-time generators (Lua embedder)
 ├── tools/                  # Host utilities (map gen, remote control,
@@ -331,15 +331,18 @@ Services are initialized in order in `lua/boot.lua`:
 3. **channels** — Channel management, GRP_TXT decryption
 4. **direct_messages** — Encrypted DMs via TXT_MSG packets
 5. **sharing** — Share-card construction and dispatch
-6. **custom_packets** — Custom (non-MeshCore) packet handlers
-7. **file_transfer** — Mesh-based file send/receive
-8. **ui_sounds** — UI sound effects via the audio engine
-9. **notifications** — Toast queue + bus subscribers for OTA, DMs,
-   file transfer, low battery, SD connect/disconnect, and panic /
-   brownout recovery. See "Notifications service" below for the
-   public API and per-source mute pref namespace.
-10. **apps** — Registered file-type → screen handlers (used by the file manager)
-11. **gps** — `gps_svc.start_sync_loop()` is always called; the loop itself
+6. **reminders** — 30-second sweep that fires "10 min before" /
+   "starting now" toast notifications for `cal/v1` share-card events
+   the user accepted. State persisted to NVS under `reminders_v1`.
+7. **custom_packets** — Custom (non-MeshCore) packet handlers
+8. **file_transfer** — Mesh-based file send/receive
+9. **ui_sounds** — UI sound effects via the audio engine
+10. **notifications** — Toast queue + bus subscribers for OTA, DMs,
+    file transfer, low battery, SD connect/disconnect, and panic /
+    brownout recovery. See "Notifications service" below for the
+    public API and per-source mute pref namespace.
+11. **apps** — Registered file-type → screen handlers (used by the file manager)
+12. **gps** — `gps_svc.start_sync_loop()` is always called; the loop itself
     respects the user's "never / at boot / hourly" pref and is a no-op when
     GPS is disabled
 
