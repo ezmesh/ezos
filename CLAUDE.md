@@ -702,8 +702,11 @@ After making a fix:
   [lat:f32 LE][lon:f32 LE if flags&0x02]
   [name:nameLen]`. Flags: bit 0 = `hasPublicKey`, bit 1 = `hasLocation`.
 - Caps: 128 entries on SD, 64 on NVS. On overflow at save time,
-  oldest-by-`advertTimestamp` entries are evicted from the *written*
-  set (the in-memory vector is left untouched).
+  oldest-by-`lastSeen` (local millis() observation time) entries are
+  evicted from the *written* set (the in-memory vector is left
+  untouched). Deliberately not `advertTimestamp` -- that field is
+  peer-chosen and a node with a future-dated or wrap-around ADVERT
+  would always survive truncation over genuinely-fresh observations.
 - Aging: entries with a `lastSeenUnix` more than 7 days behind the
   current wall clock are dropped at load time. Skipped when the
   system clock is unset (year < 2020), so a cold boot before NTP/GPS

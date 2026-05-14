@@ -124,16 +124,19 @@ std::vector<uint8_t> NodeStore::serialize(const std::vector<NodeInfo>& nodes,
 
         // lastSeenUnix is derived from "how long ago lastSeen was" in
         // millis() and the current wall clock. If the wall clock is
-        // unset, we still want a coherent ordering across this single
-        // save batch, so use advertTimestamp as the fallback (it's the
-        // best lower bound for "the node existed at unix t").
+        // unset, persist 0 -- deserialize()'s aging check skips entries
+        // with lastSeenUnix == 0, so they survive across reboots until
+        // a synced-clock save can re-stamp them. Falling back to
+        // n.advertTimestamp here would be wrong: the peer-stamped
+        // value is unrelated to when *we* last heard the node, so on
+        // the next boot with a synced clock the 7-day aging check
+        // could evict a freshly-heard node whose peer happened to
+        // stamp an old ADVERT.
         uint32_t lastSeenUnix = 0;
         if (nowUnix > 0) {
             uint32_t ageMs = millis() - n.lastSeen;
             uint32_t ageSec = ageMs / 1000;
             lastSeenUnix = (nowUnix > ageSec) ? (nowUnix - ageSec) : 0;
-        } else {
-            lastSeenUnix = n.advertTimestamp;
         }
 
         buf.push_back(n.pathHash);
