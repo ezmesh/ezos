@@ -81,8 +81,8 @@ function cal_share.build_actions(msg)
     -- Header / status row. Disabled list_item shows the parsed event
     -- details so a user who opens the menu can confirm before acting.
     local subtitle
-    if share.dur and share.dur > 0 then
-        local mins = math.floor(share.dur / 60)
+    if share.duration and share.duration > 0 then
+        local mins = math.floor(share.duration / 60)
         if mins >= 60 then
             local h = math.floor(mins / 60)
             local rem = mins % 60
@@ -128,7 +128,7 @@ function cal_share.build_actions(msg)
                 }, function()
                     reminders_svc.add({
                         ts = share.timestamp,
-                        dur = share.dur,
+                        dur = share.duration,
                         title = share.title,
                         lat = share.lat,
                         lon = share.lon,
