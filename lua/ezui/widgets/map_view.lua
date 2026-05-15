@@ -102,6 +102,38 @@ node.register("map_view", {
         return max_w, max_h
     end,
 
+    -- Touch handling: the global bridge (lua/ezui/touch_input.lua)
+    -- dispatches on_touch_down + on_touch_drag to any node that
+    -- registers them. We use that to convert a finger drag into a
+    -- screen-pixel pan delta, the same primitive arrow-keys already
+    -- feed into pan_by_pixels(). Tap-to-recenter and long-press for
+    -- the actions menu are handled at the screen level via the
+    -- touch/tap and touch/long_press bus topics -- map_view is a
+    -- reusable widget and shouldn't own screen-level UI state.
+    on_touch_down = function(n, x, y)
+        -- Stamp the down point so on_touch_drag can compute an
+        -- incremental delta on every move event. (The bridge gives
+        -- us absolute screen coords; we want frame-to-frame deltas.)
+        n._touch_last_x = x
+        n._touch_last_y = y
+    end,
+
+    on_touch_drag = function(n, x, y, _total_dx, _total_dy)
+        local lx = n._touch_last_x or x
+        local ly = n._touch_last_y or y
+        local dx = x - lx
+        local dy = y - ly
+        n._touch_last_x = x
+        n._touch_last_y = y
+        if dx ~= 0 or dy ~= 0 then
+            -- Drag content with the finger: when the user drags
+            -- their finger right, the viewport should move left
+            -- (the world under the finger stays put). pan_by_pixels
+            -- pans the viewport, so the delta is negated.
+            pan_by_pixels(n, -dx, -dy)
+        end
+    end,
+
     draw = function(n, d, x, y, w, h)
         local arc = n.archive
         if not arc then
@@ -109,6 +141,12 @@ node.register("map_view", {
             d.draw_text(x + 8, y + 8, "No map archive loaded", theme.color("TEXT_MUTED"))
             return
         end
+
+        -- Cache the last-drawn bounds so external callers (the parent
+        -- screen's touch/tap subscriber) can hit-test against the widget
+        -- without knowing the layout. Refreshed every draw, so a layout
+        -- change is reflected on the next frame.
+        n._draw_x, n._draw_y, n._draw_w, n._draw_h = x, y, w, h
 
         d.set_clip_rect(x, y, w, h)
 
@@ -287,6 +325,34 @@ local function map_view(props)
     return props
 end
 
+-- Tap-to-recenter helper for parent screens. Takes the map_view node
+-- and a screen-space tap point; if the tap falls within the widget's
+-- last-drawn bounds, pans the viewport so the tapped point ends up
+-- under the crosshair. Caller is responsible for invalidating the
+-- screen so the new center renders. Returns true when the tap was
+-- consumed, false when it fell outside the widget.
+--
+-- Lives on the module (not as a node-handler entry) because the
+-- short-tap path is dispatched via touch/tap on the bus, not via
+-- on_touch_down -- the touch_input bridge converts owned-touch
+-- short presses into bus events so games / custom views see the
+-- same data in direct mode and mouse mode.
+local function recenter_on_screen_point(n, sx, sy)
+    if not n._draw_x then return false end
+    local x, y, w, h = n._draw_x, n._draw_y, n._draw_w, n._draw_h
+    if sx < x or sx >= x + w or sy < y or sy >= y + h then
+        return false
+    end
+    local cx = x + w / 2
+    local cy = y + h / 2
+    local dx = sx - cx
+    local dy = sy - cy
+    if dx == 0 and dy == 0 then return true end
+    pan_by_pixels(n, dx, dy)
+    return true
+end
+
 return {
     map_view = map_view,
+    recenter_on_screen_point = recenter_on_screen_point,
 }
