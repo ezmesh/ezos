@@ -1,6 +1,7 @@
 #include "meshcore.h"
 #include "../lua/bindings/bus_bindings.h"
 #include <Arduino.h>
+#include <Preferences.h>
 #include <cstring>
 #include <vector>
 
@@ -646,6 +647,39 @@ bool MeshCore::sendPacket(MeshPacket& packet) {
     return false;
 }
 
+// Read the user's "broadcast home" lat/lon if set, and only if the
+// user authored both halves. Returns true and fills `lat_e6` / `lon_e6`
+// when valid; false when unset, half-set, or out of range. The values
+// are stored by Lua under `ez.storage.set_pref("adv_home_lat", ...)`
+// in the "lua_storage" NVS namespace as decimal-e6 strings (e.g.
+// "47543968" for 47.543968 deg). See issue #127.
+//
+// We re-read every announce instead of caching: the user may change
+// the home location at runtime and the next ADVERT should pick that
+// up immediately. NVS reads are cheap and ADVERTs are infrequent.
+static bool readBroadcastHome(int32_t& lat_e6, int32_t& lon_e6) {
+    Preferences prefs;
+    if (!prefs.begin("lua_storage", true)) return false;
+    String latStr = prefs.getString("adv_home_lat", "");
+    String lonStr = prefs.getString("adv_home_lon", "");
+    prefs.end();
+    if (latStr.length() == 0 || lonStr.length() == 0) return false;
+    // Decimal-e6 strings come straight from Lua's tostring(math.floor(...)).
+    // strtol caps at LONG_MAX (>= INT32_MAX on this platform); any value
+    // outside the lat/lon range is a user mistake so we reject rather
+    // than clamp.
+    char* endLat = nullptr;
+    char* endLon = nullptr;
+    long lat = strtol(latStr.c_str(), &endLat, 10);
+    long lon = strtol(lonStr.c_str(), &endLon, 10);
+    if (endLat == latStr.c_str() || endLon == lonStr.c_str()) return false;
+    if (lat <  -90000000 || lat >  90000000) return false;
+    if (lon < -180000000 || lon > 180000000) return false;
+    lat_e6 = (int32_t)lat;
+    lon_e6 = (int32_t)lon;
+    return true;
+}
+
 bool MeshCore::sendAnnounce() {
     MeshPacket packet;
     packet.clear();
@@ -664,19 +698,36 @@ bool MeshCore::sendAnnounce() {
     memcpy(packet.payload + offset, &timestamp, 4);
     offset += 4;
 
-    // Build app_data: [flags:1][name:variable]
-    // Flags: 0x81 = has_name (0x80) + client role (0x01)
+    // Build app_data: [flags:1][lat:4 LE][lon:4 LE]?[name:variable]
+    // Flags: 0x81 = has_name (0x80) + client role (0x01), with 0x10
+    // OR'd in when the user has authored a broadcast home location.
+    // Layout follows the MeshCore reference: lat/lon (when present)
+    // sit between the flags byte and the name. See CLAUDE.md "App
+    // Data Structure" + AdvertDataHelpers.h upstream.
     constexpr size_t MAX_ADVERT_DATA = 32;
     uint8_t appData[MAX_ADVERT_DATA];
     size_t appDataLen = 0;
 
-    // Flags byte: 0x81 = client (0x01) + has name (0x80)
-    appData[appDataLen++] = 0x81;
+    int32_t home_lat_e6 = 0, home_lon_e6 = 0;
+    bool hasHome = readBroadcastHome(home_lat_e6, home_lon_e6);
+
+    // Flags byte: 0x81 = client (0x01) + has name (0x80), plus 0x10
+    // when location is included. The 32-byte cap means turning on
+    // location drops the name's max length from 31 to 23, so a long
+    // node name gets truncated.
+    appData[appDataLen++] = hasHome ? (uint8_t)0x91 : (uint8_t)0x81;
+
+    if (hasHome) {
+        memcpy(appData + appDataLen, &home_lat_e6, 4);
+        appDataLen += 4;
+        memcpy(appData + appDataLen, &home_lon_e6, 4);
+        appDataLen += 4;
+    }
 
     // Node name
     const char* name = _identity.getNodeName();
     size_t nameLen = strlen(name);
-    if (nameLen > MAX_ADVERT_DATA - 1) nameLen = MAX_ADVERT_DATA - 1;
+    if (nameLen > MAX_ADVERT_DATA - appDataLen) nameLen = MAX_ADVERT_DATA - appDataLen;
     memcpy(appData + appDataLen, name, nameLen);
     appDataLen += nameLen;
 
@@ -706,8 +757,9 @@ bool MeshCore::sendAnnounce() {
 
     packet.payloadLen = offset;
 
-    MESH_LOG("Sending ADVERT (pathHash=%02X, name=%s, %d bytes)\n",
-                  _identity.getPathHash(), name, (int)offset);
+    MESH_LOG("Sending ADVERT (pathHash=%02X, name=%s, loc=%s, %d bytes)\n",
+                  _identity.getPathHash(), name, hasHome ? "yes" : "no",
+                  (int)offset);
     return sendPacket(packet);
 }
 
