@@ -157,6 +157,8 @@ local CATEGORIES = {
               icon = icons.radio_tower, mod = "screens.settings.radio_settings" },
             { title = "Sound", subtitle = "UI feedback, volume",
               icon = icons.volume, mod = "screens.settings.sound_settings" },
+            { title = "Privacy", subtitle = "Read receipts and other outbound signals",
+              icon = icons.bell, mod = "screens.settings.privacy_settings" },
             { title = "Firmware", subtitle = "Check rolling-main update + install OTA",
               icon = icons.cloud_upload, mod = "screens.settings.firmware_update" },
             { title = "What's New", subtitle = "Changelog for this firmware",

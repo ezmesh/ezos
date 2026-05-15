@@ -781,21 +781,82 @@ function dm.init()
                             local text = plaintext:sub(6)
 
                             if #text > 0 then
-                                local msg = {
-                                    sender_key = candidate.pub_key_hex,
-                                    sender_name = candidate.name or candidate.pub_key_hex:sub(1, 8),
-                                    text = text,
-                                    timestamp = msg_timestamp,
-                                    rssi = pkt.rssi,
-                                    snr = pkt.snr,
-                                    -- 1-byte path hashes -> #path == hops.
-                                    hop_count = pkt.path and #pkt.path or 0,
-                                    is_self = false,
-                                }
+                                -- Read-receipt URIs (#113) ride inside
+                                -- a normal TXT_MSG so cross-firmware
+                                -- chat clients still see a clickable
+                                -- link rather than mystery bytes; ezOS
+                                -- peels them here, flips the matching
+                                -- outbound bubble's status to "read",
+                                -- and DOES NOT render the URL as a
+                                -- chat bubble. Still ACK the original
+                                -- TXT_MSG so the sender's pending_acks
+                                -- entry clears -- the read-receipt
+                                -- itself is a separate signal layered
+                                -- on top of delivery.
+                                local sharing_svc = require("services.sharing")
+                                local share = sharing_svc.parse(text)
+                                local handled_as_ack = false
+                                if share and share.kind == "ack"
+                                        and share.ack_kind == sharing_svc.ACK_READ then
+                                    -- Match the hash against the outbound
+                                    -- bubbles in this conversation.
+                                    local hist = conversations[candidate.pub_key_hex]
+                                    if hist then
+                                        local pk = hex_to_bytes(candidate.pub_key_hex)
+                                        -- Receiver hashed using THEIR pubkey
+                                        -- (= candidate.pub_key_hex from our
+                                        -- side -- the contact we sent to).
+                                        -- Wait: the ACK is FROM them ABOUT a
+                                        -- message we sent. So the target
+                                        -- message's sender_pub is ours, not
+                                        -- theirs.
+                                        local self_pub = ez.mesh.get_public_key_hex()
+                                        local self_pk = self_pub and hex_to_bytes(self_pub)
+                                        if self_pk then
+                                            for _, m in ipairs(hist) do
+                                                if m.is_self then
+                                                    local ts = math.floor(m.timestamp or 0)
+                                                    if ts < 0 then ts = ts + 0x100000000 end
+                                                    local tsb = string.char(ts & 0xFF,
+                                                        (ts >> 8) & 0xFF,
+                                                        (ts >> 16) & 0xFF,
+                                                        (ts >> 24) & 0xFF)
+                                                    local d = ez.crypto.sha256(
+                                                        self_pk .. tsb .. (m.text or ""))
+                                                    if d and d:sub(1, 4) == share.msg_hash then
+                                                        m.status = "read"
+                                                        ez.bus.post("dm/status", {
+                                                            pub_key_hex = candidate.pub_key_hex,
+                                                            status = "read",
+                                                        })
+                                                        schedule_save()
+                                                        break
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                    handled_as_ack = true
+                                end
 
-                                store_message(candidate.pub_key_hex, msg)
-                                unread[candidate.pub_key_hex] = (unread[candidate.pub_key_hex] or 0) + 1
-                                ez.bus.post("dm/message", msg)
+                                local msg
+                                if not handled_as_ack then
+                                    msg = {
+                                        sender_key = candidate.pub_key_hex,
+                                        sender_name = candidate.name or candidate.pub_key_hex:sub(1, 8),
+                                        text = text,
+                                        timestamp = msg_timestamp,
+                                        rssi = pkt.rssi,
+                                        snr = pkt.snr,
+                                        -- 1-byte path hashes -> #path == hops.
+                                        hop_count = pkt.path and #pkt.path or 0,
+                                        is_self = false,
+                                    }
+
+                                    store_message(candidate.pub_key_hex, msg)
+                                    unread[candidate.pub_key_hex] = (unread[candidate.pub_key_hex] or 0) + 1
+                                    ez.bus.post("dm/message", msg)
+                                end
 
                                 -- Receiving a DM proves the sender has our
                                 -- pubkey (they did ECDH with it). Record it
@@ -1051,11 +1112,78 @@ function dm.delete_message(pub_key_hex, index)
     schedule_save()
 end
 
+-- Emit a read receipt for every inbound message in this conversation
+-- whose hash hasn't been receipt-sent before. Coalesces multiple
+-- unread messages into a single round (one TXT_MSG per unique hash);
+-- the receiver dedupes by msg_hash anyway.
+--
+-- Gated by a global "send_read_rcpt" pref (default off -- read
+-- receipts are privacy-sensitive). When off, mark_read is a no-op on
+-- the wire -- the existing local "unread = 0" still happens.
+local function maybe_send_read_receipts(pub_key_hex)
+    if ez.storage.get_pref("send_read_rcpt", "0") ~= "1" then return end
+    local h = conversations[pub_key_hex]
+    if not h then return end
+
+    local sharing_svc = require("services.sharing")
+    -- Local cache of (peer, hash) we've already sent receipts for so
+    -- repeated mark_read calls (re-entering the conversation) don't
+    -- re-emit. Cleared on reboot; the receiver dedupes anyway.
+    _G._dm_read_receipts_sent = _G._dm_read_receipts_sent or {}
+    local cache = _G._dm_read_receipts_sent
+    local peer_cache = cache[pub_key_hex]
+    if not peer_cache then peer_cache = {}; cache[pub_key_hex] = peer_cache end
+
+    -- We need the sender's pubkey (== pub_key_hex for inbound msgs) to
+    -- recompute the same hash they'd use locally. Mirrors the formula
+    -- used elsewhere for stable per-message tags: first 4 bytes of
+    -- sha256([sender_pubkey:32][timestamp:4 LE][text]).
+    local function compute_msg_hash(sender_pub_hex, timestamp, text)
+        if not sender_pub_hex or #sender_pub_hex ~= 64 then return nil end
+        local pk = ez.crypto.hex_to_bytes(sender_pub_hex)
+        if not pk or #pk ~= 32 then return nil end
+        local ts = math.floor(timestamp or 0)
+        if ts < 0 then ts = ts + 0x100000000 end
+        local ts_bytes = string.char(ts & 0xFF, (ts >> 8) & 0xFF,
+                                     (ts >> 16) & 0xFF, (ts >> 24) & 0xFF)
+        local digest = ez.crypto.sha256(pk .. ts_bytes .. (text or ""))
+        return digest and digest:sub(1, 4) or nil
+    end
+
+    for _, msg in ipairs(h) do
+        if not msg.is_self then
+            local target_hash = compute_msg_hash(
+                pub_key_hex, msg.timestamp, msg.text or "")
+            if target_hash then
+                local hex_key = string.format("%02X%02X%02X%02X",
+                    target_hash:byte(1), target_hash:byte(2),
+                    target_hash:byte(3), target_hash:byte(4))
+                if not peer_cache[hex_key] then
+                    peer_cache[hex_key] = true
+                    local url = sharing_svc.encode_ack(target_hash,
+                        sharing_svc.ACK_READ)
+                    if url then
+                        -- Use dm.send for the airtime/ACK plumbing;
+                        -- this is a normal TXT_MSG carrying a URI.
+                        spawn(function() dm.send(pub_key_hex, url) end)
+                    end
+                end
+            end
+        end
+    end
+end
+
 function dm.mark_read(pub_key_hex)
     if (unread[pub_key_hex] or 0) > 0 then
         unread[pub_key_hex] = 0
         schedule_save()
     end
+    -- Read-receipt emission is independent of the unread counter: a
+    -- conversation re-opened with zero unread (the user scrolling
+    -- through old messages) still emits receipts for messages that
+    -- haven't been receipt-sent before. The in-RAM cache prevents
+    -- re-sending on every open.
+    maybe_send_read_receipts(pub_key_hex)
 end
 
 function dm.get_total_unread()
