@@ -24,7 +24,9 @@ function Picker:build(state)
     local items = { ui.title_bar("React", { back = true }) }
 
     if state.preview and state.preview ~= "" then
-        local snippet = state.preview
+        -- preview is peer-originated DM text; sanitize to printable
+        -- ASCII so non-ASCII bytes don't render as [] glyph boxes.
+        local snippet = state.preview:gsub("[^\32-\126]", "?")
         if #snippet > 40 then snippet = snippet:sub(1, 37) .. "..." end
         items[#items + 1] = ui.padding({ 6, 8, 8, 8 },
             ui.text_widget("Re: " .. snippet, {
