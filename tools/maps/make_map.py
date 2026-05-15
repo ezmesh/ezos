@@ -301,7 +301,16 @@ def extract_from_pbf(
     bounds: Optional[Tuple[float, float, float, float]],
     zoom_range: Tuple[int, int],
 ) -> Tuple[List[Geometry], List[Label]]:
-    """Walk an OSM PBF once and return geometries + labels in our schema."""
+    """Walk an OSM PBF once and return geometries + labels in our schema.
+
+    Two iterator passes over the file:
+      1) NODE | WAY with locations    -> places + linear features
+      2) AREA (multipolygon-assembled) -> filled polygons
+
+    Each pass prints a heartbeat every ~2 seconds. pyosmium doesn't expose
+    a percentage (it's a streaming iterator), so we report counts and
+    elapsed time -- enough to tell the user "still alive" vs "stuck".
+    """
     min_zoom, max_zoom = zoom_range
     geoms: List[Geometry] = []
     labels: List[Label] = []
@@ -311,6 +320,8 @@ def extract_from_pbf(
     area_count = 0
     place_count = 0
     start = time.time()
+    last_tick = start
+    seen_objs = 0
 
     # Pass 1: linear features (roads, railways, rivers, coastlines as ways).
     # NODE is needed so .with_locations() can backfill way geometry.
@@ -318,6 +329,16 @@ def extract_from_pbf(
             str(pbf_path),
             osmium.osm.NODE | osmium.osm.WAY,
         ).with_locations()):
+        seen_objs += 1
+        now = time.time()
+        if now - last_tick >= 2.0:
+            sys.stdout.write(
+                f"\r  pass 1: {seen_objs:>12,} objs scanned  "
+                f"{way_count:>8,} ways kept  {place_count:>5,} places  "
+                f"{now - start:6.1f}s"
+            )
+            sys.stdout.flush()
+            last_tick = now
         if obj.is_node():
             # Places live on nodes (city/town/village center points).
             place = obj.tags.get("place")
@@ -376,18 +397,31 @@ def extract_from_pbf(
         ))
         way_count += 1
 
+    # Erase the in-place tick line, then a final summary on its own line.
+    sys.stdout.write("\r" + " " * 80 + "\r")
     print(f"  pass 1 (ways): {way_count:,} drawn, {place_count:,} place labels "
-          f"({time.time() - start:.1f}s)")
+          f"({time.time() - start:.1f}s, {seen_objs:,} objs scanned)")
 
     # Pass 2: areas (closed polygons + multipolygon relations). pyosmium
     # needs NODE | WAY | RELATION available so it can assemble multipolygon
     # geometry; we only iterate the AREA output but the loader has to see
     # the underlying features.
     pass2_start = time.time()
+    last_tick = pass2_start
+    seen_objs = 0
     area_filter = (osmium.osm.NODE | osmium.osm.WAY
                    | osmium.osm.RELATION | osmium.osm.AREA)
     for obj in (osmium.FileProcessor(str(pbf_path), area_filter)
                 .with_areas()):
+        seen_objs += 1
+        now = time.time()
+        if now - last_tick >= 2.0:
+            sys.stdout.write(
+                f"\r  pass 2: {seen_objs:>12,} objs scanned  "
+                f"{area_count:>8,} areas kept  {now - pass2_start:6.1f}s"
+            )
+            sys.stdout.flush()
+            last_tick = now
         if not obj.is_area():
             continue
         spec = _classify_polygon(obj.tags)
@@ -423,8 +457,9 @@ def extract_from_pbf(
         except osmium.InvalidLocationError:
             continue
 
+    sys.stdout.write("\r" + " " * 80 + "\r")
     print(f"  pass 2 (areas): {area_count:,} drawn "
-          f"({time.time() - pass2_start:.1f}s)")
+          f"({time.time() - pass2_start:.1f}s, {seen_objs:,} objs scanned)")
     return geoms, labels
 
 
