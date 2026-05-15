@@ -386,14 +386,22 @@ local function ensure_sampler()
     end)
 end
 
--- Patch the on-disk flags byte (offset 6) to FLAG_CLOSED. There is no
--- byte-level patch primitive in the Lua storage surface today, so we
--- rewrite the file with the patched header. A failure here leaves the
--- file unfinalised; boot.lua's reaper picks it up on next boot.
+-- Patch the on-disk flags byte (offset 6) to FLAG_CLOSED. Uses the
+-- byte-level write_at binding so files larger than read_file's 1 MB
+-- cap (roughly 22 h of recording at 1 s intervals) still finalise
+-- correctly. A failure here leaves the file unfinalised; boot.lua's
+-- reaper picks it up on next boot.
 local function finalise_on_disk(path)
     if not path then return end
     local hdr = M.read_header(path)
     if not hdr or hdr.closed then return end
+    if ez.storage.write_at then
+        ez.storage.write_at(path, 6, string.char(FLAG_CLOSED))
+        return
+    end
+    -- Fallback for firmware predating the write_at binding: read,
+    -- patch, rewrite. Subject to read_file's 1 MB cap, so a session
+    -- that grew past it will be left in-progress until the next boot.
     local raw = ez.storage.read_file(path)
     if not raw or #raw < 7 then return end
     local patched = raw:sub(1, 6) .. string.char(FLAG_CLOSED) .. raw:sub(8)

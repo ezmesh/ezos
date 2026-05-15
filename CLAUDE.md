@@ -819,12 +819,11 @@ fixed records. All multi-byte integers are little-endian.
   between records) and `trk_distance` (min meters from the previous
   point); defaults 5 s / 5 m. Set via the GPS settings panel.
 - Sentinel close: `stop()` patches the flags byte at offset 6 to
-  `FLAG_CLOSED`. The patch reads the whole file into RAM and
-  rewrites it, so `ez.storage.read_file`'s 1 MB cap applies --
-  a session that grows past ~22 hours at 1 s intervals is left
-  with the in-progress flag stuck. Reaper on boot retries failed
-  closes; a `ez.storage.write_at` binding would lift this limit
-  if it ever bites in practice.
+  `FLAG_CLOSED` via the `ez.storage.write_at` binding, which seeks
+  + writes without reading the file, so the close path is not
+  bound by `read_file`'s 1 MB cap. A read-rewrite fallback is kept
+  for firmware predating the binding. Reaper on boot retries
+  failed closes either way.
 - ASCII boundary: header label is sanitized at read time (`?` for
   any byte outside `0x20..0x7E`), same policy as the Node Store.
 

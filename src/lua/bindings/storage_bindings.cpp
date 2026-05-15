@@ -476,6 +476,81 @@ LUA_FUNCTION(l_storage_append_file) {
     return 1;
 }
 
+// @lua ez.storage.write_at(path, offset, data) -> boolean
+// @brief Patch bytes at a specific offset in an existing file
+// @description Opens the file in read/write mode, seeks to `offset`, and
+// writes `data` over the existing bytes. The file must already exist and
+// already cover `offset + #data` bytes; this binding never extends the
+// file. Useful for patching headers (e.g. flipping a closed-flag byte)
+// without reading the whole file into RAM. Mirrors the remote-control
+// protocol's WRITE_AT command (0x0B).
+// @param path File path (prefix /sd/ for SD card)
+// @param offset Byte offset to start writing at (0-based)
+// @param data Bytes to write
+// @return true if successful, or false with error message
+// @example
+// -- Flip header byte 6 from 0x00 to 0x01 without rewriting the file.
+// ez.storage.write_at("/sd/tracks/0.eztrack", 6, string.char(0x01))
+// @end
+LUA_FUNCTION(l_storage_write_at) {
+    LUA_CHECK_ARGC(L, 3);
+    const char* path = luaL_checkstring(L, 1);
+    lua_Integer offset = luaL_checkinteger(L, 2);
+    size_t len;
+    const char* data = luaL_checklstring(L, 3, &len);
+
+    if (offset < 0) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "offset must be >= 0");
+        return 2;
+    }
+
+    const char* adjustedPath;
+    fs::FS* fs = getFS(path, &adjustedPath);
+    if (!fs) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "SD card not available");
+        return 2;
+    }
+    SDOpScope sdLock(fs);
+
+    // "r+" = open existing for read+write without truncating; refuses to
+    // create the file. We don't want to silently extend a missing file
+    // into one full of garbage bytes.
+    File file = openWithRetry(fs, adjustedPath, "r+");
+    if (!file) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "Cannot open file");
+        return 2;
+    }
+
+    if ((size_t)offset + len > file.size()) {
+        file.close();
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "offset + len past end of file");
+        return 2;
+    }
+
+    if (!file.seek((uint32_t)offset)) {
+        file.close();
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "seek failed");
+        return 2;
+    }
+
+    size_t written = file.write((const uint8_t*)data, len);
+    file.close();
+
+    if (written != len) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "Write incomplete");
+        return 2;
+    }
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
 // @lua ez.storage.exists(path) -> boolean
 // @brief Check if file or directory exists
 // @description Checks whether a file or directory exists at the given path.
@@ -1502,6 +1577,7 @@ static const luaL_Reg storage_funcs[] = {
     {"file_size",        l_storage_file_size},
     {"write_file",      l_storage_write_file},
     {"append_file",     l_storage_append_file},
+    {"write_at",        l_storage_write_at},
     {"exists",          l_storage_exists},
     {"remove",          l_storage_remove},
     {"rename",          l_storage_rename},
