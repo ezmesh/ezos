@@ -31,13 +31,16 @@ For each open PR the user owns (assigned or authored) with actionable review fee
    ```
    If you added the line, commit it on `test` (`chore: ignore .worktrees/`) before continuing.
 
-3. **List candidate PRs:**
+3. **List candidate PRs:** run BOTH queries and union the results by PR number — `gh pr list`'s `--search` syntax does not honor `assignee:@me OR author:@me` (the `OR` is silently dropped and the query returns empty), so each filter has to be its own call.
    ```
-   gh pr list --state open --limit 50 \
-     --search "assignee:@me OR author:@me" \
+   gh pr list --state open --limit 50 --author   @me \
+     --json number,title,headRefName,baseRefName,author,assignees,reviewDecision,isDraft,mergeable,mergeStateStatus
+   gh pr list --state open --limit 50 --assignee @me \
      --json number,title,headRefName,baseRefName,author,assignees,reviewDecision,isDraft,mergeable,mergeStateStatus
    ```
    Drop drafts. Drop PRs whose `headRefName` matches a branch the user is currently checked out on locally — they're mid-iteration and would clash with worktree creation.
+
+   **Note on `mergeable`/`mergeStateStatus` from the list call.** GitHub computes these lazily: a freshly listed PR often returns `mergeable: "UNKNOWN"`, `mergeStateStatus: "UNKNOWN"`. Do NOT treat `UNKNOWN` as "no conflicts" — the per-PR triage step refreshes this. A blanket empty-queue verdict from step 3 alone is wrong if any candidate is in `UNKNOWN`.
 
 4. **Per-candidate triage** — fetch the inputs that decide actionability:
    ```
@@ -45,13 +48,16 @@ For each open PR the user owns (assigned or authored) with actionable review fee
    gh api repos/{owner}/{repo}/pulls/<N>/comments      # inline review comments
    gh api repos/{owner}/{repo}/pulls/<N>/files         # what the PR touches (to gauge feasibility)
    ```
+
+   **Resolve `UNKNOWN` mergeable.** The first `gh pr view` often kicks off GitHub's mergeability check but returns `mergeable: "UNKNOWN"` before it finishes. If `mergeable == "UNKNOWN"`, wait ~2 s and re-query (up to 3 attempts). If it stays `UNKNOWN` after the final attempt, fall back to the local probe: `git fetch origin <head_ref> <base_ref>` then `git merge-tree $(git merge-base origin/<base_ref> origin/<head_ref>) origin/<base_ref> origin/<head_ref>` — non-empty output with `<<<<<<<` markers means CONFLICTING. Don't proceed past triage on a PR whose merge state you couldn't determine; log `#<P>: skipped — mergeable state still UNKNOWN` and move on.
+
    Mark a PR **actionable** if any of:
 
    - **CHANGES_REQUESTED** review whose `commit_id` predates the PR's current `headRefOid`, body containing imperative cues ("change", "rename", "remove", "add", "fix", "use", "switch to", "drop", "split", "merge").
    - **Inline review comment** with the same cues, not visibly addressed (thread unresolved, no commit after the comment's `created_at` touched the comment's `path`).
    - **Failed CI** (`statusCheckRollup` entry with `conclusion == FAILURE`), only if the failure log points to a deterministic fix: build error (`pio run` failure with a concrete file:line), Lua syntax error, doc-generator failure, conventional-commit hook rejection. Skip flaky / network failures (timeout, ECONNRESET, esp32 toolchain 503).
    - **Top-level PR comment** opening with an imperative ("please ...", "could you ...", "rename ...", "drop ...") authored after the PR's current `headRefOid` was pushed.
-   - `mergeable == "CONFLICTING"` (equivalently `mergeStateStatus == "DIRTY"`). `UNKNOWN` is not a trigger on its own; the per-PR step will probe locally.
+   - `mergeable == "CONFLICTING"` (equivalently `mergeStateStatus == "DIRTY"`) — confirmed after the UNKNOWN-resolution step above. **A PR with a base-branch conflict is actionable even when there's zero review feedback**: step 3 of the per-PR procedure will try R1 (release-file conflicts auto-resolve), and anything that doesn't match R1 is queued for the post-loop strategy-merge ask. Either way, the PR enters the loop instead of being silently dropped.
 
    If none hit, mark the PR **inactionable** (log `#<P>: skipped — no actionable feedback`).
 

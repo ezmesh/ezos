@@ -5,10 +5,18 @@
 -- URL formats:
 --   https://ezme.sh/#add/v1?k=<64-hex pubkey>&n=<urlencoded name>
 --   https://ezme.sh/#join/v1?t=<base64url(nonce8 || aes128_ecb(secret, blob))>
+--   https://ezme.sh/#time/v1?t=<unix_ts>
+--   https://ezme.sh/#cal/v1?ts=<unix>&dur=<secs>&n=<title>[&lat=<e6>&lon=<e6>]
+--   https://ezme.sh/#sigt/v1?k=<P|R>&n=<nonce hex>
 --
 -- The fragment-only design means non-ezOS receivers see a normal
 -- clickable link; the ezme.sh landing page reads location.hash
 -- client-side, so no payload data ever reaches the web server.
+--
+-- The sigt verb is a protocol carrier for the signal tester, not a
+-- user-actionable share. Chat screens filter messages whose parsed
+-- share kind is "sigt" out of conversations and previews so the
+-- pingpong doesn't clutter the user's chat history.
 --
 -- Channel invites are encrypted to the recipient's identity using the
 -- same X25519 shared secret the DM service uses, so a leaked URL is
@@ -32,6 +40,8 @@ local CONTACT_VERB = "add/v1"
 local INVITE_VERB = "join/v1"
 local TIME_VERB = "time/v1"
 local ACK_VERB = "ack/v1"
+local CAL_VERB = "cal/v1"
+local SIGT_VERB = "sigt/v1"
 
 -- Read-receipt / delivery-ack kinds carried inside an ACK URI.
 local ACK_KIND_DELIVERED = 1
@@ -49,6 +59,16 @@ local PUBKEY_HEX_LEN = 64
 -- MAX_TEXT (120). Sender-side validation refuses encodes that would
 -- exceed it -- better a clear failure than a silently-truncated URL.
 local INVITE_BODY_MAX = 48
+
+-- cal/v1 limits. Title is sanitized to printable ASCII (fonts are
+-- ASCII-only) and truncated so the full URL fits in DM's MAX_TEXT=120
+-- even when lat/lon are present. Duration is capped at 24h per spec to
+-- keep the payload short and discourage long-running events.
+local CAL_TITLE_MAX = 32
+local CAL_DUR_MAX = 86400
+-- Reject ts outside +/- 1 year of "now" so a stale or fat-fingered
+-- value can't pollute the reminder queue. Receivers validate too.
+local CAL_TS_WINDOW = 365 * 24 * 3600
 
 -- =========================================================================
 -- Helpers
@@ -186,6 +206,20 @@ function sharing.encode_channel_invite(recipient_pub_key_hex, channel_name, chan
     return URL_PREFIX .. INVITE_VERB .. "?t=" .. token
 end
 
+-- Encode a signal-test ping or reply. `kind` is "P" (ping) or "R"
+-- (reply); nonce is the short hex string the tester uses to correlate
+-- send to receive. The result rides through the normal DM path as
+-- regular text but is recognised by the chat screens (and filtered
+-- out of conversation views) via sharing.parse.
+function sharing.encode_sigt(kind, nonce)
+    if kind ~= "P" and kind ~= "R" then return nil, "bad kind" end
+    if not nonce or nonce == "" then return nil, "missing nonce" end
+    -- The receive side restricts nonce charset on parse; keep
+    -- emission to the same alphabet so the round-trip survives.
+    if not nonce:match("^[A-Za-z0-9]+$") then return nil, "bad nonce" end
+    return URL_PREFIX .. SIGT_VERB .. "?k=" .. kind .. "&n=" .. nonce
+end
+
 -- Encode the current unix time into a share URL.
 function sharing.encode_time()
     local ts = ez.system.get_time_unix()
@@ -211,6 +245,59 @@ end
 sharing.ACK_DELIVERED = ACK_KIND_DELIVERED
 sharing.ACK_READ      = ACK_KIND_READ
 
+-- Strip the title down to printable ASCII so the on-device fonts can
+-- render it and url_encode doesn't blow up the URL with %XX runs of
+-- multi-byte UTF-8. Anything outside 0x20..0x7E is dropped (not
+-- replaced) so the trimmed string remains a tight fit for the URL.
+local function cal_sanitize_title(s)
+    if type(s) ~= "string" then return "" end
+    s = s:gsub("[^\32-\126]", "")
+    s = s:gsub("^%s+", ""):gsub("%s+$", "")
+    if #s > CAL_TITLE_MAX then s = s:sub(1, CAL_TITLE_MAX) end
+    return s
+end
+
+-- Encode an event/meetup share URL. ts is the unix start time, dur is
+-- the duration in seconds (capped at 24h), title is required, lat/lon
+-- are optional decimal degrees. Returns (url, nil) or (nil, reason).
+--
+-- The URL fits inside DM's MAX_TEXT=120 even at worst case: the prefix
+-- and fixed keys take ~50 bytes, ts/dur up to ~25, lat/lon up to ~28,
+-- leaving room for CAL_TITLE_MAX (32) ASCII title bytes (no
+-- percent-encoding overhead because we restrict charset upstream).
+function sharing.encode_cal(ts, dur, title, lat, lon)
+    ts = tonumber(ts)
+    dur = tonumber(dur)
+    if not ts or ts <= 0 then return nil, "missing start time" end
+    if not dur or dur <= 0 then return nil, "missing duration" end
+    if dur > CAL_DUR_MAX then return nil, "duration over 24h" end
+
+    local now = ez.system.get_time_unix() or 0
+    if now > 0 and math.abs(ts - now) > CAL_TS_WINDOW then
+        return nil, "time outside +/-1y window"
+    end
+
+    local clean = cal_sanitize_title(title or "")
+    if clean == "" then return nil, "missing title" end
+
+    local parts = {
+        "ts=" .. tostring(math.floor(ts)),
+        "dur=" .. tostring(math.floor(dur)),
+        "n=" .. url_encode(clean),
+    }
+
+    if lat ~= nil and lon ~= nil then
+        local la = tonumber(lat)
+        local lo = tonumber(lon)
+        if la and lo and la >= -90 and la <= 90 and lo >= -180 and lo <= 180 then
+            parts[#parts + 1] = "lat=" .. tostring(math.floor(la * 1e6))
+            parts[#parts + 1] = "lon=" .. tostring(math.floor(lo * 1e6))
+        end
+    end
+
+    return URL_PREFIX .. CAL_VERB .. "?" .. table.concat(parts, "&")
+end
+
 -- Parse arbitrary text and return a structured share descriptor if it
 -- contains a recognised share URL, or nil otherwise. Looks for the
 -- URL prefix anywhere in the text -- bubbles can have leading words
@@ -220,6 +307,8 @@ sharing.ACK_READ      = ACK_KIND_READ
 --   { kind = "contact", pub_key_hex = "...", name = "..." }
 --   { kind = "channel_invite", token = "<base64url>" }
 --   { kind = "time", timestamp = <unix_ts> }
+--   { kind = "cal", timestamp, duration, title, lat?, lon? }
+--   { kind = "sigt", sigt_kind = "P"|"R", nonce = "..." }
 function sharing.parse(text)
     if not text or #text == 0 then return nil end
 
@@ -262,8 +351,79 @@ function sharing.parse(text)
             msg_hash = raw:sub(1, 4),
             ack_kind = ack_kind,
         }
+    elseif verb == CAL_VERB then
+        local ts = tonumber(params.ts)
+        local dur = tonumber(params.dur)
+        local n = params.n
+        if not ts or ts < 1577836800 then return nil end
+        -- Enforce the +/-1y window on receive too, not just on encode.
+        -- Without this a peer can craft a far-future ts that the user
+        -- adds to reminders; reminders.tick() only prunes entries
+        -- whose fire_done is set, which never happens for year-2286
+        -- timestamps -- the queue fills up and never recovers.
+        local _now = ez.system.get_time_unix() or 0
+        if _now > 0 and math.abs(ts - _now) > CAL_TS_WINDOW then return nil end
+        if not dur or dur <= 0 or dur > CAL_DUR_MAX then return nil end
+        if not n or n == "" then return nil end
+        -- Defensive: strip non-ASCII the sender may have smuggled in.
+        -- Receivers display via the bitmap fonts so a stray UTF-8 byte
+        -- would render as []. cal_sanitize_title also trims length, so
+        -- a malicious peer can't blow up the bubble layout either.
+        local title = cal_sanitize_title(n)
+        if title == "" then return nil end
+        local lat = tonumber(params.lat)
+        local lon = tonumber(params.lon)
+        local out = {
+            kind = "cal",
+            timestamp = math.floor(ts),
+            duration = math.floor(dur),
+            title = title,
+        }
+        -- Coordinates ride as int_e6 on the wire. Reject impossible
+        -- values so an oversize int can't corrupt the bubble's "Show
+        -- on map" hand-off.
+        if lat and lon then
+            local la = lat / 1e6
+            local lo = lon / 1e6
+            if la >= -90 and la <= 90 and lo >= -180 and lo <= 180 then
+                out.lat = la
+                out.lon = lo
+            end
+        end
+        return out
+    elseif verb == SIGT_VERB then
+        local k = params.k
+        local n = params.n
+        if (k ~= "P" and k ~= "R") or not n or n == "" then return nil end
+        if not n:match("^[A-Za-z0-9]+$") then return nil end
+        return {
+            kind = "sigt",
+            sigt_kind = k,
+            nonce = n,
+        }
     end
     return nil
+end
+
+-- True when a DM message is a protocol carrier that should not appear
+-- in user-facing chat views. Currently only signal-test pings/replies
+-- qualify; other share kinds (contact, channel invite, time) are
+-- meant for the user to see as a card-style bubble.
+--
+-- This reads a stamped `msg.protocol` flag rather than re-parsing the
+-- text every time. Stamping happens at the DM seam
+-- (services/direct_messages.lua) under a scope predicate: the
+-- signal_test service must be active (i.e. the signal-test screen is
+-- open) for the recogniser to fire. That closes the silent-send
+-- vector earlier revisions opened up -- a peer who hand-types
+-- "https://ezme.sh/#sigt/v1?..." outside of an active test now
+-- surfaces as a normal chat bubble (notification, unread badge,
+-- conversation preview) because nothing stamped the flag. Legacy
+-- "[SIGT]P/R <nonce>" history entries left over from before the URL
+-- switch likewise show up as plain bubbles; users can delete them or
+-- run the test screen's `p` shortcut to purge in bulk.
+function sharing.is_protocol_message(msg)
+    return msg ~= nil and msg.protocol == "sigt"
 end
 
 -- Decrypt a channel-invite token from a known sender. Returns the

@@ -1117,6 +1117,16 @@ node.register("status_bar", {
             rx = rx - 4
         end
 
+        -- Power-mode tag ("lp" frugal / "LP" survival). Sits left of
+        -- the battery so the user reads it as "this battery is in
+        -- low-power mode" rather than as part of the clock cluster.
+        if n.power_tag then
+            local pw = theme.text_width(n.power_tag)
+            rx = rx - pw
+            d.draw_text(rx, ty, n.power_tag, theme.color("ACCENT"))
+            rx = rx - 4
+        end
+
         if n.gps_bars then
             rx = rx - 11
             d.draw_gps(rx, y + 5, n.gps_bars)

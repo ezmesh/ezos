@@ -17,9 +17,12 @@
 --     RAW_CUSTOM is not re-flooded by stock MeshCore repeaters, so the
 --     RSSI charted in this mode reflects raw direct radio contact.
 --   DM (TXT_MSG)
---     Text: "[SIGT]P <nonce>" / "[SIGT]R <nonce>". Goes through the
+--     Text is a sharing URL: "https://ezme.sh/#sigt/v1?k=P&n=<nonce>"
+--     for pings and "...?k=R&n=<nonce>" for replies. Goes through the
 --     normal encrypted DM path, which WILL be forwarded by repeaters —
---     the chart then reflects last-hop RSSI, not end-to-end.
+--     the chart then reflects last-hop RSSI, not end-to-end. The chat
+--     screens filter these out of conversation views (the URL is a
+--     protocol carrier, not user-readable chatter).
 --
 -- The `signal_test/sample` bus event fires with:
 --   { mode, pub_key_hex, nonce, rssi, snr, t_ms, name }
@@ -27,26 +30,58 @@
 -- can treat both modes uniformly.
 
 local cp = require("services.custom_packets")
+local sharing = require("services.sharing")
 
 local M = {}
 
-local SUBTYPE     = "SIGT"
-local DM_PREFIX   = "[SIGT]"
-local DM_PING_TAG = "P "
-local DM_PONG_TAG = "R "
+local SUBTYPE = "SIGT"
+-- Legacy DM text format used before the ezme.sh URL switch. Kept so
+-- purge_dm_history can still clean up stranded entries on devices
+-- that upgraded mid-conversation, and so the inbound classifier
+-- treats them as protocol traffic during an active test instead of
+-- letting them resurface as chat bubbles.
+local LEGACY_DM_PREFIX = "[SIGT]"
+local LEGACY_PING_TAG = "P "
+local LEGACY_PONG_TAG = "R "
 
 local active    = false
 local dm_sub_id = nil
 
+-- Parse a DM body as a SIGT carrier. Accepts both the new ezme.sh
+-- URL form emitted by sharing.encode_sigt and the legacy text form
+-- ("[SIGT]P <nonce>" / "[SIGT]R <nonce>") so this firmware can sweep
+-- and recognise pingpong entries that landed in history before the
+-- URL change. Returns { kind, nonce } on a match or nil.
 local function parse_dm(text)
-    if not text or #text < (#DM_PREFIX + 3) then return nil end
-    if text:sub(1, #DM_PREFIX) ~= DM_PREFIX then return nil end
-    local tag = text:sub(#DM_PREFIX + 1, #DM_PREFIX + 2)
-    if tag ~= DM_PING_TAG and tag ~= DM_PONG_TAG then return nil end
-    return {
-        kind  = tag:sub(1, 1),
-        nonce = text:sub(#DM_PREFIX + #DM_PING_TAG + 1),
-    }
+    if type(text) ~= "string" or text == "" then return nil end
+    local share = sharing.parse(text)
+    if share and share.kind == "sigt" then
+        return { kind = share.sigt_kind, nonce = share.nonce }
+    end
+    if text:sub(1, #LEGACY_DM_PREFIX) == LEGACY_DM_PREFIX then
+        local tag = text:sub(#LEGACY_DM_PREFIX + 1, #LEGACY_DM_PREFIX + 2)
+        if tag == LEGACY_PING_TAG or tag == LEGACY_PONG_TAG then
+            return {
+                kind  = tag:sub(1, 1),
+                nonce = text:sub(#LEGACY_DM_PREFIX + #LEGACY_PING_TAG + 1),
+            }
+        end
+    end
+    return nil
+end
+
+-- True when this device has the signal test screen open right now.
+-- Used by direct_messages to decide whether a SIGT-shaped DM should
+-- be stamped as a protocol carrier and hidden from the chat surface,
+-- closing the silent-send vector where a peer could otherwise hand-
+-- type a SIGT URL and have it disappear from the recipient's UI. The
+-- predicate is scope-by-time-window rather than per-peer because the
+-- responder side runs purely off incoming events and has no chosen
+-- peer until the first ping arrives.
+function M.matches_protocol(msg)
+    if not active then return false end
+    if not msg or type(msg.text) ~= "string" then return false end
+    return parse_dm(msg.text) ~= nil
 end
 
 -- Both kinds post a sample so BOTH peers chart a live RSSI trace:
@@ -99,7 +134,8 @@ local function on_dm_message(_topic, msg)
 
     if parsed.kind == "P" then
         local dm = require("services.direct_messages")
-        dm.send(msg.sender_key, DM_PREFIX .. DM_PONG_TAG .. parsed.nonce)
+        local url = sharing.encode_sigt("R", parsed.nonce)
+        if url then dm.send(msg.sender_key, url, { protocol = "sigt" }) end
     end
 end
 
@@ -146,7 +182,8 @@ end
 
 function M.ping_dm(pub_key_hex, nonce)
     local dm = require("services.direct_messages")
-    dm.send(pub_key_hex, DM_PREFIX .. DM_PING_TAG .. nonce)
+    local url = sharing.encode_sigt("P", nonce)
+    if url then dm.send(pub_key_hex, url, { protocol = "sigt" }) end
 end
 
 -- After a DM-mode run, the pings/replies sit in the regular DM history
