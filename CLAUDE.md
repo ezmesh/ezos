@@ -378,6 +378,23 @@ is meant for a future Settings panel; pref keys must stay under
 NVS's 15-character limit, so source tags should be short
 (`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `system`).
 
+Do Not Disturb (issue #116): `notifications.post()` also evaluates a
+time-window DND mode after the source-mute check. When the manual
+override `dnd_manual` is `"1"`, OR `dnd_enabled` is `"1"` and the
+wall clock falls inside `[dnd_start, dnd_end)` (minutes since
+midnight; window wraps midnight if end <= start), the notification
+still lands in the list (so `unread_count` advances) but is flagged
+`silent = true`. The toast subscriber in `ezui/screen.lua` skips
+silent items, and the panel-wake on incoming notification is also
+suppressed. Two opt-in exemptions can pass an event through anyway:
+`opts.dnd_fav` (DM from a starred contact -- not wired yet pending
+a favourites field on `services.contacts`) and `opts.dnd_mention`
+(channel message containing the user's node name -- wired in
+`boot.lua`'s `channel/message` subscriber). User-facing toggles
+live under Settings -> Notifications. DND is treated as off when
+the clock is unset (year < 2020) so a cold boot before NTP/GPS
+sync doesn't accidentally swallow notifications.
+
 ### Module Loading
 
 ```lua
