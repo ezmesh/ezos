@@ -554,24 +554,24 @@ ring buffer is fixed at 64 entries and dumped via
 
 ## Map tools (`tools/maps/`)
 
-Convert OpenStreetMap vector tiles to optimized TDMAP format for offline
-viewing.
+One-command builder that turns a PMTiles source into a TDMAP v7 vector
+archive the device renders directly. The pipeline is collapsed to two
+modules and a CLI:
 
 | File | Purpose |
 |------|---------|
-| `pmtiles_to_tdmap.py` | PMTiles → TDMAP converter |
-| `config.py` | Tile sources, regions, semantic-index → grayscale lookup |
-| `process.py` | Grayscale conversion, dithering, RLE/zlib tile compression |
-| `archive.py` | TDMAP format writer/reader/inspector |
-| `land_mask.py` | Natural Earth land polygon downloader |
-| `viewer.html` | Browser-based TDMAP viewer |
+| `make_map.py`  | CLI entry point. `make_map.py <region>` builds a preset; `make_map.py custom <pmtiles> --bounds W,S,E,N --zoom MIN,MAX` rolls a custom region. |
+| `tdmap.py`     | TDMAP v7 format: writer, reader, inspect/verify CLI, Douglas-Peucker simplifier, Web Mercator helpers. |
+| `regions.py`   | Region preset catalogue (global / europe / netherlands etc). Add a `Region(...)` here and `make_map.py <name>` Just Works. |
+| `viewer.html`  | Browser preview (client-side v7 decoder + canvas renderer). |
 
 ```bash
 cd tools/maps
-pip install -r requirements.txt
-python pmtiles_to_tdmap.py input.pmtiles -o output.tdmap
-python pmtiles_to_tdmap.py input.pmtiles --bounds 4.0,52.0,5.5,52.5 \
-    --zoom 10,14 -o region.tdmap
+pip install -r requirements.txt          # pmtiles, mapbox-vector-tile
+python make_map.py netherlands           # build the 'netherlands' preset
+python make_map.py custom amsterdam.pmtiles \
+    --bounds 4.7,52.3,5.0,52.5 --zoom 12,14 -o ams.tdmap
+python tdmap.py inspect ams.tdmap        # header + per-feature stats
 ```
 
 Copy `.tdmap` files to `/sd/maps/`. The Map app's loader
@@ -579,29 +579,44 @@ Copy `.tdmap` files to `/sd/maps/`. The Map app's loader
 default" via the M-key actions menu skips the picker on subsequent
 opens.
 
-Checkpoints save every 500 tiles; interrupted conversions resume on
-re-run.
+Failure surfaces (writer-side):
+  * empty bounds              → `no tiles in bounds at z<MIN>..z<MAX>`
+  * source missing            → `PMTiles not found: <path>`
+  * zoom out of source range  → `source covers z<a>..z<b>, asked for z<c>..z<d>`
 
-### TDMAP format (v6)
+### TDMAP format (v7)
 
-Writer emits v6 only; reader rejects pre-v6 with a "regenerate" message.
+v7 stores **vector geometry**, not rasterized tiles. The on-device
+renderer reads polylines + filled polygons every frame, so themes
+swap colors at no extra cost, zoom interpolates smoothly, and there is
+no per-zoom raster duplication. Writer emits v7 only; reader rejects
+pre-v7 with a "regenerate" message.
 
-- **Header** (33 bytes): magic, version, compression type, tile/label
-  counts, offsets, zoom range. `palette_count` is always 0; the byte is
-  kept for header-shape stability.
+- **Header** (33 bytes): magic, version=7, compression (zlib), `grid_dim`
+  (spatial-index resolution, default 256), `geom_count`, index offset,
+  data offset, zoom range, label offset/count.
 - **Metadata block**: 4-byte length + TLV tags (region name, bounds,
-  build timestamp, tool version, source hash). Always present (length
-  may be 0) so readers don't need a version-conditional branch to
-  locate the index.
-- **Tile index**: sorted by `(zoom, x, y)` for binary search.
-- **Tile data**: zlib-compressed 3-bit indexed pixels.
-- **Labels**: geographic coords (`lat_e6`, `lon_e6`), zoom ranges,
-  label types.
+  build timestamp, tool version, source hash). **`BB` is mandatory in
+  v7** — the spatial-index grid is defined relative to the archive's
+  bounding box.
+- **Geometry index** (`geom_count` × 14 bytes), sorted by
+  `(cell_index, min_zoom)`: cell_index (u32), feature_class (u8),
+  geom_type (u8, 0=polyline / 1=polygon), min_zoom, max_zoom, payload
+  offset (u32), payload size (u16). A viewport query computes which
+  spatial-grid cells fall inside the visible rect and binary-searches
+  the index for each.
+- **Geometry payload** (per record, zlib-compressed): vertex_count (u8)
+  + int32 origin (lat_e6, lon_e6) + (n-1)×int16 deltas (Δlat_e6, Δlon_e6).
+  Deltas fit in int16 because Douglas-Peucker at zoom-dependent
+  tolerance keeps successive vertices close; the writer interpolates
+  midpoints if a pair would overflow.
+- **Labels**: same layout as v6 (lat_e6/lon_e6 + zoom range + type +
+  utf-8 text, deduped by 1° bucket at build time).
 
 Semantic feature indices (0-7): Land, Water, Park, Building, RoadMinor,
-RoadMajor, Highway, Railway. Tile colors are **not** stored in the
-archive -- the on-device renderer maps indices to RGB565 via
-`ezui.theme.map_palette()`, so a single archive serves both themes.
+RoadMajor, Highway, Railway — unchanged from v6. Colors live in
+`ezui.theme.map_palette()`, so a single archive serves both light and
+dark themes.
 
 ## Rolling OTA updates
 

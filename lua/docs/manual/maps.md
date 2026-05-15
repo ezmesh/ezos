@@ -17,24 +17,37 @@ copy archives in via the Files app.
 
 ## Generating archives
 
-`tools/maps/pmtiles_to_tdmap.py` on a host machine converts
-OpenStreetMap PMTiles into the on-device `.tdmap` format. See
-`tools/maps/` for the conversion pipeline. Each archive is keyed by
-filename, so a per-region `last view` pref is saved per archive --
-switching does not strand you outside the new bounds.
+`tools/maps/make_map.py` on a host machine converts OpenStreetMap
+PMTiles into the on-device `.tdmap` format. The pipeline is one
+command:
 
-## Themes and tile colors
+    python make_map.py netherlands             # build a region preset
+    python make_map.py custom amsterdam.pmtiles --bounds 4.7,52.3,5.0,52.5 --zoom 12,14
 
-Tiles store semantic indices (Land, Water, Park, Building, road
-classes, Railway). The renderer maps those to colors via the active
-ezui theme (Settings -> Display -> Dark mode). Switching themes
-repaints tiles in the same frame -- no archive reload required.
+See `tools/maps/regions.py` to add a new region preset. Each archive
+is keyed by filename, so a per-region "last view" pref is saved per
+archive -- switching does not strand you outside the new bounds.
+
+## Themes and feature colors
+
+Archives store vector geometry tagged by semantic feature (Land,
+Water, Park, Building, road classes, Railway). The renderer maps
+those tags to colors via the active ezui theme (Settings -> Display
+-> Dark mode). Switching themes repaints in the same frame -- no
+archive reload required.
+
+Because rendering is vector-based (no raster tiles), the same archive
+covers every zoom level at full fidelity. There is no per-zoom
+duplication of data, and the renderer interpolates smoothly between
+zoom levels.
 
 ## Layers
 
-A `.tdmap` archive bakes one rasterization. To show a different layer
-mix (e.g. without buildings), generate a new archive with a different
-config and pick it from the loader.
+A `.tdmap` archive includes every feature the generator extracted
+from the source. Buildings only render at zoom 13 and above; minor
+roads only at zoom 12 and above. To produce an archive with a
+different layer mix, edit the extraction predicates in
+`tools/maps/make_map.py` and re-run.
 
 ## Broadcast home location
 
