@@ -49,7 +49,7 @@ local function open_on_map(track_path)
             message = err or "No recorded points in this track.",
             ok_label = "OK",
             cancel_label = "Close",
-        }, function() screen_mod.pop() end)
+        })
         return
     end
 
@@ -93,7 +93,7 @@ local function compute_stats(entry)
             message = err or "unknown error",
             ok_label = "OK",
             cancel_label = "Close",
-        }, function() screen_mod.pop() end)
+        })
         return
     end
     local total_m = 0
@@ -129,7 +129,7 @@ local function compute_stats(entry)
         message = msg,
         ok_label = "OK",
         cancel_label = "Close",
-    }, function() screen_mod.pop() end)
+    })
 end
 
 function Viewer.initial_state()

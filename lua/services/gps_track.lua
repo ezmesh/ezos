@@ -400,12 +400,18 @@ local function finalise_on_disk(path)
         return
     end
     -- Fallback for firmware predating the write_at binding: read,
-    -- patch, rewrite. Subject to read_file's 1 MB cap, so a session
-    -- that grew past it will be left in-progress until the next boot.
+    -- patch, rewrite via a temp-and-rename so an interrupted write
+    -- doesn't destroy the source file. Subject to read_file's 1 MB
+    -- cap; sessions past that stay in-progress until the next boot.
     local raw = ez.storage.read_file(path)
     if not raw or #raw < 7 then return end
     local patched = raw:sub(1, 6) .. string.char(FLAG_CLOSED) .. raw:sub(8)
-    ez.storage.write_file(path, patched)
+    local tmp = path .. ".tmp"
+    if not ez.storage.write_file(tmp, patched) then return end
+    -- rename() overwrites the target on the SD FAT layer; a power
+    -- loss before rename leaves the tmp behind, which the boot
+    -- reaper can clean up alongside its retry pass.
+    ez.storage.rename(tmp, path)
 end
 
 -- Start a new session. Returns (true) on success or (nil, "reason").
@@ -477,10 +483,20 @@ end
 -- Reap any unfinalised sessions on disk. Run from boot.lua; sets the
 -- closed bit on every file whose flags byte is still zero so the user
 -- doesn't see a perpetually "in progress" record after a power cut.
+-- Also sweeps up leftover .eztrack.tmp files from a partial rewrite
+-- in the write_file fallback path.
 function M.reap_unfinalised()
     local entries = M.list()
     for _, e in ipairs(entries) do
         if not e.closed then finalise_on_disk(e.path) end
+    end
+    if ez.storage.list_dir and ez.storage.exists(TRACK_DIR) then
+        for _, raw in ipairs(ez.storage.list_dir(TRACK_DIR) or {}) do
+            local name = raw.name or ""
+            if name:sub(-12) == ".eztrack.tmp" then
+                ez.storage.remove(TRACK_DIR .. "/" .. name)
+            end
+        end
     end
 end
 
