@@ -1,25 +1,64 @@
 # Changelog
 
-## [0.0.99] - 2026-05-13
+## [0.0.113] - 2026-05-13
 
 ### Features
-- **chat:** show RSSI footer on received share/URI cards (939e359)
+- **input-lock:** Shift+Alt+L / Shift+Alt+U global input lock (8b2df8d)
+
+### Fixes
+- **input-lock:** pair is_wake_event with is_locked in remaining touch handlers (4ead538)
+- **input-lock:** plug touch-lock bypass in direct touch/* subscribers (c53240b)
+- **input-lock:** black banner with white text instead of accent fill (b068d9c)
 
 ### Other
-- **readme:** add T-Deck Plus device photo to Features section (f918b09)
+- **claude-md:** consolidate and tighten project guidelines (6d3407c)
+- **input-lock:** pair guards, fix stale drag, document service (cee3914)
 
-## [0.0.99] - 2026-05-13
+## [0.0.113] - 2026-05-13
 
 ### Features
-- **chat:** show RSSI footer on received share/URI cards (939e359)
+- **input-lock:** Shift+Alt+L / Shift+Alt+U global input lock (8b2df8d)
+
+### Fixes
+- **input-lock:** pair is_wake_event with is_locked in remaining touch handlers (4ead538)
+- **input-lock:** plug touch-lock bypass in direct touch/* subscribers (c53240b)
+- **input-lock:** black banner with white text instead of accent fill (b068d9c)
 
 ### Other
-- **readme:** add T-Deck Plus device photo to Features section (f918b09)
+- **claude-md:** consolidate and tighten project guidelines (6d3407c)
+- **input-lock:** pair guards, fix stale drag, document service (cee3914)
 
-## [0.0.95] - 2026-05-12
+## [0.0.107] - 2026-05-13
 
 ### Features
-- **chat:** show RSSI footer on received share/URI cards (939e359)
+- **console:** web flasher + first-boot pref pre-seed for #24 (bff85ac)
+
+### Fixes
+- **console:** guard app+erase brick, rename eraseAll, update rotation docs (ba4ae71)
+- **console:** verify Ed25519 manifest + SHA-256 before flash; drop blob type (7f555bf)
+
+### Other
+- list console/ in CLAUDE.md project-structure tree (4f7c6ea)
+
+## [0.0.103] - 2026-05-13
+
+### Features
+- **signal-test:** scroll viewport + ezme.sh URI for SIGT DMs (8c9b46b)
+
+### Fixes
+- **signal-test:** stamp protocol flag at the DM seam, not in chat render (d92b953)
+
+### Other
+- **claude:** tighten scope note per review (4a19285)
+- **claude:** scope the on-device-fonts ASCII rule to on-device surfaces only (de3dcb3)
+
+## [0.0.97] - 2026-05-13
+
+### Features
+- **signal-test:** scroll viewport + ezme.sh URI for SIGT DMs (8c9b46b)
+
+### Fixes
+- **signal-test:** stamp protocol flag at the DM seam, not in chat render (d92b953)
 
 ## [0.0.94] - 2026-05-11
 

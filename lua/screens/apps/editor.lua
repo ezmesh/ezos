@@ -554,7 +554,8 @@ function Editor:on_enter()
         table.insert(self._touch_subs,
             ez.bus.subscribe("touch/down", function(_, data)
                 if type(data) ~= "table" then return end
-                if require("ezui.touch_input").is_wake_event() then return end
+                local ti = require("ezui.touch_input")
+                if ti.is_locked() or ti.is_wake_event() then return end
                 local n = me._editor_node
                 if not n then return end
                 local row, col = touch_to_cursor(n, data.x, data.y)

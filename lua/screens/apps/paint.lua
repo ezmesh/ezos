@@ -1127,25 +1127,30 @@ function Paint:_install_touch_handlers()
         end
     end
 
-    -- Wake-event guard on all three: a tap that just dismissed the
-    -- screensaver shouldn't seed a stroke, hit a header button, or
-    -- fire end_stroke (which would commit a phantom one-pixel stroke
-    -- to the undo stack).
+    -- Wake-event + input-lock guard on all three: a tap that just
+    -- dismissed the screensaver shouldn't seed a stroke, hit a header
+    -- button, or fire end_stroke (which would commit a phantom one-
+    -- pixel stroke to the undo stack); and while locked, a pocket
+    -- touch in the canvas must not draw either.
+    local touch_input = require("ezui.touch_input")
+    local function suppressed()
+        return touch_input.is_locked() or touch_input.is_wake_event()
+    end
     table.insert(self._touch_subs, ez.bus.subscribe("touch/down",
         function(_, data)
-            if require("ezui.touch_input").is_wake_event() then return end
+            if suppressed() then return end
             end_stroke()
             header_touch(data)
             paint_touch(data, true)
         end))
     table.insert(self._touch_subs, ez.bus.subscribe("touch/move",
         function(_, data)
-            if require("ezui.touch_input").is_wake_event() then return end
+            if suppressed() then return end
             paint_touch(data, false)
         end))
     table.insert(self._touch_subs, ez.bus.subscribe("touch/up",
         function(_, _)
-            if require("ezui.touch_input").is_wake_event() then return end
+            if suppressed() then return end
             end_stroke()
         end))
 end

@@ -255,6 +255,10 @@ local function boot_sequence()
     -- with that contact -- the screen itself shows the new bubble.
     ez.bus.subscribe("dm/message", function(_topic, msg)
         if type(msg) ~= "table" or msg.is_self then return end
+        -- Protocol-carrier DMs (signal-test pingpong) decrypt
+        -- successfully but aren't messages the user wrote, so they
+        -- must not raise a notification toast.
+        if require("services.sharing").is_protocol_message(msg) then return end
         local key  = msg.sender_key
         local name = msg.sender_name or "Unknown"
         local body = msg.text and msg.text:sub(1, 80) or nil
