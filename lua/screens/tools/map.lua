@@ -4,7 +4,6 @@
 local ui          = require("ezui")
 local theme       = require("ezui.theme")
 local screen_mod  = require("ezui.screen")
-local touch_input = require("ezui.touch_input")
 local map_archive = require("services.map_archive")
 local map_view_mod = require("ezui.widgets.map_view")
 local map_view    = map_view_mod.map_view
@@ -82,23 +81,11 @@ end
 function Map:on_enter()
     local inst = self
 
-    -- Tap-to-recenter: the user taps a point on the map and the
-    -- viewport centers on that point. Long-press is intentionally
-    -- unbound right now -- there's no map-screen actions menu yet
-    -- (#59 calls one out as a follow-up); hook a touch/long_press
-    -- subscriber here once the menu lands.
-    self._touch_subs = self._touch_subs or {}
-    table.insert(self._touch_subs, ez.bus.subscribe("touch/tap",
-        function(_topic, data)
-            if touch_input.is_wake_event() then return end
-            if type(data) ~= "table" then return end
-            local node = inst._map_view_node
-            if not node then return end
-            if map_view_mod.recenter_on_screen_point(node, data.x, data.y) then
-                screen_mod.invalidate()
-            end
-        end))
-
+    -- Tap-to-recenter and drag-to-pan are handled inside the map_view
+    -- widget itself (on_touch_down / on_touch_drag / on_touch_up). The
+    -- bridge cancels touch/tap dispatch the moment an owns_touch widget
+    -- sees a move event, so this screen used to leak a duplicate
+    -- subscriber on every re-entry without ever firing it.
     local s = self._state
     if s.archive or s.error then return end
     local path = s.archive_path or "/sd/maps/world.tdmap"
@@ -145,12 +132,6 @@ function Map:on_enter()
 end
 
 function Map:on_exit()
-    if self._touch_subs then
-        for _, id in ipairs(self._touch_subs) do
-            ez.bus.unsubscribe(id)
-        end
-        self._touch_subs = nil
-    end
     self._map_view_node = nil
     local s = self._state
     if s.archive then

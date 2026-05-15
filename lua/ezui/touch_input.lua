@@ -420,6 +420,22 @@ local function on_up(_topic, data)
     local p = _pending
     _pending = nil
 
+    -- Owned-touch widgets (map_view, sliders, scrubbers) get a final
+    -- on_touch_up so they can decide tap-vs-drag with the total
+    -- displacement they accumulated. Runs even when p.cancelled is
+    -- set, since the cancel was set by on_move to keep the bridge
+    -- from also firing fire_tap_event on lift -- the widget still
+    -- needs to see the lift.
+    if p.owns_touch and p.node and type(data) == "table" then
+        local h = node_mod.handler(p.node.type)
+        if h and h.on_touch_up then
+            local tdx = data.x - p.x0
+            local tdy = data.y - p.y0
+            h.on_touch_up(p.node, data.x, data.y, tdx, tdy)
+            require("ezui.screen").invalidate()
+        end
+    end
+
     if p.cancelled or p.scrolling then return end
     local dur = ez.system.millis() - p.ms0
 
@@ -450,6 +466,7 @@ end
 -- use; a 22 px row is reachable with a trackball but easy to miss
 -- with a finger.
 M.MIN_TARGET_H = MIN_TARGET_H
+M.TAP_SLOP     = TAP_SLOP
 
 -- True if the touch panel is initialised. Cheap (one Lua-side bool
 -- read per call), but cached because measure() runs many times per
