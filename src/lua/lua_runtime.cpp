@@ -29,6 +29,8 @@ void registerSynthModule(lua_State* L);
 void registerStorageModule(lua_State* L);
 void registerCryptoModule(lua_State* L);
 void registerCompressionModule(lua_State* L);
+// Identity lock-state bindings (issue #118)
+void registerIdentityModule(lua_State* L);
 // On-device documentation (embedded markdown)
 void registerDocsModule(lua_State* L);
 // GPS module
@@ -205,6 +207,10 @@ void LuaRuntime::registerAllModules() {
     registerCryptoModule(_state);
     registerCompressionModule(_state);
     registerDocsModule(_state);
+    // ez.identity registers after ez.mesh because its accessors reach
+    // into the global `mesh` pointer; safe either way since it never
+    // dereferences during registration, just at call time.
+    registerIdentityModule(_state);
 
     // GPS module
     gps_bindings::registerBindings(_state);

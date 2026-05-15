@@ -697,6 +697,39 @@ local function boot_sequence()
     if theme_name ~= "dark" and theme_name ~= "light" then theme_name = "dark" end
     ui.start({ theme = theme_name })
 
+    -- Identity lock (issue #118): if the device booted with a wrapped
+    -- private key, push the unlock screen on top of whatever else is
+    -- on the stack. C++ Identity::init() loaded the public key but
+    -- left _hasKeypair=false, so any mesh signing path is inert until
+    -- ez.identity.unlock() lands the unwrapped bytes. The unlock
+    -- screen swallows all back / cancel keys -- there is no way to
+    -- dismiss it from the user side except by entering the right
+    -- passphrase.
+    if ez.identity and ez.identity.is_locked and ez.identity.is_locked() then
+        ez.log("[Boot] Identity locked -- pushing unlock screen")
+        local screen_mod  = require("ezui.screen")
+        local Passphrase  = require("screens.onboarding.passphrase")
+        local def_state = Passphrase.initial_state({
+            mode = "unlock",
+            on_done = function()
+                -- After unlock, the mesh layer regains signing
+                -- capability via the C++ Identity::unlock() call. No
+                -- service re-init is required: the running services
+                -- were already polling / subscribing and start
+                -- working as keys appear in RAM. We pop the unlock
+                -- screen so the desktop / onboarding wizard shows.
+                screen_mod.pop()
+                ez.log("[Boot] Identity unlocked")
+                -- Kick a fresh ADVERT so the mesh re-announces us.
+                if ez.mesh and ez.mesh.send_announce then
+                    ez.mesh.send_announce()
+                end
+            end,
+            -- No on_cancel: this screen is the only path forward.
+        })
+        screen_mod.push(screen_mod.create(Passphrase, def_state))
+    end
+
     -- Session lockscreen (issue #119). Two-way wiring: a bus topic
     -- pushes the lockscreen screen when something locks the session,
     -- and the boot-time arm runs immediately if a mode is configured.
