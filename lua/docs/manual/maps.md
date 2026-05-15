@@ -17,12 +17,13 @@ copy archives in via the Files app.
 
 ## Generating archives
 
-`tools/maps/make_map.py` on a host machine converts OpenStreetMap
-PMTiles into the on-device `.tdmap` format. The pipeline is one
-command:
+`tools/maps/make_map.py` on a host machine converts an OpenStreetMap
+PBF into the on-device `.tdmap` format. The pipeline is one command,
+and the source PBF is auto-downloaded from Geofabrik on first run:
 
-    python make_map.py netherlands             # build a region preset
-    python make_map.py custom amsterdam.pmtiles --bounds 4.7,52.3,5.0,52.5 --zoom 12,14
+    python make_map.py monaco                  # tiny -- ~1s end-to-end
+    python make_map.py netherlands             # auto-fetches PBF (~500 MB)
+    python make_map.py custom local.osm.pbf --bounds 4.7,52.3,5.0,52.5 --zoom 12,14
 
 See `tools/maps/regions.py` to add a new region preset. Each archive
 is keyed by filename, so a per-region "last view" pref is saved per

@@ -1,555 +1,506 @@
 #!/usr/bin/env python3
-"""make_map.py — one-command TDMAP archive builder.
+"""make_map.py - one-command TDMAP v7 archive builder.
+
+Reads an OpenStreetMap PBF directly via pyosmium and writes a TDMAP v7
+archive the device renders as vectors. No Planetiler, no Docker, no
+per-tile MVT decode round-trip: each OSM feature is read once and emitted
+as canonical geometry.
 
 Usage:
-    make_map.py <region>                 # build a preset
-    make_map.py custom <pmtiles> --bounds W,S,E,N --zoom MIN,MAX -o foo.tdmap
+    make_map.py <region>                 # build a preset (auto-fetches PBF)
+    make_map.py custom <file.osm.pbf> --bounds W,S,E,N --zoom MIN,MAX
     make_map.py --list                   # show preset catalogue
 
-The script reads vector tiles from a PMTiles source, extracts geometry
-(coastlines, water, parks, buildings, roads, railways) per zoom level,
-applies Douglas-Peucker simplification at a zoom-appropriate tolerance,
-then writes a TDMAP v7 archive that the device renders directly from
-vectors.
+If the preset's PBF is missing under tools/maps/data/, the script
+downloads it from Geofabrik on the fly. Cache survives reruns.
 
-No rasterization. No land mask download. No multi-stage tower. One file
-in, one file out.
-
-Failure surfaces:
-  * empty bounds              → "no tiles in bounds at z<MIN>..z<MAX>"
-  * source missing            → "PMTiles not found: <path>"
-  * zoom out of source range  → "source covers z<a>..z<b>, asked for z<c>..z<d>"
+Failure surfaces (loud, with hints, not silent empty maps):
+  * empty bounds              -> "no ways extracted within bounds"
+  * missing PBF + offline     -> "PBF not found and download failed: ..."
+  * zoom out of sensible range-> "zoom range MIN..MAX outside 0..18"
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
-import math
-import multiprocessing as mp
-import os
 import sys
 import time
+import urllib.request
 from pathlib import Path
-from typing import (
-    Any, Dict, Iterator, List, Optional, Sequence, Tuple,
-)
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-# Local modules — single tdmap unit owns the format + writer, regions owns
-# the preset catalogue.
+try:
+    import osmium
+except ImportError:
+    sys.exit(
+        "Missing dependency: osmium (pyosmium).\n"
+        "Install with: pip install -r tools/maps/requirements.txt"
+    )
+
 import regions as region_presets
 from tdmap import (
     F_LAND, F_WATER, F_PARK, F_BUILDING,
     F_ROAD_MINOR, F_ROAD_MAJOR, F_HIGHWAY, F_RAILWAY,
     G_POLYLINE, G_POLYGON,
     LABEL_CITY, LABEL_TOWN, LABEL_VILLAGE, LABEL_SUBURB,
-    LABEL_ROAD, LABEL_WATER, LABEL_MIN_ZOOM,
+    LABEL_WATER, LABEL_MIN_ZOOM,
     Geometry, Label, TDMAPWriter,
-    decompress_mvt, mvt_layer, simplify,
-    lat_lon_to_tile, tile_to_lat_lon, tile_pixel_to_lat_lon,
+    simplify,
     verify,
 )
 
+
 # ---------------------------------------------------------------------------
-# Zoom-dependent simplification tolerance (in degrees).
-#
-# Each successive zoom level doubles tile resolution, so the tolerance halves
-# at each step. Anchored at z=14 ≈ 1 px per ~2e-5°: anything coarser collapses
-# below display resolution and is safe to drop. A single multiplier sets the
-# whole ladder, so it's easy to retune in one place if the on-device renderer
-# starts struggling with the geometry budget.
+# Zoom-dependent simplification tolerance (degrees).
+# Each zoom step doubles tile resolution, so the tolerance halves. Anchored
+# at z=14 ~= 1 px per 2e-5 degrees: anything coarser collapses below display
+# resolution.
 # ---------------------------------------------------------------------------
 
 _BASE_TOLERANCE_AT_Z14 = 2e-5
+
 
 def tolerance_for_zoom(z: int) -> float:
     return _BASE_TOLERANCE_AT_Z14 * (2 ** (14 - z))
 
 
 # ---------------------------------------------------------------------------
-# OSM landuse classes we treat as "park" so the renderer can paint them green
+# OSM tag -> our 8-class semantic schema. Returns (feature_class, geom_type,
+# min_zoom, max_zoom) or None to drop the feature.
+#
+# The classification is intentionally coarse — the device renders 8 colors,
+# so any further granularity is wasted geometry. Tags taken from the OSM
+# wiki and matched against what shows up in Geofabrik PBFs.
 # ---------------------------------------------------------------------------
 
-_PARK_CLASSES = {"park", "grass", "forest", "wood", "meadow", "nature_reserve"}
+_PARK_LANDUSE = {"forest", "wood", "grass", "meadow", "village_green",
+                 "recreation_ground", "cemetery", "allotments"}
+_PARK_LEISURE = {"park", "garden", "nature_reserve", "pitch", "playground",
+                 "common"}
+_PARK_NATURAL = {"wood", "scrub", "heath", "grassland", "fell"}
+
+# Highway class -> feature_class + min_zoom. We pick "the smallest zoom at
+# which this road's worth drawing" to avoid blowing the geometry budget at
+# low zooms where you can't see the difference between residential and
+# tertiary anyway.
+_HIGHWAY_CLASS = {
+    "motorway":       (F_HIGHWAY,    8),
+    "motorway_link":  (F_HIGHWAY,    11),
+    "trunk":          (F_HIGHWAY,    9),
+    "trunk_link":     (F_HIGHWAY,    12),
+    "primary":        (F_ROAD_MAJOR, 9),
+    "primary_link":   (F_ROAD_MAJOR, 12),
+    "secondary":      (F_ROAD_MAJOR, 10),
+    "secondary_link": (F_ROAD_MAJOR, 12),
+    "tertiary":       (F_ROAD_MINOR, 11),
+    "tertiary_link":  (F_ROAD_MINOR, 13),
+    "unclassified":   (F_ROAD_MINOR, 12),
+    "residential":    (F_ROAD_MINOR, 12),
+    "living_street":  (F_ROAD_MINOR, 13),
+    # service / track / path / footway / cycleway are deliberately omitted —
+    # they swamp dense urban areas with low-value lines and blow render
+    # budget. Add them here if a use case wants pedestrian / cycling detail.
+}
+
+# Place class -> label type + min zoom
+_PLACE_CLASS = {
+    "city":          (LABEL_CITY,    6),
+    "town":          (LABEL_TOWN,    9),
+    "village":       (LABEL_VILLAGE, 11),
+    "hamlet":        (LABEL_VILLAGE, 12),
+    "suburb":        (LABEL_SUBURB,  13),
+    "neighbourhood": (LABEL_SUBURB,  13),
+}
 
 
-# ---------------------------------------------------------------------------
-# Road class → feature index. Returns None for things we don't draw.
-# ---------------------------------------------------------------------------
+def _classify_polygon(tags) -> Optional[Tuple[int, int, int]]:
+    """For an Area, decide whether to keep it and as what.
 
-def road_feature(props: Dict[str, Any]) -> Optional[int]:
-    road_class = props.get("class") or props.get("highway") or ""
-    if not road_class:
+    Returns (feature_class, min_zoom, max_zoom) or None to drop.
+    """
+    # Buildings: only render close-up to keep urban tiles tractable.
+    if "building" in tags:
+        return F_BUILDING, 13, 18
+
+    # Water bodies: lakes, reservoirs, basins.
+    if tags.get("natural") in ("water", "bay"):
+        return F_WATER, 9, 18
+    if tags.get("waterway") in ("riverbank",):
+        return F_WATER, 10, 18
+    if tags.get("water") in ("lake", "reservoir", "pond", "basin"):
+        return F_WATER, 9, 18
+
+    # Land vs the implicit ocean background: explicit land polygons help
+    # the renderer fill coastal tiles correctly.
+    if tags.get("natural") == "coastline":
+        # Coastline is normally a LineString in OSM, not a polygon. Polygons
+        # tagged this way are rare but we keep them as land for sanity.
+        return F_LAND, 7, 18
+
+    # Parks / green: a handful of common tag families.
+    if tags.get("landuse") in _PARK_LANDUSE:
+        return F_PARK, 10, 18
+    if tags.get("leisure") in _PARK_LEISURE:
+        return F_PARK, 11, 18
+    if tags.get("natural") in _PARK_NATURAL:
+        return F_PARK, 10, 18
+
+    return None
+
+
+def _classify_way(tags) -> Optional[Tuple[int, int, int]]:
+    """For a non-area way, decide whether to keep it and as what.
+
+    Returns (feature_class, min_zoom, max_zoom) or None to drop.
+    """
+    highway = tags.get("highway")
+    if highway:
+        spec = _HIGHWAY_CLASS.get(highway)
+        if spec:
+            fc, zmin = spec
+            return fc, zmin, 18
         return None
-    rc = road_class.lower()
-    if "motorway" in rc or "trunk" in rc:
-        return F_HIGHWAY
-    if "primary" in rc or "secondary" in rc:
-        return F_ROAD_MAJOR
-    if "tertiary" in rc or "residential" in rc or "street" in rc:
-        return F_ROAD_MINOR
-    if "service" in rc or "path" in rc or "track" in rc:
-        return None  # too low-importance to draw
-    return F_ROAD_MINOR
+
+    if tags.get("railway") in ("rail", "light_rail", "subway", "tram"):
+        return F_RAILWAY, 11, 18
+
+    waterway = tags.get("waterway")
+    if waterway in ("river", "canal"):
+        return F_WATER, 10, 18
+    if waterway in ("stream",):
+        return F_WATER, 13, 18
+
+    if tags.get("natural") == "coastline":
+        return F_LAND, 7, 18  # coastlines drawn as polylines
+
+    return None
 
 
 # ---------------------------------------------------------------------------
-# PMTiles iteration
+# Geofabrik auto-fetch
 # ---------------------------------------------------------------------------
 
-def _import_pmtiles():
-    try:
-        from pmtiles.reader import Reader, MmapSource  # type: ignore
-        import mapbox_vector_tile as mvt  # type: ignore
-    except ImportError as exc:
-        sys.exit(
-            "Missing dependency: " + str(exc) + "\n"
-            "Install with: pip install -r tools/maps/requirements.txt"
+def _download(url: str, dest: Path) -> None:
+    """Stream a PBF download to `dest` with progress reporting."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    print(f"Fetching {url}")
+    start = time.time()
+    last = start
+    with urllib.request.urlopen(url) as resp, open(tmp, "wb") as f:
+        total = int(resp.headers.get("Content-Length") or 0)
+        read = 0
+        chunk_size = 1024 * 1024
+        while True:
+            chunk = resp.read(chunk_size)
+            if not chunk:
+                break
+            f.write(chunk)
+            read += len(chunk)
+            now = time.time()
+            if now - last >= 1.0:
+                last = now
+                pct = (read / total * 100) if total else 0
+                mb = read / (1024 * 1024)
+                rate = read / (now - start) / (1024 * 1024)
+                sys.stdout.write(
+                    f"\r  {mb:.1f} MB ({pct:.0f}%)  {rate:.1f} MB/s")
+                sys.stdout.flush()
+    print()
+    tmp.rename(dest)
+
+
+def _resolve_source(source: str) -> Path:
+    """Region preset source -> on-disk path. Relative names map under data/."""
+    p = Path(source)
+    if p.is_absolute() or source.startswith(("./", "../")):
+        return p
+    return region_presets.DATA_DIR / source
+
+
+def _ensure_pbf(preset) -> Path:
+    """Return the local PBF path for a preset, downloading from Geofabrik
+    if it's missing."""
+    local = _resolve_source(preset.source)
+    if local.exists():
+        return local
+    if not preset.geofabrik_url:
+        raise SystemExit(
+            f"PBF not found: {local}\n"
+            f"Region '{preset.name}' has no Geofabrik URL; place the PBF "
+            f"manually under tools/maps/data/."
         )
-    return Reader, MmapSource, mvt
-
-
-def tiles_in_bounds(
-    bounds: Optional[Tuple[float, float, float, float]], zoom: int
-) -> Iterator[Tuple[int, int]]:
-    n = 2 ** zoom
-    if bounds is None:
-        for x in range(n):
-            for y in range(n):
-                yield x, y
-        return
-    west, south, east, north = bounds
-    x_min, y_max = lat_lon_to_tile(south, west, zoom)
-    x_max, y_min = lat_lon_to_tile(north, east, zoom)
-    x_min = max(0, x_min)
-    x_max = min(n - 1, x_max)
-    y_min = max(0, y_min)
-    y_max = min(n - 1, y_max)
-    for x in range(x_min, x_max + 1):
-        for y in range(y_min, y_max + 1):
-            yield x, y
-
-
-def count_tiles_in_bounds(
-    bounds: Optional[Tuple[float, float, float, float]], zoom: int
-) -> int:
-    return sum(1 for _ in tiles_in_bounds(bounds, zoom))
-
-
-# ---------------------------------------------------------------------------
-# Geometry extraction from a single MVT tile
-# ---------------------------------------------------------------------------
-
-def _tile_extent(decoded) -> int:
-    """MVT extent (almost always 4096)."""
-    if isinstance(decoded, dict):
-        layers = decoded.values()
-    else:
-        layers = decoded
-    for layer in layers:
-        if isinstance(layer, dict) and "extent" in layer:
-            return layer["extent"]
-    return 4096
-
-
-def _coords_to_lat_lon(
-    coords: Sequence[Sequence[float]],
-    zoom: int, tile_x: int, tile_y: int, extent: int,
-) -> List[Tuple[float, float]]:
-    return [
-        tile_pixel_to_lat_lon(zoom, tile_x, tile_y, c[0], c[1], extent)
-        for c in coords if len(c) >= 2
-    ]
-
-
-def _emit_polylines(
-    geom: dict, feature_class: int, min_z: int, max_z: int,
-    zoom: int, tile_x: int, tile_y: int, extent: int,
-    out: List[Geometry],
-) -> None:
-    """Push polyline geometry from a feature into ``out``."""
-    gtype = geom.get("type")
-    coords = geom.get("coordinates", [])
-    if gtype == "LineString":
-        latlon = _coords_to_lat_lon(coords, zoom, tile_x, tile_y, extent)
-        if len(latlon) >= 2:
-            out.append(Geometry(
-                feature_class=feature_class,
-                geom_type=G_POLYLINE,
-                min_zoom=min_z,
-                max_zoom=max_z,
-                vertices=simplify(latlon, tolerance_for_zoom(zoom)),
-            ))
-    elif gtype == "MultiLineString":
-        for sub in coords:
-            latlon = _coords_to_lat_lon(sub, zoom, tile_x, tile_y, extent)
-            if len(latlon) >= 2:
-                out.append(Geometry(
-                    feature_class=feature_class,
-                    geom_type=G_POLYLINE,
-                    min_zoom=min_z,
-                    max_zoom=max_z,
-                    vertices=simplify(latlon, tolerance_for_zoom(zoom)),
-                ))
-
-
-def _emit_polygons(
-    geom: dict, feature_class: int, min_z: int, max_z: int,
-    zoom: int, tile_x: int, tile_y: int, extent: int,
-    out: List[Geometry],
-) -> None:
-    """Push polygon geometry. Inner rings (holes) are dropped — the on-device
-    renderer doesn't do holes, and at the zoom levels we ship this is rarely
-    visible (a lake's island gets painted-over the lake's blue, which is
-    actually the visually correct outcome for our flat palette anyway)."""
-    gtype = geom.get("type")
-    coords = geom.get("coordinates", [])
-
-    def emit_ring(ring):
-        latlon = _coords_to_lat_lon(ring, zoom, tile_x, tile_y, extent)
-        if len(latlon) >= 3:
-            # Polygons close on themselves; drop the duplicated last point
-            # if the writer would re-emit it.
-            if latlon[0] == latlon[-1]:
-                latlon = latlon[:-1]
-            simplified = simplify(latlon, tolerance_for_zoom(zoom))
-            if len(simplified) >= 3:
-                out.append(Geometry(
-                    feature_class=feature_class,
-                    geom_type=G_POLYGON,
-                    min_zoom=min_z,
-                    max_zoom=max_z,
-                    vertices=simplified,
-                ))
-
-    if gtype == "Polygon":
-        if coords:
-            emit_ring(coords[0])
-    elif gtype == "MultiPolygon":
-        for poly in coords:
-            if poly:
-                emit_ring(poly[0])
-
-
-def extract_tile_geometry(
-    tile_data: bytes, zoom: int, tile_x: int, tile_y: int,
-) -> Tuple[List[Geometry], List[Label]]:
-    """Decode one MVT tile into (geometries, labels). Geometry zoom range is
-    [zoom, max_zoom_seen]; the writer will keep the widest [min, max] across
-    duplicates so a coastline that appears in z=10 and z=11 tiles renders
-    across that range."""
-    _Reader, _Source, mvt = _import_pmtiles()
     try:
-        raw = decompress_mvt(tile_data)
-        decoded = mvt.decode(raw, default_options={"y_coord_down": True})
-    except Exception:
-        return [], []
+        _download(preset.geofabrik_url, local)
+    except Exception as exc:
+        raise SystemExit(
+            f"PBF not found and download failed: {exc}\n"
+            f"Tried: {preset.geofabrik_url}\n"
+            f"Drop a copy at {local} manually if Geofabrik is unreachable."
+        )
+    return local
 
-    extent = _tile_extent(decoded)
+
+# ---------------------------------------------------------------------------
+# pyosmium handler-free extraction.
+#
+# pyosmium 4.x exposes a `FileProcessor` iterator. We make two passes:
+#   1) NODE | WAY     with locations + KeyFilter — fast, gets linear features.
+#   2) AREA           with .with_areas() — gets polygon features (buildings,
+#                     water, parks). pyosmium assembles multipolygon relations
+#                     for us.
+# A second pass through the file is cheap (osmium reads PBF natively).
+# ---------------------------------------------------------------------------
+
+def _within(bounds, lat, lon) -> bool:
+    if not bounds:
+        return True
+    w, s, e, n = bounds
+    return w <= lon <= e and s <= lat <= n
+
+
+def _way_to_latlon(nodes) -> List[Tuple[float, float]]:
+    """Pyosmium way nodes -> [(lat, lon), ...]."""
+    out: List[Tuple[float, float]] = []
+    for n in nodes:
+        if not n.location.valid():
+            continue
+        out.append((n.location.lat, n.location.lon))
+    return out
+
+
+def _ring_to_latlon(ring) -> List[Tuple[float, float]]:
+    """Pyosmium outer ring -> [(lat, lon), ...]. Skips duplicate closing
+    vertex; the writer reads polygons as implicitly closed."""
+    out: List[Tuple[float, float]] = []
+    for n in ring:
+        out.append((n.lat, n.lon))
+    if len(out) > 1 and out[0] == out[-1]:
+        out = out[:-1]
+    return out
+
+
+def _bbox_of(verts: Iterable[Tuple[float, float]]) -> Tuple[float, float, float, float]:
+    lats = [v[0] for v in verts]
+    lons = [v[1] for v in verts]
+    return min(lats), min(lons), max(lats), max(lons)
+
+
+def _intersects_bounds(geom_bbox, bounds) -> bool:
+    if not bounds:
+        return True
+    g_min_lat, g_min_lon, g_max_lat, g_max_lon = geom_bbox
+    w, s, e, n = bounds
+    return not (g_max_lon < w or g_min_lon > e
+                or g_max_lat < s or g_min_lat > n)
+
+
+def extract_from_pbf(
+    pbf_path: Path,
+    bounds: Optional[Tuple[float, float, float, float]],
+    zoom_range: Tuple[int, int],
+) -> Tuple[List[Geometry], List[Label]]:
+    """Walk an OSM PBF once and return geometries + labels in our schema."""
+    min_zoom, max_zoom = zoom_range
     geoms: List[Geometry] = []
     labels: List[Label] = []
 
-    # Land / earth polygons → F_LAND. Drawn underneath everything.
-    for layer_name in ("land", "earth"):
-        layer = mvt_layer(decoded, layer_name)
-        if not layer:
+    print(f"Reading {pbf_path}")
+    way_count = 0
+    area_count = 0
+    place_count = 0
+    start = time.time()
+
+    # Pass 1: linear features (roads, railways, rivers, coastlines as ways).
+    # NODE is needed so .with_locations() can backfill way geometry.
+    for obj in (osmium.FileProcessor(
+            str(pbf_path),
+            osmium.osm.NODE | osmium.osm.WAY,
+        ).with_locations()):
+        if obj.is_node():
+            # Places live on nodes (city/town/village center points).
+            place = obj.tags.get("place")
+            name = obj.tags.get("name") or obj.tags.get("name:en")
+            if place and name and place in _PLACE_CLASS:
+                lat = obj.location.lat
+                lon = obj.location.lon
+                if _within(bounds, lat, lon):
+                    ltype, min_z = _PLACE_CLASS[place]
+                    labels.append(Label(
+                        lat=lat, lon=lon,
+                        zoom_min=LABEL_MIN_ZOOM.get(ltype, min_z),
+                        zoom_max=14,
+                        label_type=ltype,
+                        text=name[:50],
+                    ))
+                    place_count += 1
             continue
-        for feat in layer.get("features", []):
-            _emit_polygons(feat.get("geometry", {}), F_LAND,
-                           zoom, zoom, zoom, tile_x, tile_y, extent, geoms)
 
-    # Water polygons → F_WATER. Lakes, rivers, ocean.
-    for layer_name in ("water", "ocean"):
-        layer = mvt_layer(decoded, layer_name)
-        if not layer:
+        # Skip ways whose tags don't classify as anything we draw.
+        spec = _classify_way(obj.tags)
+        if not spec:
             continue
-        for feat in layer.get("features", []):
-            _emit_polygons(feat.get("geometry", {}), F_WATER,
-                           zoom, zoom, zoom, tile_x, tile_y, extent, geoms)
 
-    # Landuse → F_PARK for the subset of classes we paint green.
-    layer = mvt_layer(decoded, "landuse")
-    if layer:
-        for feat in layer.get("features", []):
-            props = feat.get("properties", {})
-            klass = props.get("class") or props.get("landuse") or ""
-            if klass in _PARK_CLASSES:
-                _emit_polygons(feat.get("geometry", {}), F_PARK,
-                               zoom, zoom, zoom, tile_x, tile_y, extent, geoms)
-
-    # Buildings: only emit at z >= 13. Below that, footprints aren't visible
-    # and they dominate the geometry budget for nothing.
-    if zoom >= 13:
-        layer = mvt_layer(decoded, "building")
-        if layer:
-            for feat in layer.get("features", []):
-                _emit_polygons(feat.get("geometry", {}), F_BUILDING,
-                               zoom, zoom, zoom, tile_x, tile_y, extent, geoms)
-
-    # Waterways (rivers as polylines).
-    layer = mvt_layer(decoded, "waterway")
-    if layer:
-        for feat in layer.get("features", []):
-            _emit_polylines(feat.get("geometry", {}), F_WATER,
-                            zoom, zoom, zoom, tile_x, tile_y, extent, geoms)
-
-    # Railways + roads share the "transportation" layer in most schemas.
-    layer = mvt_layer(decoded, "transportation")
-    if layer:
-        for feat in layer.get("features", []):
-            props = feat.get("properties", {})
-            geom = feat.get("geometry", {})
-            if props.get("class") == "rail":
-                _emit_polylines(geom, F_RAILWAY,
-                                zoom, zoom, zoom, tile_x, tile_y, extent, geoms)
-                continue
-            fc = road_feature(props)
-            if fc is not None:
-                _emit_polylines(geom, fc,
-                                zoom, zoom, zoom, tile_x, tile_y, extent, geoms)
-
-    # Labels (places + water names).
-    for layer_name in ("place", "place_name", "place_label"):
-        layer = mvt_layer(decoded, layer_name)
-        if not layer:
+        fc, zmin, zmax = spec
+        # Clip the feature's zoom range to the requested window. Saves
+        # storage on archives that cap below 14.
+        zmin = max(zmin, min_zoom)
+        zmax = min(zmax, max_zoom)
+        if zmin > zmax:
             continue
-        for feat in layer.get("features", []):
-            props = feat.get("properties", {})
-            geom = feat.get("geometry", {})
-            name = props.get("name") or props.get("name:en") or props.get("name:latin")
-            if not name:
-                continue
-            klass = (props.get("class") or props.get("place")
-                     or props.get("type", ""))
-            lt = None
-            if klass in ("city", "metropolis"):
-                lt = LABEL_CITY
-            elif klass == "town":
-                lt = LABEL_TOWN
-            elif klass in ("village", "hamlet"):
-                lt = LABEL_VILLAGE
-            elif klass in ("suburb", "neighbourhood", "neighborhood", "quarter"):
-                lt = LABEL_SUBURB
-            if lt is None:
-                continue
-            coords = geom.get("coordinates", [])
-            if geom.get("type") == "Point" and len(coords) >= 2:
-                lat, lon = tile_pixel_to_lat_lon(
-                    zoom, tile_x, tile_y, coords[0], coords[1], extent)
-                labels.append(Label(
-                    lat=lat, lon=lon,
-                    zoom_min=LABEL_MIN_ZOOM.get(lt, zoom),
-                    zoom_max=14,
-                    label_type=lt,
-                    text=name[:50],
+
+        try:
+            verts = _way_to_latlon(obj.nodes)
+        except osmium.InvalidLocationError:
+            continue
+        if len(verts) < 2:
+            continue
+        if not _intersects_bounds(_bbox_of(verts), bounds):
+            continue
+
+        # Per-zoom geometry: simplify once at the tolerance for the lowest
+        # zoom level the feature appears at, then use the same vertex set
+        # for higher zooms. (Simplifying per-zoom would duplicate the
+        # feature, which is what we're trying to avoid.)
+        simplified = simplify(verts, tolerance_for_zoom(zmin))
+        if len(simplified) < 2:
+            continue
+
+        geoms.append(Geometry(
+            feature_class=fc,
+            geom_type=G_POLYLINE,
+            min_zoom=zmin,
+            max_zoom=zmax,
+            vertices=simplified,
+        ))
+        way_count += 1
+
+    print(f"  pass 1 (ways): {way_count:,} drawn, {place_count:,} place labels "
+          f"({time.time() - start:.1f}s)")
+
+    # Pass 2: areas (closed polygons + multipolygon relations). pyosmium
+    # needs NODE | WAY | RELATION available so it can assemble multipolygon
+    # geometry; we only iterate the AREA output but the loader has to see
+    # the underlying features.
+    pass2_start = time.time()
+    area_filter = (osmium.osm.NODE | osmium.osm.WAY
+                   | osmium.osm.RELATION | osmium.osm.AREA)
+    for obj in (osmium.FileProcessor(str(pbf_path), area_filter)
+                .with_areas()):
+        if not obj.is_area():
+            continue
+        spec = _classify_polygon(obj.tags)
+        if not spec:
+            continue
+        fc, zmin, zmax = spec
+        zmin = max(zmin, min_zoom)
+        zmax = min(zmax, max_zoom)
+        if zmin > zmax:
+            continue
+
+        # Only the outer rings are drawn — see CLAUDE.md notes; inner holes
+        # would render as the wrong color, which is more confusing than
+        # over-painting them. Multipolygons emit one Geometry per outer.
+        try:
+            for outer in obj.outer_rings():
+                verts = _ring_to_latlon(outer)
+                if len(verts) < 3:
+                    continue
+                if not _intersects_bounds(_bbox_of(verts), bounds):
+                    continue
+                simplified = simplify(verts, tolerance_for_zoom(zmin))
+                if len(simplified) < 3:
+                    continue
+                geoms.append(Geometry(
+                    feature_class=fc,
+                    geom_type=G_POLYGON,
+                    min_zoom=zmin,
+                    max_zoom=zmax,
+                    vertices=simplified,
                 ))
-
-    for layer_name in ("water_name", "waterway_label"):
-        layer = mvt_layer(decoded, layer_name)
-        if not layer:
+                area_count += 1
+        except osmium.InvalidLocationError:
             continue
-        for feat in layer.get("features", []):
-            props = feat.get("properties", {})
-            geom = feat.get("geometry", {})
-            name = props.get("name") or props.get("name:en")
-            if not name:
-                continue
-            coords = geom.get("coordinates", [])
-            px, py = None, None
-            if geom.get("type") == "Point" and len(coords) >= 2:
-                px, py = coords[0], coords[1]
-            elif geom.get("type") in ("LineString", "MultiLineString"):
-                if coords and isinstance(coords[0][0], (list, tuple)):
-                    coords = coords[0]
-                if len(coords) >= 2:
-                    mid = len(coords) // 2
-                    px, py = coords[mid][0], coords[mid][1]
-            if px is None:
-                continue
-            lat, lon = tile_pixel_to_lat_lon(
-                zoom, tile_x, tile_y, px, py, extent)
-            labels.append(Label(
-                lat=lat, lon=lon,
-                zoom_min=LABEL_MIN_ZOOM[LABEL_WATER],
-                zoom_max=14,
-                label_type=LABEL_WATER,
-                text=name[:50],
-            ))
 
+    print(f"  pass 2 (areas): {area_count:,} drawn "
+          f"({time.time() - pass2_start:.1f}s)")
     return geoms, labels
 
 
 # ---------------------------------------------------------------------------
-# Worker pool: each worker opens its own PMTiles reader.
+# Top-level driver
 # ---------------------------------------------------------------------------
-
-_worker_reader = None
-
-
-def _init_worker(pmtiles_path: str) -> None:
-    global _worker_reader
-    Reader, MmapSource, _mvt = _import_pmtiles()
-    f = open(pmtiles_path, "rb")
-    _worker_reader = Reader(MmapSource(f))
-
-
-def _process_tile(args: Tuple[int, int, int]) -> Optional[Dict[str, Any]]:
-    z, x, y = args
-    try:
-        tile_data = _worker_reader.get(z, x, y)
-    except Exception:
-        return None
-    if tile_data is None:
-        return None
-    try:
-        geoms, labels = extract_tile_geometry(tile_data, z, x, y)
-        return {"geoms": geoms, "labels": labels}
-    except Exception as exc:
-        sys.stderr.write(f"\n  failed z={z} x={x} y={y}: {exc}\n")
-        return None
-
-
-# ---------------------------------------------------------------------------
-# Main pipeline
-# ---------------------------------------------------------------------------
-
-def _expand_bounds_to_tile_grid(
-    bounds: Tuple[float, float, float, float], zoom: int
-) -> Tuple[float, float, float, float]:
-    """Snap the user-supplied bounds outward to tile boundaries at the
-    requested max zoom, so the spatial-index grid covers everything we render."""
-    west, south, east, north = bounds
-    x_min, y_max = lat_lon_to_tile(south, west, zoom)
-    x_max, y_min = lat_lon_to_tile(north, east, zoom)
-    south_lat, west_lon = tile_to_lat_lon(x_min, y_max + 1, zoom)
-    north_lat, east_lon = tile_to_lat_lon(x_max + 1, y_min, zoom)
-    return west_lon, south_lat, east_lon, north_lat
-
 
 def build_archive(
-    pmtiles_path: Path,
+    pbf_path: Path,
     output_path: Path,
     bounds: Optional[Tuple[float, float, float, float]],
     zoom_range: Tuple[int, int],
     region_name: Optional[str],
-    workers: Optional[int] = None,
 ) -> Path:
-    Reader, MmapSource, _mvt = _import_pmtiles()
-    if not pmtiles_path.exists():
-        raise SystemExit(f"PMTiles not found: {pmtiles_path}")
+    if not pbf_path.exists():
+        raise SystemExit(f"PBF not found: {pbf_path}")
 
-    workers = workers or max(1, mp.cpu_count())
-
-    # Sanity-check zoom range against the source header.
-    with open(pmtiles_path, "rb") as f:
-        header = Reader(MmapSource(f)).header()
-        src_min_zoom = header.get("min_zoom", 0)
-        src_max_zoom = header.get("max_zoom", 14)
     min_zoom, max_zoom = zoom_range
     if min_zoom > max_zoom:
-        raise SystemExit(
-            f"invalid --zoom: min ({min_zoom}) > max ({max_zoom})")
-    if max_zoom < src_min_zoom or min_zoom > src_max_zoom:
-        raise SystemExit(
-            f"source covers z{src_min_zoom}..z{src_max_zoom}, "
-            f"asked for z{min_zoom}..z{max_zoom}")
-    if min_zoom < src_min_zoom:
-        sys.stderr.write(
-            f"  note: source starts at z{src_min_zoom}; "
-            f"raising min_zoom from {min_zoom}\n")
-        min_zoom = src_min_zoom
-    if max_zoom > src_max_zoom:
-        sys.stderr.write(
-            f"  note: source caps at z{src_max_zoom}; "
-            f"lowering max_zoom from {max_zoom}\n")
-        max_zoom = src_max_zoom
+        raise SystemExit(f"invalid --zoom: min ({min_zoom}) > max ({max_zoom})")
+    if min_zoom < 0 or max_zoom > 18:
+        raise SystemExit(f"zoom range {min_zoom}..{max_zoom} outside 0..18")
 
-    # If bounds is None and the PMTiles header tells us, use that.
-    if bounds is None and "min_lon_e7" in header:
-        bounds = (
-            header.get("min_lon_e7", -1_800_000_000) / 1e7,
-            header.get("min_lat_e7", -850_000_000) / 1e7,
-            header.get("max_lon_e7", 1_800_000_000) / 1e7,
-            header.get("max_lat_e7", 850_000_000) / 1e7,
-        )
-    if bounds is None:
-        bounds = (-180.0, -85.0, 180.0, 85.0)
-    bounds = _expand_bounds_to_tile_grid(bounds, max_zoom)
-
-    # Count tiles up front so we can fail loud on empty bounds.
-    total = sum(count_tiles_in_bounds(bounds, z)
-                for z in range(min_zoom, max_zoom + 1))
-    if total == 0:
-        raise SystemExit(
-            f"no tiles in bounds at z{min_zoom}..z{max_zoom}: bounds={bounds}")
-
-    print(f"Source     : {pmtiles_path}")
+    print(f"Source     : {pbf_path}")
     print(f"Output     : {output_path}")
-    print(f"Bounds     : W={bounds[0]:+.3f} S={bounds[1]:+.3f} "
-          f"E={bounds[2]:+.3f} N={bounds[3]:+.3f}")
+    if bounds:
+        print(f"Bounds     : W={bounds[0]:+.3f} S={bounds[1]:+.3f} "
+              f"E={bounds[2]:+.3f} N={bounds[3]:+.3f}")
+    else:
+        print("Bounds     : entire PBF")
     print(f"Zoom range : {min_zoom}..{max_zoom}")
-    print(f"Tiles      : {total:,} across {max_zoom - min_zoom + 1} zoom levels")
-    print(f"Workers    : {workers}")
+
+    start = time.time()
+    geoms, labels = extract_from_pbf(pbf_path, bounds, zoom_range)
+
+    if not geoms:
+        raise SystemExit(
+            "no ways extracted within bounds — check bounds align with the "
+            "PBF's coverage, and the source actually contains the layers we "
+            "classify (highway/water/landuse).")
+
+    # Compute bounds from geometry if user didn't specify any (handy for
+    # raw "convert the whole PBF" runs).
+    if not bounds:
+        min_lat = min(g.bbox[0] for g in geoms)
+        min_lon = min(g.bbox[1] for g in geoms)
+        max_lat = max(g.bbox[2] for g in geoms)
+        max_lon = max(g.bbox[3] for g in geoms)
+        bounds = (min_lon, min_lat, max_lon, max_lat)
+        print(f"Inferred bounds: W={bounds[0]:+.3f} S={bounds[1]:+.3f} "
+              f"E={bounds[2]:+.3f} N={bounds[3]:+.3f}")
 
     writer = TDMAPWriter()
     writer.set_bounds(*bounds)
     if region_name:
         writer.set_region_name(region_name)
     writer.set_build_timestamp()
-    writer.set_tool_version("make_map.py v7")
-    # Source hash: SHA-256 of a 1 MB prefix is enough to fingerprint without
-    # pulling 600 MB through hashlib.
+    writer.set_tool_version("make_map.py v7 (pyosmium)")
     try:
         h = hashlib.sha256()
-        with open(pmtiles_path, "rb") as sf:
+        with open(pbf_path, "rb") as sf:
             h.update(sf.read(1024 * 1024))
         writer.set_source_hash(h.digest())
     except Exception:
         pass
 
-    # Walk all (z, x, y) once and parallelize across workers. Each worker
-    # returns geometries + labels for one tile; we accumulate in the writer
-    # on the main thread.
-    tile_list: List[Tuple[int, int, int]] = []
-    for z in range(min_zoom, max_zoom + 1):
-        for x, y in tiles_in_bounds(bounds, z):
-            tile_list.append((z, x, y))
-
-    geom_count = 0
-    label_count = 0
-    start = time.time()
-    last_report = start
-
-    with mp.Pool(processes=workers,
-                 initializer=_init_worker,
-                 initargs=(str(pmtiles_path),)) as pool:
-        chunksize = max(1, min(64, len(tile_list) // (workers * 4)))
-        for i, result in enumerate(pool.imap_unordered(
-                _process_tile, tile_list, chunksize=chunksize)):
-            if result is None:
-                continue
-            for g in result["geoms"]:
-                writer.add_geometry(g)
-                geom_count += 1
-            for l in result["labels"]:
-                writer.add_label(l)
-                label_count += 1
-            now = time.time()
-            if now - last_report >= 1.0 or i == len(tile_list) - 1:
-                rate = (i + 1) / (now - start) if now > start else 0
-                eta = (len(tile_list) - i - 1) / rate if rate > 0 else 0
-                sys.stdout.write(
-                    f"\r  {i + 1:,}/{len(tile_list):,} tiles  "
-                    f"{geom_count:,} geoms  {label_count:,} labels  "
-                    f"({rate:.0f} tiles/s, ETA {eta / 60:.0f}m)")
-                sys.stdout.flush()
-                last_report = now
-    print()
+    for g in geoms:
+        writer.add_geometry(g)
+    for l in labels:
+        writer.add_label(l)
 
     print(f"\nWriting {output_path}...")
     writer.write(output_path)
     verify(output_path)
-    print(f"Done in {(time.time() - start) / 60:.1f} min")
+    print(f"Done in {(time.time() - start) / 60:.1f} min "
+          f"({len(geoms):,} geometries, {len(labels):,} labels)")
     return output_path
 
 
@@ -574,33 +525,25 @@ def _parse_zoom(s: str) -> Tuple[int, int]:
     raise argparse.ArgumentTypeError("zoom must be 'min,max' or a single value")
 
 
-def _resolve_source(source: str) -> Path:
-    """Region preset source → on-disk path. Bare filenames map under data/."""
-    p = Path(source)
-    if p.is_absolute() or source.startswith(("./", "../")):
-        return p
-    return region_presets.DATA_DIR / source
-
-
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="Build a TDMAP v7 archive from a PMTiles source.",
+        description="Build a TDMAP v7 archive from an OSM PBF.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
             "  make_map.py netherlands\n"
-            "      Build the 'netherlands' preset to <preset>.tdmap.\n\n"
-            "  make_map.py netherlands -o /sd/maps/nl.tdmap\n"
-            "      Same, custom output path.\n\n"
-            "  make_map.py custom amsterdam.pmtiles "
-            "--bounds 4.7,52.3,5.0,52.5 --zoom 12,14 -o ams.tdmap\n"
-            "      Roll your own bounds/zoom without touching the catalogue.\n"
+            "      Build the 'netherlands' preset. Auto-downloads the PBF\n"
+            "      from Geofabrik on first run.\n\n"
+            "  make_map.py custom my-region.osm.pbf \\\n"
+            "                     --bounds 4.7,52.3,5.0,52.5 --zoom 12,14 \\\n"
+            "                     -o ams.tdmap\n"
+            "      Build from a local PBF you supply.\n"
         ),
     )
     p.add_argument("region", nargs="?",
                    help="Preset name (see --list) or the literal 'custom'.")
     p.add_argument("input", type=Path, nargs="?",
-                   help="For 'custom': path to source PMTiles.")
+                   help="For 'custom': path to source PBF.")
     p.add_argument("-o", "--output", type=Path, default=None,
                    help="Output .tdmap path (default: <region>.tdmap).")
     p.add_argument("--bounds", type=_parse_bounds, default=None,
@@ -609,8 +552,6 @@ def main() -> int:
                    help="Override zoom range: 'min,max'.")
     p.add_argument("--region-name", type=str, default=None,
                    help="Human-readable name for the archive metadata.")
-    p.add_argument("-j", "--workers", type=int, default=None,
-                   help="Parallel workers (default: CPU count).")
     p.add_argument("--list", action="store_true",
                    help="Print region presets and exit.")
     args = p.parse_args()
@@ -626,20 +567,20 @@ def main() -> int:
 
     if args.region == "custom":
         if args.input is None:
-            sys.exit("custom mode: provide <pmtiles> as a positional argument")
+            sys.exit("custom mode: provide <pbf> as a positional argument")
         if args.bounds is None or args.zoom is None:
             sys.exit("custom mode: --bounds and --zoom are required")
-        source = args.input
+        pbf_path = args.input
         bounds = args.bounds
         zoom = args.zoom
         name = args.region_name
-        default_out = args.input.with_suffix(".tdmap")
+        default_out = args.input.with_suffix("").with_suffix(".tdmap")
     else:
         try:
             preset = region_presets.get(args.region)
         except KeyError as exc:
             sys.exit(str(exc))
-        source = _resolve_source(preset.source)
+        pbf_path = _ensure_pbf(preset)
         bounds = args.bounds or preset.bounds
         zoom = args.zoom or preset.zoom
         name = args.region_name or preset.description
@@ -647,12 +588,11 @@ def main() -> int:
 
     output = args.output or default_out
     build_archive(
-        pmtiles_path=source,
+        pbf_path=pbf_path,
         output_path=output,
         bounds=bounds,
         zoom_range=zoom,
         region_name=name,
-        workers=args.workers,
     )
     return 0
 

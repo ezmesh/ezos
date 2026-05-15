@@ -554,24 +554,26 @@ ring buffer is fixed at 64 entries and dumped via
 
 ## Map tools (`tools/maps/`)
 
-One-command builder that turns a PMTiles source into a TDMAP v7 vector
-archive the device renders directly. The pipeline is collapsed to two
-modules and a CLI:
+One-command builder that turns an OSM PBF directly into a TDMAP v7 vector
+archive. Reads OSM data via pyosmium (each feature seen once, no per-tile
+duplication), writes a TDMAP archive the device renders as vectors. No
+Planetiler, no Docker, no MVT tile decode round-trip.
 
 | File | Purpose |
 |------|---------|
-| `make_map.py`  | CLI entry point. `make_map.py <region>` builds a preset; `make_map.py custom <pmtiles> --bounds W,S,E,N --zoom MIN,MAX` rolls a custom region. |
+| `make_map.py`  | CLI entry point. `make_map.py <region>` builds a preset (auto-downloads PBF on first run); `make_map.py custom <file.osm.pbf> --bounds W,S,E,N --zoom MIN,MAX` rolls a custom region. |
 | `tdmap.py`     | TDMAP v7 format: writer, reader, inspect/verify CLI, Douglas-Peucker simplifier, Web Mercator helpers. |
-| `regions.py`   | Region preset catalogue (global / europe / netherlands etc). Add a `Region(...)` here and `make_map.py <name>` Just Works. |
+| `regions.py`   | Region preset catalogue with Geofabrik URLs. Add a `Region(...)` here and `make_map.py <name>` Just Works. |
 | `viewer.html`  | Browser preview (client-side v7 decoder + canvas renderer). |
 
 ```bash
 cd tools/maps
-pip install -r requirements.txt          # pmtiles, mapbox-vector-tile
-python make_map.py netherlands           # build the 'netherlands' preset
-python make_map.py custom amsterdam.pmtiles \
+pip install -r requirements.txt           # osmium (pyosmium 4.x)
+python make_map.py monaco                 # tiny preset; ~1s end-to-end
+python make_map.py netherlands            # auto-fetches PBF from Geofabrik
+python make_map.py custom local.osm.pbf \
     --bounds 4.7,52.3,5.0,52.5 --zoom 12,14 -o ams.tdmap
-python tdmap.py inspect ams.tdmap        # header + per-feature stats
+python tdmap.py inspect ams.tdmap         # header + per-feature stats
 ```
 
 Copy `.tdmap` files to `/sd/maps/`. The Map app's loader
@@ -579,10 +581,15 @@ Copy `.tdmap` files to `/sd/maps/`. The Map app's loader
 default" via the M-key actions menu skips the picker on subsequent
 opens.
 
-Failure surfaces (writer-side):
-  * empty bounds              → `no tiles in bounds at z<MIN>..z<MAX>`
-  * source missing            → `PMTiles not found: <path>`
-  * zoom out of source range  → `source covers z<a>..z<b>, asked for z<c>..z<d>`
+OSM tag → feature-class mapping lives in `make_map.py` (`_classify_way`
+and `_classify_polygon`). The mapping is intentionally coarse — the
+device has 8 colors. Adjust the per-class `min_zoom` values there to
+tune storage vs detail tradeoffs.
+
+Failure surfaces (writer-side, all loud):
+  * empty bounds              → `no ways extracted within bounds`
+  * source missing + offline  → `PBF not found and download failed: ...`
+  * zoom out of range         → `zoom range MIN..MAX outside 0..18`
 
 ### TDMAP format (v7)
 

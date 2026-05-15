@@ -1,3 +1,2 @@
 # Dependencies for make_map.py (TDMAP v7 builder)
-pmtiles>=3.0.0
-mapbox-vector-tile>=2.0.0
+osmium>=4.0
