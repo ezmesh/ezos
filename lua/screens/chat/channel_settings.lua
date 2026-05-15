@@ -73,8 +73,9 @@ function ChannelSettings:build(state)
         }))
     content[#content + 1] = ui.padding({ 2, 8, 4, 8 },
         ui.text_widget(
-            "Mentions match your node name as a substring of the "
-            .. "message text.",
+            "Mentions match your node name (or any trigger word "
+            .. "from Settings -> Notifications) as a substring of "
+            .. "the message text.",
             { wrap = true, color = "TEXT_MUTED", font = "small_aa" }))
 
     -- ---- Hide ----
