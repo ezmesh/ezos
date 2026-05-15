@@ -119,7 +119,7 @@ Each prompt is self-contained — the agent starts cold. Spell out the issue num
 Work issue #<N> for the ezos repo.
 
 Worktree: <abs-repo-root>/.worktrees/issue-<N>-<slug>
-Branch:   <type>/issue-<N>-<slug>   (already created off origin/test, tracking it)
+Branch:   <type>/issue-<N>-<slug>   (already created off origin/test; no upstream set yet -- first push uses `git push -u`)
 
 ALL `git`, `pio`, `gh`, and file edits must run inside the worktree
 path above. Never `cd` out of it. Never modify the main checkout.
@@ -140,8 +140,7 @@ Per-issue conventions:
 - Conventional Commit via HEREDOC (allowed types: feat, fix, build,
   chore, ci, docs, refactor, perf, test, style). The `commit-msg`
   hook enforces this -- do NOT pass `--no-verify`.
-- Include the `Co-Authored-By: Claude Opus 4.7 (1M context)
-  <noreply@anthropic.com>` trailer.
+- Include the `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>` trailer.
 - `git push -u origin <type>/issue-<N>-<slug>`.
 - `gh pr create --base test --title "<type>(<scope>): ..." --body
   "..."`. Body MUST contain `Closes #<N>` and a test-plan checklist
