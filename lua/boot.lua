@@ -328,6 +328,24 @@ local function boot_sequence()
         })
     end)
 
+    -- ---- GPS shares over custom packets ----
+    -- The binary GPS\0 custom-packet path (services/custom_packets)
+    -- fires custom/gps_fix when a peer pushes us their location. The
+    -- chat-bubble share-card flow covers the URL-shaped variant; this
+    -- handler surfaces the binary one as a toast so the user still
+    -- knows. Mute via `notify_gps` pref ("0" = silent).
+    ez.bus.subscribe("custom/gps_fix", function(_topic, data)
+        if type(data) ~= "table" then return end
+        local who  = data.name or (data.sender_pub
+                        and data.sender_pub:sub(1, 8)) or "peer"
+        local body = string.format("%.4f, %.4f", data.lat or 0, data.lon or 0)
+        notifications.post({
+            title  = "Location from " .. who,
+            body   = body,
+            source = "gps",
+        })
+    end)
+
     -- ---- Battery + SD polling ----
     -- One periodic timer covers both: cheap polls (one ADC + one
     -- bool), and there's no driver-side bus event for either today.
@@ -640,6 +658,29 @@ local function boot_sequence()
     local theme_name = ez.storage.get_pref("theme", "dark")
     if theme_name ~= "dark" and theme_name ~= "light" then theme_name = "dark" end
     ui.start({ theme = theme_name })
+
+    -- Session lockscreen (issue #119). Two-way wiring: a bus topic
+    -- pushes the lockscreen screen when something locks the session,
+    -- and the boot-time arm runs immediately if a mode is configured.
+    do
+        local lock_ok, lock = pcall(require, "services.lockscreen")
+        if lock_ok and lock then
+            local screen_mod = require("ezui.screen")
+            ez.bus.subscribe("lockscreen/locked", function()
+                local def = require("screens.tools.lockscreen")
+                local init = def.initial_state and def.initial_state() or {}
+                screen_mod.push(screen_mod.create(def, init))
+            end)
+            if lock.is_armed() then
+                -- Boot resets the retry-wait timer because the
+                -- persisted deadline is a millis() snapshot from the
+                -- previous boot session; the fail count survives so
+                -- a power-cycle attack still pays the backoff.
+                lock.reset_cooldown()
+                lock.lock()  -- emits lockscreen/locked
+            end
+        end
+    end
 
     -- After a fresh OTA the new image boots in the "pending verify"
     -- state — the bootloader auto-rolls back if we crash too many

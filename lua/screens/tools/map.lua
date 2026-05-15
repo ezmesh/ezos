@@ -252,6 +252,31 @@ local function home_is_set()
     return (lat ~= "" and lat ~= nil) or (lon ~= "" and lon ~= nil)
 end
 
+-- Push a list-of-options menu. Used by the location-sharing actions to
+-- pick a destination contact or channel after the user has panned to
+-- the point they want to share. Pops itself before invoking on_pick so
+-- the user lands back on the map (not on a stale picker) when the
+-- destination chat takes over.
+local function push_destination_picker(title, items, on_pick)
+    local MenuDialog = require("screens.dialog.menu")
+    local entries = {}
+    for _, item in ipairs(items) do
+        entries[#entries + 1] = {
+            title = item.title,
+            subtitle = item.subtitle,
+            on_press = function() on_pick(item.value) end,
+        }
+    end
+    if #entries == 0 then
+        entries[#entries + 1] = {
+            title = "(nothing to share to)",
+            disabled = true,
+        }
+    end
+    screen_mod.push(screen_mod.create(MenuDialog,
+        MenuDialog.initial_state(entries, title)))
+end
+
 function Map:menu()
     local notifications = require("services.notifications")
     local items = {}
@@ -354,6 +379,101 @@ function Map:menu()
         on_press = function()
             local Viewer = require("screens.tools.track_viewer")
             screen_mod.push(screen_mod.create(Viewer, Viewer.initial_state()))
+        end,
+    }
+
+    -- Share the current map center (the crosshair) as an ezme.sh
+    -- location share. The DM variant encrypts to the recipient; the
+    -- channel variant is plaintext. Both flow through the same
+    -- chat send pipeline as a regular message, so the recipient sees
+    -- a chat bubble they can act on via the standard context menu.
+    local sharing_svc = require("services.sharing")
+
+    items[#items + 1] = {
+        title    = "Share this point -> DM...",
+        subtitle = "Send the map center to a contact (encrypted)",
+        on_press = function()
+            local s = self._state
+            local lat, lon = s.center_lat, s.center_lon
+            if type(lat) ~= "number" or type(lon) ~= "number" then
+                notifications.post({
+                    title = "Cannot share",
+                    body = "No map center -- open a map archive first.",
+                    source = "system",
+                })
+                return
+            end
+            local contacts_svc = require("services.contacts")
+            local picker = {}
+            for _, c in ipairs(contacts_svc.get_all()) do
+                picker[#picker + 1] = {
+                    title = c.name or c.pub_key_hex:sub(1, 8),
+                    subtitle = c.pub_key_hex:sub(1, 12) .. "...",
+                    value = c,
+                }
+            end
+            push_destination_picker("Share location to", picker, function(contact)
+                local dm_svc = require("services.direct_messages")
+                local url, err = sharing_svc.encode_gps_dm(
+                    contact.pub_key_hex, lat, lon, nil)
+                if url then
+                    dm_svc.send(contact.pub_key_hex, url)
+                    notifications.post({
+                        title = "Location shared",
+                        body = "Sent to " .. (contact.name or "contact"),
+                        source = "system",
+                    })
+                else
+                    notifications.post({
+                        title = "Share failed",
+                        body = err or "unknown error",
+                        source = "system",
+                    })
+                end
+            end)
+        end,
+    }
+
+    items[#items + 1] = {
+        title    = "Share this point -> Channel...",
+        subtitle = "Post the map center to a channel (visible to all)",
+        on_press = function()
+            local s = self._state
+            local lat, lon = s.center_lat, s.center_lon
+            if type(lat) ~= "number" or type(lon) ~= "number" then
+                notifications.post({
+                    title = "Cannot share",
+                    body = "No map center -- open a map archive first.",
+                    source = "system",
+                })
+                return
+            end
+            local channels_svc = require("services.channels")
+            local picker = {}
+            for _, ch in ipairs(channels_svc.get_list()) do
+                picker[#picker + 1] = {
+                    title = ch.name,
+                    subtitle = "Post to this channel",
+                    value = ch.name,
+                }
+            end
+            push_destination_picker("Share location to", picker, function(channel_name)
+                local url, err = sharing_svc.encode_gps_channel(lat, lon, nil)
+                if url then
+                    channels_svc.send(channel_name, url)
+                    notifications.post({
+                        title = "Location shared",
+                        body = "Posted to " .. channel_name,
+                        source = "system",
+                    })
+                else
+                    notifications.post({
+                        title = "Share failed",
+                        body = err or "unknown error",
+                        source = "system",
+                    })
+                end
+            end)
         end,
     }
 

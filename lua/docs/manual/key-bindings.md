@@ -14,6 +14,7 @@ listed in each app's section.
 | LShift+RShift   | Open the app menu from any screen       |
 | Shift+Alt+L     | Lock all input (see Input lock)         |
 | Shift+Alt+U     | Unlock input                            |
+| Shift+Alt+K     | Lock session (PIN / passphrase, if set) |
 
 ## Lists and forms
 
