@@ -841,7 +841,12 @@ function dm.init()
                                         if self_pk then
                                             for _, m in ipairs(hist) do
                                                 if m.is_self then
-                                                    local ts = math.floor(m.timestamp or 0)
+                                                    -- Hash against the wire (epoch) timestamp the
+                                                    -- receiver saw, not the local millis() display
+                                                    -- value. Fall back to `timestamp` for any
+                                                    -- bubble stored before this fix landed.
+                                                    local ts = math.floor((m.wire_ts and m.wire_ts > 0
+                                                        and m.wire_ts) or m.timestamp or 0)
                                                     if ts < 0 then ts = ts + 0x100000000 end
                                                     local tsb = string.char(ts & 0xFF,
                                                         (ts >> 8) & 0xFF,
@@ -1063,11 +1068,22 @@ function dm.send(pub_key_hex, text, opts)
     -- (first send only), AES + HMAC, packet assembly. Every crypto
     -- step yields onto the AsyncIO worker thread, so the main loop
     -- stays free to draw and handle input while the worker grinds.
+    -- Stash the wire timestamp (Unix seconds) the receiver will see
+    -- in the inner plaintext alongside the display timestamp. ACK
+    -- matching hashes against `wire_ts` so the digest agrees across
+    -- peers; the millis-based `timestamp` is kept for ordering /
+    -- display / dedup.
+    local wire_ts = 0
+    if ez.system.get_time then
+        local t = ez.system.get_time()
+        wire_ts = (t and t.epoch) or 0
+    end
     local msg = {
         sender_key  = ez.mesh.get_public_key_hex(),
         sender_name = ez.mesh.get_node_name() or "Me",
         text        = text,
         timestamp   = ez.system.millis(),
+        wire_ts     = wire_ts,
         is_self     = true,
         status      = "pending",
         -- `opts.protocol` stamps the outbound carrier (e.g. signal
