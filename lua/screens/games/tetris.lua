@@ -20,7 +20,14 @@ local ui         = require("ezui")
 local node_mod   = require("ezui.node")
 local theme      = require("ezui.theme")
 local screen_mod = require("ezui.screen")
+local dialog     = require("ezui.dialog")
 local highscores = require("engine.highscores")
+
+-- Remembered nickname for the high-score prompt. Persisted so a
+-- regular player doesn't retype it on every run; pref key fits the
+-- 15-char NVS namespace limit.
+local LAST_NAME_PREF = "tetris_name"
+local HS_MAX = 5
 
 -- Forward-declare the difficulty so the hs_key() closure below can
 -- capture it as an upvalue. Without this declaration, `difficulty`
@@ -282,6 +289,24 @@ local function next_bag_piece()
     return table.remove(bag)
 end
 
+-- Peek at the current board to decide whether `candidate_score` would
+-- earn a slot. Used to gate the name-entry prompt — only ask for a
+-- name when the run actually made the board, otherwise the dialog is
+-- just noise.
+local function would_make_board(candidate_score)
+    local list = highscores.get(hs_key())
+    if #list < HS_MAX then return true end
+    return candidate_score > (list[HS_MAX].score or 0)
+end
+
+local function submit_with_name(name)
+    local rank = highscores.submit(hs_key(), score, lines, name)
+    if rank then
+        status_text = "High score! #" .. rank
+        screen_mod.invalidate()
+    end
+end
+
 local function spawn_piece()
     piece = next_piece or next_bag_piece()
     next_piece = next_bag_piece()
@@ -293,9 +318,34 @@ local function spawn_piece()
         -- Can't even spawn — game over.
         game_state = "over"
         status_text = "Game over"
-        local rank = highscores.submit(hs_key(), score, lines)
-        if rank then
-            status_text = "High score! #" .. rank
+
+        if would_make_board(score) then
+            -- The tick can keep firing; tick() is a no-op while
+            -- game_state == "over". Pushing the dialog moves input
+            -- focus off this screen, so the prompt is effectively
+            -- modal.
+            local last = ez.storage.get_pref(LAST_NAME_PREF, "")
+            if type(last) ~= "string" then last = "" end
+            dialog.prompt({
+                title       = "High score!",
+                message     = string.format(
+                    "%d pts -- enter a name (ENTER to confirm)", score),
+                value       = last,
+                placeholder = "name",
+            }, function(name)
+                ez.storage.set_pref(LAST_NAME_PREF, name or "")
+                submit_with_name(name)
+            end, function()
+                -- Cancelled: still record the score so the board
+                -- reflects the run; the entry just shows blank for
+                -- the name column.
+                submit_with_name("")
+            end)
+        else
+            -- Didn't make the board — record anyway so the cache /
+            -- timestamp stay consistent. submit() will discard it
+            -- when the top-N trim runs.
+            highscores.submit(hs_key(), score, lines, "")
         end
     end
 end
@@ -533,7 +583,9 @@ local function draw_over(d)
         and "HIGH SCORES (EASY)" or "HIGH SCORES (HARD)"
     d.draw_text(panel_x + 12, panel_y + 50, board_label, TEXT_DIM)
     local rows = highscores.format(hs_key(), function(i, h)
-        return string.format("%d.  %6d   %d lines", i, h.score, h.extra)
+        local name = (h.name and h.name ~= "") and h.name or "---"
+        return string.format("%d. %-10s %5d  %d ln",
+            i, name, h.score, h.extra)
     end)
     for i, line in ipairs(rows) do
         d.draw_text(panel_x + 12, panel_y + 62 + (i - 1) * 12, line, TEXT_MAIN)

@@ -15,7 +15,9 @@ local Screen = { title = "Tetris scores" }
 local HS_KEYS = { easy = "tetris_easy", hard = "tetris_hard" }
 
 local function format_row(i, h)
-    return string.format("%d.  %6d   %d lines", i, h.score, h.extra)
+    local name = (h.name and h.name ~= "") and h.name or "---"
+    return string.format("%d. %-12s %6d  %d lines",
+        i, name, h.score, h.extra)
 end
 
 local function board_section(label, key)
