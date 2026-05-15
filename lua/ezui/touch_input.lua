@@ -58,6 +58,21 @@ local MIN_TARGET_H = 32
 -- user; only one finger can have an in-flight tap at a time.
 local _pending = nil
 
+-- Trackball-active touch deadzone at the screen bottom.
+--
+-- The trackball ball sits directly below the touchscreen. While the
+-- user is scrolling with the trackball, the same thumb sometimes
+-- slips off the ball onto the bottom strip of the panel mid-gesture;
+-- that slip lands as a real touch/down and yanks focus to whatever
+-- widget sat at the bottom of the screen. Drop any touch/down whose
+-- y falls inside the bottom DEADZONE_PX while the trackball has been
+-- active within the last DEADZONE_WINDOW_MS. After the window
+-- expires the strip becomes tappable again, so screens that legit
+-- use the bottom edge for actions still work outside of trackball
+-- gestures.
+local DEADZONE_PX        = 24
+local DEADZONE_WINDOW_MS = 1500
+
 -- ---------------------------------------------------------------------------
 -- Mouse mode
 -- ---------------------------------------------------------------------------
@@ -216,6 +231,23 @@ local function on_down(_topic, data)
         _pending = nil
         _mouse_pending = nil
         return
+    end
+
+    -- Trackball-active bottom deadzone. See DEADZONE_PX comment above.
+    -- Only consults the kbd binding when it's actually present so the
+    -- helper still works on hosts where ez.keyboard is stubbed.
+    if ez and ez.keyboard and ez.keyboard.get_last_trackball_ms then
+        local th = theme()
+        local sh = th.SCREEN_H or 240
+        if data.y >= sh - DEADZONE_PX then
+            local last_tb = ez.keyboard.get_last_trackball_ms() or 0
+            if last_tb > 0
+                    and (ez.system.millis() - last_tb) < DEADZONE_WINDOW_MS then
+                _pending = nil
+                _mouse_pending = nil
+                return
+            end
+        end
     end
 
     if M.mouse_mode then

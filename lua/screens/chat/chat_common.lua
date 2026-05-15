@@ -29,12 +29,14 @@ local BUBBLE_GAP = 2
 -- read; the dispatcher in measure/draw chooses based on n.share.
 local function measure_share(n, max_w)
     local share = n.share
+    local msg = n.msg or {}
     local card_max = math.floor(max_w * SHARE_MAX_PCT)
     local inner_w = card_max - PAD_X * 2
 
-    -- Three lines: kind label (tiny), main title (small), action hint
-    -- (tiny). Title can wrap if the name is unusually long; the others
-    -- are single-line.
+    -- Kind label (tiny), main title (small), action hint (tiny). Title
+    -- can wrap if the name is unusually long; the others are
+    -- single-line. Received cards also get an RSSI footer line in the
+    -- tiny font when msg.rssi is set, matching the plain-text bubble.
     theme.set_font("tiny_aa")
     local meta_h = theme.font_height() + 1
 
@@ -45,14 +47,19 @@ local function measure_share(n, max_w)
 
     theme.set_font("tiny_aa")
     local action_h = theme.font_height() + 1
+    local rssi_h = 0
+    if (not msg.is_self) and msg.rssi then
+        rssi_h = theme.font_height() + 1
+    end
 
     n._card_w = card_max
     n._title_h = title_h
     n._meta_h = meta_h
     n._action_h = action_h
+    n._rssi_h = rssi_h
     n._line_h = theme.font_height()  -- used for tiny-font lines
 
-    local total_h = meta_h + title_h + action_h + PAD_Y * 2 + BUBBLE_GAP
+    local total_h = meta_h + title_h + action_h + rssi_h + PAD_Y * 2 + BUBBLE_GAP
     return max_w, total_h
 end
 
@@ -65,7 +72,8 @@ local function draw_share(n, d, x, y, w, h)
     local title_h = n._title_h or 12
     local meta_h = n._meta_h or 10
     local action_h = n._action_h or 10
-    local card_h = meta_h + title_h + action_h + PAD_Y * 2
+    local rssi_h = n._rssi_h or 0
+    local card_h = meta_h + title_h + action_h + rssi_h + PAD_Y * 2
 
     local cx = msg.is_self and (x + w - card_w - 2) or (x + 2)
     local cy = y
@@ -106,6 +114,14 @@ local function draw_share(n, d, x, y, w, h)
     theme.set_font("tiny_aa")
     local hint_color = share.disabled and theme.color("TEXT_MUTED") or theme.color("ACCENT")
     d.draw_text(cx + PAD_X, ty, share.action_hint or "Tap for details", hint_color)
+    ty = ty + action_h
+
+    -- RSSI footer: received cards mirror the plain-text bubble's
+    -- meta line so link quality is visible regardless of payload type.
+    if rssi_h > 0 and msg.rssi then
+        local rssi_str = string.format("%ddBm", math.floor(msg.rssi))
+        d.draw_text(cx + PAD_X, ty, rssi_str, theme.color("TEXT_MUTED"))
+    end
 end
 
 if not node_mod.handler("chat_bubble") then

@@ -246,10 +246,18 @@ jobs:
             ASSETS+=(artifacts/manifest.json.sig)
           fi
 
+          # Promote to a full release (not pre-release) and name it after
+          # the version stamped by the changelog step above, so the
+          # GitHub Releases UI shows e.g. "ezOS v0.0.92" instead of the
+          # opaque "Rolling main (<short-sha>)". The tag stays
+          # `rolling-main` because the on-device OTA updater hard-codes
+          # that tag in the manifest URL; only the display title and the
+          # prerelease flag change.
+          VERSION='${{ steps.changelog.outputs.version }}'
           gh release create "$TAG" "${ASSETS[@]}" \
-            --title "Rolling main (${SHORT_SHA})" \
+            --title "ezOS v${VERSION}" \
             --notes-file "$NOTES_FILE" \
-            --prerelease
+            --latest
 
   prune:
     needs: build

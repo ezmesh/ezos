@@ -36,6 +36,15 @@ bool MeshCore::init() {
     Serial.printf("Node ID: %s\n", fullId);
     Serial.printf("Node Name: %s\n", _identity.getNodeName());
 
+    // Load persisted node list from /sd/nodes.bin (or NVS fallback) so
+    // the Map screen / "browse nodes" UI shows last-known peers
+    // immediately after a cold boot, instead of waiting up to 15 min
+    // for the next ADVERT round. See node_store.h for the rationale.
+    if (_nodeStore.load(_nodes)) {
+        Serial.printf("Mesh: restored %u known nodes\n",
+                      (unsigned)_nodes.size());
+    }
+
     // Channel management is now handled by Lua (scripts/services/channels.lua)
     // The Lua Channels service will call on_group_packet() to receive raw packets
     // and send_group_packet() to transmit encrypted messages
@@ -107,6 +116,21 @@ void MeshCore::update() {
         if (now - _lastAnnounce >= _announceInterval) {
             _lastAnnounce = now;
             sendAnnounce();
+        }
+    }
+
+    // Debounced node-list persistence. Save once the dirty window has
+    // been quiet for kNodesSaveDebounceMs; a steady ADVERT stream
+    // doesn't extend the window because _nodesDirtyAt is only stamped
+    // on the *first* unsaved change (see updateNode()).
+    if (_nodesDirty &&
+        (millis() - _nodesDirtyAt) >= kNodesSaveDebounceMs) {
+        if (_nodeStore.save(_nodes)) {
+            _nodesDirty = false;
+        } else {
+            // Defer the next attempt by another debounce window rather
+            // than spinning on a flaky backend (e.g. SD pulled out).
+            _nodesDirtyAt = millis();
         }
     }
 }
@@ -464,34 +488,58 @@ void MeshCore::updateNode(uint8_t pathHash, const char* name, const uint8_t* pub
                           const RxMetadata& meta, uint8_t hops, uint8_t role,
                           uint32_t advertTimestamp, bool hasLocation,
                           float latitude, float longitude) {
+    // Helper: stamp the dirty flag the first time a save-worthy change
+    // happens, but leave _nodesDirtyAt alone if we're already dirty so
+    // the 30 s debounce in update() measures from the first change.
+    auto markDirty = [&]() {
+        if (!_nodesDirty) {
+            _nodesDirty = true;
+            _nodesDirtyAt = millis();
+        }
+    };
+
     // Look for existing node
     for (auto& node : _nodes) {
         if (node.pathHash == pathHash) {
             if (name && strlen(name) > 0) {
-                strncpy(node.name, name, MAX_NODE_NAME);
-                node.name[MAX_NODE_NAME] = '\0';
+                if (strncmp(node.name, name, MAX_NODE_NAME) != 0) {
+                    strncpy(node.name, name, MAX_NODE_NAME);
+                    node.name[MAX_NODE_NAME] = '\0';
+                    markDirty();
+                }
             }
             if (publicKey) {
-                memcpy(node.publicKey, publicKey, ED25519_PUBLIC_KEY_SIZE);
-                node.hasPublicKey = true;
+                if (!node.hasPublicKey ||
+                    memcmp(node.publicKey, publicKey, ED25519_PUBLIC_KEY_SIZE) != 0) {
+                    memcpy(node.publicKey, publicKey, ED25519_PUBLIC_KEY_SIZE);
+                    node.hasPublicKey = true;
+                    markDirty();
+                }
             }
             node.lastSeen = meta.timestamp;
             node.lastRssi = meta.rssi;
             node.lastSnr = meta.snr;
             node.hopCount = hops;
             // Update role if we got a valid one
-            if (role != ROLE_UNKNOWN) {
+            if (role != ROLE_UNKNOWN && role != node.role) {
                 node.role = role;
+                markDirty();
             }
             // Store Unix timestamp from ADVERT if provided
-            if (advertTimestamp > 0) {
+            if (advertTimestamp > 0 && advertTimestamp != node.advertTimestamp) {
                 node.advertTimestamp = advertTimestamp;
+                markDirty();
             }
             // Update location if provided
             if (hasLocation) {
-                node.hasLocation = true;
-                node.latitude = latitude;
-                node.longitude = longitude;
+                if (!node.hasLocation ||
+                    node.latitude != latitude ||
+                    node.longitude != longitude) {
+                    node.hasLocation = true;
+                    node.latitude = latitude;
+                    node.longitude = longitude;
+                    markDirty();
+                }
             }
 
             if (_onNode) {
@@ -530,6 +578,7 @@ void MeshCore::updateNode(uint8_t pathHash, const char* name, const uint8_t* pub
     node.longitude = longitude;
 
     _nodes.push_back(node);
+    markDirty();
 
     if (_onNode) {
         _onNode(node);

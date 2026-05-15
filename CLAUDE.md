@@ -126,22 +126,36 @@ pio run -t upload
 
 Pushes to `main` and `test` trigger `.github/workflows/main-artifacts.yml`
 and `.github/workflows/test-artifacts.yml` respectively. Each builds
-the firmware, generates a `manifest.json` describing the build (SHA,
-version, sha256, size, asset URL, plus the `full_*` variants for the
+firmware, generates a `manifest.json` describing the build (SHA,
+version, sha256, size, asset URL, plus `full_*` variants for the
 bootloader+partitions+app blob), signs it with an Ed25519 key from the
-`OTA_SIGNING_PRIVKEY` GitHub Actions secret, runs `xtr-changelog
-release --commit --tag --push` to advance `versions.json` and tag the
-release, and republishes the `rolling-main` / `rolling-test` GitHub
-Release with the binaries + manifest + detached signature. Older
-builds are kept as run artefacts (prune step caps at 3) for short-
-term debugging.
+`OTA_SIGNING_PRIVKEY` GitHub Actions secret, and republishes the
+`rolling-main` / `rolling-test` GitHub Release with binaries +
+manifest + detached signature. Older builds are kept as run artefacts
+(prune caps at 3) for short-term debugging.
 
-Pushes that touch ONLY generated files don't retrigger the workflow
-(would otherwise loop on the workflow's own release commit):
-`paths-ignore` excludes `changelog/versions.json`,
-`changelog/archive.json`, `lua/docs/changelog.json`, `CHANGELOG.md`,
-and `platformio.ini`. The release commit is also prefixed with
-`[skip ci]` as defense in depth.
+**Release commits land on `main` only.** Only the main workflow runs
+`xtr-changelog release --commit --tag --push` -- advancing
+`changelog/versions.json`, `changelog/archive.json`, `CHANGELOG.md`,
+and `package.json`, then pushing the `[skip ci] chore(release): vX.Y.Z`
+commit + `vX.Y.Z` tag back to `main`. The test workflow does NOT
+commit or push; it runs `xtr-changelog release --execute` to
+regenerate those files into the runner workspace only, copies the
+fresh `versions.json` into `lua/docs/changelog.json` so the on-device
+"What's new" screen reflects everything currently on `test`, and
+stamps `platformio.ini` with a synthetic
+`<main-version>+test.<short-sha>` (e.g. `0.0.94+test.a1b9073`). None
+of the four release-bookkeeping files are modified on `test` after
+the last main release, so `test -> main` promotions stop conflicting
+on them.
+
+`paths-ignore` on the main workflow excludes the generated files
+(`changelog/versions.json`, `changelog/archive.json`,
+`lua/docs/changelog.json`, `CHANGELOG.md`, `platformio.ini`) so the
+release commit doesn't re-trigger the workflow. `[skip ci]` in the
+commit message is defense in depth. The test workflow keeps the same
+`paths-ignore` purely for symmetry / future-proofing; since it never
+commits back, those entries are dormant.
 
 The on-device update screen (`lua/screens/settings/firmware_update.lua`)
 lets the user pick `main` or `test` channel, fetches `manifest.json`
@@ -171,29 +185,31 @@ Key rotation is "burn a new firmware containing the new pubkey, then
 rotate the secret". Don't lose the private key — there's no recovery
 path other than reflashing every device manually.
 
-**Branch ruleset push gate** (already wired, documented for context):
-the auto-release workflow's `xtr-changelog --push` step pushes the
-`[skip ci]` release commit + tag straight back to `main` / `test`.
-Both branches are protected by repo rulesets (see
-`scripts/branch-protection.sh`), and the rulesets' `pull_request`
+**Branch ruleset push gate** (relevant to `main` only since the test
+workflow stopped pushing): the main-artifacts workflow's
+`xtr-changelog --push` step pushes the `[skip ci]` release commit +
+tag straight back to `main`. `main` is protected by a repo ruleset
+(see `scripts/branch-protection.sh`), and the ruleset's `pull_request`
 rule blocks direct pushes from any actor not on the bypass list --
 including the workflow's `GITHUB_TOKEN`, regardless of `permissions:`
 scope. The "GitHub Actions" identity does not appear in the bypass
-picker on the free org plan, so we can't put it on the bypass list.
+picker on the free org plan.
 
 Workaround in use: a write-enabled **deploy key** (`auto-release-push`,
 private half stored in repo secret `RELEASE_PUSH_KEY`) **plus a
-DeployKey bypass actor on each ruleset**. Both `*-artifacts.yml`
-workflows load the key into ssh-agent via `webfactory/ssh-agent`
-and check the repo out over SSH so the subsequent `git push` from
-xtr-changelog flows through the same key, and the bypass actor
-on `ezos-branch-main` / `ezos-branch-test` lets that push land
-despite the `pull_request` rule. **Deploy keys do NOT bypass
-rulesets implicitly** -- the bypass actor must be present, of
-type `DeployKey` (which covers any deploy key on the repo, so the
-API stores it with `actor_id: null`).
+DeployKey bypass actor on the `ezos-branch-main` ruleset**. The
+main-artifacts workflow loads the key into ssh-agent via
+`webfactory/ssh-agent` and checks the repo out over SSH so the
+subsequent `git push` from xtr-changelog flows through the same
+key, and the bypass actor lets that push land despite the
+`pull_request` rule. **Deploy keys do NOT bypass rulesets
+implicitly** -- the bypass actor must be present, of type
+`DeployKey` (which covers any deploy key on the repo, so the API
+stores it with `actor_id: null`). The `ezos-branch-test` ruleset
+keeps its DeployKey bypass actor too, but it's currently dormant:
+the test-artifacts workflow does not load the deploy key.
 
-If OTA releases ever stop publishing, check the failing workflow
+If OTA releases ever stop publishing, check the failing main-artifacts
 run's "Generate changelog, sync version, and push back" step. A
 GH013 / "Changes must be made through a pull request" error means
 the push reached GitHub but the `pull_request` rule fired anyway.
@@ -377,20 +393,43 @@ subscribes once at boot to `touch/down` / `touch/move` / `touch/up`
 and turns single-finger taps into focus-chain activations on the
 widget under the finger. Most screens get touch for free.
 
-Two developer-facing APIs participate in the screensaver wake-event
+Several developer-facing APIs participate in the screensaver wake-event
 flow and must be used by anyone writing new touch code:
 
 - **`screen.notify_input()`** (`lua/ezui/screen.lua`) -- bumps
-  `last_input_time` and, if the screensaver overlay is currently
-  drawn, dismisses it. Returns `true` when the screensaver was just
-  dismissed so the caller can swallow the originating event. The
-  keyboard read loop calls this; you usually don't, but it's the
-  single chokepoint if you ever need to synthesise a wake.
+  `last_input_time` and, if the idle ladder is anywhere past stage 0
+  (pre-dim, screensaver-active, or panel-off), unwinds it: restores
+  the LCD backlight, dismisses the screensaver overlay if drawn, and
+  resets the stage to 0. Returns `true` when the call cleared a
+  non-zero stage (dim, screensaver, OR panel-off) so the caller can
+  swallow the originating event -- a tap that wakes the device
+  should not also click whatever sat under the finger. The keyboard
+  read loop calls this; you usually don't, but it's the single
+  chokepoint if you ever need to synthesise a wake.
+
+- **`screen.acquire_wakelock(tag)`** / **`screen.release_wakelock(tag)`**
+  (`lua/ezui/screen.lua`) -- tag-keyed counter that pins the idle
+  ladder at stage 0 regardless of `ss_timeout`. Pass the same string
+  tag to both calls; releasing a tag that was never acquired is a
+  no-op. Multiple distinct tags can be held concurrently and the
+  ladder only resumes once the last one is released. `release_wakelock`
+  also resets `last_input_time` so a long-held wakelock (e.g. a
+  multi-minute file transfer) doesn't make the next idle tick jump
+  straight to panel-off. There is one implicit wakelock built in:
+  `_wakelocks_held()` polls `ez.audio.is_recording()`, so the
+  voice-notes / signal-test capture paths stay lit without their
+  screens having to acquire anything. Prefer wakelocks over
+  per-frame `notify_input()` pings when a background activity needs
+  the display alive for an unbounded duration -- they don't fight
+  the user's chosen `ss_timeout` for the *next* idle period after
+  release.
 
 - **`touch_input.is_wake_event()`** -- predicate that returns true
-  for ~250 ms after a touch dismissed the screensaver. The bridge
-  sets the timestamp from inside its own `screensaver_swallow()`
-  guard. Call this **at the top of every `touch/*` bus subscriber a
+  for ~250 ms after a touch woke the device from any non-zero idle
+  stage (pre-dim, screensaver-active, or panel-off). The bridge sets
+  the timestamp from inside its own `screensaver_swallow()` guard
+  whenever `notify_input()` reports the wake cleared a non-zero
+  stage. Call this **at the top of every `touch/*` bus subscriber a
   screen registers**:
 
   ```lua
@@ -672,6 +711,47 @@ After making a fix:
 ### Radio Status
 - `!RF` indicator means radio failed to initialize
 - Check LoRa module wiring if this appears
+
+### Node Store (persisted ADVERT cache)
+- Storage path: `/sd/nodes.bin` when SD is mounted, otherwise NVS blob
+  `nodes` in the existing `meshcore` namespace (factory reset wipes the
+  blob alongside the identity keys).
+- Header: `[magic:4 'EZNS' / 0x534E5A45][version:2 LE][count:2 LE]`.
+  `kVersion = 1` -- bump in lockstep with any layout change so older
+  firmware loading a newer blob fails fast.
+- Per-node record: `[pathHash:1][role:1][flags:1][nameLen:1]
+  [advertTimestamp:4 LE][lastSeenUnix:4 LE]
+  [pubKey:32 if flags&0x01]
+  [lat:f32 LE][lon:f32 LE if flags&0x02]
+  [name:nameLen]`. Flags: bit 0 = `hasPublicKey`, bit 1 = `hasLocation`.
+- Caps: 128 entries on SD, 64 on NVS. On overflow at save time,
+  oldest-by-`lastSeen` (local millis() observation time) entries are
+  evicted from the *written* set (the in-memory vector is left
+  untouched). Deliberately not `advertTimestamp` -- that field is
+  peer-chosen and a node with a future-dated or wrap-around ADVERT
+  would always survive truncation over genuinely-fresh observations.
+- Aging: entries with a `lastSeenUnix` more than 7 days behind the
+  current wall clock are dropped at load time. Skipped when the
+  system clock is unset (year < 2020), so a cold boot before NTP/GPS
+  sync doesn't wipe the list.
+- Save policy: `_nodesDirty` flips true the first time `updateNode()`
+  changes a persisted field (new node, name, pubkey, role, location,
+  advert timestamp). `MeshCore::update()` flushes once
+  `millis() - _nodesDirtyAt >= 30000`. The dirty timestamp is *not*
+  re-armed on subsequent changes so a steady ADVERT stream still
+  gets persisted promptly.
+- What is NOT persisted: `lastRssi`, `lastSnr`, `hopCount` describe
+  the last *packet*, not the node, and would be stale and misleading
+  after a reboot. They are zeroed on restore and refilled by the next
+  ADVERT.
+- SD writes are atomic: written to `/sd/nodes.bin.tmp`, then renamed
+  over `/sd/nodes.bin`. A power loss mid-save loses the *previous*
+  save, never corrupts the active blob.
+- Names are sanitized to printable ASCII at the deserialise boundary
+  (`?` substituted for any byte outside `0x20..0x7E`) so hand-edited
+  blobs or older-firmware saves can't poison `draw_text` callers.
+  Live ADVERT names still flow unsanitized through `updateNode()`;
+  fixing that seam is out of scope.
 
 ## Theming
 

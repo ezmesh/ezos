@@ -175,6 +175,13 @@ public:
     TrackballMode getTrackballMode() const { return _trackballMode; }
     void setTrackballMode(TrackballMode mode);
 
+    // millis() of the last directional/click event produced by the
+    // trackball. 0 if none yet. Used by the touch bridge to gate a
+    // brief bottom-strip deadzone, since the trackball ball sits right
+    // below the touchscreen and a finger sliding off the ball lands
+    // back on the panel.
+    uint32_t getLastTrackballMs() const { return _lastTrackballMs; }
+
     // Key repeat settings
     bool getKeyRepeatEnabled() const { return _keyRepeatEnabled; }
     void setKeyRepeatEnabled(bool enabled) { _keyRepeatEnabled = enabled; }
@@ -223,6 +230,12 @@ private:
 
     // Trackball mode
     TrackballMode _trackballMode = TrackballMode::POLLING;
+
+    // millis() timestamp of the most recent trackball-originated event
+    // (UP/DOWN/LEFT/RIGHT or click ENTER). Exposed via
+    // getLastTrackballMs() for the touch bridge's bottom-strip
+    // deadzone.
+    uint32_t _lastTrackballMs = 0;
 
     // Key repeat settings — retained as configuration surface but no
     // longer functional. With always-on raw matrix scanning the host

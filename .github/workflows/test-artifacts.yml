@@ -22,27 +22,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # Use the deploy key for the checkout so that `git push` later in
-      # the changelog step also goes over SSH using the same key. Branch
-      # rulesets exempt deploy-key pushes, which is the only way the
-      # auto-release commit can land on a protected branch on a free
-      # org plan (no GitHub App / bypass actor available in the picker).
-      - name: Set up deploy key
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.RELEASE_PUSH_KEY }}
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ssh-key: ${{ secrets.RELEASE_PUSH_KEY }}
-          persist-credentials: true
-          # xtr-changelog reads the latest `v*` tag locally to pick
-          # `previousVersion`; without this the action fetches
-          # depth=1 with no tags and falls back to package.json
-          # (which doesn't move), so every release re-stamps the
-          # same patch number. fetch-depth: 0 also gives the tool
-          # the full commit list it needs to build the changelog.
+          # The test workflow regenerates lua/docs/changelog.json into
+          # the workspace at build time but never pushes back to the
+          # branch (releases land only on main), so no deploy key is
+          # needed here. fetch-depth + fetch-tags are still required:
+          # xtr-changelog walks git log from the latest local `v*` tag
+          # to derive entries since the last release. With a shallow
+          # checkout it falls back to package.json#version and re-stamps
+          # the same patch number, and the embedded changelog loses
+          # entries.
           fetch-depth: 0
           fetch-tags: true
 
@@ -74,40 +65,32 @@ jobs:
       - name: Fetch PlatformIO dependencies
         run: pio pkg install -e t-deck-plus
 
-      - name: Configure git for release commit
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Generate changelog, sync version, and push back
+      - name: Regenerate embedded changelog and stamp synthetic version
         id: changelog
         run: |
           npm ci
-          # Push the release commit + tag back to the branch so the
-          # next run sees the freshly-created `vX.Y.Z` tag (which is
-          # how xtr-changelog picks `previousVersion` -- it greps
-          # local tags, hence the `fetch-tags: true` on checkout).
-          # Without the tag fetch, every run falls back to
-          # package.json#version and re-stamps the same patch number.
-          #
-          # [skip ci] in the commit message keeps the resulting push
-          # from re-triggering this workflow on top of the paths-ignore
-          # filter above (defense in depth).
-          #
-          # No retry on push race: if origin advances during the run,
-          # xtr-changelog --push fails non-FF and the workflow errors
-          # out. The next push (manual or otherwise) will produce a
-          # fresh release. xtr-changelog's --push isn't atomic, so a
-          # rejected branch push may still leave a tag on origin; if
-          # that happens, delete the orphan tag manually
-          # (`git push origin :refs/tags/vX.Y.Z`). Tracked upstream as
-          # https://github.com/xtr-dev/changelog/issues/1.
-          npx xtr-changelog release \
-            --execute --commit --tag --push \
-            --message '[skip ci] chore(release): {version}'
+          # Anchor the test-channel version to the last main release
+          # BEFORE running xtr-changelog -- `release --execute` rewrites
+          # versions.json[0] with an unreleased entry we don't want to
+          # ship as the build's version.
+          MAIN_VERSION=$(node -e "console.log(require('./changelog/versions.json').versions[0].version)")
+          SHORT_SHA="${GITHUB_SHA::7}"
+          VERSION="${MAIN_VERSION}+test.${SHORT_SHA}"
 
+          # `release --execute` without --commit/--tag/--push rewrites
+          # versions.json / archive.json / CHANGELOG.md / package.json
+          # in the runner workspace only. Nothing is committed back --
+          # that's the point of issue #102: those four files no longer
+          # diverge between `test` and `main`, so promotions stop
+          # conflicting on them.
+          npx xtr-changelog release --execute
+
+          # whats_new.lua reads this via ez.docs.read("@changelog.json").
+          # Regenerating per-build means the test channel shows entries
+          # not yet promoted to main.
           cp changelog/versions.json lua/docs/changelog.json
-          VERSION=$(node -e "const v=require('./changelog/versions.json'); console.log(v.versions[0].version)")
+
+          # Stamps EZOS_VERSION via embed_lua_scripts.py. Workspace-only.
           sed -i "s/^custom_version *= *.*/custom_version = ${VERSION}/" platformio.ini
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 

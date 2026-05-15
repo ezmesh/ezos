@@ -3,6 +3,94 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.99",
+      "date": "2026-05-13",
+      "commit": "f918b09",
+      "breaking": false,
+      "groups": {
+        "features": [
+          {
+            "type": "feat",
+            "scope": "chat",
+            "description": "show RSSI footer on received share/URI cards",
+            "commit": "939e359",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ],
+        "other": [
+          {
+            "type": "docs",
+            "scope": "readme",
+            "description": "add T-Deck Plus device photo to Features section",
+            "commit": "f918b09",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "version": "0.0.95",
+      "date": "2026-05-12",
+      "commit": "939e359",
+      "breaking": false,
+      "groups": {
+        "features": [
+          {
+            "type": "feat",
+            "scope": "chat",
+            "description": "show RSSI footer on received share/URI cards",
+            "commit": "939e359",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "version": "0.0.94",
+      "date": "2026-05-11",
+      "commit": "8ea3fa7",
+      "breaking": false,
+      "groups": {
+        "other": [
+          {
+            "type": "ci",
+            "scope": "release",
+            "description": "name rolling-main \"ezOS v<version>\" and mark as full release",
+            "commit": "8ea3fa7",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.93",
       "date": "2026-05-11",
       "commit": "4e80bd9",
@@ -276,78 +364,6 @@
             "scope": "release",
             "description": "fetch tags so xtr-changelog can advance the version (#85)",
             "commit": "d389651",
-            "author": "XTR Bas",
-            "breaking": false,
-            "notes": [
-              {
-                "title": "Co-authored-by",
-                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "version": "0.0.80",
-      "date": "2026-05-10",
-      "commit": "374eb45",
-      "breaking": false,
-      "groups": {
-        "features": [
-          {
-            "type": "feat",
-            "scope": "channels",
-            "description": "per-channel history limit + notification mode (#80)",
-            "commit": "374eb45",
-            "author": "XTR Bas",
-            "breaking": false,
-            "notes": [
-              {
-                "title": "Co-authored-by",
-                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "version": "0.0.71",
-      "date": "2026-05-10",
-      "commit": "afc57b3",
-      "breaking": false,
-      "groups": {
-        "other": [
-          {
-            "type": "docs",
-            "scope": "release",
-            "description": "add DeployKey bypass actor to branch rulesets (#84)",
-            "commit": "afc57b3",
-            "author": "XTR Bas",
-            "breaking": false,
-            "notes": [
-              {
-                "title": "Co-authored-by",
-                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "version": "0.0.79",
-      "date": "2026-05-10",
-      "commit": "5478bde",
-      "breaking": false,
-      "groups": {
-        "features": [
-          {
-            "type": "feat",
-            "scope": "notifications",
-            "description": "wire DM/file/battery/SD/panic events (#79)",
-            "commit": "5478bde",
             "author": "XTR Bas",
             "breaking": false,
             "notes": [

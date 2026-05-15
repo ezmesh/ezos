@@ -7,6 +7,24 @@ local screen_mod  = require("ezui.screen")
 local map_archive = require("services.map_archive")
 local map_view    = require("ezui.widgets.map_view").map_view
 local gps_svc     = require("services.gps")
+local contacts    = require("services.contacts")
+
+-- Peer visibility prefs. Defaults intentionally favour "show nearby
+-- infrastructure + my contacts, but not strangers" -- see issue #125.
+-- NVS keys are capped at 15 chars; these are deliberately tight.
+local PEER_PREF_REPEATERS = "map_peer_inf"  -- repeaters + room servers
+local PEER_PREF_CONTACTS  = "map_peer_con"  -- chat nodes I've added
+local PEER_PREF_ALL_CHAT  = "map_peer_all"  -- every chat node we've heard
+local PEER_PREF_STALE     = "map_peer_stale" -- include 24h-7d old peers
+
+-- Staleness thresholds (seconds since the peer's last ADVERT).
+local STALE_DIM_AGE = 24 * 60 * 60      -- 24h: dim
+local STALE_HIDE_AGE = 7 * 24 * 60 * 60 -- 7d:  hide entirely
+
+local function pref_on(key, default_on)
+    local v = ez.storage.get_pref(key, default_on and "1" or "0")
+    return v == "1" or v == 1 or v == true
+end
 
 -- Last-view prefs are keyed per archive so switching between, say, a world
 -- overview and a city detail archive doesn't strand you outside the new
@@ -243,6 +261,126 @@ local function draw_arrow(d, ax, ay, dx, dy, size, fill_color, outline_color)
                     math.floor(b2x), math.floor(b2y), outline_color)
 end
 
+-- ASCII-sanitize a peer-originated string. Built-in bitmap fonts only
+-- cover 0x20..0x7E (see CLAUDE.md). Mirror notifications.lua's policy
+-- of replacing the offending byte with '?' rather than dropping it, so
+-- the truncation length stays predictable.
+local function ascii_safe(s)
+    if type(s) ~= "string" then return "" end
+    return (s:gsub("[^\32-\126]", "?"))
+end
+
+-- Build the list of peers to draw, filtered by the user's visibility
+-- prefs and the staleness thresholds. Returns an array of:
+--   { lat, lon, role, name, stale }
+-- `stale` is true when 24h < age < 7d AND the "show stale" pref is on.
+-- Sorted infrastructure-last so room/repeater pins occlude chat pins
+-- when they overlap (infrastructure is the more useful sighting).
+local function gather_peers()
+    local show_infra   = pref_on(PEER_PREF_REPEATERS, true)
+    local show_contact = pref_on(PEER_PREF_CONTACTS,  true)
+    local show_all     = pref_on(PEER_PREF_ALL_CHAT,  false)
+    local show_stale   = pref_on(PEER_PREF_STALE,     false)
+    if not (show_infra or show_contact or show_all) then return {} end
+
+    local nodes = ez.mesh.get_nodes() or {}
+    local out = {}
+    for _, n in ipairs(nodes) do
+        if n.has_location then
+            local age = n.age_seconds or 0
+            local stale = age > STALE_DIM_AGE
+            local ancient = age > STALE_HIDE_AGE
+            local include = false
+            if n.role == 2 or n.role == 3 then         -- repeater / room
+                include = show_infra
+            elseif n.role == 1 or n.role == 0 then     -- chat client (or unknown)
+                if show_all then
+                    include = true
+                elseif show_contact and n.pub_key_hex
+                       and contacts.is_contact(n.pub_key_hex) then
+                    include = true
+                end
+            end
+            if include and not ancient and (not stale or show_stale) then
+                out[#out + 1] = {
+                    lat   = n.lat,
+                    lon   = n.lon,
+                    role  = n.role or 0,
+                    name  = ascii_safe(n.name or ""),
+                    stale = stale,
+                }
+            end
+        end
+    end
+    -- Chat first, infrastructure last -- the more important pin paints on top.
+    table.sort(out, function(a, b) return (a.role or 0) < (b.role or 0) end)
+    return out
+end
+
+-- Draw a single peer pin. Shape depends on role; tone depends on
+-- staleness so the user can tell at a glance which peers are fresh.
+local function draw_peer_pin(d, px, py, peer, ink, halo)
+    local ix, iy = math.floor(px), math.floor(py)
+    if peer.role == 2 then
+        -- Repeater: upward triangle (antenna).
+        d.fill_triangle(ix, iy - 5, ix - 4, iy + 3, ix + 4, iy + 3, ink)
+        d.draw_triangle(ix, iy - 5, ix - 4, iy + 3, ix + 4, iy + 3, halo)
+    elseif peer.role == 3 then
+        -- Room server: filled square (hub).
+        d.fill_rect(ix - 4, iy - 4, 9, 9, ink)
+        d.draw_rect(ix - 4, iy - 4, 9, 9, halo)
+    else
+        -- Chat node / contact: filled circle.
+        d.fill_circle(ix, iy, 3, ink)
+        d.draw_circle(ix, iy, 4, halo)
+    end
+end
+
+-- Peer overlay: pins for every peer with a recent ADVERT location.
+local function make_peers_overlay()
+    return function(d, x, y, w, h, project)
+        local peers = gather_peers()
+        if #peers == 0 then return end
+
+        local text_ink  = theme.color("TEXT")
+        local muted_ink = theme.color("TEXT_MUTED")
+        local accent    = theme.color("ACCENT")
+        local bg        = theme.color("BG")
+
+        for _, peer in ipairs(peers) do
+            local px, py = project(peer.lat, peer.lon)
+            if px >= x - 6 and px <= x + w + 5 and py >= y - 6 and py <= y + h + 5 then
+                local ink  = peer.stale and muted_ink or accent
+                local halo = peer.stale and bg        or text_ink
+                draw_peer_pin(d, px, py, peer, ink, halo)
+
+                if peer.name ~= "" then
+                    -- Truncate to ~10 chars per spec; the small font keeps
+                    -- labels from crowding the pin at typical zooms.
+                    local label = peer.name
+                    if #label > 10 then label = label:sub(1, 10) end
+                    theme.set_font("tiny_aa")
+                    local tw = theme.text_width(label)
+                    local lx = math.floor(px - tw / 2)
+                    local ly = math.floor(py + 6)
+                    if lx + tw > x and lx < x + w and ly < y + h then
+                        -- 4-direction halo so the name stays legible on
+                        -- any tile color, matching map_view's label style.
+                        local label_ink  = peer.stale and muted_ink or text_ink
+                        local label_halo = bg
+                        d.draw_text(lx - 1, ly,     label, label_halo)
+                        d.draw_text(lx + 1, ly,     label, label_halo)
+                        d.draw_text(lx,     ly - 1, label, label_halo)
+                        d.draw_text(lx,     ly + 1, label, label_halo)
+                        d.draw_text(lx,     ly,     label, label_ink)
+                    end
+                    theme.set_font("medium")
+                end
+            end
+        end
+    end
+end
+
 -- GPS overlay: user-position dot when visible, edge arrow when off-screen.
 -- Nothing if GPS is disabled in settings or no fix is available.
 local function make_gps_overlay()
@@ -323,7 +461,16 @@ function Map:build(state)
             center_lon  = state.center_lon,
             zoom        = state.zoom,
             show_labels = state.show_labels,
-            overlay_fn  = make_gps_overlay(),
+            overlay_fn  = (function()
+                -- Peers paint first, GPS dot on top so the user's own
+                -- position is never occluded by a colocated peer pin.
+                local peers_fn = make_peers_overlay()
+                local gps_fn   = make_gps_overlay()
+                return function(d, x, y, w, h, project)
+                    peers_fn(d, x, y, w, h, project)
+                    gps_fn(d, x, y, w, h, project)
+                end
+            end)(),
             on_move     = function(lat, lon, z)
                 -- Mutate state in place: the widget is re-drawing every frame
                 -- anyway and a set_state here would force tree rebuilds at

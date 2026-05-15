@@ -354,7 +354,7 @@ local function try_decrypt_pending(id, pending, candidate_pub_key_hex)
     local sender_pub = hex_to_bytes(candidate_pub_key_hex)
     if sender_pub then
         local ack_hash = compute_ack_hash(plaintext, sender_pub)
-        send_ack(ack_hash)
+        send_ack(ack_hash, candidate_pub_key_hex)
     end
     return true
 end
@@ -449,10 +449,18 @@ end
 -- that arrived via DIRECT (path already known). Payload is exactly the
 -- 4-byte ack hash the original sender is expecting; sender matches it
 -- against its pre-computed `expected_ack`.
-local function send_ack(ack_hash)
+--
+-- Mirrors BaseChatMesh::sendAckTo: prefer ROUTE_DIRECT with the cached
+-- return path when we have one, fall back to FLOOD otherwise. A flaky
+-- FLOOD ACK in the reverse direction would otherwise cause the sender
+-- to evict its (good) forward-path cache when retries time out.
+local function send_ack(ack_hash, sender_pub_hex)
     if not ez.mesh.is_initialized() then return end
     if not ack_hash or #ack_hash ~= ACK_HASH_SIZE then return end
-    local pkt = ez.mesh.build_packet(ROUTE_FLOOD, PAYLOAD_ACK, ack_hash)
+    local rp = sender_pub_hex and return_paths[sender_pub_hex]
+    local path = rp and rp.bytes
+    local route = (path and #path > 0) and ROUTE_DIRECT or ROUTE_FLOOD
+    local pkt = ez.mesh.build_packet(route, PAYLOAD_ACK, ack_hash, path)
     if pkt then
         ez.mesh.queue_send(pkt)
     end
@@ -821,7 +829,7 @@ function dm.init()
                                             ack_hash
                                         )
                                     else
-                                        send_ack(ack_hash)
+                                        send_ack(ack_hash, candidate.pub_key_hex)
                                     end
                                 end
                                 return
