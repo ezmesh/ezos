@@ -26,6 +26,7 @@ screen.status = {
     node_id     = nil,
     wifi_bars   = nil,
     gps_bars    = nil,
+    power_tag   = nil,   -- "lp" (frugal) / "LP" (survival) / nil
     title       = nil,
 }
 
@@ -349,6 +350,16 @@ function screen.update_status()
         end
     end
     if gps_bars ~= s.gps_bars then s.gps_bars = gps_bars; changed = true end
+
+    -- Power tier indicator. Empty string from short_indicator() is
+    -- normalised to nil so the bar renderer can skip the slot.
+    local power_tag = nil
+    local pwr_ok, power_svc = pcall(require, "services.power")
+    if pwr_ok and power_svc.short_indicator then
+        local t = power_svc.short_indicator()
+        if t and t ~= "" then power_tag = t end
+    end
+    if power_tag ~= s.power_tag then s.power_tag = power_tag; changed = true end
 
     if changed then screen.dirty = true end
 end
