@@ -199,6 +199,12 @@ local function boot_sequence()
     custom.init()
     custom.register_demos()
 
+    -- Chat reactions: tiny-emoji ACKs that ride RAW_CUSTOM with the
+    -- "RXN\0" subtype. Must come after custom.init() so the subtype
+    -- handler is in place before the first inbound packet lands.
+    local reactions_svc = require("services.reactions")
+    reactions_svc.init()
+
     -- File transfer rides on custom_packets+ACK. Registers its "FILE"
     -- subtype and listens for delivered/undelivered events so the
     -- sender pipeline advances chunk by chunk.
@@ -265,6 +271,36 @@ local function boot_sequence()
             return inst._state and inst._state.contact_key == key
         end)
     end)
+    -- Chat reactions: surface inbound reactions as a separate toast
+    -- source (`rxn`) so muting reactions doesn't have to mute DM
+    -- traffic. Suppress when the conversation is already on top -- the
+    -- chat bubble updates itself via its own subscriber and a toast on
+    -- the same screen would just clutter.
+    ez.bus.subscribe("chat/reaction", function(_topic, info)
+        if type(info) ~= "table" or info.is_self then return end
+        local emoji = info.emoji_index
+            and require("services.reactions").EMOJI_PALETTE[info.emoji_index]
+            or "?"
+        local who = info.sender_name
+            or (info.sender_pub and info.sender_pub:sub(1, 8)) or "someone"
+        notifications.post_unless_focused({
+            title  = "Reaction " .. emoji,
+            body   = "From " .. who,
+            source = "rxn",
+            action = {
+                label    = "Open",
+                on_press = function()
+                    local screen = require("ezui.screen")
+                    local DMConv = require("screens.chat.dm_conversation")
+                    screen.push(screen.create(DMConv,
+                        { contact_key = info.target_pub }))
+                end,
+            },
+        }, function(inst)
+            return inst._state and inst._state.contact_key == info.target_pub
+        end)
+    end)
+
     ez.bus.subscribe("dm/status", function(_topic, data)
         if type(data) ~= "table" then return end
         if data.status ~= "unconfirmed" then return end

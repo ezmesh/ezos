@@ -8,6 +8,7 @@ local contacts_svc = require("services.contacts")
 local channels_svc = require("services.channels")
 local sharing_svc = require("services.sharing")
 local time_share = require("screens.chat.time_share")
+local reactions_svc = require("services.reactions")
 require("screens.chat.chat_common")  -- registers chat_bubble node type
 
 local screen_mod = require("ezui.screen")
@@ -143,6 +144,32 @@ local function show_context_menu(self, key, msg, msg_index)
 
         for _, item in ipairs(time_share.build_actions(msg)) do
             actions[#actions + 1] = item
+        end
+
+        -- React to this message. Picker pops itself before invoking
+        -- reactions.send, so the user lands back on this conversation
+        -- with the freshly recorded reaction already painted on the
+        -- target bubble. The target message's hash is computed from
+        -- the sender's pubkey (theirs if inbound, ours if self-sent)
+        -- + timestamp + text -- both peers can reproduce it without
+        -- extra wire bits.
+        do
+            local target_sender = msg.is_self
+                and ez.mesh.get_public_key_hex() or key
+            local target_hash = reactions_svc.compute_msg_hash(
+                target_sender, msg.timestamp, msg.text)
+            if target_hash then
+                actions[#actions + 1] = ui.list_item({
+                    title = "React...",
+                    subtitle = "Send a quick reaction",
+                    on_press = function()
+                        local Picker = require("screens.chat.reactions_picker")
+                        local state = Picker.initial_state(key, target_hash, msg.text)
+                        screen_mod.pop()  -- close context menu first
+                        screen_mod.push(screen_mod.create(Picker, state))
+                    end,
+                })
+            end
         end
 
         if msg.is_self and (msg.status == "failed" or msg.status == "unconfirmed") then
@@ -391,10 +418,20 @@ function DMConversation:build(state)
         content_items[#content_items + 1] = { type = "spacer", h = 2, grow = 0 }
         for i, msg in ipairs(msgs) do
             local share_sender = msg.is_self and self_pub or key
+            local target_sender = msg.is_self and self_pub or key
+            local target_hash = reactions_svc.compute_msg_hash(
+                target_sender, msg.timestamp, msg.text)
+            local reaction_list = target_hash
+                and reactions_svc.compress(key, target_hash) or nil
+            -- Drop the array when empty so the bubble renderer's
+            -- `if n.reactions and #n.reactions > 0` short-circuit holds
+            -- without painting a 0-height footer block.
+            if reaction_list and #reaction_list == 0 then reaction_list = nil end
             content_items[#content_items + 1] = {
                 type = "chat_bubble",
                 msg = msg,
                 share = self:_share_for_message(msg, share_sender),
+                reactions = reaction_list,
                 on_press = function()
                     show_context_menu(self, key, msg, i)
                 end,
@@ -597,6 +634,16 @@ function DMConversation:on_enter()
             screen.invalidate()
         end
     end)
+
+    -- Refresh on reaction events (inbound or self). Filter on the
+    -- conversation partner so reactions in other DMs don't trigger a
+    -- rebuild here.
+    self._reaction_sub = ez.bus.subscribe("chat/reaction", function(_topic, info)
+        if info and info.target_pub == key then
+            self:_rebuild()
+            screen.invalidate()
+        end
+    end)
 end
 
 -- Keep screen redrawing while messages have pending status (for spinner animation)
@@ -614,6 +661,9 @@ end
 function DMConversation:on_leave()
     if self._sub then ez.bus.unsubscribe(self._sub); self._sub = nil end
     if self._status_sub then ez.bus.unsubscribe(self._status_sub); self._status_sub = nil end
+    if self._reaction_sub then
+        ez.bus.unsubscribe(self._reaction_sub); self._reaction_sub = nil
+    end
 end
 
 function DMConversation:on_exit()
