@@ -706,12 +706,14 @@ function screen.handle_input()
     local inst = screen.peek()
     if not inst then return false end
 
-    -- Global lock chord: Alt+L locks the device immediately when the
-    -- lockscreen mode is set. Runs before focus.handle_key so a text
-    -- field can't swallow the chord. No-op when the lockscreen is
-    -- already on top.
-    if key.alt and key.character
-           and (key.character == "l" or key.character == "L") then
+    -- Global lock chord: Shift+Alt+K locks the device immediately when
+    -- the lockscreen mode is set. Runs before focus.handle_key so a
+    -- text field can't swallow the chord. No-op when the lockscreen
+    -- is already on top. Uses Shift+Alt per CLAUDE.md's reservation
+    -- of Alt+Shift combos for system-level global chords (the input
+    -- lock toggle uses Shift+Alt+L / Shift+Alt+U, hence K here).
+    if key.alt and key.shift and key.character
+           and (key.character == "k" or key.character == "K") then
         local lk_ok, lk = pcall(require, "services.lockscreen")
         if lk_ok and lk and lk.is_armed() and not lk.is_locked() then
             lk.lock()

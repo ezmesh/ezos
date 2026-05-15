@@ -116,7 +116,7 @@ function LockSettings:build(state)
         ui.text_widget(
             "PIN matches numbers entered as alt+letter. Once enabled, " ..
             "the device will lock after the screensaver activates and " ..
-            "on every boot. Alt+L from any screen locks immediately.",
+            "on every boot. Shift+Alt+K from any screen locks immediately.",
             { wrap = true, font = "small_aa", color = "TEXT_MUTED" }))
 
     return ui.vbox({ gap = 0, bg = "BG" }, {

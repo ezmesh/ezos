@@ -80,7 +80,11 @@ function Lockscreen:build(state)
         ui.text_input({
             value = state.input or "",
             placeholder = mode == "pin" and "PIN" or "passphrase",
-            on_change = function(v) state.input = v end,
+            -- Use set_state so each keystroke rebuilds the dot
+            -- indicator above; mutating state.input directly leaves
+            -- the dot count frozen until something else forces a
+            -- redraw.
+            on_change = function(v) self:set_state({ input = v }) end,
         }))
 
     if state.message then
