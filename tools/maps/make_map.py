@@ -296,24 +296,43 @@ def _intersects_bounds(geom_bbox, bounds) -> bool:
                 or g_max_lat < s or g_min_lat > n)
 
 
-def extract_from_pbf(
-    pbf_path: Path,
-    bounds: Optional[Tuple[float, float, float, float]],
-    zoom_range: Tuple[int, int],
-) -> Tuple[List[Geometry], List[Label]]:
-    """Walk an OSM PBF once and return geometries + labels in our schema.
+def _pbf_header_bbox(pbf_path: Path
+                     ) -> Optional[Tuple[float, float, float, float]]:
+    """Return the PBF header bounding box as (west, south, east, north),
+    or None if absent. Geofabrik extracts always include it; raw planet
+    PBFs might not."""
+    try:
+        reader = osmium.io.Reader(str(pbf_path))
+        box = reader.header().box()
+        if not box.valid():
+            return None
+        bl = box.bottom_left
+        tr = box.top_right
+        return (bl.lon, bl.lat, tr.lon, tr.lat)
+    except Exception:
+        return None
 
-    Two iterator passes over the file:
+
+def stream_pbf_to_writer(
+    pbf_path: Path,
+    bounds: Tuple[float, float, float, float],
+    zoom_range: Tuple[int, int],
+    writer,
+) -> Tuple[int, int, int]:
+    """Walk an OSM PBF and pipe geometries + labels straight into the writer.
+
+    Two iterator passes:
       1) NODE | WAY with locations    -> places + linear features
       2) AREA (multipolygon-assembled) -> filled polygons
 
-    Each pass prints a heartbeat every ~2 seconds. pyosmium doesn't expose
-    a percentage (it's a streaming iterator), so we report counts and
-    elapsed time -- enough to tell the user "still alive" vs "stuck".
+    The writer compresses each record on the spot, so the only data we
+    keep in RAM is the writer's per-record index entry (~28 bytes each)
+    and the labels list. Heartbeat lines every ~2 s -- pyosmium is a
+    streaming iterator and doesn't expose a percentage.
+
+    Returns (way_count, area_count, place_count).
     """
     min_zoom, max_zoom = zoom_range
-    geoms: List[Geometry] = []
-    labels: List[Label] = []
 
     print(f"Reading {pbf_path}")
     way_count = 0
@@ -323,8 +342,7 @@ def extract_from_pbf(
     last_tick = start
     seen_objs = 0
 
-    # Pass 1: linear features (roads, railways, rivers, coastlines as ways).
-    # NODE is needed so .with_locations() can backfill way geometry.
+    # Pass 1: places (NODE) + linear features (WAY).
     for obj in (osmium.FileProcessor(
             str(pbf_path),
             osmium.osm.NODE | osmium.osm.WAY,
@@ -340,7 +358,6 @@ def extract_from_pbf(
             sys.stdout.flush()
             last_tick = now
         if obj.is_node():
-            # Places live on nodes (city/town/village center points).
             place = obj.tags.get("place")
             name = obj.tags.get("name") or obj.tags.get("name:en")
             if place and name and place in _PLACE_CLASS:
@@ -348,7 +365,7 @@ def extract_from_pbf(
                 lon = obj.location.lon
                 if _within(bounds, lat, lon):
                     ltype, min_z = _PLACE_CLASS[place]
-                    labels.append(Label(
+                    writer.add_label(Label(
                         lat=lat, lon=lon,
                         zoom_min=LABEL_MIN_ZOOM.get(ltype, min_z),
                         zoom_max=14,
@@ -358,14 +375,10 @@ def extract_from_pbf(
                     place_count += 1
             continue
 
-        # Skip ways whose tags don't classify as anything we draw.
         spec = _classify_way(obj.tags)
         if not spec:
             continue
-
         fc, zmin, zmax = spec
-        # Clip the feature's zoom range to the requested window. Saves
-        # storage on archives that cap below 14.
         zmin = max(zmin, min_zoom)
         zmax = min(zmax, max_zoom)
         if zmin > zmax:
@@ -380,15 +393,11 @@ def extract_from_pbf(
         if not _intersects_bounds(_bbox_of(verts), bounds):
             continue
 
-        # Per-zoom geometry: simplify once at the tolerance for the lowest
-        # zoom level the feature appears at, then use the same vertex set
-        # for higher zooms. (Simplifying per-zoom would duplicate the
-        # feature, which is what we're trying to avoid.)
         simplified = simplify(verts, tolerance_for_zoom(zmin))
         if len(simplified) < 2:
             continue
 
-        geoms.append(Geometry(
+        writer.add_geometry(Geometry(
             feature_class=fc,
             geom_type=G_POLYLINE,
             min_zoom=zmin,
@@ -397,15 +406,11 @@ def extract_from_pbf(
         ))
         way_count += 1
 
-    # Erase the in-place tick line, then a final summary on its own line.
     sys.stdout.write("\r" + " " * 80 + "\r")
     print(f"  pass 1 (ways): {way_count:,} drawn, {place_count:,} place labels "
           f"({time.time() - start:.1f}s, {seen_objs:,} objs scanned)")
 
-    # Pass 2: areas (closed polygons + multipolygon relations). pyosmium
-    # needs NODE | WAY | RELATION available so it can assemble multipolygon
-    # geometry; we only iterate the AREA output but the loader has to see
-    # the underlying features.
+    # Pass 2: areas (closed polygons + multipolygon relations).
     pass2_start = time.time()
     last_tick = pass2_start
     seen_objs = 0
@@ -433,9 +438,6 @@ def extract_from_pbf(
         if zmin > zmax:
             continue
 
-        # Only the outer rings are drawn — see CLAUDE.md notes; inner holes
-        # would render as the wrong color, which is more confusing than
-        # over-painting them. Multipolygons emit one Geometry per outer.
         try:
             for outer in obj.outer_rings():
                 verts = _ring_to_latlon(outer)
@@ -446,7 +448,7 @@ def extract_from_pbf(
                 simplified = simplify(verts, tolerance_for_zoom(zmin))
                 if len(simplified) < 3:
                     continue
-                geoms.append(Geometry(
+                writer.add_geometry(Geometry(
                     feature_class=fc,
                     geom_type=G_POLYGON,
                     min_zoom=zmin,
@@ -460,7 +462,7 @@ def extract_from_pbf(
     sys.stdout.write("\r" + " " * 80 + "\r")
     print(f"  pass 2 (areas): {area_count:,} drawn "
           f"({time.time() - pass2_start:.1f}s, {seen_objs:,} objs scanned)")
-    return geoms, labels
+    return way_count, area_count, place_count
 
 
 # ---------------------------------------------------------------------------
@@ -492,32 +494,29 @@ def build_archive(
         print("Bounds     : entire PBF")
     print(f"Zoom range : {min_zoom}..{max_zoom}")
 
-    start = time.time()
-    geoms, labels = extract_from_pbf(pbf_path, bounds, zoom_range)
-
-    if not geoms:
-        raise SystemExit(
-            "no ways extracted within bounds — check bounds align with the "
-            "PBF's coverage, and the source actually contains the layers we "
-            "classify (highway/water/landuse).")
-
-    # Compute bounds from geometry if user didn't specify any (handy for
-    # raw "convert the whole PBF" runs).
+    # The streaming writer needs bounds set before any add_geometry()
+    # so it can compute spatial-index cell numbers. If the user didn't
+    # supply --bounds, fall back to the PBF's own header bbox (Geofabrik
+    # extracts always have one). This avoids the previous "infer from
+    # all geometries after the fact" path that forced everything in RAM.
     if not bounds:
-        min_lat = min(g.bbox[0] for g in geoms)
-        min_lon = min(g.bbox[1] for g in geoms)
-        max_lat = max(g.bbox[2] for g in geoms)
-        max_lon = max(g.bbox[3] for g in geoms)
-        bounds = (min_lon, min_lat, max_lon, max_lat)
-        print(f"Inferred bounds: W={bounds[0]:+.3f} S={bounds[1]:+.3f} "
-              f"E={bounds[2]:+.3f} N={bounds[3]:+.3f}")
+        bounds = _pbf_header_bbox(pbf_path)
+        if bounds:
+            print(f"Inferred bounds from PBF header: "
+                  f"W={bounds[0]:+.3f} S={bounds[1]:+.3f} "
+                  f"E={bounds[2]:+.3f} N={bounds[3]:+.3f}")
+        else:
+            raise SystemExit(
+                "no --bounds and PBF has no header bbox — pass --bounds "
+                "explicitly to build the whole input.")
 
+    start = time.time()
     writer = TDMAPWriter()
     writer.set_bounds(*bounds)
     if region_name:
         writer.set_region_name(region_name)
     writer.set_build_timestamp()
-    writer.set_tool_version("make_map.py v7 (pyosmium)")
+    writer.set_tool_version("make_map.py v7 (pyosmium, streaming)")
     try:
         h = hashlib.sha256()
         with open(pbf_path, "rb") as sf:
@@ -526,16 +525,21 @@ def build_archive(
     except Exception:
         pass
 
-    for g in geoms:
-        writer.add_geometry(g)
-    for l in labels:
-        writer.add_label(l)
+    way_count, area_count, place_count = stream_pbf_to_writer(
+        pbf_path, bounds, zoom_range, writer)
+
+    if way_count + area_count == 0:
+        writer.close()
+        raise SystemExit(
+            "no ways extracted within bounds — check bounds align with the "
+            "PBF's coverage, and the source actually contains the layers we "
+            "classify (highway/water/landuse).")
 
     print(f"\nWriting {output_path}...")
     writer.write(output_path)
     verify(output_path)
     print(f"Done in {(time.time() - start) / 60:.1f} min "
-          f"({len(geoms):,} geometries, {len(labels):,} labels)")
+          f"({way_count + area_count:,} geometries, {place_count:,} place labels)")
     return output_path
 
 

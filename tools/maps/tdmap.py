@@ -75,6 +75,7 @@ import argparse
 import gzip
 import hashlib
 import math
+import os
 import struct
 import sys
 import time
@@ -377,26 +378,42 @@ def cell_range_for_viewport(
 # ============================================================================
 
 class TDMAPWriter:
-    """In-memory builder for a v7 archive.
+    """Streaming builder for a v7 archive.
 
-    Call ``add_geometry`` and ``add_label`` repeatedly, set the bounds and
-    metadata, then ``write(path)``.
+    Call ``set_bounds()`` first (required: the spatial-index grid is
+    defined against the BB). Then call ``add_geometry`` / ``add_label``
+    repeatedly. Each ``add_geometry`` interpolates + splits + zlib-
+    compresses the record on the spot and appends it to a temp file,
+    keeping only a 24-byte index entry in memory per record. ``write()``
+    sorts those index entries, then re-streams payloads from the temp
+    file into the final archive in sorted order.
 
-    The writer expects the caller to have already simplified its geometries
-    for the zoom range they apply to — ``simplify()`` is exposed above for
-    pipeline drivers to use. It does enforce the per-record vertex cap by
-    splitting long chains at write time.
+    Memory footprint for country-scale NL (~5M records):
+        index entries: 5M * ~28 B (Python tuple overhead) ~= 140 MB
+        labels: 30k * small Label objects                ~= a few MB
+        temp file on disk: same total size as final archive (~100 MB)
+    Compared to the previous all-in-memory version (~3 GB peak on NL),
+    this trades disk I/O for RAM.
     """
 
     def __init__(self, grid_dim: int = DEFAULT_GRID_DIM):
         self.grid_dim = grid_dim
-        self.geoms: List[Geometry] = []
         self.labels: List[Label] = []
         self._label_keys: set = set()
         self.metadata: Dict[bytes, bytes] = {}
         self._bounds: Optional[Tuple[float, float, float, float]] = None
         self.min_zoom = 255
         self.max_zoom = 0
+        # Streaming payload state. We open the temp file lazily on the
+        # first add_geometry() so writers that never add anything (e.g.
+        # tests that error before any data) leave no tmpfiles behind.
+        self._tmp_path: Optional[Path] = None
+        self._tmp_file = None
+        self._tmp_cursor = 0
+        # Per-record index: list of (cell_index, fc, gt, zmin, zmax,
+        # tmp_offset, payload_size). Tuples not dataclasses to keep the
+        # per-row overhead small.
+        self._index: List[Tuple[int, int, int, int, int, int, int]] = []
 
     # ---- metadata --------------------------------------------------------
 
@@ -425,14 +442,58 @@ class TDMAPWriter:
 
     # ---- data ------------------------------------------------------------
 
+    def _ensure_tmp(self) -> None:
+        """Open the temp payload file on first use."""
+        if self._tmp_file is not None:
+            return
+        if self._bounds is None:
+            raise ValueError(
+                "set_bounds() must be called before add_geometry() — the "
+                "spatial-index grid needs the BB to map each record to a cell"
+            )
+        import tempfile
+        fd, name = tempfile.mkstemp(prefix="tdmap_payloads_", suffix=".bin")
+        os.close(fd)
+        self._tmp_path = Path(name)
+        self._tmp_file = open(self._tmp_path, "wb")
+
     def add_geometry(self, g: Geometry) -> None:
+        """Stream a geometry through interpolate -> split -> compress and
+        append to the temp file. Only the 7-tuple index entry stays in RAM."""
         if not g.vertices:
             return
-        self.geoms.append(g)
+        self._ensure_tmp()
+
+        # Track archive's overall zoom range as we go.
         if g.min_zoom < self.min_zoom:
             self.min_zoom = g.min_zoom
         if g.max_zoom > self.max_zoom:
             self.max_zoom = g.max_zoom
+
+        # Interpolate to keep deltas within int16, then split into <=255-vertex
+        # records. Each sub-record gets its own compressed payload + index entry.
+        adjusted = Geometry(
+            feature_class=g.feature_class,
+            geom_type=g.geom_type,
+            min_zoom=g.min_zoom,
+            max_zoom=g.max_zoom,
+            vertices=self._interpolate_for_delta(g.vertices),
+        )
+        for sub in self._split_for_record_cap(adjusted):
+            raw = self._pack_geometry(sub)
+            comp = zlib.compress(raw, level=6)
+            cell = cell_for_bbox(sub.bbox, self._bounds, self.grid_dim)
+            self._tmp_file.write(comp)
+            self._index.append((
+                cell,
+                sub.feature_class & 0xFF,
+                sub.geom_type & 0xFF,
+                sub.min_zoom & 0xFF,
+                sub.max_zoom & 0xFF,
+                self._tmp_cursor,
+                len(comp),
+            ))
+            self._tmp_cursor += len(comp)
 
     def add_label(self, label: Label) -> None:
         if not label.text or not label.text.strip():
@@ -556,115 +617,134 @@ class TDMAPWriter:
         return out
 
     def write(self, output_path: Path) -> Path:
-        if not self.geoms:
-            raise ValueError(
-                "no geometries to write — empty bounds or zoom range?")
+        """Finalize the archive. Streams compressed payloads from the temp
+        file into the output in sorted index order, never holding more than
+        one payload in RAM at a time."""
         if self._bounds is None:
             raise ValueError(
                 "bounds must be set before write() — v7 archives require BB "
                 "metadata so the spatial index grid can be laid out")
+        if not self._index:
+            raise ValueError(
+                "no geometries to write — empty bounds or zoom range?")
 
-        # Normalize zoom range if no geometry was added (defensive).
         if self.min_zoom > self.max_zoom:
             self.min_zoom = 0
             self.max_zoom = 0
 
-        # Two passes per user-added geometry:
-        #   1. Interpolate vertices to keep every delta within int16 range.
-        #   2. Split into ≤255-vertex records so the on-disk vertex_count
-        #      field (u8) doesn't overflow.
-        expanded: List[Geometry] = []
-        for g in self.geoms:
-            adjusted = Geometry(
-                feature_class=g.feature_class,
-                geom_type=g.geom_type,
-                min_zoom=g.min_zoom,
-                max_zoom=g.max_zoom,
-                vertices=self._interpolate_for_delta(g.vertices),
-            )
-            expanded.extend(self._split_for_record_cap(adjusted))
+        # Flush the temp file so the read pass sees every byte we wrote.
+        assert self._tmp_file is not None and self._tmp_path is not None
+        self._tmp_file.flush()
+        self._tmp_file.close()
+        self._tmp_file = None
 
-        # Pack each geometry payload, individually zlib-compressed.
-        bounds = self._bounds
-        grid_dim = self.grid_dim
-        index_entries: List[Tuple[int, int, int, int, int, bytes]] = []
-        # (cell_index, feature_class, geom_type, min_zoom, max_zoom, compressed_bytes)
-        for g in expanded:
-            raw = self._pack_geometry(g)
-            comp = zlib.compress(raw, level=6)
-            cell = cell_for_bbox(g.bbox, bounds, grid_dim)
-            index_entries.append((
-                cell,
-                g.feature_class,
-                g.geom_type,
-                g.min_zoom,
-                g.max_zoom,
-                comp,
-            ))
+        try:
+            # Sort the index by (cell_index, min_zoom). Each entry is a
+            # 7-tuple of small ints, so this is fast and memory-stable.
+            self._index.sort(key=lambda e: (e[0], e[3]))
 
-        # Sort by (cell_index, min_zoom) so viewport queries can binary
-        # search to a cell and scan forward.
-        index_entries.sort(key=lambda e: (e[0], e[3]))
+            # Sort labels by (zoom_min, lat_e6, lon_e6).
+            self.labels.sort(key=lambda l: (l.zoom_min, l.lat_e6, l.lon_e6))
 
-        # Sort labels by (zoom_min, lat, lon).
-        self.labels.sort(key=lambda l: (l.zoom_min, l.lat_e6, l.lon_e6))
+            metadata_payload = self._pack_metadata()
+            metadata_block = (struct.pack("<I", len(metadata_payload))
+                              + metadata_payload)
 
-        metadata_payload = self._pack_metadata()
-        metadata_block = struct.pack("<I", len(metadata_payload)) + metadata_payload
+            index_offset = HEADER_SIZE + len(metadata_block)
+            data_offset = index_offset + len(self._index) * INDEX_ENTRY_SIZE
+            total_data_bytes = sum(e[6] for e in self._index)
+            label_offset = data_offset + total_data_bytes
+            label_data = b"".join(l.pack() for l in self.labels)
 
-        index_offset = HEADER_SIZE + len(metadata_block)
-        data_offset = index_offset + len(index_entries) * INDEX_ENTRY_SIZE
+            with open(output_path, "wb") as out, open(self._tmp_path, "rb") as tmp:
+                # Header.
+                out.write(struct.pack(
+                    HEADER_FORMAT,
+                    MAGIC,
+                    TDMAP_VERSION,
+                    COMPRESSION_ZLIB,
+                    self.grid_dim,
+                    0,                       # reserved
+                    len(self._index),
+                    index_offset,
+                    data_offset,
+                    self.min_zoom,
+                    self.max_zoom,
+                    label_offset,
+                    len(self.labels),
+                ))
+                # Metadata block.
+                out.write(metadata_block)
 
-        # Lay out the geometry payload section and remember each record's
-        # offset (relative to data_offset).
-        record_offsets: List[int] = []
-        cursor = 0
-        for _cell, _fc, _gt, _zmin, _zmax, comp in index_entries:
-            record_offsets.append(cursor)
-            cursor += len(comp)
-        total_data_bytes = cursor
+                # Index entries in sorted order. We need each entry's FINAL
+                # offset inside the data block, which depends on its position
+                # in the sorted order. Two micro-passes: first compute
+                # cumulative offsets, then emit.
+                final_offsets = [0] * len(self._index)
+                cursor = 0
+                for i, e in enumerate(self._index):
+                    final_offsets[i] = cursor
+                    cursor += e[6]
 
-        label_offset = data_offset + total_data_bytes
-        label_data = b"".join(l.pack() for l in self.labels)
+                for i, e in enumerate(self._index):
+                    out.write(struct.pack(
+                        INDEX_ENTRY_FORMAT,
+                        e[0],                # cell_index
+                        e[1],                # feature_class
+                        e[2],                # geom_type
+                        e[3],                # min_zoom
+                        e[4],                # max_zoom
+                        final_offsets[i],
+                        e[6],                # data_size
+                    ))
 
-        # Build the index block now that we know each record's offset.
-        index_bytes = bytearray()
-        for i, (cell, fc, gt, zmin, zmax, comp) in enumerate(index_entries):
-            index_bytes += struct.pack(
-                INDEX_ENTRY_FORMAT,
-                cell,            # u32
-                fc & 0xFF,
-                gt & 0xFF,
-                zmin & 0xFF,
-                zmax & 0xFF,
-                record_offsets[i],
-                len(comp),
-            )
+                # Payload block: copy each compressed record from the temp
+                # file at its arrival offset into the output at its sorted
+                # offset. Each record is bounded by MAX_VERTICES_PER_RECORD
+                # so the buffer is tiny (~4 KB worst case); the cost is one
+                # seek per record, which is fine on any modern fs.
+                for e in self._index:
+                    tmp_offset = e[5]
+                    size = e[6]
+                    tmp.seek(tmp_offset)
+                    chunk = tmp.read(size)
+                    if len(chunk) != size:
+                        raise IOError(
+                            f"short read from temp payload file: "
+                            f"got {len(chunk)} of {size} at offset {tmp_offset}")
+                    out.write(chunk)
 
-        with open(output_path, "wb") as f:
-            header = struct.pack(
-                HEADER_FORMAT,
-                MAGIC,
-                TDMAP_VERSION,
-                COMPRESSION_ZLIB,
-                grid_dim,
-                0,                         # reserved
-                len(index_entries),
-                index_offset,
-                data_offset,
-                self.min_zoom,
-                self.max_zoom,
-                label_offset,
-                len(self.labels),
-            )
-            f.write(header)
-            f.write(metadata_block)
-            f.write(index_bytes)
-            for _cell, _fc, _gt, _zmin, _zmax, comp in index_entries:
-                f.write(comp)
-            f.write(label_data)
+                out.write(label_data)
+        finally:
+            # Clean up the temp file even if write failed midway.
+            try:
+                if self._tmp_path is not None and self._tmp_path.exists():
+                    self._tmp_path.unlink()
+            except OSError:
+                pass
 
         return output_path
+
+    def close(self) -> None:
+        """Discard any partial state (closes + removes the temp file).
+
+        Safe to call multiple times. write() invokes this implicitly via
+        its finally block; callers only need close() if they're abandoning
+        the writer without writing.
+        """
+        if self._tmp_file is not None:
+            try:
+                self._tmp_file.close()
+            except OSError:
+                pass
+            self._tmp_file = None
+        if self._tmp_path is not None and self._tmp_path.exists():
+            try:
+                self._tmp_path.unlink()
+            except OSError:
+                pass
+            self._tmp_path = None
+        self._index = []
 
     def _pack_metadata(self) -> bytes:
         chunks: List[bytes] = []
