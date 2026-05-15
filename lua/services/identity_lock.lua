@@ -129,6 +129,26 @@ local function decode_blob(blob)
     return iters, salt, nonce, ct
 end
 
+-- Re-read the wrapped blob from NVS and run the full decode + decrypt
+-- path under `passphrase` + `pub`. Returns true iff the result matches
+-- `priv` exactly. This is the round-trip used by `wrap` and `change`
+-- before they touch the plaintext key -- it mirrors what `unwrap` does
+-- at boot, so a buggy encode/decode framing or a silent NVS write
+-- corruption is caught here, not on the next boot.
+local function selftest_via_nvs(passphrase, priv, pub)
+    local blob = ez.identity.read_wrapped_blob()
+    if not blob then return false, "readback failed" end
+    local iters, salt, nonce, ct = decode_blob(blob)
+    if not iters then return false, "decode failed" end
+    local kek = ez.crypto.pbkdf2_sha256(passphrase, salt, iters, KEK_LEN)
+    if not kek then return false, "kdf failure" end
+    local verify_pt = ez.crypto.aes_gcm_decrypt(kek, nonce, ct, pub)
+    if not verify_pt or verify_pt ~= priv then
+        return false, "decrypt mismatch"
+    end
+    return true
+end
+
 -- Wrap the current plaintext private key with `passphrase`. Returns
 -- true on success, false + reason on failure. Two-phase commit: write
 -- the wrapped blob first, then delete the plain copy. A power loss
@@ -172,12 +192,14 @@ function lock.wrap(passphrase, opts)
     end
 
     -- Verify round-trip BEFORE deleting the plaintext, so a buggy
-    -- KDF / cipher / blob-encoding can't lock the user out.
-    local verify_pt = ez.crypto.aes_gcm_decrypt(kek, nonce, ct, pub)
-    if not verify_pt or verify_pt ~= priv then
+    -- KDF / cipher / blob-encoding can't lock the user out. Read the
+    -- blob back from NVS and exercise decode_blob + the full decrypt
+    -- path, matching what lock.unwrap does at boot.
+    local ok_test, reason = selftest_via_nvs(passphrase, priv, pub)
+    if not ok_test then
         -- Roll back: remove the wrapped blob, leave plaintext alone.
         ez.identity.delete_wrapped_blob()
-        return false, "self-test failed"
+        return false, "self-test failed: " .. reason
     end
 
     if not ez.identity.delete_plain_privkey() then
@@ -265,16 +287,30 @@ function lock.change(old_pass, new_pass, opts)
     local ct = ez.crypto.aes_gcm_encrypt(kek, nonce, priv, pub)
     if not ct then return false, "encrypt failure" end
 
-    -- Self-test: decrypt under the new key/nonce; bail if the
-    -- round-trip doesn't return the original plaintext.
-    local verify = ez.crypto.aes_gcm_decrypt(kek, nonce, ct, pub)
-    if not verify or verify ~= priv then
-        return false, "self-test failed"
-    end
+    -- Stash the current wrapped blob so we can roll back if the
+    -- post-write NVS self-test fails.
+    local old_blob = ez.identity.read_wrapped_blob()
+    if not old_blob then return false, "old blob missing" end
 
     local blob = encode_blob(iters, salt, nonce, ct)
     if not ez.identity.write_wrapped_blob(blob) then
         return false, "nvs write failed"
+    end
+
+    -- Self-test through NVS + decode_blob, matching lock.unwrap. A
+    -- buggy encoder or a corrupt NVS write would otherwise pass an
+    -- in-memory check and only surface as a permanent lockout at the
+    -- next boot.
+    local ok_test, reason = selftest_via_nvs(new_pass, priv, pub)
+    if not ok_test then
+        -- Restore the previous blob so the user's existing passphrase
+        -- still works. If restore itself fails the user is stuck on
+        -- the new (broken) blob; surface that in the error.
+        if not ez.identity.write_wrapped_blob(old_blob) then
+            return false, "self-test failed: " .. reason ..
+                          "; rollback also failed"
+        end
+        return false, "self-test failed: " .. reason
     end
     return true
 end

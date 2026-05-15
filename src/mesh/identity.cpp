@@ -233,6 +233,16 @@ bool Identity::loadFromNVS() {
     return true;
 }
 
+bool Identity::saveNodeNameOnly() {
+    Preferences prefs;
+    if (!prefs.begin(NVS_NAMESPACE, false)) {
+        return false;
+    }
+    size_t written = prefs.putString(KEY_NODE_NAME, _nodeName);
+    prefs.end();
+    return written > 0;
+}
+
 bool Identity::saveToNVS() {
     Preferences prefs;
 

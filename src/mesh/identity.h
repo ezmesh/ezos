@@ -74,8 +74,9 @@ public:
 
     // Persist the current name field only -- used when the user renames
     // a locked identity after unlock without invalidating the wrapped
-    // blob.
-    bool saveNodeNameOnly() { return saveToNVS(); }
+    // blob. Must NOT touch `privkey`, or the next boot would see both
+    // `privkey` and `id_wrap` present and roll back to unencrypted state.
+    bool saveNodeNameOnly();
 
     // Helpers exposed to ez.identity bindings for the wrap/unwrap
     // ceremony. `getPrivateKeyForWrap` returns false unless the device

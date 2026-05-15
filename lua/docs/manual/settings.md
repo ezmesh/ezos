@@ -86,6 +86,19 @@ Device-level operations.
   screen. The flow over-writes prefs idempotently, so it's safe to
   rerun on an already-onboarded device.
 
+## Security
+
+Encrypts the Ed25519 identity private key at rest behind a user
+passphrase. By default the key is stored in plaintext NVS and anyone
+with USB / serial access can read it. Enabling encryption wraps the
+private key with PBKDF2-SHA256 + AES-256-GCM keyed off your
+passphrase; the wrapped blob is asked for at every subsequent boot.
+
+There is no recovery if you forget the passphrase. See the dedicated
+Security page (Settings -- Security on the device, or
+`settings/security.md` in the manual) for the full set / change /
+remove ceremonies and the trust model notes.
+
 ## Firmware
 
 Pull the latest rolling build from GitHub and install it over the

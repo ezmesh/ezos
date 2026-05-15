@@ -222,6 +222,9 @@ function Passphrase:_try(state)
             busy = false,
             message = err or "Failed",
             is_error = true,
+            pass = "",
+            confirm = "",
+            old_pass = "",
         })
     end
 end
