@@ -147,10 +147,10 @@ Per-issue conventions:
   with one un-checked "Needs hardware QA: flash and verify on
   T-Deck" item.
 
-Do NOT merge the PR. Do NOT push to main. Do NOT delete the
-worktree. If you can't complete the work for any reason, leave the
-worktree in a clean state (no half-committed junk) and return
-SKIPPED with the reason.
+Do NOT merge the PR. Do NOT push to main. Do NOT force-push. Do NOT
+delete the worktree. If you can't complete the work for any reason,
+leave the worktree in a clean state (no half-committed junk) and
+return SKIPPED with the reason.
 
 Return a short report (<150 words):
 - First line: `OPENED #<M>` or `SKIPPED: <reason>`.
