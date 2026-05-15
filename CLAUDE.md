@@ -790,6 +790,49 @@ ring buffer is fixed at 64 entries and dumped via
   Live ADVERT names still flow unsanitized through `updateNode()`;
   fixing that seam is out of scope.
 
+### GPS track recordings (`.eztrack` v1)
+
+The GPS recorder (`lua/services/gps_track.lua`) writes one
+`.eztrack` file per session under `/sd/tracks/`. Header is
+13 bytes + variable-length label; payload is a stream of 13-byte
+fixed records. All multi-byte integers are little-endian.
+
+- Path: `/sd/tracks/<start_unix>-<ascii_slug>.eztrack`. The slug
+  comes from the user-supplied label, sanitized to `[A-Za-z0-9_-]`
+  and capped at 24 chars.
+- Header: `[magic:6 "EZTRK1"][flags:1][reserved:1][start_unix:4 LE]
+  [label_len:1][label:label_len]`. `flags` is currently a single
+  bit: `FLAG_CLOSED = 0x01`, flipped from 0 to 1 by `stop()` /
+  `finalise_on_disk()` once the session ends. Files with the bit
+  still clear are surfaced as `(in progress)` in the viewer.
+- Record: `[ts_delta_u16 LE][lat_e6 i32 LE][lon_e6 i32 LE]
+  [alt_m i16 LE][hdop_t u8]` = 13 bytes each. `ts_delta` is seconds
+  since the header's `start_unix`, clamped to `[0, 0xFFFF]` (~18 h
+  per session; longer recordings would saturate but no overflow).
+  `lat_e6` / `lon_e6` are decimal degrees * 1e6, same encoding the
+  MeshCore ADVERT uses. `hdop_t` is HDOP * 10, clamped to
+  `[0, 255]`.
+- In-memory ring: `state.points` keeps the last 1024 points for the
+  live overlay only. The on-disk file is the source of truth across
+  reboots and is always appended to, never rewritten.
+- Sampling: gated by user-tunable `trk_interval` (min seconds
+  between records) and `trk_distance` (min meters from the previous
+  point); defaults 5 s / 5 m. Set via the GPS settings panel.
+- Sentinel close: `stop()` patches the flags byte at offset 6 to
+  `FLAG_CLOSED`. The patch reads the whole file into RAM and
+  rewrites it, so `ez.storage.read_file`'s 1 MB cap applies --
+  a session that grows past ~22 hours at 1 s intervals is left
+  with the in-progress flag stuck. Reaper on boot retries failed
+  closes; a `ez.storage.write_at` binding would lift this limit
+  if it ever bites in practice.
+- ASCII boundary: header label is sanitized at read time (`?` for
+  any byte outside `0x20..0x7E`), same policy as the Node Store.
+
+`MAGIC` / `FLAG_CLOSED` / the in-memory cap are defined at the top
+of `lua/services/gps_track.lua`. Bump the magic suffix (e.g.
+`EZTRK2`) in lockstep with any wire-format change so older firmware
+loading a newer file fails fast on the magic check.
+
 ## Theming
 
 `lua/ezui/theme.lua` is the single source of truth for colors and fonts.

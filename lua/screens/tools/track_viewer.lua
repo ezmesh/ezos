@@ -85,109 +85,51 @@ local function open_on_map(track_path)
     screen_mod.push(screen_mod.create(Map, state))
 end
 
-local function show_actions_menu(self, entry)
-    local MenuDef = { title = "Track" }
-
-    function MenuDef:build(_state)
-        local items = {}
-        items[#items + 1] = ui.title_bar(entry.label ~= "" and entry.label
-            or entry.name, { back = true })
-
-        local actions = {}
-
-        actions[#actions + 1] = ui.list_item({
-            title = "Open on map",
-            subtitle = "View the recorded polyline",
-            on_press = function()
-                screen_mod.pop()
-                open_on_map(entry.path)
-            end,
-        })
-
-        -- Stats: load the full track and compute distance + duration.
-        -- Cheap for the typical track size (a few hundred to a few
-        -- thousand points). For very long tracks this still fits well
-        -- inside one screen-build budget.
-        actions[#actions + 1] = ui.list_item({
-            title = "Stats",
-            subtitle = "Distance, duration, point count",
-            on_press = function()
-                local loaded, err = gps_track.load(entry.path)
-                if not loaded or not loaded.points then
-                    dialog.confirm({
-                        title = "Cannot read track",
-                        message = err or "unknown error",
-                        ok_label = "OK",
-                        cancel_label = "Close",
-                    }, function() screen_mod.pop() end)
-                    return
-                end
-                local total_m = 0
-                local function hav(lat1, lon1, lat2, lon2)
-                    local R = 6371000
-                    local rad = math.pi / 180
-                    local p1 = lat1 * rad
-                    local p2 = lat2 * rad
-                    local dp = (lat2 - lat1) * rad
-                    local dl = (lon2 - lon1) * rad
-                    local a = math.sin(dp / 2) ^ 2
-                        + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ^ 2
-                    return R * 2 * math.atan(math.sqrt(a), math.sqrt(1 - a))
-                end
-                for i = 2, #loaded.points do
-                    local a = loaded.points[i - 1]
-                    local b = loaded.points[i]
-                    total_m = total_m + hav(a.lat, a.lon, b.lat, b.lon)
-                end
-                local pts = loaded.points
-                local dur_s = 0
-                if #pts >= 2 then
-                    dur_s = (pts[#pts].ts_unix or 0) - (pts[1].ts_unix or 0)
-                end
-                local km = total_m / 1000
-                local minutes = dur_s // 60
-                local secs = dur_s % 60
-                local msg = string.format(
-                    "%d points\n%.2f km\n%d min %d s",
-                    #pts, km, minutes, secs)
-                dialog.confirm({
-                    title = "Stats",
-                    message = msg,
-                    ok_label = "OK",
-                    cancel_label = "Close",
-                }, function() screen_mod.pop() end)
-            end,
-        })
-
-        actions[#actions + 1] = ui.list_item({
-            title = "Delete",
-            subtitle = "Remove this track file",
-            on_press = function()
-                dialog.confirm({
-                    title = "Delete track?",
-                    message = entry.name,
-                    ok_label = "Delete",
-                    cancel_label = "Cancel",
-                }, function()
-                    gps_track.delete(entry.path)
-                    screen_mod.pop()
-                    -- Refresh the underlying viewer.
-                    if self and self.set_state then self:set_state({}) end
-                end)
-            end,
-        })
-
-        local content = ui.vbox({ gap = 0 }, actions)
-        items[#items + 1] = ui.scroll({ grow = 1 }, content)
-        return ui.vbox({ gap = 0, bg = "BG" }, items)
+local function compute_stats(entry)
+    local loaded, err = gps_track.load(entry.path)
+    if not loaded or not loaded.points then
+        dialog.confirm({
+            title = "Cannot read track",
+            message = err or "unknown error",
+            ok_label = "OK",
+            cancel_label = "Close",
+        }, function() screen_mod.pop() end)
+        return
     end
-
-    function MenuDef:handle_key(k)
-        if k.special == "BACKSPACE" or k.special == "ESCAPE" then return "pop" end
-        return nil
+    local total_m = 0
+    local function hav(lat1, lon1, lat2, lon2)
+        local R = 6371000
+        local rad = math.pi / 180
+        local p1 = lat1 * rad
+        local p2 = lat2 * rad
+        local dp = (lat2 - lat1) * rad
+        local dl = (lon2 - lon1) * rad
+        local a = math.sin(dp / 2) ^ 2
+            + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ^ 2
+        return R * 2 * math.atan(math.sqrt(a), math.sqrt(1 - a))
     end
-
-    screen_mod.push(screen_mod.create(MenuDef, {}))
+    for i = 2, #loaded.points do
+        local a = loaded.points[i - 1]
+        local b = loaded.points[i]
+        total_m = total_m + hav(a.lat, a.lon, b.lat, b.lon)
+    end
+    local pts = loaded.points
+    local dur_s = 0
+    if #pts >= 2 then
+        dur_s = (pts[#pts].ts_unix or 0) - (pts[1].ts_unix or 0)
+    end
+    local km = total_m / 1000
+    local minutes = dur_s // 60
+    local secs = dur_s % 60
+    local msg = string.format(
+        "%d points\n%.2f km\n%d min %d s",
+        #pts, km, minutes, secs)
+    dialog.confirm({
+        title = "Stats",
+        message = msg,
+        ok_label = "OK",
+        cancel_label = "Close",
+    }, function() screen_mod.pop() end)
 end
 
 function Viewer.initial_state()
@@ -244,21 +186,55 @@ function Viewer:build(state)
     items[#items + 1] = ui.scroll({ grow = 1 }, ui.vbox({ gap = 0 }, rows))
 
     items[#items + 1] = ui.padding({ 4, 8, 2, 8 },
-        ui.text_widget("ENTER: open  |  M: actions",
+        ui.text_widget("ENTER: open  |  Alt+M: actions",
             { color = "TEXT_MUTED", font = "tiny_aa" }))
 
     return ui.vbox({ gap = 0, bg = "BG" }, items)
 end
 
+-- Framework dispatches this on Alt+M when a screen exposes a :menu()
+-- method; the returned list is rendered as a menu dialog. Acting on the
+-- focused row keeps the call site shape the same as the previous bare-m
+-- handler.
+function Viewer:menu()
+    local focus_mod = require("ezui.focus")
+    local n = focus_mod.current()
+    if not (n and n._track) then return nil end
+    local entry = n._track
+    local self_ref = self
+
+    return {
+        {
+            title = "Open on map",
+            subtitle = "View the recorded polyline",
+            on_press = function() open_on_map(entry.path) end,
+        },
+        {
+            title = "Stats",
+            subtitle = "Distance, duration, point count",
+            on_press = function() compute_stats(entry) end,
+        },
+        {
+            title = "Delete",
+            subtitle = "Remove this track file",
+            on_press = function()
+                dialog.confirm({
+                    title = "Delete track?",
+                    message = entry.name,
+                    ok_label = "Delete",
+                    cancel_label = "Cancel",
+                }, function()
+                    gps_track.delete(entry.path)
+                    if self_ref and self_ref.set_state then
+                        self_ref:set_state({})
+                    end
+                end)
+            end,
+        },
+    }
+end
+
 function Viewer:handle_key(key)
-    if key.character == "m" or key.character == "M" then
-        local focus_mod = require("ezui.focus")
-        local n = focus_mod.current()
-        if n and n._track then
-            show_actions_menu(self, n._track)
-            return "handled"
-        end
-    end
     if key.special == "BACKSPACE" or key.special == "ESCAPE" then
         return "pop"
     end
