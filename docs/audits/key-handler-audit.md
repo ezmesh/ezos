@@ -25,7 +25,9 @@ Ctrl in dev-only paths) are not findings.
 
 - **0 instances of `key.ctrl`** in Lua. No work needed there.
 - **6 `ESCAPE`-only files** -- all 6 also accept `q`, so the user
-  has a reachable exit; no functional fix needed for any of them.
+  has a reachable exit. Five need no further fix; `solitaire.lua`
+  still needs BACKSPACE added as a cancel-selection path (see
+  "User-visible hint text" below).
 - **1 user-visible hint mentions "Esc"** (`solitaire.lua:607`).
 - **2 user-visible help screens binding bare digits** without
   documenting the alt-chord (`wasteland.lua:2343`, `sudoku.lua` --
