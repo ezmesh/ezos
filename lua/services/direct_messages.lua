@@ -315,6 +315,7 @@ end
 -- success, promote it into the normal conversation store. Forward
 -- declaration so it's visible before the packet handler closes over it.
 local store_message  -- defined below
+local classify_inbound_protocol  -- defined below
 local function try_decrypt_pending(id, pending, candidate_pub_key_hex)
     local enc = get_enc_key(candidate_pub_key_hex)
     if not enc then return false end
@@ -434,7 +435,7 @@ end
 -- recipient. Today only signal_test consults this, but the helper is
 -- the natural seam for any future protocol DM (file-offer beacons,
 -- etc.) -- they'd plug into the same active-scope flow.
-local function classify_inbound_protocol(msg)
+classify_inbound_protocol = function(msg)
     if msg.protocol then return end  -- already stamped (e.g. by sender)
     local ok, sigt = pcall(require, "services.signal_test")
     if ok and sigt.matches_protocol and sigt.matches_protocol(msg) then
