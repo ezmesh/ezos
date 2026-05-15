@@ -441,7 +441,7 @@ function M.send(pub_key_hex, path)
     local name = basename(path)
     if #name > 255 then return nil, "name too long" end
 
-    local xfer_id = math.random(1, 0x7FFFFFFF)
+    local xfer_id = ez.crypto.random_int(1, 0x7FFFFFFF)
 
     tx[xfer_id] = {
         pub_key_hex = pub_key_hex,
