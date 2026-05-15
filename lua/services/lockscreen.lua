@@ -109,6 +109,22 @@ local function unpack_secret(blob)
     return iters, salt, hash
 end
 
+-- ez.storage.set_pref dispatches through Preferences::putString, which
+-- uses NUL-terminated C-string semantics and truncates the value at the
+-- first \0 byte. The packed secret has \0 bytes in the iteration count
+-- (e.g. ITERS=50000 -> 0x50 0xC3 0x00 0x00), so a raw write would
+-- silently truncate the blob and try_unlock would refuse every attempt
+-- after a successful setup. Hex-encode keeps the stored value all
+-- ASCII; the read path reverses the encoding before unpack_secret.
+local function blob_to_hex(s)
+    return (s:gsub(".", function(c) return string.format("%02x", c:byte()) end))
+end
+
+local function hex_to_blob(h)
+    if type(h) ~= "string" or h == "" then return "" end
+    return (h:gsub("%x%x", function(cc) return string.char(tonumber(cc, 16)) end))
+end
+
 -- Mini PBKDF2-SHA256 in Lua over the existing C++ ez.crypto.hmac_sha256
 -- binding. We don't depend on the (newer) ez.crypto.pbkdf2_sha256
 -- binding because this service ships independently of the identity-
@@ -216,7 +232,7 @@ function lockscreen.setup(mode, secret)
     if not blob then return false, "pack failure" end
 
     ez.storage.set_pref(PREF_MODE,   mode)
-    ez.storage.set_pref(PREF_SECRET, blob)
+    ez.storage.set_pref(PREF_SECRET, blob_to_hex(blob))
     ez.storage.set_pref(PREF_FAILS,  "0")
     ez.storage.set_pref(PREF_UNTIL,  "0")
     -- After setting up, the device is implicitly "unlocked" -- the
@@ -238,7 +254,7 @@ function lockscreen.try_unlock(input)
         return false, "no input"
     end
 
-    local blob = ez.storage.get_pref(PREF_SECRET, "")
+    local blob = hex_to_blob(ez.storage.get_pref(PREF_SECRET, ""))
     local iters, salt, hash = unpack_secret(blob)
     if not iters then return false, "no secret" end
 
