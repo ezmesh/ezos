@@ -52,8 +52,11 @@ function UiFixture:build(_state)
     return result
 end
 
-function UiFixture:handle_key(_key)
-    return true  -- swallow everything; tests own key input via the host harness
+function UiFixture:handle_key(key)
+    if key.special == "BACKSPACE" or key.special == "ESCAPE" then
+        return "pop"
+    end
+    return true  -- swallow everything else; tests own key input via the host harness
 end
 
 return UiFixture
