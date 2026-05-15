@@ -730,6 +730,30 @@ ring buffer is fixed at 64 entries and dumped via
 - Keypairs stored in NVS (`privkey`, `pubkey`)
 - Node ID derived from SHA-256 hash of public key (first 6 bytes)
 - Sign/verify methods for message authentication
+- **Encrypted at rest (optional, issue #118):** if NVS key `id_wrap`
+  exists, the plaintext `privkey` is absent and `Identity::init()`
+  enters the `_locked` state. C++ loads the public key + node name
+  but `_hasKeypair=false` so any sign / send_announce / shared-secret
+  call refuses cleanly. Lua boot detects the state via
+  `ez.identity.is_locked()` and pushes
+  `screens/onboarding/passphrase.lua` over the desktop; on a correct
+  passphrase, `services/identity_lock.unlock()` decrypts the wrapped
+  blob (PBKDF2-SHA256 KEK + AES-256-GCM AEAD, pubkey in AAD) and
+  calls `ez.identity.unlock(priv, pub, name)` to feed the keys in.
+  After unlock, mesh signing works again with no service restart.
+- **Wrap format** (`id_wrap` blob, owned by Lua): `[magic:4 "EZL1"]
+  [version:1][kdf:1][iters:4 LE][salt_len:1][salt][nonce_len:1]
+  [nonce][ct_len:2 LE][ct]`. Ciphertext is ct || 16-byte GCM tag.
+- **Two-phase wrap commit:** wrap writes `id_wrap` first, then
+  deletes plain `privkey`. Power loss between the two leaves both
+  present; `Identity::init()` detects the inconsistent state and
+  rolls back by deleting `id_wrap`, so the next boot is unwrapped
+  on the original key.
+- **Trapdoor:** `Identity::getPrivateKeyForWrap()` (used by
+  `ez.identity.get_privkey_for_wrap`) refuses to return the
+  plaintext private key when a wrapped blob already exists. This is
+  what prevents a wrapped device's terminal from exposing the
+  cleartext key once unlock has happened in RAM.
 
 ### Channel System
 - Default channel: `#Public` (joined automatically on startup)

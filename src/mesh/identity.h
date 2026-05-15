@@ -58,6 +58,38 @@ public:
     // Reset identity (generates new keypair, clears name)
     bool reset();
 
+    // True when an encrypted-at-rest wrapped key blob is present in NVS
+    // (`id_wrap`) but the plaintext keypair has not been loaded yet.
+    // In this state `_hasKeypair` is false and mesh init must be
+    // deferred until Lua provides the unwrapped keys via `unlock()`.
+    bool isLocked() const { return _locked; }
+
+    // Feed an unwrapped keypair into a locked identity. Called by Lua
+    // after the user enters the correct passphrase. Returns false if
+    // the device is not in the locked state (defensive: this path must
+    // not be reachable from a normal-boot context). Sets `_hasKeypair`
+    // and clears the locked flag on success.
+    bool unlock(const uint8_t* privateKey, const uint8_t* publicKey,
+                const char* nodeName);
+
+    // Persist the current name field only -- used when the user renames
+    // a locked identity after unlock without invalidating the wrapped
+    // blob.
+    bool saveNodeNameOnly() { return saveToNVS(); }
+
+    // Helpers exposed to ez.identity bindings for the wrap/unwrap
+    // ceremony. `getPrivateKeyForWrap` returns false unless the device
+    // is currently unwrapped (`!_locked && _hasKeypair`) AND no
+    // `id_wrap` blob already exists; this is the one-way trapdoor that
+    // prevents a wrapped device from exposing the plaintext key to
+    // Lua-side callers.
+    bool getPrivateKeyForWrap(uint8_t* out) const;
+    static bool hasWrappedBlob();
+    static bool readWrappedBlob(uint8_t* out, size_t* outLen, size_t maxLen);
+    static bool writeWrappedBlob(const uint8_t* blob, size_t len);
+    static bool deleteWrappedBlob();
+    static bool deletePlainPrivateKey();
+
     // Calculate shared secret with another node using ECDH (X25519)
     // Converts Ed25519 keys to X25519 internally
     // sharedSecret must be 32 bytes
@@ -72,6 +104,7 @@ private:
     uint8_t _privateKey[ED25519_PRIVATE_KEY_SIZE];
     uint8_t _publicKey[ED25519_PUBLIC_KEY_SIZE];
     bool _hasKeypair = false;
+    bool _locked = false;
 
     bool loadFromNVS();
     bool saveToNVS();

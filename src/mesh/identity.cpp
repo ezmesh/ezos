@@ -13,6 +13,10 @@ static const char* NVS_NAMESPACE = "meshcore";
 static const char* KEY_PRIVATE_KEY = "privkey";
 static const char* KEY_PUBLIC_KEY = "pubkey";
 static const char* KEY_NODE_NAME = "nodename";
+// Encrypted-at-rest wrapped private key blob (issue #118). Format is
+// owned by `services/identity_lock` on the Lua side; this layer just
+// stores and retrieves bytes. 15-char key max in NVS, "id_wrap" fits.
+static const char* KEY_WRAPPED_KEY = "id_wrap";
 
 Identity::Identity() {
     memset(_nodeName, 0, sizeof(_nodeName));
@@ -21,6 +25,62 @@ Identity::Identity() {
 }
 
 bool Identity::init() {
+    // Inconsistent-state recovery: if BOTH the plaintext private key
+    // and the wrapped blob exist, a previous wrap operation was
+    // interrupted between writing the wrapped copy and deleting the
+    // plaintext. Roll back to "unwrapped": delete the partial wrapped
+    // blob so the device boots normally and the user can re-attempt
+    // the wrap. This is safer than letting the user be locked behind
+    // a passphrase whose KDF parameters they may not have committed.
+    bool plain_present = false;
+    {
+        Preferences prefs;
+        if (prefs.begin(NVS_NAMESPACE, true)) {
+            plain_present = prefs.isKey(KEY_PRIVATE_KEY);
+            prefs.end();
+        }
+    }
+    bool wrapped_present = hasWrappedBlob();
+    if (plain_present && wrapped_present) {
+        Serial.println("[Identity] Inconsistent state (plain + wrapped); clearing wrap");
+        deleteWrappedBlob();
+        wrapped_present = false;
+    }
+
+    if (wrapped_present) {
+        // Device is locked: the plaintext private key lives only in
+        // the wrapped blob until Lua calls unlock(). Load the public
+        // key + node name so the rest of the UI has something to show
+        // on the unlock screen, but leave _hasKeypair false so mesh
+        // init refuses to run until we have real keys.
+        Preferences prefs;
+        if (prefs.begin(NVS_NAMESPACE, true)) {
+            size_t pubLen = prefs.getBytes(KEY_PUBLIC_KEY, _publicKey,
+                                           ED25519_PUBLIC_KEY_SIZE);
+            String name = prefs.getString(KEY_NODE_NAME, "");
+            if (name.length() > 0) {
+                strncpy(_nodeName, name.c_str(), MAX_NODE_NAME);
+                _nodeName[MAX_NODE_NAME] = '\0';
+            }
+            prefs.end();
+            if (pubLen != ED25519_PUBLIC_KEY_SIZE) {
+                // Wrapped blob present but no public key -- something
+                // is very wrong. Refuse to boot mesh; the user can
+                // still reach the lockscreen via Lua to attempt
+                // unlock or factory-reset.
+                Serial.println("[Identity] Wrapped blob but no pubkey; identity locked");
+            } else {
+                char fingerprint[16];
+                getPublicKeyFingerprint(fingerprint);
+                Serial.printf("[Identity] Locked (pubkey %s); awaiting unlock\n",
+                              fingerprint);
+            }
+        }
+        _locked = true;
+        _hasKeypair = false;
+        return true;  // not a hard error -- normal locked-boot path
+    }
+
     if (!loadFromNVS()) {
         // No saved identity, generate new keypair
         Serial.println("Generating new Ed25519 keypair...");
@@ -52,7 +112,93 @@ bool Identity::init() {
     Serial.printf("Path hash: %02X\n", getPathHash());
 
     _hasKeypair = true;
+    _locked = false;
     return true;
+}
+
+bool Identity::unlock(const uint8_t* privateKey, const uint8_t* publicKey,
+                      const char* nodeName) {
+    if (!_locked) return false;
+    if (!privateKey || !publicKey) return false;
+
+    memcpy(_privateKey, privateKey, ED25519_PRIVATE_KEY_SIZE);
+    memcpy(_publicKey,  publicKey,  ED25519_PUBLIC_KEY_SIZE);
+    if (nodeName && nodeName[0]) {
+        strncpy(_nodeName, nodeName, MAX_NODE_NAME);
+        _nodeName[MAX_NODE_NAME] = '\0';
+    }
+    _hasKeypair = true;
+    _locked = false;
+    return true;
+}
+
+bool Identity::getPrivateKeyForWrap(uint8_t* out) const {
+    // One-way trapdoor: only allow Lua to read the plaintext private
+    // key when the device is currently unwrapped AND no wrapped blob
+    // exists yet. Once a wrapped blob is in place, this binding
+    // refuses to return the plaintext -- you have to go through the
+    // unlock path and then back through the wrap (which deletes the
+    // plain copy) to get there.
+    if (!_hasKeypair || _locked) return false;
+    if (hasWrappedBlob()) return false;
+    if (!out) return false;
+    memcpy(out, _privateKey, ED25519_PRIVATE_KEY_SIZE);
+    return true;
+}
+
+bool Identity::hasWrappedBlob() {
+    Preferences prefs;
+    if (!prefs.begin(NVS_NAMESPACE, true)) return false;
+    bool present = prefs.isKey(KEY_WRAPPED_KEY);
+    prefs.end();
+    return present;
+}
+
+bool Identity::readWrappedBlob(uint8_t* out, size_t* outLen, size_t maxLen) {
+    if (!out || !outLen) return false;
+    Preferences prefs;
+    if (!prefs.begin(NVS_NAMESPACE, true)) return false;
+    size_t actualLen = prefs.getBytesLength(KEY_WRAPPED_KEY);
+    if (actualLen == 0 || actualLen > maxLen) {
+        prefs.end();
+        return false;
+    }
+    size_t got = prefs.getBytes(KEY_WRAPPED_KEY, out, actualLen);
+    prefs.end();
+    if (got != actualLen) return false;
+    *outLen = actualLen;
+    return true;
+}
+
+bool Identity::writeWrappedBlob(const uint8_t* blob, size_t len) {
+    if (!blob || len == 0) return false;
+    Preferences prefs;
+    if (!prefs.begin(NVS_NAMESPACE, false)) return false;
+    size_t written = prefs.putBytes(KEY_WRAPPED_KEY, blob, len);
+    prefs.end();
+    return written == len;
+}
+
+bool Identity::deleteWrappedBlob() {
+    Preferences prefs;
+    if (!prefs.begin(NVS_NAMESPACE, false)) return false;
+    bool ok = true;
+    if (prefs.isKey(KEY_WRAPPED_KEY)) {
+        ok = prefs.remove(KEY_WRAPPED_KEY);
+    }
+    prefs.end();
+    return ok;
+}
+
+bool Identity::deletePlainPrivateKey() {
+    Preferences prefs;
+    if (!prefs.begin(NVS_NAMESPACE, false)) return false;
+    bool ok = true;
+    if (prefs.isKey(KEY_PRIVATE_KEY)) {
+        ok = prefs.remove(KEY_PRIVATE_KEY);
+    }
+    prefs.end();
+    return ok;
 }
 
 bool Identity::loadFromNVS() {
