@@ -73,3 +73,36 @@ Privacy guidance:
 The setting persists across reboots. There is no on-map indicator of
 the current broadcast home (yet); re-set it the same way to change
 it.
+
+## Sharing a one-off location
+
+Two share paths exist alongside the broadcast home. Both ride inside
+chat as a normal-looking link bubble, so a non-ezOS receiver still
+sees a clickable URL.
+
+From the Map screen (Alt+M):
+
+- **Share this point -> DM...** pans the map crosshair to wherever you
+  want and sends that coordinate to a contact you pick. The URL is
+  encrypted to that contact only -- anyone else who picks up the
+  message sees opaque ciphertext.
+- **Share this point -> Channel...** posts the crosshair to a channel
+  you pick. Channel posts are cleartext to every member of that
+  channel; choose this path knowing every member can see the point.
+
+From a chat screen (Alt+M):
+
+- **Share my location** uses your current GPS fix when available, or
+  your broadcast-home point as a fallback. DM conversations get the
+  encrypted variant; channel conversations get the plaintext variant.
+
+On the receiving side, tapping the LOCATION card opens a context menu
+with "Show on map" (opens the Map app centered on the point at zoom 14)
+and "Copy coordinates" (shows the lat,lon in a confirmation dialog so
+you can read them off). Encrypted shares from contacts you don't share
+a secret with (e.g. unknown sender, or your identity was rotated)
+render as "Location share (cannot open)" rather than failing silently.
+
+The receive notification toast for an inbound location share is on by
+default. Silence it by setting the `notify_gps` pref to `0` from the
+terminal -- a Settings entry is planned but not built yet.
