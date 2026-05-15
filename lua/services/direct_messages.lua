@@ -199,6 +199,11 @@ local function do_save()
                 -- stamp itself only happens during an active test, so
                 -- this is just "don't lose what we already classified".
                 protocol = msg.protocol,
+                -- Persist "we already sent a read-receipt ack for this
+                -- inbound" so a reboot doesn't re-flood the LoRa channel
+                -- with one ack per historical message on the next
+                -- mark_read call.
+                receipt_sent = msg.receipt_sent,
             }
         end
         data.conversations[key] = saved
@@ -1078,6 +1083,7 @@ function dm.send(pub_key_hex, text, opts)
         local t = ez.system.get_time()
         wire_ts = (t and t.epoch) or 0
     end
+    local protocol = opts and opts.protocol or nil
     local msg = {
         sender_key  = ez.mesh.get_public_key_hex(),
         sender_name = ez.mesh.get_node_name() or "Me",
@@ -1090,10 +1096,19 @@ function dm.send(pub_key_hex, text, opts)
         -- tester pingpong). Stamping at the send seam means the chat
         -- filters in sharing.is_protocol_message can rely on a real
         -- intent signal instead of guessing from the text.
-        protocol    = opts and opts.protocol or nil,
+        protocol    = protocol,
     }
-    local stored = store_message(pub_key_hex, msg)
-    ez.bus.post("dm/message", msg)
+    -- Read-receipt acks ride the same crypto / flood path as a normal
+    -- DM but produce no visible local bubble; skip storage + bus post
+    -- entirely so the sender's own conversation isn't littered with
+    -- one outgoing `ack/v1` URL per incoming message they read.
+    local stored
+    if protocol == "ack" then
+        stored = msg
+    else
+        stored = store_message(pub_key_hex, msg)
+        ez.bus.post("dm/message", msg)
+    end
 
     spawn(function()
         -- Auto-advert for first-contact DMs. send_announce itself is
@@ -1170,8 +1185,15 @@ end
 
 -- Emit a read receipt for every inbound message in this conversation
 -- whose hash hasn't been receipt-sent before. Coalesces multiple
--- unread messages into a single round (one TXT_MSG per unique hash);
--- the receiver dedupes by msg_hash anyway.
+-- unread messages into a single round (one TXT_MSG per unique hash).
+--
+-- Dedup state lives on the inbound message itself (`msg.receipt_sent`
+-- bool, persisted via do_save). The earlier in-RAM-only `_G` cache
+-- was reset by every reboot, which re-flooded the channel with one
+-- ack per historical inbound message on the next mark_read after
+-- boot. Stamping the message + schedule_save survives reboots and
+-- still lets repeated mark_read calls (re-entering the conversation)
+-- skip cheaply.
 --
 -- Gated by a global "send_read_rcpt" pref (default off -- read
 -- receipts are privacy-sensitive). When off, mark_read is a no-op on
@@ -1182,13 +1204,6 @@ local function maybe_send_read_receipts(pub_key_hex)
     if not h then return end
 
     local sharing_svc = require("services.sharing")
-    -- Local cache of (peer, hash) we've already sent receipts for so
-    -- repeated mark_read calls (re-entering the conversation) don't
-    -- re-emit. Cleared on reboot; the receiver dedupes anyway.
-    _G._dm_read_receipts_sent = _G._dm_read_receipts_sent or {}
-    local cache = _G._dm_read_receipts_sent
-    local peer_cache = cache[pub_key_hex]
-    if not peer_cache then peer_cache = {}; cache[pub_key_hex] = peer_cache end
 
     -- We need the sender's pubkey (== pub_key_hex for inbound msgs) to
     -- recompute the same hash they'd use locally. Mirrors the formula
@@ -1206,27 +1221,28 @@ local function maybe_send_read_receipts(pub_key_hex)
         return digest and digest:sub(1, 4) or nil
     end
 
+    local sent_any = false
     for _, msg in ipairs(h) do
-        if not msg.is_self then
+        if not msg.is_self and not msg.receipt_sent then
             local target_hash = compute_msg_hash(
                 pub_key_hex, msg.timestamp, msg.text or "")
             if target_hash then
-                local hex_key = string.format("%02X%02X%02X%02X",
-                    target_hash:byte(1), target_hash:byte(2),
-                    target_hash:byte(3), target_hash:byte(4))
-                if not peer_cache[hex_key] then
-                    peer_cache[hex_key] = true
-                    local url = sharing_svc.encode_ack(target_hash,
-                        sharing_svc.ACK_READ)
-                    if url then
-                        -- Use dm.send for the airtime/ACK plumbing;
-                        -- this is a normal TXT_MSG carrying a URI.
-                        spawn(function() dm.send(pub_key_hex, url) end)
-                    end
+                local url = sharing_svc.encode_ack(target_hash,
+                    sharing_svc.ACK_READ)
+                if url then
+                    msg.receipt_sent = true
+                    sent_any = true
+                    -- Use dm.send for the airtime/ACK plumbing; this
+                    -- is a normal TXT_MSG carrying a URI. `protocol`
+                    -- suppresses the local outgoing bubble.
+                    spawn(function()
+                        dm.send(pub_key_hex, url, { protocol = "ack" })
+                    end)
                 end
             end
         end
     end
+    if sent_any then schedule_save() end
 end
 
 function dm.mark_read(pub_key_hex)
