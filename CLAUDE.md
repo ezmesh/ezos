@@ -567,24 +567,25 @@ ring buffer is fixed at 64 entries and dumped via
 
 ## Map tools (`tools/maps/`)
 
-Convert OpenStreetMap vector tiles to optimized TDMAP format for offline
-viewing.
+One-command builder that turns a regional PMTiles into the device's
+`.tdmap` raster format.
 
 | File | Purpose |
 |------|---------|
-| `pmtiles_to_tdmap.py` | PMTiles → TDMAP converter |
-| `config.py` | Tile sources, regions, semantic-index → grayscale lookup |
-| `process.py` | Grayscale conversion, dithering, RLE/zlib tile compression |
-| `archive.py` | TDMAP format writer/reader/inspector |
-| `land_mask.py` | Natural Earth land polygon downloader |
-| `viewer.html` | Browser-based TDMAP viewer |
+| `make_map.py`  | CLI entry point. `make_map.py <region>` builds a preset; `make_map.py custom <pmtiles> --bounds W,S,E,N --zoom MIN,MAX` rolls a custom region; `make_map.py inspect <tdmap>` dumps an archive. |
+| `tdmap.py`     | Format module: writer, reader, inspect/verify CLI, MVT renderer, label extractor, land-mask helpers, 3-bit packing. |
+| `regions.py`   | Region preset catalogue. Add a `Region(...)` here and `make_map.py <name>` Just Works. |
+| `planetiler.sh` | One-time source-prep step: Docker wrapper that produces a regional `.pmtiles` from Geofabrik OSM data. |
+| `viewer.html`  | Browser-based TDMAP viewer. |
 
 ```bash
 cd tools/maps
 pip install -r requirements.txt
-python pmtiles_to_tdmap.py input.pmtiles -o output.tdmap
-python pmtiles_to_tdmap.py input.pmtiles --bounds 4.0,52.0,5.5,52.5 \
-    --zoom 10,14 -o region.tdmap
+./planetiler.sh netherlands 14         # one-time, ~10 min, needs Docker
+python make_map.py netherlands         # converts to netherlands.tdmap
+python make_map.py custom local.pmtiles \
+    --bounds 4.7,52.3,5.05,52.45 --zoom 11,14 -o ams.tdmap
+python make_map.py inspect netherlands.tdmap
 ```
 
 Copy `.tdmap` files to `/sd/maps/`. The Map app's loader
@@ -592,8 +593,14 @@ Copy `.tdmap` files to `/sd/maps/`. The Map app's loader
 default" via the M-key actions menu skips the picker on subsequent
 opens.
 
-Checkpoints save every 500 tiles; interrupted conversions resume on
-re-run.
+Failure surfaces (loud):
+  * source `.pmtiles` missing  → prints the exact `planetiler.sh` invocation
+  * zoom outside source range  → `requested zoom A..B is outside source's M..N`
+  * bounds produce zero tiles  → `bounds produce zero tiles at the requested zoom range`
+
+Checkpoints (`.checkpoint` next to the output) appear mid-build, are
+re-used automatically on rerun if the config + source still match, and
+are removed on success — no user-facing checkpoint files left behind.
 
 ### TDMAP format (v6)
 

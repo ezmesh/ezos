@@ -1,7 +1,7 @@
-# PMTiles to TDMAP converter dependencies
-pmtiles>=3.0.0
-mapbox-vector-tile>=2.0.0
-Pillow>=9.0.0
-numpy>=1.20.0
-shapely>=2.0.0
-pyshp>=2.3.0
+# Dependencies for make_map.py and tdmap.py
+pmtiles>=3.0.0              # PMTiles archive reader
+mapbox-vector-tile>=2.0.0   # MVT decoder
+Pillow>=9.0.0               # tile rasterization
+numpy>=1.20.0               # 3-bit packing + land mask bitmap
+shapely>=2.0.0              # land mask polygon ops
+pyshp>=2.3.0                # one-time OSM land polygon import (sidecar regen)
