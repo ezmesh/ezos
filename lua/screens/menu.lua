@@ -71,6 +71,8 @@ local CATEGORIES = {
         label = "Tools",
         title = "Tools",
         entries = {
+            { title = "Search", subtitle = "Find contacts, messages, settings",
+              icon = icons.help, mod = "screens.tools.search" },
             { title = "Notifications", subtitle = "Recent system events",
               icon = icons.bell, mod = "screens.tools.notifications" },
             { title = "Help", subtitle = "On-device manual + API",

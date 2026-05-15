@@ -328,6 +328,24 @@ local function boot_sequence()
         })
     end)
 
+    -- ---- GPS shares over custom packets ----
+    -- The binary GPS\0 custom-packet path (services/custom_packets)
+    -- fires custom/gps_fix when a peer pushes us their location. The
+    -- chat-bubble share-card flow covers the URL-shaped variant; this
+    -- handler surfaces the binary one as a toast so the user still
+    -- knows. Mute via `notify_gps` pref ("0" = silent).
+    ez.bus.subscribe("custom/gps_fix", function(_topic, data)
+        if type(data) ~= "table" then return end
+        local who  = data.name or (data.sender_pub
+                        and data.sender_pub:sub(1, 8)) or "peer"
+        local body = string.format("%.4f, %.4f", data.lat or 0, data.lon or 0)
+        notifications.post({
+            title  = "Location from " .. who,
+            body   = body,
+            source = "gps",
+        })
+    end)
+
     -- ---- Battery + SD polling ----
     -- One periodic timer covers both: cheap polls (one ADC + one
     -- bool), and there's no driver-side bus event for either today.
