@@ -208,8 +208,13 @@ end
 -- forwarded verbatim through the URL encoder; receivers must sanitize
 -- to printable ASCII at render time (the on-device fonts only cover
 -- 0x20..0x7E).
-local function to_e6(v)  -- round half-away-from-zero
-    return math.floor(v * 1e6 + (v >= 0 and 0.5 or -0.5))
+-- Round to nearest integer (half toward +inf). For lat/lon values that are
+-- integer multiples of 1e-6 this is exact; for anything else the choice of
+-- tie-break doesn't matter. Using a symmetric +/- 0.5 offset diverges at
+-- exact negative boundaries (e.g. to_e6(-90.0) would yield -90000001), so
+-- the encoder's lat<-90 guard then rejects what should be a valid value.
+local function to_e6(v)
+    return math.floor(v * 1e6 + 0.5)
 end
 
 function sharing.encode_gps_channel(lat, lon, label)

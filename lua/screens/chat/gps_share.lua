@@ -128,7 +128,7 @@ function gps_share.build_actions(msg, sender_pub_key_hex)
     end
 
     local label = ascii_safe(r.label or "")
-    local sender = msg.sender_name or "?"
+    local sender = ascii_safe(msg.sender_name or "?")
     local coords = format_coords(r.lat, r.lon)
 
     out[#out + 1] = ui.list_item({
