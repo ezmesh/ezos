@@ -195,9 +195,13 @@ function M.read_header(path)
         or (#(ez.storage.read_file(path) or ""))
     if not size or size < 13 then return nil, "too short" end
 
-    local prelude = ez.storage.read_bytes
-        and ez.storage.read_bytes(path, 0, 13)
-        or ez.storage.read_file(path):sub(1, 13)
+    local prelude
+    if ez.storage.read_bytes then
+        prelude = ez.storage.read_bytes(path, 0, 13)
+    else
+        local raw = ez.storage.read_file(path)
+        prelude = raw and raw:sub(1, 13)
+    end
     if not prelude or #prelude < 13 then return nil, "short read" end
     if prelude:sub(1, 6) ~= MAGIC then return nil, "bad magic" end
 
@@ -207,9 +211,13 @@ function M.read_header(path)
 
     local label = ""
     if label_len > 0 then
-        local label_bytes = ez.storage.read_bytes
-            and ez.storage.read_bytes(path, 13, label_len)
-            or ez.storage.read_file(path):sub(14, 13 + label_len)
+        local label_bytes
+        if ez.storage.read_bytes then
+            label_bytes = ez.storage.read_bytes(path, 13, label_len)
+        else
+            local raw = ez.storage.read_file(path)
+            label_bytes = raw and raw:sub(14, 13 + label_len)
+        end
         label = label_bytes or ""
     end
     label = (label:gsub("[^\32-\126]", "?"))
@@ -235,9 +243,13 @@ function M.load(path)
     if body_size <= 0 then
         return { header = hdr, points = {} }
     end
-    local blob = ez.storage.read_bytes
-        and ez.storage.read_bytes(path, hdr.body_offset, body_size)
-        or ez.storage.read_file(path):sub(hdr.body_offset + 1)
+    local blob
+    if ez.storage.read_bytes then
+        blob = ez.storage.read_bytes(path, hdr.body_offset, body_size)
+    else
+        local raw = ez.storage.read_file(path)
+        blob = raw and raw:sub(hdr.body_offset + 1, hdr.body_offset + body_size)
+    end
     if not blob then return nil, "read failed" end
 
     local out = {}
