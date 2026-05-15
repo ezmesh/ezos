@@ -602,6 +602,12 @@ local function boot_sequence()
         gps_track.reap_unfinalised()
     end)
 
+    -- Per-peer RSSI ring buffer (issue #121). Subscribes to
+    -- mesh/node_discovered; the map's coverage overlay reads it via
+    -- link_quality.get_quality(pub_key_hex). Passive; in-memory only.
+    local link_quality = require("services.link_quality")
+    link_quality.init()
+
     -- Power policy: poll battery every 30 s and back off radio / GPS /
     -- NTP / display in two tiers as the battery drains. See
     -- lua/services/power.lua for the truth table. Starts after the
