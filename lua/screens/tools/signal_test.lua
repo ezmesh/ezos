@@ -370,12 +370,12 @@ function Screen:build(state)
         start_label = "Start"
     end
 
-    -- Two rows up top, a chart in the middle, and a one-line footer with
-    -- stats + the Start/Stop toggle. Compact list_items keep the top two
-    -- rows tight so the chart has 115 px to work with on a 240 px screen.
-    local rows = {
-        ui.title_bar("Signal Test", { back = true }),
-
+    -- Title stays pinned; everything else lives inside a scroll so the
+    -- chart + stats + Start button are reachable on the 240 px screen
+    -- even with the chart taking 115 px. Trackball/UP/DOWN walks the
+    -- focus chain (peer row, mode row, button) and ezui auto-scrolls
+    -- the focused widget into view; finger drag pans via touch_input.
+    local scroll_content = ui.vbox({ gap = 0 }, {
         ui.list_item({
             compact  = true,
             title    = "Peer: " .. (state.peer_name or "<pick>"),
@@ -411,7 +411,7 @@ function Screen:build(state)
             ui.text_widget(stats, { color = "TEXT_SEC", font = "tiny_aa" })
         ),
 
-        ui.padding({ 2, 8, 4, 8 },
+        ui.padding({ 2, 8, 6, 8 },
             ui.button(start_label, {
                 on_press = function()
                     if not has_peer then
@@ -424,9 +424,12 @@ function Screen:build(state)
                 end,
             })
         ),
-    }
+    })
 
-    return ui.vbox({ gap = 0, bg = "BG" }, rows)
+    return ui.vbox({ gap = 0, bg = "BG" }, {
+        ui.title_bar("Signal Test", { back = true }),
+        ui.scroll({ grow = 1 }, scroll_content),
+    })
 end
 
 function Screen:on_enter()
@@ -470,7 +473,7 @@ function Screen:on_exit()
         self._redraw_timer = nil
     end
     -- Tear the responder down so the device stops answering SIGT pings
-    -- and stops storing [SIGT] DM replies once the tester is closed.
+    -- and stops storing SIGT DM replies once the tester is closed.
     signal_test.stop()
 end
 

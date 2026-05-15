@@ -195,6 +195,13 @@ local function boot_sequence()
     local sharing_svc = require("services.sharing")
     sharing_svc.init()
 
+    -- Reminders: 30-second sweep that fires "in 10 min" / "starting
+    -- now" notifications for cal/v1 share cards the user accepted.
+    -- Persisted to NVS so they survive a reboot. See
+    -- services/reminders.lua for the storage shape.
+    local reminders_svc = require("services.reminders")
+    reminders_svc.init()
+
     -- Custom packets: P2P extension layer on RAW_CUSTOM. Subscribes
     -- after dm_svc so the DM internals it borrows are ready.
     -- register_demos() installs PING / PONG / GPS\0 handlers; remove
@@ -248,6 +255,10 @@ local function boot_sequence()
     -- with that contact -- the screen itself shows the new bubble.
     ez.bus.subscribe("dm/message", function(_topic, msg)
         if type(msg) ~= "table" or msg.is_self then return end
+        -- Protocol-carrier DMs (signal-test pingpong) decrypt
+        -- successfully but aren't messages the user wrote, so they
+        -- must not raise a notification toast.
+        if require("services.sharing").is_protocol_message(msg) then return end
         local key  = msg.sender_key
         local name = msg.sender_name or "Unknown"
         local body = msg.text and msg.text:sub(1, 80) or nil
@@ -457,6 +468,10 @@ local function boot_sequence()
         if my and my ~= "" and msg.text then
             is_mention = msg.text:lower():find(my:lower(), 1, true) ~= nil
         end
+        if not is_mention and msg.text then
+            -- Trigger-word list from Settings -> Notifications.
+            is_mention = notifications.matches_trigger_words(msg.text)
+        end
         if mode == "mentions" and not is_mention then return end
         notifications.post_unless_focused({
             title  = name,
@@ -539,6 +554,14 @@ local function boot_sequence()
     -- "never / at boot / hourly" preference; does nothing if GPS is disabled.
     local gps_svc = require("services.gps")
     gps_svc.start_sync_loop()
+
+    -- Power policy: poll battery every 30 s and back off radio / GPS /
+    -- NTP / display in two tiers as the battery drains. See
+    -- lua/services/power.lua for the truth table. Starts after the
+    -- services it gates (gps, ntp, custom_packets) so the predicates
+    -- have someone listening from the first evaluation.
+    local power_svc = require("services.power")
+    power_svc.start()
 
     ez.log("[Boot] Services started")
     if ez.bench and ez.bench.mark then ez.bench.mark("svc_done") end

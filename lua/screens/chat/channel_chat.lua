@@ -8,6 +8,7 @@ local sharing_svc = require("services.sharing")
 local time_share = require("screens.chat.time_share")
 local gps_share = require("screens.chat.gps_share")
 local gps_svc = require("services.gps")
+local cal_share = require("screens.chat.cal_share")
 require("screens.chat.chat_common")  -- registers chat_bubble node type
 
 -- Pin the scroll viewport to the most recent message after a rebuild.
@@ -56,6 +57,11 @@ local function show_context_menu(self, channel, msg)
         -- GPS share actions. Channel GPS shares are cleartext so we
         -- don't need a sender pubkey to decode them.
         for _, item in ipairs(gps_share.build_actions(msg, nil)) do
+            actions[#actions + 1] = item
+        end
+
+        -- Event (cal/v1) share actions
+        for _, item in ipairs(cal_share.build_actions(msg)) do
             actions[#actions + 1] = item
         end
 
@@ -179,7 +185,8 @@ function ChannelChat:build(state)
                 type = "chat_bubble",
                 msg = msg,
                 share = time_share.card_for_message(msg)
-                    or gps_share.card_for_message(msg, nil),
+                    or gps_share.card_for_message(msg, nil)
+                    or cal_share.card_for_message(msg),
                 on_press = function()
                     show_context_menu(self, channel, msg)
                 end,
@@ -270,6 +277,20 @@ function ChannelChat:menu()
                 if url then
                     channels_svc.send(channel, url)
                 end
+            end,
+        },
+        {
+            title = "Attach event...",
+            subtitle = "Build a cal/v1 meetup invite",
+            on_press = function()
+                local Compose = require("screens.chat.event_compose")
+                local inst = screen_mod.create(Compose,
+                    Compose.initial_state({
+                        on_submit = function(url)
+                            channels_svc.send(channel, url)
+                        end,
+                    }))
+                screen_mod.push(inst)
             end,
         },
     }

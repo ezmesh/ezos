@@ -10,6 +10,7 @@ local sharing_svc = require("services.sharing")
 local time_share = require("screens.chat.time_share")
 local gps_share = require("screens.chat.gps_share")
 local gps_svc = require("services.gps")
+local cal_share = require("screens.chat.cal_share")
 require("screens.chat.chat_common")  -- registers chat_bubble node type
 
 local screen_mod = require("ezui.screen")
@@ -148,6 +149,10 @@ local function show_context_menu(self, key, msg, msg_index)
         end
 
         for _, item in ipairs(gps_share.build_actions(msg, share_sender_key)) do
+            actions[#actions + 1] = item
+        end
+
+        for _, item in ipairs(cal_share.build_actions(msg)) do
             actions[#actions + 1] = item
         end
 
@@ -296,6 +301,9 @@ function DMConversation:_share_for_message(msg, sender_pub_key_hex)
     local gps_card = gps_share.card_for_message(msg, sender_pub_key_hex)
     if gps_card then return gps_card end
 
+    local cal_card = cal_share.card_for_message(msg)
+    if cal_card then return cal_card end
+
     local share = sharing_svc.parse(msg.text or "")
     if not share then return nil end
 
@@ -378,7 +386,20 @@ function DMConversation:build(state)
     local msgs = dm_svc.get_history(key)
     local content_items = {}
 
-    if #msgs == 0 then
+    -- Hide signal-test pingpong DMs from the conversation view. They
+    -- still live in history (the tester's `p` shortcut purges them on
+    -- demand) but rendering them as bubbles would bury the actual chat
+    -- under a wall of "https://ezme.sh/#sigt/..." entries.
+    local visible_msgs = {}
+    local visible_indexes = {}
+    for i, m in ipairs(msgs) do
+        if not sharing_svc.is_protocol_message(m) then
+            visible_msgs[#visible_msgs + 1] = m
+            visible_indexes[#visible_indexes + 1] = i
+        end
+    end
+
+    if #visible_msgs == 0 then
         content_items[#content_items + 1] = ui.padding({ 20, 10, 10, 10 },
             ui.text_widget("No messages yet", {
                 color = "TEXT_MUTED",
@@ -398,14 +419,17 @@ function DMConversation:build(state)
         -- context menu uses the same dispatch.)
         local self_pub = ez.mesh.get_public_key_hex()
         content_items[#content_items + 1] = { type = "spacer", h = 2, grow = 0 }
-        for i, msg in ipairs(msgs) do
+        for vi, msg in ipairs(visible_msgs) do
             local share_sender = msg.is_self and self_pub or key
+            -- Preserve the real history index for the context menu's
+            -- delete action; SIGT entries change the mapping.
+            local orig_index = visible_indexes[vi]
             content_items[#content_items + 1] = {
                 type = "chat_bubble",
                 msg = msg,
                 share = self:_share_for_message(msg, share_sender),
                 on_press = function()
-                    show_context_menu(self, key, msg, i)
+                    show_context_menu(self, key, msg, orig_index)
                 end,
             }
         end
@@ -595,6 +619,21 @@ function DMConversation:menu()
                     is_self     = false,
                 })
             end
+        end,
+    }
+
+    items[#items + 1] = {
+        title = "Attach event...",
+        subtitle = "Build a cal/v1 meetup invite",
+        on_press = function()
+            local Compose = require("screens.chat.event_compose")
+            local inst = screen_mod.create(Compose,
+                Compose.initial_state({
+                    on_submit = function(url)
+                        dm_svc.send(key, url)
+                    end,
+                }))
+            screen_mod.push(inst)
         end,
     }
 

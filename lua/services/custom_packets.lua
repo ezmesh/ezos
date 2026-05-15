@@ -200,6 +200,14 @@ end
 
 function M.send(pub_key_hex, subtype, data, opts)
     assert_subtype(subtype)
+    -- Power policy: in survival tier, all RAW_CUSTOM senders (ping,
+    -- gps share, signal-test, etc.) are blocked to preserve airtime.
+    -- DM TXT_MSG traffic is NOT routed through here so the user can
+    -- still send / receive direct messages at 4 % battery.
+    local ok_pwr, power = pcall(require, "services.power")
+    if ok_pwr and power and not power.allow_non_dm() then
+        return false, nil
+    end
     -- cp.send yields on crypto. If the caller is already inside a
     -- coroutine (from spawn(), async.task(), a packet-bus handler)
     -- we yield in-place so the caller can read the ack_hash
