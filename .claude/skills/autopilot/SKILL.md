@@ -29,7 +29,18 @@ The companion `/work-issue` skill is what each agent runs *inside* its worktree 
    ```
    If the working tree is dirty or HEAD isn't `test`, stop and tell the user.
 
-2. **Ensure `.worktrees/` is git-ignored.** Add it to `.gitignore` if missing. Direct push to `test` is blocked by branch protection in this repo, so if you added the line, open a small `chore: ignore .worktrees/` PR and continue — don't block the batch waiting for it to merge. The new worktrees are still valid even when their parent path shows untracked.
+2. **Ensure `.worktrees/` is git-ignored.** Check first with `grep -q '^\.worktrees/$' .gitignore`; if it's already present, continue to step 3. If missing, branch protection blocks direct pushes to `test`, so the change has to go via a short-lived PR — and the main checkout must end this step back on a clean `test`. Concretely:
+   ```
+   git checkout -b chore/ignore-worktrees
+   echo '.worktrees/' >> .gitignore
+   git add .gitignore
+   git commit -m "chore: ignore .worktrees/"
+   git push -u origin chore/ignore-worktrees
+   gh pr create --base test --title "chore: ignore .worktrees/" \
+       --body "Adds .worktrees/ to .gitignore so /autopilot can fan out per-issue worktrees without polluting git status."
+   git checkout test
+   ```
+   Don't block the batch waiting for the PR to merge — the new worktrees are still valid even when their parent path shows untracked in `git status`. Step 4 of the pre-flight (`git pull --ff-only`) on the next /autopilot run will pick up the merge.
 
 3. **List candidates:**
    ```
@@ -76,6 +87,13 @@ Stop at the **first 5 survivors** — the soft cap. Record any further eligible 
 
 # Per-worktree prep (orchestrator, one-time before spawning)
 
+Before the per-survivor loop, **pre-flight the host toolchain**. `tools/bin/` is git-ignored, so `tools/bin/luac32` (the host-side Lua bytecode compiler the embedder needs) only exists in the main checkout if the user has previously built locally. A fresh clone won't have it, and every worktree's `pio run` would fail with the same root cause. Fail fast at the orchestrator instead of spawning doomed agents:
+
+```
+ls tools/bin/luac32 >/dev/null 2>&1 \
+  || { echo "autopilot: tools/bin/luac32 missing -- run \`pio run\` in the main checkout first to build it, then re-invoke /autopilot"; exit 1; }
+```
+
 For each survivor, run sequentially:
 
 1. **Create the worktree:**
@@ -84,23 +102,23 @@ For each survivor, run sequentially:
    ```
    If this fails (race; branch already exists locally or remotely), drop the issue from the batch and record `#<N>: skipped — claim race`.
 
-2. **Stage gitignored host tools that fresh worktrees lack.** `tools/bin/` is git-ignored, so `tools/bin/luac32` (the host-side Lua bytecode compiler the embedder needs) won't be in the new worktree even though it's in the main checkout. Copy it forward:
+2. **Stage gitignored host tools that fresh worktrees lack.** Copy `tools/bin/luac32` forward (its presence was already asserted by the pre-flight above):
    ```
    mkdir -p .worktrees/issue-<N>-<slug>/tools/bin
    cp tools/bin/luac32 .worktrees/issue-<N>-<slug>/tools/bin/luac32
    ```
-   Without this the agent's `pio run` will fail before it touches any code. If new gitignored host artefacts appear in future, add them here.
+   Without this the agent's `pio run` will fail before it touches any code. If new gitignored host artefacts appear in future, add them to both the pre-flight check and the copy step.
 
 # Parallel agent spawn (the loop body)
 
 Send a **single message** containing one `Agent` call per surviving issue, all with `subagent_type: general-purpose`, foreground (no `run_in_background`). Foreground in a single message means the runtime fans them out concurrently and you wait for the whole batch before the next turn. Do **not** loop calling `Agent` one at a time — that serialises the batch and defeats the purpose.
 
-Each prompt is self-contained — the agent starts cold. Spell out the issue number, the absolute worktree path, the branch name, the work-issue conventions, and the guardrail to stay inside its worktree. Suggested per-agent prompt template (adapt verbatim — the agent doesn't see this skill file):
+Each prompt is self-contained — the agent starts cold. Spell out the issue number, the absolute worktree path, the branch name, the work-issue conventions, and the guardrail to stay inside its worktree. Capture `<abs-repo-root>` once during Setup with `git rev-parse --show-toplevel`, and substitute it into every spawn prompt — the path varies per machine and clone location, so it can't be hardcoded. Suggested per-agent prompt template (substitute `<abs-repo-root>`, `<N>`, `<slug>`, and `<type>` before spawning — the agent doesn't see this skill file):
 
 ```
 Work issue #<N> for the ezos repo.
 
-Worktree: /home/bastiaan/Desktop/tdeck-os/.worktrees/issue-<N>-<slug>
+Worktree: <abs-repo-root>/.worktrees/issue-<N>-<slug>
 Branch:   <type>/issue-<N>-<slug>   (already created off origin/test, tracking it)
 
 ALL `git`, `pio`, `gh`, and file edits must run inside the worktree
