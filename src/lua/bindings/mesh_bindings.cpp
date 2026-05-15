@@ -85,6 +85,24 @@
 // end)
 // @end
 
+// @bus mesh/node_discovered
+// @brief Posted on every ADVERT received from a peer node
+// @payload table {path_hash, name, rssi, snr, role, advert_timestamp, age_seconds, last_seen, pub_key_hex?, has_location, lat?, lon?}
+// @description
+// Fires unconditionally on every ADVERT, regardless of whether Lua
+// installed the deprecated ez.mesh.on_node_discovered callback.
+// Published from the default setNodeCallback in src/main.cpp (and from
+// the legacy on_node_discovered registration path, which now routes
+// through the same helper) via postNodeDiscoveredBus() so subscribers
+// like services.link_quality and services.contacts receive ADVERTs
+// reliably. pub_key_hex / lat / lon are present only when the ADVERT
+// carried them (see has_location for the lat/lon case).
+// @example
+// ez.bus.subscribe("mesh/node_discovered", function(node)
+//     print(node.name, node.rssi, node.has_location and node.lat or "?")
+// end)
+// @end
+
 // =============================================================================
 
 // External reference to the global mesh instance
