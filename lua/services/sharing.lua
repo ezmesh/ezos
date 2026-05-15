@@ -6,6 +6,7 @@
 --   https://ezme.sh/#add/v1?k=<64-hex pubkey>&n=<urlencoded name>
 --   https://ezme.sh/#join/v1?t=<base64url(nonce8 || aes128_ecb(secret, blob))>
 --   https://ezme.sh/#time/v1?t=<unix>
+--   https://ezme.sh/#rxn/v1?h=<8-hex msg_hash>&e=<emoji_index>
 --   https://ezme.sh/#gps/v1?lat=<e6>&lon=<e6>&n=<urlencoded label>    (channel)
 --   https://ezme.sh/#gps/v1?t=<base64url(nonce8 || aes128_ecb(secret, blob))> (DM)
 --   https://ezme.sh/#cal/v1?ts=<unix>&dur=<secs>&n=<title>[&lat=<e6>&lon=<e6>]
@@ -48,6 +49,7 @@ local URL_PREFIX = "https://ezme.sh/#"
 local CONTACT_VERB = "add/v1"
 local INVITE_VERB = "join/v1"
 local TIME_VERB = "time/v1"
+local REACTION_VERB = "rxn/v1"
 local GPS_VERB = "gps/v1"
 local CAL_VERB = "cal/v1"
 local SIGT_VERB = "sigt/v1"
@@ -212,6 +214,27 @@ function sharing.encode_channel_invite(recipient_pub_key_hex, channel_name, chan
     local nonce = random_nonce()
     local token = base64url_encode(nonce .. ciphertext)
     return URL_PREFIX .. INVITE_VERB .. "?t=" .. token
+end
+
+-- Encode a reaction into a share URL. `msg_hash` is the raw 4-byte
+-- digest produced by services.reactions.compute_msg_hash (hex-encoded
+-- inline so the URL is plain ASCII), `emoji_index` is a 1..255 small
+-- integer indexing into the reactions palette. Reaction URLs ride
+-- inside a normal DM TXT_MSG to inherit flood routing, retries, and
+-- ACKs; the receive side intercepts them in services.direct_messages
+-- before the bubble lands in conversation history.
+function sharing.encode_reaction(msg_hash, emoji_index)
+    if not msg_hash or #msg_hash ~= 4 then return nil end
+    if type(emoji_index) ~= "number"
+            or emoji_index < 1 or emoji_index > 255 then
+        return nil
+    end
+    local hex_hash = string.format("%02X%02X%02X%02X",
+        msg_hash:byte(1), msg_hash:byte(2),
+        msg_hash:byte(3), msg_hash:byte(4))
+    return URL_PREFIX .. REACTION_VERB
+        .. "?h=" .. hex_hash
+        .. "&e=" .. tostring(emoji_index)
 end
 
 -- Encode a signal-test ping or reply. `kind` is "P" (ping) or "R"
@@ -417,6 +440,18 @@ function sharing.parse(text)
         return {
             kind = "time",
             timestamp = ts,
+        }
+    elseif verb == REACTION_VERB then
+        local h = params.h
+        if not h or #h ~= 8 or not h:match("^[0-9A-Fa-f]+$") then return nil end
+        local e = tonumber(params.e)
+        if not e or e < 1 or e > 255 or e ~= math.floor(e) then return nil end
+        local msg_hash = hex_to_bytes(h)
+        if not msg_hash or #msg_hash ~= 4 then return nil end
+        return {
+            kind        = "reaction",
+            msg_hash    = msg_hash,
+            emoji_index = e,
         }
     elseif verb == GPS_VERB then
         -- DM variant carries everything inside an opaque token; the
