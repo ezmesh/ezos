@@ -44,6 +44,24 @@ fires its toast/wake as normal during quiet hours. Off by default
 -- DMs from starred contacts will be similarly exempt once
 favourites land on `services.contacts`.
 
+## Trigger words
+
+A comma-separated list of words that, in addition to your node
+name, mark a channel message as a "mention" for the per-channel
+notify_mode. Useful when you put a channel on "Mentions only" but
+still want to ring through on specific topics -- e.g. a "Lost dog"
+alert channel can stay on Mentions only but you set a trigger
+word "dog" or "missing" so those messages still wake you.
+
+Matching is case-insensitive substring, so "storm" matches "Big
+storm coming in", you don't need to think about word boundaries.
+An empty list disables the feature; your node name remains a
+trigger either way.
+
+The list is shared across every "Mentions only" channel; it is
+not per-channel. Edit it from Settings -- Notifications --
+Trigger words.
+
 ## Clock-unset fallback
 
 If the device clock is unset (year < 2020 -- typical right after a

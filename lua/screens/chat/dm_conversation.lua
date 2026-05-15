@@ -9,6 +9,7 @@ local channels_svc = require("services.channels")
 local sharing_svc = require("services.sharing")
 local time_share = require("screens.chat.time_share")
 local reactions_svc = require("services.reactions")
+local cal_share = require("screens.chat.cal_share")
 require("screens.chat.chat_common")  -- registers chat_bubble node type
 
 local screen_mod = require("ezui.screen")
@@ -172,6 +173,10 @@ local function show_context_menu(self, key, msg, msg_index)
             end
         end
 
+        for _, item in ipairs(cal_share.build_actions(msg)) do
+            actions[#actions + 1] = item
+        end
+
         if msg.is_self and (msg.status == "failed" or msg.status == "unconfirmed") then
             actions[#actions + 1] = ui.list_item({
                 title = "Retry Send",
@@ -313,6 +318,9 @@ function DMConversation:_share_for_message(msg, sender_pub_key_hex)
     -- Time shares don't need sender key decryption
     local ts_card = time_share.card_for_message(msg)
     if ts_card then return ts_card end
+
+    local cal_card = cal_share.card_for_message(msg)
+    if cal_card then return cal_card end
 
     local share = sharing_svc.parse(msg.text or "")
     if not share then return nil end
@@ -575,6 +583,21 @@ function DMConversation:menu()
             if url then
                 dm_svc.send(key, url)
             end
+        end,
+    }
+
+    items[#items + 1] = {
+        title = "Attach event...",
+        subtitle = "Build a cal/v1 meetup invite",
+        on_press = function()
+            local Compose = require("screens.chat.event_compose")
+            local inst = screen_mod.create(Compose,
+                Compose.initial_state({
+                    on_submit = function(url)
+                        dm_svc.send(key, url)
+                    end,
+                }))
+            screen_mod.push(inst)
         end,
     }
 

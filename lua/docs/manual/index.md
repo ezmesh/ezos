@@ -12,6 +12,7 @@ work even with no SD card and no network.
 - Mesh basics
 - Maps
 - Voice notes
+- Sharing
 - Settings
 - Customization (advanced)
 
