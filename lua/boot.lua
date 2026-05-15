@@ -203,9 +203,11 @@ local function boot_sequence()
     custom.init()
     custom.register_demos()
 
-    -- Chat reactions: tiny-emoji ACKs that ride RAW_CUSTOM with the
-    -- "RXN\0" subtype. Must come after custom.init() so the subtype
-    -- handler is in place before the first inbound packet lands.
+    -- Chat reactions: tiny-emoji ACKs that ride inside a normal DM
+    -- TXT_MSG as a sharing-service `https://ezme.sh/#rxn/v1` URL.
+    -- direct_messages intercepts inbound reaction URLs before they
+    -- bubble, so reactions inherit flood routing + MeshCore retries
+    -- without cluttering the conversation as visible messages.
     local reactions_svc = require("services.reactions")
     reactions_svc.init()
 

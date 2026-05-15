@@ -326,25 +326,36 @@ local function try_decrypt_pending(id, pending, candidate_pub_key_hex)
     if #text == 0 then return false end
 
     local contact = contacts_svc.get(candidate_pub_key_hex)
-    local msg = {
-        sender_key  = candidate_pub_key_hex,
-        sender_name = (contact and contact.name)
-                       or candidate_pub_key_hex:sub(1, 8),
-        text        = text,
-        timestamp   = msg_timestamp,
-        rssi        = pending.rssi,
-        snr         = pending.snr,
-        is_self     = false,
-        -- Marker so the UI can indicate this was a retroactive delivery.
-        retroactive = true,
-    }
-    store_message(candidate_pub_key_hex, msg)
-    unread[candidate_pub_key_hex] = (unread[candidate_pub_key_hex] or 0) + 1
+    local sender_name = (contact and contact.name)
+                         or candidate_pub_key_hex:sub(1, 8)
+
+    -- Same meta-payload intercept as the live RX path. A retroactive
+    -- reaction still updates the reactions store but never surfaces as
+    -- a bubble.
+    local reactions = require("services.reactions")
+    local handled = reactions.try_handle_inbound(
+        candidate_pub_key_hex, text, sender_name)
+
+    if not handled then
+        local msg = {
+            sender_key  = candidate_pub_key_hex,
+            sender_name = sender_name,
+            text        = text,
+            timestamp   = msg_timestamp,
+            rssi        = pending.rssi,
+            snr         = pending.snr,
+            is_self     = false,
+            -- Marker so the UI can indicate this was a retroactive delivery.
+            retroactive = true,
+        }
+        store_message(candidate_pub_key_hex, msg)
+        unread[candidate_pub_key_hex] = (unread[candidate_pub_key_hex] or 0) + 1
+        ez.bus.post("dm/message", msg)
+    end
 
     pending_ciphertexts[id] = nil
     pending_count = pending_count - 1
 
-    ez.bus.post("dm/message", msg)
     ez.bus.post("dm/pending", { count = pending_count })
 
     -- Now that we can read the message we can also ACK it — the sender
@@ -781,21 +792,36 @@ function dm.init()
                             local text = plaintext:sub(6)
 
                             if #text > 0 then
-                                local msg = {
-                                    sender_key = candidate.pub_key_hex,
-                                    sender_name = candidate.name or candidate.pub_key_hex:sub(1, 8),
-                                    text = text,
-                                    timestamp = msg_timestamp,
-                                    rssi = pkt.rssi,
-                                    snr = pkt.snr,
-                                    -- 1-byte path hashes -> #path == hops.
-                                    hop_count = pkt.path and #pkt.path or 0,
-                                    is_self = false,
-                                }
+                                -- Meta-payloads piggyback on TXT_MSG so
+                                -- they inherit flood routing + ACKs but
+                                -- shouldn't surface as visible bubbles.
+                                -- Reactions are the first such payload;
+                                -- when one is recognised we still send
+                                -- the standard ACK below but skip the
+                                -- store / dm/message bus event.
+                                local reactions = require("services.reactions")
+                                local sender_name = candidate.name
+                                    or candidate.pub_key_hex:sub(1, 8)
+                                local handled = reactions.try_handle_inbound(
+                                    candidate.pub_key_hex, text, sender_name)
 
-                                store_message(candidate.pub_key_hex, msg)
-                                unread[candidate.pub_key_hex] = (unread[candidate.pub_key_hex] or 0) + 1
-                                ez.bus.post("dm/message", msg)
+                                if not handled then
+                                    local msg = {
+                                        sender_key = candidate.pub_key_hex,
+                                        sender_name = sender_name,
+                                        text = text,
+                                        timestamp = msg_timestamp,
+                                        rssi = pkt.rssi,
+                                        snr = pkt.snr,
+                                        -- 1-byte path hashes -> #path == hops.
+                                        hop_count = pkt.path and #pkt.path or 0,
+                                        is_self = false,
+                                    }
+
+                                    store_message(candidate.pub_key_hex, msg)
+                                    unread[candidate.pub_key_hex] = (unread[candidate.pub_key_hex] or 0) + 1
+                                    ez.bus.post("dm/message", msg)
+                                end
 
                                 -- Receiving a DM proves the sender has our
                                 -- pubkey (they did ECDH with it). Record it

@@ -1,10 +1,17 @@
--- services/reactions: tiny-emoji reactions over RAW_CUSTOM packets.
+-- services/reactions: tiny-emoji reactions over a DM TXT_MSG URI.
 --
--- Reactions are a low-information acknowledgement that should NOT pay the
--- full TXT_MSG round-trip cost. We send them as a custom packet with the
--- "RXN\0" subtype, payload `[target_msg_hash:4][emoji_index:1]`. Receivers
--- look the target message up in their local conversation history and
--- attach the reaction to it.
+-- Reactions ride inside the same TXT_MSG transport as a normal DM, but
+-- the payload is a sharing-service URL (`https://ezme.sh/#rxn/v1?h=...&e=...`)
+-- rather than free-text. Using TXT_MSG buys us flood routing, MeshCore
+-- retries / ACKs, and the same end-to-end crypto path -- the reaction is
+-- as reliably delivered as the message it acks.
+--
+-- On the receive side, services.direct_messages calls
+-- `reactions.try_handle_inbound` before bubbling the message. If the
+-- text parses as a reaction URL the reactions store is updated, a
+-- `chat/reaction` bus event fires, and the message is NOT stored as a
+-- visible bubble -- the reaction surfaces as a footer pill on the
+-- target bubble (or as a toast when the conversation isn't on top).
 --
 -- Storage shape (in-RAM, not persisted across reboots in v1):
 --   reactions[target_pub_hex][target_msg_hash] = {
@@ -27,7 +34,8 @@
 
 local M = {}
 
-local custom = require("services.custom_packets")
+local dm = require("services.direct_messages")
+local sharing = require("services.sharing")
 
 -- ASCII-only palette. Per CLAUDE.md "On-device font character set" the
 -- bundled bitmap fonts only cover printable ASCII; a literal heart or
@@ -48,7 +56,7 @@ M.EMOJI_PALETTE = {
 local reactions = {}
 
 -- Map a pubkey hex into the unique 32-byte bytestring used in the hash
--- input. Borrows the conversion routine from custom_packets via dm.
+-- input.
 local function hex_to_bytes(hex)
     return ez.crypto.hex_to_bytes(hex)
 end
@@ -146,11 +154,17 @@ function M.compress(target_pub_hex, target_msg_hash)
 end
 
 -- Send a reaction to `target_pub_hex` about the message whose hash is
--- `target_msg_hash`. The local record is updated synchronously so the UI
--- can refresh without waiting on the radio.
+-- `target_msg_hash`. The reaction rides inside a normal DM TXT_MSG so
+-- it inherits flood routing, MeshCore retries, and end-to-end
+-- encryption -- delivery is as reliable as the message it acks. The
+-- local record is updated synchronously so the UI can refresh without
+-- waiting on the radio.
 function M.send(target_pub_hex, target_msg_hash, emoji_index)
     if not target_pub_hex or not target_msg_hash then return false end
     if not M.EMOJI_PALETTE[emoji_index] then return false end
+
+    local url = sharing.encode_reaction(target_msg_hash, emoji_index)
+    if not url then return false end
 
     -- Optimistically reflect our own reaction locally so the user sees
     -- their tap immediately.
@@ -166,49 +180,41 @@ function M.send(target_pub_hex, target_msg_hash, emoji_index)
         })
     end
 
-    spawn(function()
-        custom.send(target_pub_hex, "RXN\0",
-            target_msg_hash .. string.char(emoji_index))
-    end)
-    return true
+    return dm.send(target_pub_hex, url)
 end
 
--- Bus subscriber that wires inbound RXN\0 packets into the store. Split
--- from init() so it's clear what gets registered.
-local function on_receive(sender_pub_hex, data, meta)
-    if #data < 5 then return end
-    local target_hash  = data:sub(1, 4)
-    local emoji_index  = data:byte(5)
-    if not M.EMOJI_PALETTE[emoji_index] then return end
+-- Try to interpret an inbound DM text as a reaction. Called by
+-- services.direct_messages before the bubble is stored. Returns true
+-- when the text parsed as a reaction URL (and was recorded); in that
+-- case direct_messages should NOT add it to conversation history.
+-- A reaction "about" a message you sent is keyed by the sender of the
+-- reaction (== the conversation partner). v1 only emits reactions for
+-- the partner's bubbles you can see, so target_pub_hex == sender for
+-- inbound reactions.
+function M.try_handle_inbound(sender_pub_hex, text, sender_name)
+    if not sender_pub_hex or not text then return false end
+    local share = sharing.parse(text)
+    if not share or share.kind ~= "reaction" then return false end
+    if not M.EMOJI_PALETTE[share.emoji_index] then return true end
 
-    -- A reaction "about" a message you sent goes into the bucket keyed
-    -- by the sender of the reaction. A reaction "about" a message
-    -- THEY sent (i.e. you reacted to one of their messages, and they
-    -- got the reaction echo somehow) -- doesn't happen in v1; we only
-    -- emit reactions about the bubble the user tapped. So
-    -- target_pub_hex == sender_pub_hex always for inbound RXN\0.
-    record(sender_pub_hex, target_hash, sender_pub_hex, emoji_index)
-
+    record(sender_pub_hex, share.msg_hash, sender_pub_hex, share.emoji_index)
     ez.bus.post("chat/reaction", {
         target_pub  = sender_pub_hex,
-        target_hash = target_hash,
+        target_hash = share.msg_hash,
         sender_pub  = sender_pub_hex,
-        emoji_index = emoji_index,
-        sender_name = meta and meta.name,
+        emoji_index = share.emoji_index,
+        sender_name = sender_name,
         is_self     = false,
     })
+    return true
 end
 
 local initialized = false
 function M.init()
     if initialized then return end
     initialized = true
-    custom.register({
-        id        = "reaction",
-        label     = "Reaction",
-        subtype   = "RXN\0",
-        on_receive = on_receive,
-    })
+    -- Transport is just dm.send / direct_messages.lua's TXT_MSG path;
+    -- no separate packet handler to register.
 end
 
 return M
