@@ -49,10 +49,17 @@ local URL_PREFIX = "https://ezme.sh/#"
 local CONTACT_VERB = "add/v1"
 local INVITE_VERB = "join/v1"
 local TIME_VERB = "time/v1"
+local ACK_VERB = "ack/v1"
 local REACTION_VERB = "rxn/v1"
 local GPS_VERB = "gps/v1"
 local CAL_VERB = "cal/v1"
 local SIGT_VERB = "sigt/v1"
+
+-- Read-receipt / delivery-ack kinds carried inside an ACK URI.
+local ACK_KIND_DELIVERED = 1
+local ACK_KIND_READ      = 2
+-- Exposed on `sharing` near the bottom of this file so callers can use
+-- symbolic names: sharing.ACK_DELIVERED / sharing.ACK_READ.
 
 -- Cap on the encrypted-GPS plaintext body before AES padding. 8 bytes
 -- of lat+lon + 1 byte len + label keeps the resulting base64url URL
@@ -258,6 +265,24 @@ function sharing.encode_time()
     return URL_PREFIX .. TIME_VERB .. "?t=" .. tostring(ts)
 end
 
+-- Encode a delivery / read ACK URI. `msg_hash` is the 4-byte tag the
+-- reactions service uses (sha256([sender_pub:32][timestamp:4 LE][text])
+-- truncated). `kind` is sharing.ACK_DELIVERED or sharing.ACK_READ.
+-- Wrapped in base64url so a non-ezOS receiver sees a normal clickable
+-- link in their chat history instead of mystery bytes.
+function sharing.encode_ack(msg_hash, kind)
+    if not msg_hash or #msg_hash ~= 4 then return nil, "bad hash" end
+    if kind ~= ACK_KIND_DELIVERED and kind ~= ACK_KIND_READ then
+        return nil, "bad kind"
+    end
+    local payload = msg_hash .. string.char(kind)
+    return URL_PREFIX .. ACK_VERB .. "?t=" .. base64url_encode(payload)
+end
+
+-- Expose the kind constants on the module table for ergonomic callers.
+sharing.ACK_DELIVERED = ACK_KIND_DELIVERED
+sharing.ACK_READ      = ACK_KIND_READ
+
 -- Encode a (lat, lon) pair plus optional label as a plaintext share URL
 -- suitable for channel posts. Channel members already see each other's
 -- traffic in cleartext, so wrapping is pointless overhead. The label is
@@ -440,6 +465,19 @@ function sharing.parse(text)
         return {
             kind = "time",
             timestamp = ts,
+        }
+    elseif verb == ACK_VERB then
+        if not params.t or params.t == "" then return nil end
+        local raw = base64url_decode(params.t)
+        if not raw or #raw < 5 then return nil end
+        local ack_kind = raw:byte(5)
+        if ack_kind ~= ACK_KIND_DELIVERED and ack_kind ~= ACK_KIND_READ then
+            return nil
+        end
+        return {
+            kind     = "ack",
+            msg_hash = raw:sub(1, 4),
+            ack_kind = ack_kind,
         }
     elseif verb == REACTION_VERB then
         local h = params.h

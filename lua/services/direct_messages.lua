@@ -199,6 +199,19 @@ local function do_save()
                 -- stamp itself only happens during an active test, so
                 -- this is just "don't lose what we already classified".
                 protocol = msg.protocol,
+                -- Persist "we already sent a read-receipt ack for this
+                -- inbound" so a reboot doesn't re-flood the LoRa channel
+                -- with one ack per historical message on the next
+                -- mark_read call.
+                receipt_sent = msg.receipt_sent,
+                -- Persist the wire-epoch timestamp on outbound bubbles
+                -- so the ACK-match path can still reproduce the
+                -- receiver's hash after a save / restore cycle.
+                -- Without this, the fallback to `timestamp` (which is
+                -- millis()-since-boot, a different domain) makes every
+                -- saved outbound bubble silently un-matchable and the
+                -- "read" status never lands.
+                wire_ts      = msg.wire_ts,
             }
         end
         data.conversations[key] = saved
@@ -569,11 +582,23 @@ local function build_and_queue_txt_msg(pub_key_hex, encrypted)
     return ok, route == ROUTE_DIRECT
 end
 
-local function build_inner(text, attempt)
-    -- Unix seconds, same source the receiver stores on its bubble.
-    -- Reactions (services.reactions) hash over this value so both
-    -- peers must derive it from the same basis.
-    local timestamp = (ez.system.get_time_unix and ez.system.get_time_unix()) or 0
+-- `wire_ts` is the epoch second the caller wants embedded in the inner
+-- plaintext. Captured by dm.send at call time so the local bubble can
+-- store the SAME value (in `msg.wire_ts`) the receiver will see -- the
+-- ACK match path (and the reactions hash) agree on both sides. Falling
+-- back to the live clock here is only for callers that don't care
+-- (legacy non-receipt sites); receipt-bearing sends MUST pass a value
+-- or read receipts won't match.
+local function build_inner(text, attempt, wire_ts)
+    local timestamp = wire_ts or 0
+    if not wire_ts then
+        if ez.system.get_time_unix then
+            timestamp = ez.system.get_time_unix() or 0
+        elseif ez.system.get_time then
+            local t = ez.system.get_time()
+            if t and t.epoch then timestamp = t.epoch end
+        end
+    end
     -- Lower 2 bits of flags = attempt number
     local flags = math.min(attempt or 0, 3)
     return pack_u32le(timestamp) .. string.char(flags) .. text
@@ -587,10 +612,10 @@ end
 --   used_direct — true if the packet went out via ROUTE_DIRECT using a
 --                 cached return path; the caller tags pending_acks so
 --                 an ACK timeout can drop the stale path.
-local function transmit(pub_key_hex, text, attempt)
+local function transmit(pub_key_hex, text, attempt, wire_ts)
     local enc = get_enc_key(pub_key_hex)
     if not enc then return false end
-    local inner = build_inner(text, attempt)
+    local inner = build_inner(text, attempt, wire_ts)
     local encrypted = encrypt_then_mac(enc.secret, enc.key, inner)
     if not encrypted then return false end
     local ok, used_direct = build_and_queue_txt_msg(pub_key_hex, encrypted)
@@ -818,20 +843,75 @@ function dm.init()
                             local text = plaintext:sub(6)
 
                             if #text > 0 then
-                                -- Meta-payloads piggyback on TXT_MSG so
-                                -- they inherit flood routing + ACKs but
-                                -- shouldn't surface as visible bubbles.
-                                -- Reactions are the first such payload;
-                                -- when one is recognised we still send
-                                -- the standard ACK below but skip the
-                                -- store / dm/message bus event.
-                                local reactions = require("services.reactions")
+                                -- Meta-payloads piggyback on TXT_MSG so they
+                                -- inherit flood routing + ACKs but shouldn't
+                                -- surface as visible chat bubbles. Two such
+                                -- payloads currently peel off here:
+                                --   * read-receipt URIs (#113): flip the
+                                --     matching outbound bubble's status to
+                                --     "read" and skip the store.
+                                --   * reactions (#112): fold into the
+                                --     reactions store via try_handle_inbound
+                                --     and skip the store.
+                                -- The original TXT_MSG still gets ACK'd
+                                -- below so the sender's pending_acks entry
+                                -- clears -- meta payloads are layered on
+                                -- top of delivery, not a replacement for it.
                                 local sender_name = candidate.name
                                     or candidate.pub_key_hex:sub(1, 8)
-                                local handled = reactions.try_handle_inbound(
-                                    candidate.pub_key_hex, text, sender_name)
+                                local sharing_svc = require("services.sharing")
+                                local share = sharing_svc.parse(text)
+                                local handled_as_meta = false
 
-                                if not handled then
+                                if share and share.kind == "ack"
+                                        and share.ack_kind == sharing_svc.ACK_READ then
+                                    -- Match the hash against the outbound
+                                    -- bubbles in this conversation.
+                                    local hist = conversations[candidate.pub_key_hex]
+                                    if hist then
+                                        local self_pub = ez.mesh.get_public_key_hex()
+                                        local self_pk = self_pub and hex_to_bytes(self_pub)
+                                        if self_pk then
+                                            for _, m in ipairs(hist) do
+                                                if m.is_self then
+                                                    -- Hash against the wire (epoch) timestamp the
+                                                    -- receiver saw, not the local millis() display
+                                                    -- value. Fall back to `timestamp` for any
+                                                    -- bubble stored before this fix landed.
+                                                    local ts = math.floor((m.wire_ts and m.wire_ts > 0
+                                                        and m.wire_ts) or m.timestamp or 0)
+                                                    if ts < 0 then ts = ts + 0x100000000 end
+                                                    local tsb = string.char(ts & 0xFF,
+                                                        (ts >> 8) & 0xFF,
+                                                        (ts >> 16) & 0xFF,
+                                                        (ts >> 24) & 0xFF)
+                                                    local d = ez.crypto.sha256(
+                                                        self_pk .. tsb .. (m.text or ""))
+                                                    if d and d:sub(1, 4) == share.msg_hash then
+                                                        m.status = "read"
+                                                        ez.bus.post("dm/status", {
+                                                            pub_key_hex = candidate.pub_key_hex,
+                                                            status = "read",
+                                                        })
+                                                        schedule_save()
+                                                        break
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                    handled_as_meta = true
+                                end
+
+                                if not handled_as_meta then
+                                    local reactions = require("services.reactions")
+                                    if reactions.try_handle_inbound(
+                                            candidate.pub_key_hex, text, sender_name) then
+                                        handled_as_meta = true
+                                    end
+                                end
+
+                                if not handled_as_meta then
                                     local msg = {
                                         sender_key = candidate.pub_key_hex,
                                         sender_name = sender_name,
@@ -975,6 +1055,7 @@ function dm.init()
                     -- ADVERT clobbers our follow-up TX. See
                     -- POST_ADVERT_WAIT_MS.
                     local pk, txt, att = pending.pub_key_hex, pending.text, pending.attempt
+                    local pending_wire_ts = pending.wire_ts
                     local entry = pending
                     local need_advert = not contacts_svc.is_known_by(pk)
                     spawn(function()
@@ -982,7 +1063,7 @@ function dm.init()
                             ez.mesh.send_announce()
                             wait_ms(POST_ADVERT_WAIT_MS)
                         end
-                        local ok, new_ack, direct = transmit(pk, txt, att)
+                        local ok, new_ack, direct = transmit(pk, txt, att, pending_wire_ts)
                         if ok and new_ack then
                             entry.expected_ack = new_ack
                             entry.used_direct = direct
@@ -1034,26 +1115,42 @@ function dm.send(pub_key_hex, text, opts)
     -- (first send only), AES + HMAC, packet assembly. Every crypto
     -- step yields onto the AsyncIO worker thread, so the main loop
     -- stays free to draw and handle input while the worker grinds.
-    -- Unix seconds so reactions can hash against the same timestamp
-    -- the receiver bakes into its bubble (the wire carries epoch
-    -- seconds in the inner plaintext; receivers store msg_timestamp
-    -- directly). Mixed bases here used to make reactions.compute_msg_hash
-    -- diverge between peers, so reactions never attached on the sender.
+    -- Stash the wire timestamp (Unix seconds) the receiver will see
+    -- in the inner plaintext alongside the display timestamp. ACK and
+    -- reaction match paths both hash against `wire_ts` so the digest
+    -- agrees across peers; the millis-based `timestamp` is kept for
+    -- ordering / display / dedup.
+    local wire_ts = 0
+    if ez.system.get_time_unix then
+        wire_ts = ez.system.get_time_unix() or 0
+    elseif ez.system.get_time then
+        local t = ez.system.get_time()
+        wire_ts = (t and t.epoch) or 0
+    end
+    local protocol = opts and opts.protocol or nil
+    local msg = {
+        sender_key  = ez.mesh.get_public_key_hex(),
+        sender_name = ez.mesh.get_node_name() or "Me",
+        text        = text,
+        timestamp   = ez.system.millis(),
+        wire_ts     = wire_ts,
+        is_self     = true,
+        status      = "pending",
+        -- `opts.protocol` stamps the outbound carrier (e.g. signal
+        -- tester pingpong). Stamping at the send seam means the chat
+        -- filters in sharing.is_protocol_message can rely on a real
+        -- intent signal instead of guessing from the text.
+        protocol    = protocol,
+    }
+    -- Read-receipt acks (`opts.protocol == "ack"`) and reaction meta
+    -- carriers (`opts.meta == true`) both ride the same crypto / flood
+    -- path as a normal DM but produce no visible local bubble; skip
+    -- storage + bus post entirely so the sender's own conversation
+    -- isn't littered with one outgoing URL per inbound interaction.
     local stored
-    if not meta then
-        local msg = {
-            sender_key  = ez.mesh.get_public_key_hex(),
-            sender_name = ez.mesh.get_node_name() or "Me",
-            text        = text,
-            timestamp   = (ez.system.get_time_unix and ez.system.get_time_unix()) or 0,
-            is_self     = true,
-            status      = "pending",
-            -- `opts.protocol` stamps the outbound carrier (e.g. signal
-            -- tester pingpong). Stamping at the send seam means the chat
-            -- filters in sharing.is_protocol_message can rely on a real
-            -- intent signal instead of guessing from the text.
-            protocol    = opts and opts.protocol or nil,
-        }
+    if protocol == "ack" or meta then
+        stored = msg
+    else
         stored = store_message(pub_key_hex, msg)
         ez.bus.post("dm/message", msg)
     end
@@ -1076,7 +1173,7 @@ function dm.send(pub_key_hex, text, opts)
             end
         end
 
-        local sent, expected_ack, used_direct = transmit(pub_key_hex, text, 0)
+        local sent, expected_ack, used_direct = transmit(pub_key_hex, text, 0, wire_ts)
         if not sent then
             if stored then
                 stored.status = "failed"
@@ -1088,9 +1185,20 @@ function dm.send(pub_key_hex, text, opts)
             return
         end
 
-        -- Meta sends (reactions): no bubble to update, no ACK retry
-        -- queued. The radio took the packet; that's all we report.
-        if meta then return end
+        -- Fire after the radio queue has accepted the packet; callers
+        -- use this to stamp "I have actually attempted delivery" state
+        -- they can't safely persist before the spawn started (e.g.
+        -- read-receipt dedup). MeshCore ACKs are still asynchronous;
+        -- this is "queued for TX", not "delivered". Wrapped in pcall
+        -- so a buggy callback can't poison the retry path.
+        if opts and type(opts.on_success) == "function" then
+            pcall(opts.on_success)
+        end
+
+        -- Meta sends (reactions) and ack carriers (read-receipts): no
+        -- bubble to update, no ACK retry queued. The radio took the
+        -- packet; that's all we report.
+        if meta or protocol == "ack" then return end
 
         local ack_setting = contacts_svc.is_ack_enabled(pub_key_hex)
         if ack_setting == false then
@@ -1110,6 +1218,7 @@ function dm.send(pub_key_hex, text, opts)
                 msg_ref      = stored,
                 expected_ack = expected_ack,
                 used_direct  = used_direct,
+                wire_ts      = wire_ts,
             }
         end
     end)
@@ -1137,11 +1246,84 @@ function dm.delete_message(pub_key_hex, index)
     schedule_save()
 end
 
+-- Emit a read receipt for every inbound message in this conversation
+-- whose hash hasn't been receipt-sent before. Coalesces multiple
+-- unread messages into a single round (one TXT_MSG per unique hash).
+--
+-- Dedup state lives on the inbound message itself (`msg.receipt_sent`
+-- bool, persisted via do_save). The earlier in-RAM-only `_G` cache
+-- was reset by every reboot, which re-flooded the channel with one
+-- ack per historical inbound message on the next mark_read after
+-- boot. Stamping the message + schedule_save survives reboots and
+-- still lets repeated mark_read calls (re-entering the conversation)
+-- skip cheaply.
+--
+-- Gated by a global "send_read_rcpt" pref (default off -- read
+-- receipts are privacy-sensitive). When off, mark_read is a no-op on
+-- the wire -- the existing local "unread = 0" still happens.
+local function maybe_send_read_receipts(pub_key_hex)
+    if ez.storage.get_pref("send_read_rcpt", "0") ~= "1" then return end
+    local h = conversations[pub_key_hex]
+    if not h then return end
+
+    local sharing_svc = require("services.sharing")
+
+    -- We need the sender's pubkey (== pub_key_hex for inbound msgs) to
+    -- recompute the same hash they'd use locally. Mirrors the formula
+    -- used elsewhere for stable per-message tags: first 4 bytes of
+    -- sha256([sender_pubkey:32][timestamp:4 LE][text]).
+    local function compute_msg_hash(sender_pub_hex, timestamp, text)
+        if not sender_pub_hex or #sender_pub_hex ~= 64 then return nil end
+        local pk = ez.crypto.hex_to_bytes(sender_pub_hex)
+        if not pk or #pk ~= 32 then return nil end
+        local ts = math.floor(timestamp or 0)
+        if ts < 0 then ts = ts + 0x100000000 end
+        local ts_bytes = string.char(ts & 0xFF, (ts >> 8) & 0xFF,
+                                     (ts >> 16) & 0xFF, (ts >> 24) & 0xFF)
+        local digest = ez.crypto.sha256(pk .. ts_bytes .. (text or ""))
+        return digest and digest:sub(1, 4) or nil
+    end
+
+    for _, msg in ipairs(h) do
+        if not msg.is_self and not msg.receipt_sent then
+            local target_hash = compute_msg_hash(
+                pub_key_hex, msg.timestamp, msg.text or "")
+            if target_hash then
+                local url = sharing_svc.encode_ack(target_hash,
+                    sharing_svc.ACK_READ)
+                if url then
+                    -- Stamp + persist receipt_sent only once dm.send
+                    -- confirms the packet was queued on the radio.
+                    -- Stamping upfront would burn the slot on a
+                    -- mesh-not-initialized cold-boot open (dm.send
+                    -- bails synchronously) and never re-attempt.
+                    local target = msg
+                    spawn(function()
+                        dm.send(pub_key_hex, url, {
+                            protocol = "ack",
+                            on_success = function()
+                                target.receipt_sent = true
+                                schedule_save()
+                            end,
+                        })
+                    end)
+                end
+            end
+        end
+    end
+end
+
 function dm.mark_read(pub_key_hex)
     if (unread[pub_key_hex] or 0) > 0 then
         unread[pub_key_hex] = 0
         schedule_save()
     end
+    -- Read-receipt emission is independent of the unread counter: a
+    -- conversation re-opened with zero unread (the user scrolling
+    -- through old messages) still emits receipts for messages that
+    -- haven't been receipt-sent before. The in-RAM cache prevents
+    -- re-sending on every open.
+    maybe_send_read_receipts(pub_key_hex)
 end
 
 function dm.get_total_unread()

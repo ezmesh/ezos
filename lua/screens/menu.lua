@@ -162,6 +162,8 @@ local CATEGORIES = {
             { title = "Notifications", subtitle = "Do Not Disturb / quiet hours",
               icon = icons.bell or icons.info,
               mod = "screens.settings.notifications" },
+            { title = "Privacy", subtitle = "Read receipts and other outbound signals",
+              icon = icons.bell, mod = "screens.settings.privacy_settings" },
             { title = "Security", subtitle = "Encrypt identity key at rest",
               icon = icons.settings or icons.info,
               mod = "screens.settings.security" },

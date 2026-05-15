@@ -322,6 +322,14 @@ if not node_mod.handler("chat_bubble") then
                     n._animating = true
                 elseif status == "delivered" then
                     dot_color = theme.color("SUCCESS")
+                elseif status == "read" then
+                    -- Receiver has opened the conversation and the
+                    -- read-receipt URI came back. Paint with the
+                    -- accent colour so it stands apart from the
+                    -- plain "delivered" dot. The footer rendering
+                    -- below adds a second ring to make the
+                    -- difference unmistakable on either palette.
+                    dot_color = theme.color("ACCENT")
                 elseif status == "unconfirmed" then
                     dot_color = theme.color("WARNING")
                 elseif status == "failed" then
@@ -332,6 +340,13 @@ if not node_mod.handler("chat_bubble") then
                 end
 
                 d.fill_circle(dot_x, dot_y, dot_r, dot_color)
+                if status == "read" then
+                    -- Outer ring so the read state reads as two
+                    -- concentric marks at a glance (the "double check"
+                    -- pattern the issue suggests, adapted for a dot
+                    -- that's only 3px wide).
+                    d.draw_circle(dot_x, dot_y, dot_r + 2, dot_color)
+                end
             end
         end,
 
