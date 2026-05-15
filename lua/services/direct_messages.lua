@@ -332,30 +332,42 @@ local function try_decrypt_pending(id, pending, candidate_pub_key_hex)
     if #text == 0 then return false end
 
     local contact = contacts_svc.get(candidate_pub_key_hex)
-    local msg = {
-        sender_key  = candidate_pub_key_hex,
-        sender_name = (contact and contact.name)
-                       or candidate_pub_key_hex:sub(1, 8),
-        text        = text,
-        timestamp   = msg_timestamp,
-        rssi        = pending.rssi,
-        snr         = pending.snr,
-        is_self     = false,
-        -- Marker so the UI can indicate this was a retroactive delivery.
-        retroactive = true,
-    }
-    classify_inbound_protocol(msg)
-    store_message(candidate_pub_key_hex, msg)
-    -- Same protocol-message filter as the live RX path -- a SIGT ping
-    -- that decrypts retroactively shouldn't surface as an unread.
-    if not require("services.sharing").is_protocol_message(msg) then
-        unread[candidate_pub_key_hex] = (unread[candidate_pub_key_hex] or 0) + 1
+    local sender_name = (contact and contact.name)
+                         or candidate_pub_key_hex:sub(1, 8)
+
+    -- Same meta-payload intercept as the live RX path. A retroactive
+    -- reaction still updates the reactions store but never surfaces as
+    -- a bubble.
+    local reactions = require("services.reactions")
+    local handled = reactions.try_handle_inbound(
+        candidate_pub_key_hex, text, sender_name)
+
+    if not handled then
+        local msg = {
+            sender_key  = candidate_pub_key_hex,
+            sender_name = sender_name,
+            text        = text,
+            timestamp   = msg_timestamp,
+            rssi        = pending.rssi,
+            snr         = pending.snr,
+            is_self     = false,
+            -- Marker so the UI can indicate this was a retroactive delivery.
+            retroactive = true,
+        }
+        classify_inbound_protocol(msg)
+        store_message(candidate_pub_key_hex, msg)
+        -- Same protocol-message filter as the live RX path -- a SIGT
+        -- ping that decrypts retroactively shouldn't surface as an
+        -- unread.
+        if not require("services.sharing").is_protocol_message(msg) then
+            unread[candidate_pub_key_hex] = (unread[candidate_pub_key_hex] or 0) + 1
+        end
+        ez.bus.post("dm/message", msg)
     end
 
     pending_ciphertexts[id] = nil
     pending_count = pending_count - 1
 
-    ez.bus.post("dm/message", msg)
     ez.bus.post("dm/pending", { count = pending_count })
 
     -- Now that we can read the message we can also ACK it — the sender
@@ -558,11 +570,10 @@ local function build_and_queue_txt_msg(pub_key_hex, encrypted)
 end
 
 local function build_inner(text, attempt)
-    local timestamp = 0
-    if ez.system.get_time then
-        local t = ez.system.get_time()
-        if t and t.epoch then timestamp = t.epoch end
-    end
+    -- Unix seconds, same source the receiver stores on its bubble.
+    -- Reactions (services.reactions) hash over this value so both
+    -- peers must derive it from the same basis.
+    local timestamp = (ez.system.get_time_unix and ez.system.get_time_unix()) or 0
     -- Lower 2 bits of flags = attempt number
     local flags = math.min(attempt or 0, 3)
     return pack_u32le(timestamp) .. string.char(flags) .. text
@@ -807,30 +818,45 @@ function dm.init()
                             local text = plaintext:sub(6)
 
                             if #text > 0 then
-                                local msg = {
-                                    sender_key = candidate.pub_key_hex,
-                                    sender_name = candidate.name or candidate.pub_key_hex:sub(1, 8),
-                                    text = text,
-                                    timestamp = msg_timestamp,
-                                    rssi = pkt.rssi,
-                                    snr = pkt.snr,
-                                    -- 1-byte path hashes -> #path == hops.
-                                    hop_count = pkt.path and #pkt.path or 0,
-                                    is_self = false,
-                                }
+                                -- Meta-payloads piggyback on TXT_MSG so
+                                -- they inherit flood routing + ACKs but
+                                -- shouldn't surface as visible bubbles.
+                                -- Reactions are the first such payload;
+                                -- when one is recognised we still send
+                                -- the standard ACK below but skip the
+                                -- store / dm/message bus event.
+                                local reactions = require("services.reactions")
+                                local sender_name = candidate.name
+                                    or candidate.pub_key_hex:sub(1, 8)
+                                local handled = reactions.try_handle_inbound(
+                                    candidate.pub_key_hex, text, sender_name)
 
-                                classify_inbound_protocol(msg)
-                                store_message(candidate.pub_key_hex, msg)
-                                -- Don't bump unread for protocol carriers
-                                -- (signal-test pingpong). The conversation
-                                -- index already filters them out of last_msg;
-                                -- bumping unread would make the message list
-                                -- show a phantom "1" badge for every ping
-                                -- during a test.
-                                if not require("services.sharing").is_protocol_message(msg) then
-                                    unread[candidate.pub_key_hex] = (unread[candidate.pub_key_hex] or 0) + 1
+                                if not handled then
+                                    local msg = {
+                                        sender_key = candidate.pub_key_hex,
+                                        sender_name = sender_name,
+                                        text = text,
+                                        timestamp = msg_timestamp,
+                                        rssi = pkt.rssi,
+                                        snr = pkt.snr,
+                                        -- 1-byte path hashes -> #path == hops.
+                                        hop_count = pkt.path and #pkt.path or 0,
+                                        is_self = false,
+                                    }
+
+                                    classify_inbound_protocol(msg)
+                                    store_message(candidate.pub_key_hex, msg)
+                                    -- Don't bump unread for protocol carriers
+                                    -- (signal-test pingpong). The conversation
+                                    -- index already filters them out of last_msg;
+                                    -- bumping unread would make the message list
+                                    -- show a phantom "1" badge for every ping
+                                    -- during a test.
+                                    if not require("services.sharing").is_protocol_message(msg) then
+                                        unread[candidate.pub_key_hex] = (unread[candidate.pub_key_hex] or 0) + 1
+                                    end
+                                    ez.bus.post("dm/message", msg)
                                 end
-                                ez.bus.post("dm/message", msg)
 
                                 -- Receiving a DM proves the sender has our
                                 -- pubkey (they did ECDH with it). Record it
@@ -995,6 +1021,12 @@ function dm.send(pub_key_hex, text, opts)
     if not text or #text == 0 then return false end
     if #text > MAX_TEXT then text = text:sub(1, MAX_TEXT) end
     if not ez.mesh.is_initialized() then return false end
+    -- opts.meta = true sends without producing a visible bubble or
+    -- queueing an ACK retry. Used by services.reactions to ship its
+    -- rxn/v1 URL through the same crypto + flood path as a regular
+    -- DM while the receiver's try_handle_inbound suppresses display
+    -- on its side.
+    local meta = opts and opts.meta == true
 
     -- Create the local bubble FIRST and notify the UI so the chat
     -- screen paints the "pending" message on the next frame. Then
@@ -1002,21 +1034,29 @@ function dm.send(pub_key_hex, text, opts)
     -- (first send only), AES + HMAC, packet assembly. Every crypto
     -- step yields onto the AsyncIO worker thread, so the main loop
     -- stays free to draw and handle input while the worker grinds.
-    local msg = {
-        sender_key  = ez.mesh.get_public_key_hex(),
-        sender_name = ez.mesh.get_node_name() or "Me",
-        text        = text,
-        timestamp   = ez.system.millis(),
-        is_self     = true,
-        status      = "pending",
-        -- `opts.protocol` stamps the outbound carrier (e.g. signal
-        -- tester pingpong). Stamping at the send seam means the chat
-        -- filters in sharing.is_protocol_message can rely on a real
-        -- intent signal instead of guessing from the text.
-        protocol    = opts and opts.protocol or nil,
-    }
-    local stored = store_message(pub_key_hex, msg)
-    ez.bus.post("dm/message", msg)
+    -- Unix seconds so reactions can hash against the same timestamp
+    -- the receiver bakes into its bubble (the wire carries epoch
+    -- seconds in the inner plaintext; receivers store msg_timestamp
+    -- directly). Mixed bases here used to make reactions.compute_msg_hash
+    -- diverge between peers, so reactions never attached on the sender.
+    local stored
+    if not meta then
+        local msg = {
+            sender_key  = ez.mesh.get_public_key_hex(),
+            sender_name = ez.mesh.get_node_name() or "Me",
+            text        = text,
+            timestamp   = (ez.system.get_time_unix and ez.system.get_time_unix()) or 0,
+            is_self     = true,
+            status      = "pending",
+            -- `opts.protocol` stamps the outbound carrier (e.g. signal
+            -- tester pingpong). Stamping at the send seam means the chat
+            -- filters in sharing.is_protocol_message can rely on a real
+            -- intent signal instead of guessing from the text.
+            protocol    = opts and opts.protocol or nil,
+        }
+        stored = store_message(pub_key_hex, msg)
+        ez.bus.post("dm/message", msg)
+    end
 
     spawn(function()
         -- Auto-advert for first-contact DMs. send_announce itself is
@@ -1038,13 +1078,19 @@ function dm.send(pub_key_hex, text, opts)
 
         local sent, expected_ack, used_direct = transmit(pub_key_hex, text, 0)
         if not sent then
-            stored.status = "failed"
-            ez.bus.post("dm/status", {
-                pub_key_hex = pub_key_hex, status = "failed",
-            })
-            schedule_save()
+            if stored then
+                stored.status = "failed"
+                ez.bus.post("dm/status", {
+                    pub_key_hex = pub_key_hex, status = "failed",
+                })
+                schedule_save()
+            end
             return
         end
+
+        -- Meta sends (reactions): no bubble to update, no ACK retry
+        -- queued. The radio took the packet; that's all we report.
+        if meta then return end
 
         local ack_setting = contacts_svc.is_ack_enabled(pub_key_hex)
         if ack_setting == false then

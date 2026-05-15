@@ -217,21 +217,27 @@ Services init in order in `lua/boot.lua`:
    "starting now" toast notifications for `cal/v1` share-card events the
    user accepted. State persisted to NVS under `reminders_v1`.
 7. **custom_packets** -- non-MeshCore packet handlers
-8. **file_transfer** -- mesh-based file send/receive
-9. **ui_sounds** -- UI SFX via the audio engine
-10. **notifications** -- toast queue + bus subscribers (OTA, DMs, file
+8. **reactions** -- tiny-emoji reactions. Inbound `rxn/v1` share URLs
+   are intercepted by `direct_messages` before they surface as chat
+   bubbles; outbound reactions ride through `dm.send(..., {meta=true})`
+   so the radio path is shared with normal DMs but no visible bubble
+   is created on the sender. Must come after `sharing` and
+   `direct_messages`.
+9. **file_transfer** -- mesh-based file send/receive
+10. **ui_sounds** -- UI SFX via the audio engine
+11. **notifications** -- toast queue + bus subscribers (OTA, DMs, file
     transfer, low battery, SD connect/disconnect, panic/brownout recovery)
-11. **apps** -- file-type → screen handler registry (used by file manager)
-12. **gps** -- `start_sync_loop()` always called; loop respects the
+12. **apps** -- file-type → screen handler registry (used by file manager)
+13. **gps** -- `start_sync_loop()` always called; loop respects the
     "never / at boot / hourly" pref and no-ops when GPS is disabled
-13. **gps_track** -- boot-time `reap_unfinalised()` that flips the
+14. **gps_track** -- boot-time `reap_unfinalised()` that flips the
     `FLAG_CLOSED` bit on any `.eztrack` session left open by a power
     loss / hard reset, so the viewer doesn't keep showing
     `(in progress)` forever. The recorder itself is started/stopped
     from the Map screen on demand; only the reaper is wired here.
     See the GPS track recordings section below for the on-disk
     format.
-14. **power** -- 30 s battery poll that transitions between Normal /
+15. **power** -- 30 s battery poll that transitions between Normal /
     Frugal / Survival tiers with hysteresis. Other services (`gps`,
     `ntp`, `custom_packets`) consult `power.gps_sync_allowed()` /
     `power.ntp_allowed()` / `power.allow_non_dm()` predicates rather
@@ -267,8 +273,8 @@ Public API:
 Per-source mute pref: every `post()` consults `notify_<source>` in NVS
 (default `"1"` = on). Setting `notify_dm = "0"` silences every DM toast
 without touching wiring. Source tags must stay short to fit NVS's
-15-char limit (`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `gps`,
-`system`). Note that `notify_words` lives in the same `notify_*`
+15-char limit (`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `rxn`,
+`gps`, `system`). Note that `notify_words` lives in the same `notify_*`
 keyspace but is NOT a mute pref -- it holds the comma-separated
 trigger-word list for "Mentions only" channels (see
 `matches_trigger_words()` / `get_trigger_words()` /

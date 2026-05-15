@@ -79,9 +79,15 @@ function Map.initial_state(archive_path)
 end
 
 function Map:on_enter()
+    local inst = self
+
+    -- Tap-to-recenter and drag-to-pan are handled inside the map_view
+    -- widget itself (on_touch_down / on_touch_drag / on_touch_up). The
+    -- bridge cancels touch/tap dispatch the moment an owns_touch widget
+    -- sees a move event, so this screen used to leak a duplicate
+    -- subscriber on every re-entry without ever firing it.
     local s = self._state
     if s.archive or s.error then return end
-    local inst = self
     local path = s.archive_path or "/sd/maps/world.tdmap"
     -- async.task wraps spawn with begin()/done() so the status-bar
     -- spinner reflects this load and clears even if something errors.
@@ -752,50 +758,52 @@ function Map:build(state)
     if state.follow_gps then segments[#segments + 1] = "GPS" end
     if gps_track.is_active() then segments[#segments + 1] = "REC" end
 
+    local mv_node = map_view({
+        grow        = 1,
+        archive     = state.archive,
+        center_lat  = state.center_lat,
+        center_lon  = state.center_lon,
+        zoom        = state.zoom,
+        show_labels = state.show_labels,
+        overlay_fn  = (function()
+            -- Peers paint first, then any track polyline (saved or
+            -- in-progress), then the GPS dot on top so the user's
+            -- own position is never occluded by a colocated peer
+            -- pin or by the track head dot.
+            local peers_fn = make_peers_overlay()
+            local gps_fn   = make_gps_overlay()
+            -- state.track_overlay is set by track_viewer; the live
+            -- in-progress polyline is read fresh every frame via
+            -- gps_track.live_points() so newly captured points
+            -- appear without a state rebuild.
+            local viewer_pts = state.track_overlay
+            local viewer_fn  = viewer_pts and make_track_overlay(viewer_pts) or nil
+            return function(d, x, y, w, h, project)
+                peers_fn(d, x, y, w, h, project)
+                if viewer_fn then viewer_fn(d, x, y, w, h, project) end
+                local live_pts = gps_track.live_points()
+                if live_pts and #live_pts > 0 then
+                    make_track_overlay(live_pts)(d, x, y, w, h, project)
+                end
+                gps_fn(d, x, y, w, h, project)
+            end
+        end)(),
+        on_move     = function(lat, lon, z)
+            -- Mutate state in place: the widget is re-drawing every frame
+            -- anyway and a set_state here would force tree rebuilds at
+            -- trackball rate. The status strip catches up on the next
+            -- rebuild triggered by a zoom/theme/label change.
+            state.center_lat = lat
+            state.center_lon = lon
+            state.zoom = z
+            -- Panning breaks follow-mode: the user is taking over.
+            if state.follow_gps then state.follow_gps = false end
+        end,
+    })
+
     return ui.vbox({ gap = 0 }, {
         ui.title_bar("Map", { back = true }),
-        map_view({
-            grow        = 1,
-            archive     = state.archive,
-            center_lat  = state.center_lat,
-            center_lon  = state.center_lon,
-            zoom        = state.zoom,
-            show_labels = state.show_labels,
-            overlay_fn  = (function()
-                -- Peers paint first, then any track polyline (saved or
-                -- in-progress), then the GPS dot on top so the user's
-                -- own position is never occluded by a colocated peer
-                -- pin or by the track head dot.
-                local peers_fn = make_peers_overlay()
-                local gps_fn   = make_gps_overlay()
-                -- state.track_overlay is set by track_viewer; the live
-                -- in-progress polyline is read fresh every frame via
-                -- gps_track.live_points() so newly captured points
-                -- appear without a state rebuild.
-                local viewer_pts = state.track_overlay
-                local viewer_fn  = viewer_pts and make_track_overlay(viewer_pts) or nil
-                return function(d, x, y, w, h, project)
-                    peers_fn(d, x, y, w, h, project)
-                    if viewer_fn then viewer_fn(d, x, y, w, h, project) end
-                    local live_pts = gps_track.live_points()
-                    if live_pts and #live_pts > 0 then
-                        make_track_overlay(live_pts)(d, x, y, w, h, project)
-                    end
-                    gps_fn(d, x, y, w, h, project)
-                end
-            end)(),
-            on_move     = function(lat, lon, z)
-                -- Mutate state in place: the widget is re-drawing every frame
-                -- anyway and a set_state here would force tree rebuilds at
-                -- trackball rate. The status strip catches up on the next
-                -- rebuild triggered by a zoom/theme/label change.
-                state.center_lat = lat
-                state.center_lon = lon
-                state.zoom = z
-                -- Panning breaks follow-mode: the user is taking over.
-                if state.follow_gps then state.follow_gps = false end
-            end,
-        }),
+        mv_node,
         ui.padding({ 2, 6, 2, 6 },
             -- Pipe separator: the device font (FreeSans 7pt) covers only ASCII
             -- 0x20..0x7E, so "·" / "•" render as missing-glyph boxes.
