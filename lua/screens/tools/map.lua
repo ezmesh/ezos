@@ -401,8 +401,8 @@ function Map:menu()
             and "Hide observed coverage"
             or  "Show observed coverage",
         subtitle = coverage_on
-            and "Stop drawing RSSI-based rings around peers"
-            or  "Draw rings around peers sized by observed signal",
+            and "Stop drawing distance rings around peers"
+            or  "Ring at peer-to-here distance, styled by signal",
         on_press = function()
             ez.storage.set_pref(COVERAGE_PREF, coverage_on and "0" or "1")
             self:set_state({})
@@ -665,20 +665,6 @@ local function make_peers_overlay()
     end
 end
 
--- Haversine distance in metres between two lat/lon points. Used by the
--- coverage overlay to size rings; the precision-vs-cost trade is fine
--- at the scales we draw (kilometre-ish rings on a 320x240 screen).
-local function haversine_m(lat1, lon1, lat2, lon2)
-    local R = 6371000  -- Earth radius (mean) in metres
-    local d2r = math.pi / 180
-    local dlat = (lat2 - lat1) * d2r
-    local dlon = (lon2 - lon1) * d2r
-    local a = math.sin(dlat / 2) ^ 2
-        + math.cos(lat1 * d2r) * math.cos(lat2 * d2r) * math.sin(dlon / 2) ^ 2
-    local c = 2 * math.asin(math.min(1, math.sqrt(a)))
-    return R * c
-end
-
 -- Draw a stippled (dashed / dotted) circle outline. The display
 -- bindings only ship a solid draw_circle, so we walk the angle in
 -- steps and draw / skip pixels by stride. stride 1 = every angle
@@ -749,7 +735,14 @@ local function make_coverage_overlay()
                         -- dot under the pin.
                         local diag = math.sqrt(w * w + h * h)
                         if r >= 6 and r <= diag * 1.2 then
-                            local cx, cy = upx, upy
+                            -- Rings surround each peer at the
+                            -- empirical user-to-peer distance, so the
+                            -- centre is the peer's projected point.
+                            -- Anchoring on the user's GPS dot instead
+                            -- drew every ring as a bullseye through
+                            -- the peer pin, which is not what the
+                            -- "Observed coverage" overlay describes.
+                            local cx, cy = ppx, ppy
                             -- Inner ring: empirical distance, styled
                             -- by the observed bucket.
                             if q.bucket == "good" then

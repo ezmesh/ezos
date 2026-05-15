@@ -17,6 +17,7 @@
 #include "hardware/gps.h"
 #include "hardware/touch.h"
 #include "lua/bindings/touch_bindings.h"
+#include "lua/bindings/mesh_bindings.h"
 #include "mesh/meshcore.h"
 #include "lua/async.h"
 #include "settings.h"
@@ -201,6 +202,13 @@ void setup() {
 
             mesh->setNodeCallback([](const NodeInfo& node) {
                 Serial.printf("Node discovered: %02X (%s)\n", node.pathHash, node.name);
+                // Post to MessageBus so Lua subscribers (link_quality,
+                // contacts, ...) receive every ADVERT. Without this the
+                // "mesh/node_discovered" topic only fired when Lua had
+                // installed the deprecated on_node_discovered callback,
+                // which nothing does in practice -- so bus subscribers
+                // silently never saw a single event.
+                postNodeDiscoveredBus(node);
             });
 
             // Offload X25519 ECDH to the AsyncIO worker (Core 0). The

@@ -97,13 +97,14 @@ power toggle, so disabling GPS mid-session simply stops sampling.
 ## Observed coverage overlay
 
 The Map screen can draw coarse rings around each known peer (repeaters,
-room servers, contacts) sized by the radio signal you have actually
-heard from them. Toggle it from Alt+M -> "Show observed coverage" /
-"Hide observed coverage".
+room servers, contacts) at the empirical distance from your current
+GPS fix to the peer, styled by the radio signal you have actually
+heard from that peer. Toggle it from Alt+M -> "Show observed coverage"
+/ "Hide observed coverage".
 
 This is an honest, observed heuristic -- not a prediction. The ring
-sits at the empirical distance between your current GPS fix and the
-peer's advertised location. The style depends on the signal bucket:
+sits at the user-to-peer distance, centred on the peer pin. The style
+depends on the signal bucket:
 
 - Solid ring (good link, RSSI better than -90 dBm). Two extra dashed /
   dotted rings extend outward as a "where you might reach" envelope.
