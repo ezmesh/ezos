@@ -204,6 +204,14 @@ local function do_save()
                 -- with one ack per historical message on the next
                 -- mark_read call.
                 receipt_sent = msg.receipt_sent,
+                -- Persist the wire-epoch timestamp on outbound bubbles
+                -- so the ACK-match path can still reproduce the
+                -- receiver's hash after a save / restore cycle.
+                -- Without this, the fallback to `timestamp` (which is
+                -- millis()-since-boot, a different domain) makes every
+                -- saved outbound bubble silently un-matchable and the
+                -- "read" status never lands.
+                wire_ts      = msg.wire_ts,
             }
         end
         data.conversations[key] = saved
