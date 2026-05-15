@@ -174,14 +174,37 @@ if not node_mod.handler("chat_bubble") then
             theme.set_font("tiny_aa")
             local meta_h = theme.font_height() + 1
 
+            -- Reactions footer height. Painted in tiny_aa under the
+            -- meta line when n.reactions is non-empty. One row of pills
+            -- is always enough on a 320-wide screen given the cap at
+            -- 8 distinct emoji in the palette.
+            local reactions_h = 0
+            if n.reactions and #n.reactions > 0 then
+                reactions_h = theme.font_height() + 3
+            end
+
             local bubble_w = math.min(max_line_w + PAD_X * 2, bubble_max)
+            -- Also widen the bubble to fit the reactions footer if its
+            -- pills are wider than the text. Keeps a long reaction row
+            -- on one line.
+            if n.reactions and #n.reactions > 0 then
+                local need = PAD_X * 2
+                for _, r in ipairs(n.reactions) do
+                    local label = r.emoji
+                    if r.count > 1 then label = label .. " " .. r.count end
+                    need = need + theme.text_width(label) + 6  -- pad + gap
+                end
+                if need > bubble_w and need <= bubble_max then bubble_w = need end
+            end
             n._bubble_w = bubble_w
             n._text_h = text_h
             n._name_h = name_h
             n._meta_h = meta_h
             n._line_h = line_h
+            n._reactions_h = reactions_h
 
-            local total_h = name_h + text_h + meta_h + PAD_Y * 2 + BUBBLE_GAP
+            local total_h = name_h + text_h + meta_h + reactions_h
+                + PAD_Y * 2 + BUBBLE_GAP
             return max_w, total_h
         end,
 
@@ -199,9 +222,10 @@ if not node_mod.handler("chat_bubble") then
             local text_h = n._text_h or 12
             local meta_h = n._meta_h or 10
             local line_h = n._line_h or 12
+            local reactions_h = n._reactions_h or 0
             local lines = n._lines or { msg.text or "" }
 
-            local bubble_h = name_h + text_h + meta_h + PAD_Y * 2
+            local bubble_h = name_h + text_h + meta_h + reactions_h + PAD_Y * 2
             local bx, by
 
             if msg.is_self then
@@ -259,6 +283,27 @@ if not node_mod.handler("chat_bubble") then
                 if msg.rssi then
                     local rssi_str = string.format("%ddBm", math.floor(msg.rssi))
                     d.draw_text(bx + PAD_X, cy + 1, rssi_str, theme.color("TEXT_MUTED"))
+                end
+            end
+
+            -- Reactions footer: a row of `emoji count` pills, painted in
+            -- the accent colour. The bubble's bg has already been filled,
+            -- so no extra background fill is needed -- the pills just
+            -- read as a faint annotation row.
+            if n.reactions and #n.reactions > 0 then
+                local fx = bx + PAD_X
+                local fy = cy + meta_h + 1
+                local ink = theme.color("ACCENT")
+                local muted = theme.color("TEXT_MUTED")
+                for _, r in ipairs(n.reactions) do
+                    d.draw_text(fx, fy, r.emoji, ink)
+                    local w = theme.text_width(r.emoji)
+                    if r.count > 1 then
+                        local cnt = " " .. r.count
+                        d.draw_text(fx + w, fy, cnt, muted)
+                        w = w + theme.text_width(cnt)
+                    end
+                    fx = fx + w + 6
                 end
             end
 
