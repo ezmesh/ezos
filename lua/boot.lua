@@ -255,6 +255,10 @@ local function boot_sequence()
     -- with that contact -- the screen itself shows the new bubble.
     ez.bus.subscribe("dm/message", function(_topic, msg)
         if type(msg) ~= "table" or msg.is_self then return end
+        -- Protocol-carrier DMs (signal-test pingpong) decrypt
+        -- successfully but aren't messages the user wrote, so they
+        -- must not raise a notification toast.
+        if require("services.sharing").is_protocol_message(msg) then return end
         local key  = msg.sender_key
         local name = msg.sender_name or "Unknown"
         local body = msg.text and msg.text:sub(1, 80) or nil
@@ -532,6 +536,14 @@ local function boot_sequence()
     -- "never / at boot / hourly" preference; does nothing if GPS is disabled.
     local gps_svc = require("services.gps")
     gps_svc.start_sync_loop()
+
+    -- Power policy: poll battery every 30 s and back off radio / GPS /
+    -- NTP / display in two tiers as the battery drains. See
+    -- lua/services/power.lua for the truth table. Starts after the
+    -- services it gates (gps, ntp, custom_packets) so the predicates
+    -- have someone listening from the first evaluation.
+    local power_svc = require("services.power")
+    power_svc.start()
 
     ez.log("[Boot] Services started")
     if ez.bench and ez.bench.mark then ez.bench.mark("svc_done") end

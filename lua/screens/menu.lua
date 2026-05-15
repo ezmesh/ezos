@@ -71,6 +71,8 @@ local CATEGORIES = {
         label = "Tools",
         title = "Tools",
         entries = {
+            { title = "Search", subtitle = "Find contacts, messages, settings",
+              icon = icons.help, mod = "screens.tools.search" },
             { title = "Notifications", subtitle = "Recent system events",
               icon = icons.bell, mod = "screens.tools.notifications" },
             { title = "Help", subtitle = "On-device manual + API",
@@ -163,6 +165,9 @@ local CATEGORIES = {
             { title = "Security", subtitle = "Encrypt identity key at rest",
               icon = icons.settings or icons.info,
               mod = "screens.settings.security" },
+            { title = "Power", subtitle = "Battery-aware tier policy",
+              icon = icons.sliders or icons.signal or icons.info,
+              mod = "screens.settings.power_settings" },
             { title = "Firmware", subtitle = "Check rolling-main update + install OTA",
               icon = icons.cloud_upload, mod = "screens.settings.firmware_update" },
             { title = "What's New", subtitle = "Changelog for this firmware",
@@ -544,6 +549,13 @@ function Menu:on_enter()
         table.insert(self._touch_subs, ez.bus.subscribe("touch/down",
             function(_, data)
                 if type(data) ~= "table" then return end
+                -- Drop input while the global lock is on; the bus
+                -- broadcasts to every subscriber so this bridge has
+                -- to opt in just like is_wake_event.
+                if touch_input.is_locked() then
+                    pending = nil
+                    return
+                end
                 -- A touch that just woke the screensaver shouldn't
                 -- also start a tab-strip drag. The bridge has already
                 -- bumped the idle timer; we just bail.
@@ -576,6 +588,7 @@ function Menu:on_enter()
 
         table.insert(self._touch_subs, ez.bus.subscribe("touch/move",
             function(_, data)
+                if touch_input.is_locked() or touch_input.is_wake_event() then return end
                 if not pending or type(data) ~= "table" then return end
                 local strip = me._tab_strip_node
                 if not strip then return end
@@ -597,6 +610,10 @@ function Menu:on_enter()
 
         table.insert(self._touch_subs, ez.bus.subscribe("touch/up",
             function(_, data)
+                if touch_input.is_locked() or touch_input.is_wake_event() then
+                    pending = nil
+                    return
+                end
                 local p = pending
                 pending = nil
                 if not p or p.dragged or not p.tappable

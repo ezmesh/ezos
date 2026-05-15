@@ -487,6 +487,14 @@ node.register("text_input", {
                 n.value = val:sub(1, cursor - 1) .. val:sub(cursor + 1)
                 n._cursor = cursor - 1
                 if n.on_change then n.on_change(n.value) end
+                return "handled"
+            end
+            -- Empty input: let the caller treat this as "back / cancel"
+            -- so screens that auto-enter edit mode still have a keyboard
+            -- exit path (the T-Deck has no Esc key).
+            if n.on_empty_backspace then
+                local r = n.on_empty_backspace()
+                if r then return r end
             end
             return "handled"
         elseif key.special == "DELETE" then
@@ -1114,6 +1122,16 @@ node.register("status_bar", {
             end
             rx = rx - 20
             d.draw_battery(rx, y + 5, n.battery)
+            rx = rx - 4
+        end
+
+        -- Power-mode tag ("lp" frugal / "LP" survival). Sits left of
+        -- the battery so the user reads it as "this battery is in
+        -- low-power mode" rather than as part of the clock cluster.
+        if n.power_tag then
+            local pw = theme.text_width(n.power_tag)
+            rx = rx - pw
+            d.draw_text(rx, ty, n.power_tag, theme.color("ACCENT"))
             rx = rx - 4
         end
 
