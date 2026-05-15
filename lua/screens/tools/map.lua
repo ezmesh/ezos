@@ -5,8 +5,7 @@ local ui          = require("ezui")
 local theme       = require("ezui.theme")
 local screen_mod  = require("ezui.screen")
 local map_archive = require("services.map_archive")
-local map_view_mod = require("ezui.widgets.map_view")
-local map_view    = map_view_mod.map_view
+local map_view    = require("ezui.widgets.map_view").map_view
 local gps_svc     = require("services.gps")
 local contacts    = require("services.contacts")
 
@@ -132,7 +131,6 @@ function Map:on_enter()
 end
 
 function Map:on_exit()
-    self._map_view_node = nil
     local s = self._state
     if s.archive then
         ez.storage.set_pref(pref_key(s.archive_path), string.format(
@@ -563,10 +561,6 @@ function Map:build(state)
             if state.follow_gps then state.follow_gps = false end
         end,
     })
-    -- Cache the freshly-built node so the touch/tap subscriber in
-    -- on_enter can hit-test against its current bounds without having
-    -- to walk the tree every event.
-    self._map_view_node = mv_node
 
     return ui.vbox({ gap = 0 }, {
         ui.title_bar("Map", { back = true }),
