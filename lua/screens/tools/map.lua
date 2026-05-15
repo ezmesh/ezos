@@ -224,6 +224,80 @@ function Map:handle_key(key)
     return nil
 end
 
+-- Alt+M actions on the Map.
+--
+-- "Set as broadcast home" is the issue #127 entry point: there is no
+-- Settings entry and no dedicated picker screen. The user pans the map
+-- so the centre crosshair sits on their authored "approximately me"
+-- point (town centre, a nearby park -- not their actual home), then
+-- commits via this menu. We write decimal-e6 strings into
+-- `adv_home_lat` / `adv_home_lon` and `MeshCore::sendAnnounce()`
+-- (C++ side) picks them up on the next outgoing ADVERT.
+--
+-- The "Clear" entry only shows when at least one half is set so the
+-- menu doesn't grow useless entries in the default case.
+local function home_is_set()
+    local lat = ez.storage.get_pref("adv_home_lat", "")
+    local lon = ez.storage.get_pref("adv_home_lon", "")
+    return (lat ~= "" and lat ~= nil) or (lon ~= "" and lon ~= nil)
+end
+
+function Map:menu()
+    local notifications = require("services.notifications")
+    local items = {}
+
+    items[#items + 1] = {
+        title    = "Set as broadcast home",
+        subtitle = "Broadcast this point in every ADVERT",
+        on_press = function()
+            local s = self._state
+            local lat = s.center_lat
+            local lon = s.center_lon
+            if type(lat) ~= "number" or type(lon) ~= "number" then
+                notifications.post({
+                    title  = "Broadcast home not set",
+                    body   = "Pan the map first so the centre is on a point.",
+                    source = "system",
+                })
+                return
+            end
+            -- Decimal-e6 string keeps Lua-side and C++-side parsers
+            -- agreed on encoding; the C++ ADVERT path packs the same
+            -- integer into the wire format.
+            local lat_e6 = math.floor(lat * 1000000 + (lat >= 0 and 0.5 or -0.5))
+            local lon_e6 = math.floor(lon * 1000000 + (lon >= 0 and 0.5 or -0.5))
+            ez.storage.set_pref("adv_home_lat", tostring(lat_e6))
+            ez.storage.set_pref("adv_home_lon", tostring(lon_e6))
+            notifications.post({
+                title  = "Broadcast home set",
+                body   = string.format(
+                    "%.4f, %.4f -- this is broadcast in cleartext to " ..
+                    "every node that hears your adverts. Treat it as " ..
+                    "public.", lat, lon),
+                source = "system",
+            })
+        end,
+    }
+
+    if home_is_set() then
+        items[#items + 1] = {
+            title    = "Clear broadcast home",
+            subtitle = "Stop including a location in ADVERTs",
+            on_press = function()
+                ez.storage.set_pref("adv_home_lat", "")
+                ez.storage.set_pref("adv_home_lon", "")
+                notifications.post({
+                    title  = "Broadcast home cleared",
+                    body   = "Your ADVERTs no longer include a location.",
+                    source = "system",
+                })
+            end,
+        }
+    end
+
+    return items
+end
+
 -- Clip a ray from (cx, cy) through (px, py) to the rectangle [x, x+w] × [y, y+h].
 -- Returns the (edge_x, edge_y) where the ray exits the rectangle. Only called
 -- when (px, py) is known to be OUTSIDE the rectangle, so a valid exit always
