@@ -12,7 +12,8 @@
 -- under each slider re-renders on change so the user sees the
 -- HH:MM, not the raw minute count.
 
-local ui = require("ezui")
+local ui            = require("ezui")
+local notifications = require("services.notifications")
 
 local Notifications = { title = "Notifications" }
 
@@ -43,6 +44,14 @@ local function fmt_hhmm(minutes)
     return string.format("%02d:%02d", math.floor(m / 60), m % 60)
 end
 
+local function trigger_summary()
+    local words = notifications.get_trigger_words()
+    if #words == 0 then return "None" end
+    local joined = table.concat(words, ", ")
+    if #joined > 40 then return joined:sub(1, 37) .. "..." end
+    return joined
+end
+
 function Notifications.initial_state()
     return {
         enabled      = pref_bool("dnd_enabled", false),
@@ -51,6 +60,12 @@ function Notifications.initial_state()
         allow_ments  = pref_bool("dnd_mentions", false),
         manual       = pref_bool("dnd_manual", false),
     }
+end
+
+function Notifications:on_enter()
+    -- Trigger-words editor may have changed the list while we were
+    -- pushed underneath. Force a rebuild so the summary is fresh.
+    self:set_state({})
 end
 
 function Notifications:build(state)
@@ -141,6 +156,29 @@ function Notifications:build(state)
                 { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
         )
     end
+
+    -- ---- Trigger words ----
+    -- Extends the "Mentions only" channel notify mode beyond the
+    -- node name. See services.notifications for the matcher.
+    content[#content + 1] = ui.padding({ 12, 8, 4, 8 },
+        ui.text_widget("Mentions", { color = "ACCENT", font = "small_aa" })
+    )
+    content[#content + 1] = ui.list_item({
+        title    = "Trigger words",
+        subtitle = trigger_summary(),
+        on_press = function()
+            local screen = require("ezui.screen")
+            local Editor = require("screens.settings.trigger_words")
+            local init = Editor.initial_state and Editor.initial_state() or {}
+            screen.push(screen.create(Editor, init))
+        end,
+    })
+    content[#content + 1] = ui.padding({ 2, 8, 8, 8 },
+        ui.text_widget(
+            "Words that ring through on 'Mentions only' channels in " ..
+            "addition to your node name.",
+            { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
+    )
 
     return ui.vbox({ gap = 0, bg = "BG" }, {
         ui.title_bar("Notifications", { back = true }),
