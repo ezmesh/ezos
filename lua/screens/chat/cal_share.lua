@@ -126,13 +126,27 @@ function cal_share.build_actions(msg)
                     ok_label = "Add",
                     cancel_label = "Cancel",
                 }, function()
-                    reminders_svc.add({
+                    -- reminders.add returns id, "already scheduled"
+                    -- for a duplicate (still a success: id non-nil)
+                    -- and nil, reason for real failures (e.g. queue
+                    -- full at 16). Surface real failures so a silent
+                    -- "queue full" doesn't leave the user thinking
+                    -- the reminder was saved.
+                    local id, err = reminders_svc.add({
                         ts = share.timestamp,
                         dur = share.duration,
                         title = share.title,
                         lat = share.lat,
                         lon = share.lon,
                     })
+                    if not id then
+                        local notifications = require("services.notifications")
+                        notifications.post({
+                            title = "Reminder not added",
+                            body = err or "could not add",
+                            source = "calev",
+                        })
+                    end
                     screen_mod.pop()
                 end)
             end,

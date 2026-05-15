@@ -32,11 +32,19 @@ local function timegm(y, mo, d, h, mi)
     return days * 86400 + h * 3600 + mi * 60
 end
 
+local MONTH_DAYS = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 }
 local function parse_date(s)
     local y, mo, d = s:match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
     if not y then return nil end
     y, mo, d = tonumber(y), tonumber(mo), tonumber(d)
-    if mo < 1 or mo > 12 or d < 1 or d > 31 then return nil end
+    if mo < 1 or mo > 12 then return nil end
+    -- Per-month max with Gregorian leap-year rule. Without this,
+    -- the Howard Hinnant arithmetic in timegm() silently rolls
+    -- impossible days into the next month (2026-02-30 -> 2026-03-02)
+    -- and the receiver would see the wrong date.
+    local is_leap = (y % 4 == 0 and y % 100 ~= 0) or (y % 400 == 0)
+    local max_d = MONTH_DAYS[mo] + ((mo == 2 and is_leap) and 1 or 0)
+    if d < 1 or d > max_d then return nil end
     return y, mo, d
 end
 

@@ -299,6 +299,13 @@ function sharing.parse(text)
         local dur = tonumber(params.dur)
         local n = params.n
         if not ts or ts < 1577836800 then return nil end
+        -- Enforce the +/-1y window on receive too, not just on encode.
+        -- Without this a peer can craft a far-future ts that the user
+        -- adds to reminders; reminders.tick() only prunes entries
+        -- whose fire_done is set, which never happens for year-2286
+        -- timestamps -- the queue fills up and never recovers.
+        local _now = ez.system.get_time_unix() or 0
+        if _now > 0 and math.abs(ts - _now) > CAL_TS_WINDOW then return nil end
         if not dur or dur <= 0 or dur > CAL_DUR_MAX then return nil end
         if not n or n == "" then return nil end
         -- Defensive: strip non-ASCII the sender may have smuggled in.
