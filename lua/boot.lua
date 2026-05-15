@@ -195,6 +195,13 @@ local function boot_sequence()
     local sharing_svc = require("services.sharing")
     sharing_svc.init()
 
+    -- Reminders: 30-second sweep that fires "in 10 min" / "starting
+    -- now" notifications for cal/v1 share cards the user accepted.
+    -- Persisted to NVS so they survive a reboot. See
+    -- services/reminders.lua for the storage shape.
+    local reminders_svc = require("services.reminders")
+    reminders_svc.init()
+
     -- Custom packets: P2P extension layer on RAW_CUSTOM. Subscribes
     -- after dm_svc so the DM internals it borrows are ready.
     -- register_demos() installs PING / PONG / GPS\0 handlers; remove

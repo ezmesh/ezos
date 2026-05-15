@@ -6,6 +6,7 @@ local ui = require("ezui")
 local channels_svc = require("services.channels")
 local sharing_svc = require("services.sharing")
 local time_share = require("screens.chat.time_share")
+local cal_share = require("screens.chat.cal_share")
 require("screens.chat.chat_common")  -- registers chat_bubble node type
 
 -- Pin the scroll viewport to the most recent message after a rebuild.
@@ -48,6 +49,11 @@ local function show_context_menu(self, channel, msg)
 
         -- Time share actions (before generic actions)
         for _, item in ipairs(time_share.build_actions(msg)) do
+            actions[#actions + 1] = item
+        end
+
+        -- Event (cal/v1) share actions
+        for _, item in ipairs(cal_share.build_actions(msg)) do
             actions[#actions + 1] = item
         end
 
@@ -170,7 +176,7 @@ function ChannelChat:build(state)
             content_items[#content_items + 1] = {
                 type = "chat_bubble",
                 msg = msg,
-                share = time_share.card_for_message(msg),
+                share = time_share.card_for_message(msg) or cal_share.card_for_message(msg),
                 on_press = function()
                     show_context_menu(self, channel, msg)
                 end,
@@ -225,6 +231,20 @@ function ChannelChat:menu()
                 if url then
                     channels_svc.send(channel, url)
                 end
+            end,
+        },
+        {
+            title = "Attach event...",
+            subtitle = "Build a cal/v1 meetup invite",
+            on_press = function()
+                local Compose = require("screens.chat.event_compose")
+                local inst = screen_mod.create(Compose,
+                    Compose.initial_state({
+                        on_submit = function(url)
+                            channels_svc.send(channel, url)
+                        end,
+                    }))
+                screen_mod.push(inst)
             end,
         },
     }
