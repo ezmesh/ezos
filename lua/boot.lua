@@ -514,6 +514,15 @@ local function boot_sequence()
     local gps_svc = require("services.gps")
     gps_svc.start_sync_loop()
 
+    -- Reap any track recording session that didn't finalise its file
+    -- (power loss / hard reset). The reaper just sets the closed bit so
+    -- the track viewer doesn't keep showing "(in progress)" forever.
+    -- Cheap operation: it only touches files under /sd/tracks/.
+    spawn(function()
+        local gps_track = require("services.gps_track")
+        gps_track.reap_unfinalised()
+    end)
+
     ez.log("[Boot] Services started")
 
     -- Run version migrations before applying settings. Migrations may

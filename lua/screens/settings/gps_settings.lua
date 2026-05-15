@@ -3,8 +3,9 @@
 -- services.gps; the hardware UART itself is always running (see main.cpp),
 -- so disabling is a UI-level gate for now.
 
-local ui      = require("ezui")
-local gps_svc = require("services.gps")
+local ui        = require("ezui")
+local gps_svc   = require("services.gps")
+local gps_track = require("services.gps_track")
 
 local GPS = { title = "GPS" }
 
@@ -286,6 +287,52 @@ function GPS:build(state)
             self:set_state({})
         end,
     })
+
+    -- Section: Track recording. The recorder is started/stopped from
+    -- the Map screen; this panel only configures the sampling rule.
+    content[#content + 1] = ui.padding({ 12, 8, 4, 8 },
+        ui.text_widget("Track recording", { color = "ACCENT", font = "small_aa" })
+    )
+
+    local track_prefs = gps_track.get_prefs()
+    local INTERVAL_LABELS = { "1 s", "2 s", "5 s", "10 s", "30 s" }
+    local INTERVAL_VALUES = { 1, 2, 5, 10, 30 }
+    local DISTANCE_LABELS = { "Off", "2 m", "5 m", "10 m", "25 m" }
+    local DISTANCE_VALUES = { 0, 2, 5, 10, 25 }
+
+    local function index_for(arr, want)
+        for i, v in ipairs(arr) do if v == want then return i end end
+        return 1
+    end
+
+    content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+        ui.dropdown(INTERVAL_LABELS, {
+            label    = "Min interval",
+            value    = index_for(INTERVAL_VALUES, track_prefs.min_interval_s),
+            on_change = function(idx)
+                gps_track.set_prefs({ min_interval_s = INTERVAL_VALUES[idx] })
+            end,
+        })
+    )
+
+    content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
+        ui.dropdown(DISTANCE_LABELS, {
+            label    = "Min distance",
+            value    = index_for(DISTANCE_VALUES, track_prefs.min_distance_m),
+            on_change = function(idx)
+                gps_track.set_prefs({ min_distance_m = DISTANCE_VALUES[idx] })
+            end,
+        })
+    )
+
+    content[#content + 1] = ui.padding({ 2, 8, 6, 8 },
+        ui.text_widget(
+            "A point is recorded only when BOTH thresholds clear. "
+            .. "Tighter rules grow the file faster; looser rules can "
+            .. "lose corners on a winding track. Start/stop via Map "
+            .. "-> Alt+M.",
+            { wrap = true, color = "TEXT_MUTED", font = "small_aa" })
+    )
 
     content[#content + 1] = ui.list_item({
         title = "Sync clock now",
