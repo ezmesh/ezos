@@ -267,7 +267,7 @@ Per-source mute pref: every `post()` consults `notify_<source>` in NVS
 (default `"1"` = on). Setting `notify_dm = "0"` silences every DM toast
 without touching wiring. Source tags must stay short to fit NVS's
 15-char limit (`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `rxn`,
-`system`). Note that `notify_words` lives in the same `notify_*`
+`gps`, `system`). Note that `notify_words` lives in the same `notify_*`
 keyspace but is NOT a mute pref -- it holds the comma-separated
 trigger-word list for "Mentions only" channels (see
 `matches_trigger_words()` / `get_trigger_words()` /

@@ -9,6 +9,8 @@ local channels_svc = require("services.channels")
 local sharing_svc = require("services.sharing")
 local time_share = require("screens.chat.time_share")
 local reactions_svc = require("services.reactions")
+local gps_share = require("screens.chat.gps_share")
+local gps_svc = require("services.gps")
 local cal_share = require("screens.chat.cal_share")
 require("screens.chat.chat_common")  -- registers chat_bubble node type
 
@@ -173,6 +175,10 @@ local function show_context_menu(self, key, msg, msg_index)
             end
         end
 
+        for _, item in ipairs(gps_share.build_actions(msg, share_sender_key)) do
+            actions[#actions + 1] = item
+        end
+
         for _, item in ipairs(cal_share.build_actions(msg)) do
             actions[#actions + 1] = item
         end
@@ -318,6 +324,9 @@ function DMConversation:_share_for_message(msg, sender_pub_key_hex)
     -- Time shares don't need sender key decryption
     local ts_card = time_share.card_for_message(msg)
     if ts_card then return ts_card end
+
+    local gps_card = gps_share.card_for_message(msg, sender_pub_key_hex)
+    if gps_card then return gps_card end
 
     local cal_card = cal_share.card_for_message(msg)
     if cal_card then return cal_card end
@@ -598,6 +607,54 @@ function DMConversation:menu()
             local url, err = sharing_svc.encode_time()
             if url then
                 dm_svc.send(key, url)
+            end
+        end,
+    }
+
+    -- Location share. Encrypted to the recipient so only they can
+    -- decode the coordinates from the URL. Uses the current GPS fix
+    -- when available; otherwise falls back to the broadcast-home pref
+    -- (the user already explicitly accepted that this point is
+    -- public-grade, per the Map screen's home setter). If neither is
+    -- available, surface why through a chat-bubble system message.
+    items[#items + 1] = {
+        title = "Share my location",
+        subtitle = "Send current GPS fix (encrypted to recipient)",
+        on_press = function()
+            local lat, lon, why
+            local loc = gps_svc.get_location()
+            if loc and loc.valid then
+                lat, lon = loc.lat, loc.lon
+            else
+                local hlat = tonumber(ez.storage.get_pref("adv_home_lat", ""))
+                local hlon = tonumber(ez.storage.get_pref("adv_home_lon", ""))
+                if hlat and hlon then
+                    lat, lon = hlat / 1e6, hlon / 1e6
+                else
+                    why = "no GPS fix and no broadcast home set"
+                end
+            end
+            if why then
+                ez.bus.post("dm/message", {
+                    sender_key  = key,
+                    sender_name = "system",
+                    text        = "Location share failed: " .. why,
+                    timestamp   = ez.system.millis(),
+                    is_self     = false,
+                })
+                return
+            end
+            local url, err = sharing_svc.encode_gps_dm(key, lat, lon, nil)
+            if url then
+                dm_svc.send(key, url)
+            else
+                ez.bus.post("dm/message", {
+                    sender_key  = key,
+                    sender_name = "system",
+                    text        = "Location share failed: " .. (err or "unknown"),
+                    timestamp   = ez.system.millis(),
+                    is_self     = false,
+                })
             end
         end,
     }
