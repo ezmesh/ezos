@@ -56,6 +56,15 @@ local function ascii_lower(s)
     return s:lower()
 end
 
+-- Strip non-printable-ASCII bytes from peer-originated strings before
+-- they reach `draw_text`. Same policy services/notifications uses --
+-- the on-device bitmap fonts only cover 0x20..0x7E and anything else
+-- paints as a `[]` box (see CLAUDE.md "On-device font character set").
+local function ascii_safe(s)
+    if type(s) ~= "string" then return s end
+    return (s:gsub("[^\32-\126]", "?"))
+end
+
 local function snippet(text, query, max_len)
     if not text then return "" end
     if #text <= max_len then return text end
@@ -123,7 +132,7 @@ local function run_search(query)
     for i = 1, math.min(#cmatches, PER_GROUP_CAP) do
         local c = cmatches[i]
         crows[#crows + 1] = ui.list_item({
-            title    = c.name or c.pub_key_hex:sub(1, 8),
+            title    = ascii_safe(c.name or c.pub_key_hex:sub(1, 8)),
             subtitle = c.pub_key_hex:sub(1, 12) .. "...",
             on_press = function() open_contact_dm(c) end,
         })
@@ -146,7 +155,7 @@ local function run_search(query)
             if ch_hits <= PER_GROUP_CAP then
                 local name = ch.name
                 chrows[#chrows + 1] = ui.list_item({
-                    title    = name,
+                    title    = ascii_safe(name),
                     subtitle = "Channel",
                     on_press = function() open_channel_chat(name) end,
                 })
@@ -174,11 +183,11 @@ local function run_search(query)
                     dm_hits = dm_hits + 1
                     if dm_hits <= PER_GROUP_CAP then
                         local contact = contacts_svc.get(pub_key_hex)
-                        local who = (contact and contact.name)
-                            or pub_key_hex:sub(1, 8)
+                        local who = ascii_safe((contact and contact.name)
+                            or pub_key_hex:sub(1, 8))
                         local prefix = msg.is_self and "You" or who
                         dm_rows[#dm_rows + 1] = ui.list_item({
-                            title    = prefix .. ": " .. snippet(msg.text, query, 40),
+                            title    = prefix .. ": " .. ascii_safe(snippet(msg.text, query, 40)),
                             subtitle = "DM with " .. who,
                             on_press = function()
                                 local DMConv = require("screens.chat.dm_conversation")
@@ -210,10 +219,10 @@ local function run_search(query)
                     ch_msg_hits = ch_msg_hits + 1
                     if ch_msg_hits <= PER_GROUP_CAP then
                         local channel_name = ch.name
-                        local sender = msg.sender_name or "?"
+                        local sender = ascii_safe(msg.sender_name or "?")
                         ch_msg_rows[#ch_msg_rows + 1] = ui.list_item({
-                            title    = sender .. ": " .. snippet(msg.text, query, 40),
-                            subtitle = "in " .. channel_name,
+                            title    = sender .. ": " .. ascii_safe(snippet(msg.text, query, 40)),
+                            subtitle = "in " .. ascii_safe(channel_name),
                             on_press = function()
                                 open_channel_chat(channel_name)
                             end,
@@ -284,12 +293,17 @@ function Search:update()
     local now = ez.system.millis()
     if (now - (s.last_input_ms or 0)) >= DEBOUNCE_MS
             and s._last_run_query ~= s.query then
-        s._last_run_query = s.query
+        -- Snapshot the query into a value local before yielding.
+        -- `s` and `self._state` point at the same table, so an
+        -- `s.query == self._state.query` check after the yield is
+        -- always true and the stale-result guard is a no-op.
+        local q = s.query
+        s._last_run_query = q
         spawn(function()
-            local groups = run_search(s.query)
+            local groups = run_search(q)
             -- The user may have kept typing while we yielded; only
             -- accept the result if the query hasn't moved on.
-            if self._state.query == s.query then
+            if self._state.query == q then
                 self._state.groups = groups
                 self:set_state({})
             end
