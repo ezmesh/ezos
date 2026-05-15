@@ -104,14 +104,11 @@ end
 -- longer track redemption, the only job is to make repeat invites for
 -- the same channel produce different tokens (otherwise re-sharing the
 -- same channel would emit byte-identical URLs and chat dedup would
--- collapse them). millis() + math.random + our pubkey hashed through
--- SHA-256 is plenty for that.
+-- collapse them). esp_fill_random gives us 8 hardware-seeded bytes
+-- directly, so the prior SHA-256 wrap of millis() + math.random + our
+-- pubkey is no longer needed.
 local function random_nonce()
-    local seed = string.format("%d:%d:%s",
-        ez.system.millis(),
-        math.random(0, 0x7FFFFFFF),
-        ez.mesh.get_public_key_hex() or "")
-    return ez.crypto.sha256(seed):sub(1, NONCE_SIZE)
+    return ez.crypto.random_bytes(NONCE_SIZE)
 end
 
 -- =========================================================================

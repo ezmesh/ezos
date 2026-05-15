@@ -329,6 +329,51 @@ LUA_FUNCTION(l_crypto_random_bytes) {
     return 1;
 }
 
+// @lua ez.crypto.random_int(min, max) -> integer
+// @brief Generate a cryptographically secure random integer in [min, max]
+// @description Wraps esp_fill_random() and rejection-samples so the
+// result is uniformly distributed across the inclusive range. Use for
+// any id / nonce / dedup value where math.random's weak seeding could
+// hand a peer a guessable token. min and max must both be non-negative
+// 64-bit values with min <= max.
+// @param min Lower bound (inclusive)
+// @param max Upper bound (inclusive)
+// @return Random integer in [min, max], or nil + error on invalid args
+// @example
+// local xfer_id = ez.crypto.random_int(1, 0x7FFFFFFF)
+// local seq    = ez.crypto.random_int(0, 0xFFFFFFFF)
+// @end
+LUA_FUNCTION(l_crypto_random_int) {
+    LUA_CHECK_ARGC(L, 2);
+    lua_Integer lo = luaL_checkinteger(L, 1);
+    lua_Integer hi = luaL_checkinteger(L, 2);
+    if (lo < 0 || hi < lo) {
+        lua_pushnil(L);
+        lua_pushstring(L, "min must be >= 0 and <= max");
+        return 2;
+    }
+    // Unsigned range so we can express up to 2^63 - 1 without sign
+    // surprises. Lua 5.4 integers are 64 bits in our build (LUA_32BITS=1
+    // for luac, but the runtime is 64-bit-aware), so lo/hi already fit.
+    uint64_t range = (uint64_t)(hi - lo) + 1ULL;
+    if (range == 0ULL) {
+        // hi - lo overflowed: caller asked for the entire uint64 space.
+        uint64_t r;
+        esp_fill_random(&r, sizeof(r));
+        lua_pushinteger(L, (lua_Integer)(lo + (lua_Integer)r));
+        return 1;
+    }
+    // Rejection sampling: largest multiple of `range` that fits in 64
+    // bits, retry if we land above it. Keeps the distribution uniform.
+    uint64_t limit = UINT64_MAX - (UINT64_MAX % range);
+    uint64_t r;
+    do {
+        esp_fill_random(&r, sizeof(r));
+    } while (r >= limit);
+    lua_pushinteger(L, (lua_Integer)(lo + (lua_Integer)(r % range)));
+    return 1;
+}
+
 // @lua ez.crypto.channel_hash(key) -> integer
 // @brief Compute channel hash from key (SHA256(key)[0])
 // @description Computes a single-byte channel identifier from a channel key. This
@@ -613,6 +658,7 @@ static const luaL_Reg crypto_funcs[] = {
     {"aes128_ecb_encrypt",  l_crypto_aes128_ecb_encrypt},
     {"aes128_ecb_decrypt",  l_crypto_aes128_ecb_decrypt},
     {"random_bytes",        l_crypto_random_bytes},
+    {"random_int",          l_crypto_random_int},
     {"channel_hash",        l_crypto_channel_hash},
     {"derive_channel_key",  l_crypto_derive_channel_key},
     {"public_channel_key",  l_crypto_public_channel_key},

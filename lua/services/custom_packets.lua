@@ -360,8 +360,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local function random_u32_bytes()
-    local r = math.random(0, 0x7FFFFFFF)
-    return string.char(r & 0xFF, (r >> 8) & 0xFF, (r >> 16) & 0xFF, (r >> 24) & 0xFF)
+    return ez.crypto.random_bytes(4)
 end
 
 -- Send a PING to `pub_key_hex`. The peer's installed PING handler
