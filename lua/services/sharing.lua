@@ -5,6 +5,8 @@
 -- URL formats:
 --   https://ezme.sh/#add/v1?k=<64-hex pubkey>&n=<urlencoded name>
 --   https://ezme.sh/#join/v1?t=<base64url(nonce8 || aes128_ecb(secret, blob))>
+--   https://ezme.sh/#time/v1?t=<unix_ts>
+--   https://ezme.sh/#cal/v1?ts=<unix>&dur=<secs>&n=<title>[&lat=<e6>&lon=<e6>]
 --
 -- The fragment-only design means non-ezOS receivers see a normal
 -- clickable link; the ezme.sh landing page reads location.hash
@@ -31,6 +33,7 @@ local URL_PREFIX = "https://ezme.sh/#"
 local CONTACT_VERB = "add/v1"
 local INVITE_VERB = "join/v1"
 local TIME_VERB = "time/v1"
+local CAL_VERB = "cal/v1"
 
 local NONCE_SIZE = 8
 local AES_BLOCK_SIZE = 16
@@ -42,6 +45,16 @@ local PUBKEY_HEX_LEN = 64
 -- MAX_TEXT (120). Sender-side validation refuses encodes that would
 -- exceed it -- better a clear failure than a silently-truncated URL.
 local INVITE_BODY_MAX = 48
+
+-- cal/v1 limits. Title is sanitized to printable ASCII (fonts are
+-- ASCII-only) and truncated so the full URL fits in DM's MAX_TEXT=120
+-- even when lat/lon are present. Duration is capped at 24h per spec to
+-- keep the payload short and discourage long-running events.
+local CAL_TITLE_MAX = 32
+local CAL_DUR_MAX = 86400
+-- Reject ts outside +/- 1 year of "now" so a stale or fat-fingered
+-- value can't pollute the reminder queue. Receivers validate too.
+local CAL_TS_WINDOW = 365 * 24 * 3600
 
 -- =========================================================================
 -- Helpers
@@ -186,6 +199,59 @@ function sharing.encode_time()
     return URL_PREFIX .. TIME_VERB .. "?t=" .. tostring(ts)
 end
 
+-- Strip the title down to printable ASCII so the on-device fonts can
+-- render it and url_encode doesn't blow up the URL with %XX runs of
+-- multi-byte UTF-8. Anything outside 0x20..0x7E is dropped (not
+-- replaced) so the trimmed string remains a tight fit for the URL.
+local function cal_sanitize_title(s)
+    if type(s) ~= "string" then return "" end
+    s = s:gsub("[^\32-\126]", "")
+    s = s:gsub("^%s+", ""):gsub("%s+$", "")
+    if #s > CAL_TITLE_MAX then s = s:sub(1, CAL_TITLE_MAX) end
+    return s
+end
+
+-- Encode an event/meetup share URL. ts is the unix start time, dur is
+-- the duration in seconds (capped at 24h), title is required, lat/lon
+-- are optional decimal degrees. Returns (url, nil) or (nil, reason).
+--
+-- The URL fits inside DM's MAX_TEXT=120 even at worst case: the prefix
+-- and fixed keys take ~50 bytes, ts/dur up to ~25, lat/lon up to ~28,
+-- leaving room for CAL_TITLE_MAX (32) ASCII title bytes (no
+-- percent-encoding overhead because we restrict charset upstream).
+function sharing.encode_cal(ts, dur, title, lat, lon)
+    ts = tonumber(ts)
+    dur = tonumber(dur)
+    if not ts or ts <= 0 then return nil, "missing start time" end
+    if not dur or dur <= 0 then return nil, "missing duration" end
+    if dur > CAL_DUR_MAX then return nil, "duration over 24h" end
+
+    local now = ez.system.get_time_unix() or 0
+    if now > 0 and math.abs(ts - now) > CAL_TS_WINDOW then
+        return nil, "time outside +/-1y window"
+    end
+
+    local clean = cal_sanitize_title(title or "")
+    if clean == "" then return nil, "missing title" end
+
+    local parts = {
+        "ts=" .. tostring(math.floor(ts)),
+        "dur=" .. tostring(math.floor(dur)),
+        "n=" .. url_encode(clean),
+    }
+
+    if lat ~= nil and lon ~= nil then
+        local la = tonumber(lat)
+        local lo = tonumber(lon)
+        if la and lo and la >= -90 and la <= 90 and lo >= -180 and lo <= 180 then
+            parts[#parts + 1] = "lat=" .. tostring(math.floor(la * 1e6))
+            parts[#parts + 1] = "lon=" .. tostring(math.floor(lo * 1e6))
+        end
+    end
+
+    return URL_PREFIX .. CAL_VERB .. "?" .. table.concat(parts, "&")
+end
+
 -- Parse arbitrary text and return a structured share descriptor if it
 -- contains a recognised share URL, or nil otherwise. Looks for the
 -- URL prefix anywhere in the text -- bubbles can have leading words
@@ -195,6 +261,7 @@ end
 --   { kind = "contact", pub_key_hex = "...", name = "..." }
 --   { kind = "channel_invite", token = "<base64url>" }
 --   { kind = "time", timestamp = <unix_ts> }
+--   { kind = "cal", timestamp, duration, title, lat?, lon? }
 function sharing.parse(text)
     if not text or #text == 0 then return nil end
 
@@ -224,6 +291,46 @@ function sharing.parse(text)
             kind = "time",
             timestamp = ts,
         }
+    elseif verb == CAL_VERB then
+        local ts = tonumber(params.ts)
+        local dur = tonumber(params.dur)
+        local n = params.n
+        if not ts or ts < 1577836800 then return nil end
+        -- Enforce the +/-1y window on receive too, not just on encode.
+        -- Without this a peer can craft a far-future ts that the user
+        -- adds to reminders; reminders.tick() only prunes entries
+        -- whose fire_done is set, which never happens for year-2286
+        -- timestamps -- the queue fills up and never recovers.
+        local _now = ez.system.get_time_unix() or 0
+        if _now > 0 and math.abs(ts - _now) > CAL_TS_WINDOW then return nil end
+        if not dur or dur <= 0 or dur > CAL_DUR_MAX then return nil end
+        if not n or n == "" then return nil end
+        -- Defensive: strip non-ASCII the sender may have smuggled in.
+        -- Receivers display via the bitmap fonts so a stray UTF-8 byte
+        -- would render as []. cal_sanitize_title also trims length, so
+        -- a malicious peer can't blow up the bubble layout either.
+        local title = cal_sanitize_title(n)
+        if title == "" then return nil end
+        local lat = tonumber(params.lat)
+        local lon = tonumber(params.lon)
+        local out = {
+            kind = "cal",
+            timestamp = math.floor(ts),
+            duration = math.floor(dur),
+            title = title,
+        }
+        -- Coordinates ride as int_e6 on the wire. Reject impossible
+        -- values so an oversize int can't corrupt the bubble's "Show
+        -- on map" hand-off.
+        if lat and lon then
+            local la = lat / 1e6
+            local lo = lon / 1e6
+            if la >= -90 and la <= 90 and lo >= -180 and lo <= 180 then
+                out.lat = la
+                out.lon = lo
+            end
+        end
+        return out
     end
     return nil
 end

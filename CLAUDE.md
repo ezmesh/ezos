@@ -274,8 +274,8 @@ ezos/
 │   │                      #   contacts, custom_packets, direct_messages,
 │   │                      #   file_transfer, gps, log_persist,
 │   │                      #   map_archive, migrations, notifications,
-│   │                      #   ntp, prefs_registry, sharing, signal_test,
-│   │                      #   ui_sounds)
+│   │                      #   ntp, prefs_registry, reminders, sharing,
+│   │                      #   signal_test, ui_sounds)
 │   └── util/              # Shared helpers (timezones, etc.)
 ├── scripts/                # Build-time generators (Lua embedder)
 ├── tools/                  # Host utilities (map gen, remote control,
@@ -331,15 +331,18 @@ Services are initialized in order in `lua/boot.lua`:
 3. **channels** — Channel management, GRP_TXT decryption
 4. **direct_messages** — Encrypted DMs via TXT_MSG packets
 5. **sharing** — Share-card construction and dispatch
-6. **custom_packets** — Custom (non-MeshCore) packet handlers
-7. **file_transfer** — Mesh-based file send/receive
-8. **ui_sounds** — UI sound effects via the audio engine
-9. **notifications** — Toast queue + bus subscribers for OTA, DMs,
-   file transfer, low battery, SD connect/disconnect, and panic /
-   brownout recovery. See "Notifications service" below for the
-   public API and per-source mute pref namespace.
-10. **apps** — Registered file-type → screen handlers (used by the file manager)
-11. **gps** — `gps_svc.start_sync_loop()` is always called; the loop itself
+6. **reminders** — 30-second sweep that fires "10 min before" /
+   "starting now" toast notifications for `cal/v1` share-card events
+   the user accepted. State persisted to NVS under `reminders_v1`.
+7. **custom_packets** — Custom (non-MeshCore) packet handlers
+8. **file_transfer** — Mesh-based file send/receive
+9. **ui_sounds** — UI sound effects via the audio engine
+10. **notifications** — Toast queue + bus subscribers for OTA, DMs,
+    file transfer, low battery, SD connect/disconnect, and panic /
+    brownout recovery. See "Notifications service" below for the
+    public API and per-source mute pref namespace.
+11. **apps** — Registered file-type → screen handlers (used by the file manager)
+12. **gps** — `gps_svc.start_sync_loop()` is always called; the loop itself
     respects the user's "never / at boot / hourly" pref and is a no-op when
     GPS is disabled
 
@@ -380,7 +383,15 @@ NVS (default `"1"` = on). Setting `notify_dm = "0"`, for instance,
 silences every DM toast without touching the wiring. The namespace
 is meant for a future Settings panel; pref keys must stay under
 NVS's 15-character limit, so source tags should be short
-(`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `system`).
+(`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `system`). Note
+that `notify_words` lives in the same `notify_*` keyspace but is
+NOT a mute pref -- it holds the comma-separated trigger-word list
+for "Mentions only" channels (see `matches_trigger_words()` /
+`get_trigger_words()` / `set_trigger_words()` on the service).
+The `channel/message` subscriber in `boot.lua` ORs a trigger-word
+match against the existing node-name mention check, so a trigger
+hit behaves identically to a name mention (gates the DND
+`dnd_mention` exemption too).
 
 Do Not Disturb (issue #116): `notifications.post()` also evaluates a
 time-window DND mode after the source-mute check. When the manual
