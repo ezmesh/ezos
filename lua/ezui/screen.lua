@@ -611,6 +611,14 @@ function screen.handle_input()
         local t = screen.toast
         if t.action and type(t.action.on_press) == "function"
                and key.special == "ENTER" and key.alt then
+            -- Don't fire the toast action while the device is locked.
+            -- Some actions (DM open, OTA restart) would otherwise let
+            -- a notification bypass the lockscreen invariant that
+            -- only the input path is gated.
+            local lk_ok, lk = pcall(require, "services.lockscreen")
+            if lk_ok and lk and lk.is_locked() then
+                return true  -- consumed; swallow without firing
+            end
             local fn = t.action.on_press
             screen.dismiss_toast()
             local ok, err = pcall(fn)

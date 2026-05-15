@@ -263,6 +263,15 @@ function lockscreen.try_unlock(input)
     return false, "wrong"
 end
 
+-- Clear only the cooldown deadline; leaves the fail count intact.
+-- Called from boot.lua so a power-cycle resets the retry-wait timer
+-- (the millis() snapshot stored in NVS would otherwise overshoot
+-- enormously after a reboot, where millis() rolls back to 0) without
+-- letting the user wipe the failure history.
+function lockscreen.reset_cooldown()
+    set_until_ms(0)
+end
+
 -- Lock the session. No-op when not armed. Idempotent.
 function lockscreen.lock()
     if not lockscreen.is_armed() then return end

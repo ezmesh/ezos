@@ -633,6 +633,11 @@ local function boot_sequence()
                 screen_mod.push(screen_mod.create(def, init))
             end)
             if lock.is_armed() then
+                -- Boot resets the retry-wait timer because the
+                -- persisted deadline is a millis() snapshot from the
+                -- previous boot session; the fail count survives so
+                -- a power-cycle attack still pays the backoff.
+                lock.reset_cooldown()
                 lock.lock()  -- emits lockscreen/locked
             end
         end
