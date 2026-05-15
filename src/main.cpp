@@ -90,7 +90,15 @@ void setup() {
     // Brief delay for power stabilization
     delay(100);
 
-    // Initialize serial for debugging
+    // Initialize serial for debugging. Bumping the RX buffer above its
+    // default 256 B fixes a long-standing remote-tool pacing issue: when
+    // the host streams a multi-hundred-byte payload (file_write,
+    // lua_exec) in chunks faster than the main loop drains
+    // Serial.available(), the FIFO overflows and bytes get dropped.
+    // The parser then sees a truncated header and bails with
+    // "Payload too large" or hangs. 4 KB is enough for the largest
+    // expected payload (icons.lua chunks) without breaking a sweat.
+    Serial.setRxBufferSize(4096);
     Serial.begin(921600);
 
     // Wait for USB CDC (up to 3 seconds)

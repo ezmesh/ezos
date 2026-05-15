@@ -1,0 +1,3 @@
+# PMTiles sources go here.
+# This file keeps the directory in git; the .pmtiles themselves are too
+# big to commit (multi-hundred-MB) and live in .gitignore.

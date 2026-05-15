@@ -110,10 +110,11 @@ function Map:on_enter()
             center_lon = (b.east  + b.west ) / 2
         end
 
-        -- Every completed async tile load invalidates the screen. Without
-        -- this the first frame sees "pending" everywhere, tiles land in
-        -- cache seconds later, and nothing triggers a repaint.
-        arc.on_tile_loaded = function() screen_mod.invalidate() end
+        -- Every completed async geometry decode invalidates the screen.
+        -- Without this the first frame sees nothing rendered for cells whose
+        -- payloads are still inflating; the data lands in cache seconds
+        -- later, and nothing triggers a repaint.
+        arc.on_geometry_loaded = function() screen_mod.invalidate() end
         inst:set_state({
             archive    = arc,
             loading    = false,
@@ -163,7 +164,6 @@ function Map:handle_key(key)
         if arc then
             local z = math.min((s.zoom or 0) + 1, arc.header.max_zoom)
             if z ~= s.zoom then
-                arc:invalidate_missing()
                 self:set_state({ zoom = z })
             end
         end
@@ -174,7 +174,6 @@ function Map:handle_key(key)
         if arc then
             local z = math.max((s.zoom or 0) - 1, arc.header.min_zoom)
             if z ~= s.zoom then
-                arc:invalidate_missing()
                 self:set_state({ zoom = z })
             end
         end

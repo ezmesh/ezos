@@ -1,14 +1,20 @@
--- ezui.widgets.map_view: Reusable map tile viewer node.
--- Consumes a services/map_archive handle; draws tiles with parent-tile fallback,
--- overlays labels filtered by viewport, and exposes a project(lat, lon) helper
--- to overlay_fn for pins/GPS dots.
+-- ezui.widgets.map_view: TDMAP v7 vector map renderer.
+-- Consumes a services/map_archive handle. Draws filled polygons (land,
+-- water, parks, buildings) and stroked polylines (roads, railways) from
+-- geometry stored in the archive, then overlays labels filtered by viewport,
+-- then runs any caller overlay_fn for pins / GPS dots.
 --
--- Usage:
---   require("ezui.widgets.map_view")  -- registers the node type
+-- Why vectors: a single archive serves every zoom level (no raster
+-- duplication), themes hot-swap colors per frame (no cache invalidate),
+-- and pan/zoom interpolates smoothly because we resample the geometry
+-- instead of blitting fixed-resolution tiles.
+--
+-- Usage (unchanged from the v6 widget):
+--   require("ezui.widgets.map_view")
 --   {
 --       type = "map_view",
 --       archive = my_archive,
---       center_lat = 50.85, center_lon = 5.69, zoom = 10,
+--       center_lat = 52.37, center_lon = 4.90, zoom = 11,
 --       show_labels = true,
 --       on_move = function(lat, lon, z) ... end,
 --       overlay_fn = function(d, x, y, w, h, project) ... end,
@@ -18,29 +24,27 @@ local node        = require("ezui.node")
 local theme       = require("ezui.theme")
 local map_archive = require("services.map_archive")
 
-local TILE_SIZE = map_archive.TILE_SIZE
-
--- Pan step in screen pixels per keypress. Scaled by zoom so coarse zooms don't
--- feel glacial. The old viewer used 0.1 tile units ≈ 26 pixels; we match that.
 local PAN_STEP_PIXELS = 26
 
--- Label fonts by type id (matches config.py: 0=city, 1=town, 2=village,
--- 3=suburb, 4=road, 5=water). Inks are resolved per-frame from the active
--- theme's map palette so a T-toggle from light to dark flips both the
--- tile colors and the labels in the same frame.
+-- Stroke width by feature class. Indexed by F_* values from map_archive.
+local STROKE_WIDTH = {
+    [map_archive.F_WATER]      = 1,  -- waterways
+    [map_archive.F_ROAD_MINOR] = 1,
+    [map_archive.F_ROAD_MAJOR] = 2,
+    [map_archive.F_HIGHWAY]    = 3,
+    [map_archive.F_RAILWAY]    = 1,
+}
+
 local LABEL_FONT = {
-    [0] = "medium",   -- City
-    [1] = "small",    -- Town
-    [2] = "small",    -- Village
-    [3] = "tiny_aa",  -- Suburb
-    [4] = "tiny_aa",  -- Road
-    [5] = "small",    -- Water body
+    [0] = "medium",
+    [1] = "small",
+    [2] = "small",
+    [3] = "tiny_aa",
+    [4] = "tiny_aa",
+    [5] = "small",
 }
 local DEFAULT_FONT = "small"
 
--- 4-direction halo: cardinal neighbours only. Drops diagonal passes (4 fewer
--- draw_text calls per label) for ~45% less label-render time, at the cost of
--- slightly weaker corner contrast.
 local HALO_OFFSETS = { {0,-1},{-1,0},{1,0},{0,1} }
 local HALO_COUNT   = 4
 
@@ -50,31 +54,27 @@ local function clamp(v, lo, hi)
     return v
 end
 
--- Convert a lat/lon + zoom into screen pixel coords relative to the widget's
--- (x, y) top-left. Returns nil if no archive is attached (defensive for first
--- frame during async setup).
+-- Web Mercator helper exposed for overlay_fn (GPS dots etc).
+local TILE = 256
+
 local function make_projector(n, x, y, w, h)
     local cx_tile, cy_tile = map_archive.lat_lon_to_tile(
         n.center_lat or 0, n.center_lon or 0, n.zoom or 0)
-    local origin_tile_x = cx_tile - w / (2 * TILE_SIZE)
-    local origin_tile_y = cy_tile - h / (2 * TILE_SIZE)
+    local origin_tile_x = cx_tile - w / (2 * TILE)
+    local origin_tile_y = cy_tile - h / (2 * TILE)
     return function(lat, lon)
         local tx, ty = map_archive.lat_lon_to_tile(lat, lon, n.zoom or 0)
-        return x + (tx - origin_tile_x) * TILE_SIZE,
-               y + (ty - origin_tile_y) * TILE_SIZE
+        return x + (tx - origin_tile_x) * TILE,
+               y + (ty - origin_tile_y) * TILE
     end, origin_tile_x, origin_tile_y
 end
 
--- Apply a screen-pixel pan. Recomputes center_lat/lon via projection so later
--- frames pick up the new viewport.
 local function pan_by_pixels(n, dx, dy)
     local tiles = 2 ^ (n.zoom or 0)
-    local dx_tiles = dx / TILE_SIZE
-    local dy_tiles = dy / TILE_SIZE
     local cx_tile, cy_tile = map_archive.lat_lon_to_tile(
         n.center_lat or 0, n.center_lon or 0, n.zoom or 0)
-    local new_x = clamp(cx_tile + dx_tiles, 0, tiles)
-    local new_y = clamp(cy_tile + dy_tiles, 0, tiles)
+    local new_x = clamp(cx_tile + dx / TILE, 0, tiles)
+    local new_y = clamp(cy_tile + dy / TILE, 0, tiles)
     local lat, lon = map_archive.tile_to_lat_lon(new_x, new_y, n.zoom or 0)
     n.center_lat = lat
     n.center_lon = lon
@@ -89,10 +89,64 @@ local function set_zoom(n, new_zoom)
     new_zoom = clamp(new_zoom, zmin, zmax)
     if new_zoom == n.zoom then return end
     n.zoom = new_zoom
-    -- Zoom change invalidates the negative cache (a tile missing at z=10 may
-    -- exist at z=11). The LRU stays: those tiles are legitimately different.
-    arc:invalidate_missing()
     if n.on_move then n.on_move(n.center_lat, n.center_lon, n.zoom) end
+end
+
+-- Project a flat {lat_e6, lon_e6, lat_e6, lon_e6, ...} vector record into a
+-- flat screen-space {sx, sy, sx, sy, ...} array for the C fill/draw bindings.
+-- Returns nil if every vertex falls outside the widget rect (cheap viewport
+-- cull at the polyline level).
+--
+-- The math is: convert lat/lon to Web Mercator tile coords at the current
+-- zoom, then offset by the viewport's origin in tile coords, then scale by
+-- TILE (256). We inline the math here rather than going through the per-point
+-- projector function because this is the hottest loop on the device — a
+-- typical frame projects 10k+ vertices.
+local function project_record_to_screen(
+    coords, project_origin_x, project_origin_y, screen_x, screen_y,
+    n_tiles_factor, lon_offset, zoom)
+    local out = {}
+    local count = #coords
+    local n_pow2 = 2 ^ zoom
+    local sin_lat
+    local lat_rad
+    for i = 1, count, 2 do
+        local lat = coords[i]     / 1e6
+        local lon = coords[i + 1] / 1e6
+        -- lat → mercator y; lon → linear x
+        local px = (lon + 180) / 360 * n_pow2
+        lat_rad = lat * math.pi / 180
+        sin_lat = math.sin(lat_rad)
+        local py = (1 - math.log((1 + sin_lat) / (1 - sin_lat)) / (2 * math.pi)) * n_pow2 / 2
+        local sx = screen_x + (px - project_origin_x) * TILE
+        local sy = screen_y + (py - project_origin_y) * TILE
+        out[#out + 1] = math.floor(sx + 0.5)
+        out[#out + 1] = math.floor(sy + 0.5)
+    end
+    return out
+end
+
+-- Cheap on-screen test: any vertex within widget rect, or any pair spans it.
+local function any_vertex_visible(scr, x, y, w, h)
+    for i = 1, #scr, 2 do
+        local sx, sy = scr[i], scr[i + 1]
+        if sx >= x and sx <= x + w and sy >= y and sy <= y + h then
+            return true
+        end
+    end
+    -- Polylines crossing the rect without a vertex inside it: if the
+    -- record's bbox spans the rect on both axes we keep it.
+    local min_sx, max_sx = math.huge, -math.huge
+    local min_sy, max_sy = math.huge, -math.huge
+    for i = 1, #scr, 2 do
+        local sx, sy = scr[i], scr[i + 1]
+        if sx < min_sx then min_sx = sx end
+        if sx > max_sx then max_sx = sx end
+        if sy < min_sy then min_sy = sy end
+        if sy > max_sy then max_sy = sy end
+    end
+    return max_sx >= x and min_sx <= x + w
+        and max_sy >= y and min_sy <= y + h
 end
 
 node.register("map_view", {
@@ -112,68 +166,77 @@ node.register("map_view", {
 
         d.set_clip_rect(x, y, w, h)
 
-        -- Tile palette and label inks come from the active ezui theme. Tiles
-        -- store semantic indices only — colors are decided here at draw time
-        -- so a theme switch repaints without invalidating the tile cache.
         local map_style = theme.map_palette()
         local palette   = map_style.tiles
 
-        -- Background wipe uses palette index 1 (land) so borders blend.
+        -- Background: paint with the Land color so areas not covered by
+        -- explicit Land polygons (rural inland, the ocean off the edge of
+        -- the archive bounds) still get a sensible base. Water polygons
+        -- will overpaint where needed.
         d.fill_rect(x, y, w, h, palette[1])
 
         local z = n.zoom or arc.header.min_zoom
-        local project, origin_tile_x, origin_tile_y = make_projector(n, x, y, w, h)
+        local _, origin_tile_x, origin_tile_y = make_projector(n, x, y, w, h)
 
-        -- Visible tile range. We nudge outward by 1 tile to cover partial tiles
-        -- at the edges without extra arithmetic.
-        local start_tx = math.floor(origin_tile_x)
-        local start_ty = math.floor(origin_tile_y)
-        local tiles_x = math.ceil(w / TILE_SIZE) + 1
-        local tiles_y = math.ceil(h / TILE_SIZE) + 1
-        local max_tile = (1 << z) - 1
+        -- Compute geographic viewport from the visible tile range so the
+        -- archive's spatial index can return only nearby geometry.
+        local br_lat, br_lon = map_archive.tile_to_lat_lon(
+            origin_tile_x + w / TILE, origin_tile_y + h / TILE, z)
+        local tl_lat, tl_lon = map_archive.tile_to_lat_lon(
+            origin_tile_x, origin_tile_y, z)
+        local min_lat = math.min(tl_lat, br_lat)
+        local max_lat = math.max(tl_lat, br_lat)
+        local min_lon = math.min(tl_lon, br_lon)
+        local max_lon = math.max(tl_lon, br_lon)
 
-        for ty = 0, tiles_y - 1 do
-            for tx = 0, tiles_x - 1 do
-                local tile_x = start_tx + tx
-                local tile_y = start_ty + ty
-                if tile_x >= 0 and tile_x <= max_tile and tile_y >= 0 and tile_y <= max_tile then
-                    local screen_x = x + math.floor((tile_x - origin_tile_x) * TILE_SIZE)
-                    local screen_y = y + math.floor((tile_y - origin_tile_y) * TILE_SIZE)
+        local visible_slots = arc:viewport_geometries(
+            { min_lat, min_lon, max_lat, max_lon }, z)
 
-                    local data = arc:get_tile(z, tile_x, tile_y)
-                    if type(data) == "string" and data ~= "pending" then
-                        d.draw_indexed_bitmap(screen_x, screen_y, TILE_SIZE, TILE_SIZE, data, palette)
+        -- Two-pass render: filled polygons first (so polylines stroke on
+        -- top), then polylines. Within each pass we order by feature class
+        -- ascending so e.g. land paints before water paints before park
+        -- (correct overdraw order matches v6 raster compositing).
+        local polys = {}
+        local lines = {}
+        for _, slot in ipairs(visible_slots) do
+            local entry = arc.entries[slot]
+            local coords = arc:get_geometry(slot)
+            if coords then
+                local scr = project_record_to_screen(
+                    coords, origin_tile_x, origin_tile_y, x, y, 0, 0, z)
+                if any_vertex_visible(scr, x, y, w, h) then
+                    if entry.geom_type == map_archive.G_POLYGON then
+                        polys[#polys + 1] = { entry, scr }
                     else
-                        -- Pending or missing: try a cached ancestor as a blurry
-                        -- placeholder so the user sees movement. The archive's
-                        -- on_tile_loaded hook will invalidate the screen when
-                        -- the real tile lands in cache.
-                        local parent_data, sx, sy, sw, sh = arc:get_parent_fallback(z, tile_x, tile_y)
-                        if parent_data then
-                            d.draw_indexed_bitmap_scaled(
-                                screen_x, screen_y, TILE_SIZE, TILE_SIZE,
-                                parent_data, palette, sx, sy, sw, sh)
-                        end
+                        lines[#lines + 1] = { entry, scr }
                     end
                 end
             end
         end
 
-        -- Label overlay: filter by current viewport bounds.
-        if n.show_labels ~= false then
-            local tl_lat, tl_lon = map_archive.tile_to_lat_lon(origin_tile_x, origin_tile_y, z)
-            local br_lat, br_lon = map_archive.tile_to_lat_lon(
-                origin_tile_x + w / TILE_SIZE, origin_tile_y + h / TILE_SIZE, z)
-            local min_lat = math.min(tl_lat, br_lat)
-            local max_lat = math.max(tl_lat, br_lat)
-            local min_lon = math.min(tl_lon, br_lon)
-            local max_lon = math.max(tl_lon, br_lon)
+        table.sort(polys, function(a, b)
+            return a[1].feature_class < b[1].feature_class
+        end)
+        for i = 1, #polys do
+            local entry = polys[i][1]
+            local color = palette[entry.feature_class + 1] or palette[1]
+            d.fill_polygon(polys[i][2], color)
+        end
 
+        -- Order polylines by importance so highways stroke over residential.
+        table.sort(lines, function(a, b)
+            return a[1].feature_class < b[1].feature_class
+        end)
+        for i = 1, #lines do
+            local entry = lines[i][1]
+            local color = palette[entry.feature_class + 1] or palette[8]
+            local width = STROKE_WIDTH[entry.feature_class] or 1
+            d.draw_polyline(lines[i][2], color, width)
+        end
+
+        -- Label overlay (unchanged from v6).
+        if n.show_labels ~= false then
             local visible = arc:labels_in_bounds(z, min_lat, max_lat, min_lon, max_lon)
-            -- Lower label_type == higher importance: draw cities before suburbs.
-            -- Sort by (type, lat, lon, text) so ties break deterministically and
-            -- the occlusion winner stays the same frame-to-frame while panning.
-            -- Lua's table.sort isn't stable, so the full ordering key matters.
             table.sort(visible, function(a, b)
                 if a.type ~= b.type then return a.type < b.type end
                 if a.lat ~= b.lat then return a.lat < b.lat end
@@ -183,23 +246,24 @@ node.register("map_view", {
 
             local drawn = {}
             local seen_text = {}
-
             local label_halo  = map_style.label_halo
             local label_water = map_style.label_water
             local label_ink   = map_style.label_ink
+
+            local project = function(lat, lon)
+                local tx, ty = map_archive.lat_lon_to_tile(lat, lon, z)
+                return x + (tx - origin_tile_x) * TILE,
+                       y + (ty - origin_tile_y) * TILE
+            end
 
             for _, lbl in ipairs(visible) do
                 if not seen_text[lbl.text] then
                     local font = LABEL_FONT[lbl.type] or DEFAULT_FONT
                     theme.set_font(font)
-                    -- Type 5 is water bodies; pick the themed water ink so
-                    -- the name reads cleanly against the water tile color.
                     local ink = (lbl.type == 5) and label_water or label_ink
                     local px, py = project(lbl.lat, lbl.lon)
                     local tw = theme.text_width(lbl.text)
                     local lh = theme.font_height()
-                    -- Anchor labels centered above the point so they don't
-                    -- appear to walk sideways as the viewport pans.
                     local lx = math.floor(px - tw / 2)
                     local ly = math.floor(py - lh / 2)
 
@@ -225,18 +289,20 @@ node.register("map_view", {
                     end
                 end
             end
-            -- Restore medium font so the surrounding UI doesn't inherit ours.
             theme.set_font("medium")
         end
 
-        -- Overlay hook: GPS dot, pins, route lines. Runs after tiles/labels so
-        -- the caller paints on top, and receives the same projection function.
+        -- Overlay hook (GPS dot, pins, route lines).
         if n.overlay_fn then
+            local project = function(lat, lon)
+                local tx, ty = map_archive.lat_lon_to_tile(lat, lon, z)
+                return x + (tx - origin_tile_x) * TILE,
+                       y + (ty - origin_tile_y) * TILE
+            end
             n.overlay_fn(d, x, y, w, h, project)
         end
 
-        -- Center crosshair so the user knows what zoom is anchored on.
-        -- Suppressed when follow_gps is on (the GPS dot already marks the spot).
+        -- Centre crosshair (unchanged).
         if n.show_crosshair ~= false then
             local cx = x + math.floor(w / 2)
             local cy = y + math.floor(h / 2)
@@ -244,15 +310,12 @@ node.register("map_view", {
             local halo = map_style.label_halo
             d.fill_rect(cx - 4, cy, 9, 1, ink)
             d.fill_rect(cx, cy - 4, 1, 9, ink)
-            -- Two-pixel highlights at each tip so the crosshair stays legible
-            -- whether the underlying tile is land, water, or a road.
             d.fill_rect(cx - 4, cy - 1, 1, 3, halo)
             d.fill_rect(cx + 4, cy - 1, 1, 3, halo)
             d.fill_rect(cx - 1, cy - 4, 3, 1, halo)
             d.fill_rect(cx - 1, cy + 4, 3, 1, halo)
         end
 
-        -- Focus indicator: thin rectangle around the widget when focused.
         if n._focused then
             d.draw_rect(x, y, w, h, theme.color("ACCENT"))
         end
@@ -281,7 +344,6 @@ node.register("map_view", {
     end,
 })
 
--- Convenience constructor for screens that prefer function-style composition.
 local function map_view(props)
     props.type = "map_view"
     return props

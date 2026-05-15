@@ -1,54 +1,43 @@
--- services/map_archive: TDMAP v6 reader with async tile loading and LRU cache.
--- Pure data layer consumed by the map_view widget; no rendering here.
+-- services/map_archive: TDMAP v7 vector archive reader.
+-- Returns a handle exposing geometries-by-cell + labels-by-bounds. Pure
+-- data layer; the map_view widget owns rendering.
 --
--- Concurrency model:
---   * open() is synchronous and cheap (header + index + labels).
---   * get_tile() returns cached bytes, "pending" while an async load is in flight,
---     or nil when the tile is known-absent. The async load is driven by a
---     coroutine spawn()-ed on the first miss.
---   * Calls that block on disk use `async_read_bytes`, which yields the
---     calling coroutine until the SD driver finishes the read.
---
--- Memory budget:
---   * Tile cache: 16 tiles × 24,576 bytes ≈ 384 KB of PSRAM (matches old viewer).
---   * Labels: parsed into a flat Lua array at open time. A global archive of
---     ~30 k labels uses ~1 MB; regional archives stay well under that.
+-- v7 changes from v6:
+--   * No tiles. Records are polylines or filled polygons with min/max zoom.
+--   * A uniform spatial-index grid (grid_dim × grid_dim cells over the
+--     archive's BB) lets a viewport query fetch just the cells it touches.
+--   * Coordinates encoded as int32 origin + int16 deltas in microdegrees;
+--     decoded into flat {x,y,x,y,...} screen-space arrays at draw time.
+--   * Per-record zlib payload (decompressed on demand), LRU-cached.
 
 local map_archive = {}
 
 -- ---------------------------------------------------------------------------
--- Format constants (TDMAP v6)
+-- Format constants (TDMAP v7)
 -- ---------------------------------------------------------------------------
 
 local HEADER_SIZE       = 33
-local INDEX_ENTRY_SIZE  = 11
+local INDEX_ENTRY_SIZE  = 14
 local LABEL_FIXED_SIZE  = 11
-local TDMAP_VERSION     = 6
-local TILE_SIZE         = 256
-local PACKED_TILE_BYTES = TILE_SIZE * TILE_SIZE * 3 // 8  -- 24,576
+local TDMAP_VERSION     = 7
 
-local DEFAULT_CACHE_SIZE = 16
+-- Decompressed geometry records cap at ~9 KB worst case (255 vertices, ~28
+-- bytes each plus origin/header). Reuse one capped buffer per inflate call.
+local MAX_GEOM_DECOMP_BYTES = 16384
 
--- Multi-megabyte reads (tile index, labels) exceed ez.storage.read_bytes's
--- 1 MB per-call ceiling on country-scale archives, so we chunk. Prefer the
--- PSRAM-backed async read (single file open, no per-call cap) when
--- running inside a coroutine; fall back to the sync path with smaller
--- chunks for callers that can't yield. Returns (data, err) — propagate
--- the err upward rather than swallowing it at the call site.
-local READ_CHUNK = 524288  -- 512 KB per sync call — well under the 1 MB cap
+local DEFAULT_CACHE_SIZE = 64
+
+-- Chunk size for the index + label reads. Tile index in v6 used 512 KB
+-- chunks; same logic applies here (multi-megabyte for country archives).
+local READ_CHUNK = 524288
 
 local function read_range(path, offset, length)
     if length <= 0 then return "" end
-
-    -- async_read_bytes yields the coroutine; `coroutine.running()` returns
-    -- a non-main thread when we can legally yield.
     local co, is_main = coroutine.running()
     if co and not is_main and ez.storage.async_read_bytes then
         local data = ez.storage.async_read_bytes(path, offset, length)
         if data and #data == length then return data end
-        -- Fall through to the sync path if async returned nil/short.
     end
-
     local chunks    = {}
     local cursor    = offset
     local remaining = length
@@ -65,10 +54,7 @@ local function read_range(path, offset, length)
     return table.concat(chunks)
 end
 
--- ---------------------------------------------------------------------------
--- Byte helpers. All positions are 1-indexed to match Lua's string.byte.
--- ---------------------------------------------------------------------------
-
+-- Byte helpers (1-indexed, little-endian).
 local byte = string.byte
 local function u8(s, i) return byte(s, i) end
 local function u16(s, i) return byte(s, i) | (byte(s, i + 1) << 8) end
@@ -88,14 +74,10 @@ local function i8(s, i)
     if b >= 0x80 then return b - 0x100 end
     return b
 end
-
--- v6 archives are always zlib-compressed. Decoding hands off to
--- ez.compression.inflate (backed by ROM miniz on-device). Returns
--- decompressed bytes or nil. The compression byte from the header is
--- ignored — the writer only ever emits zlib in v6, and pre-v6 archives
--- are rejected at open() time.
-local function decompress_tile(_compression, data)
-    return ez.compression.inflate(data, PACKED_TILE_BYTES)
+local function i16(s, i)
+    local v = u16(s, i)
+    if v >= 0x8000 then v = v - 0x10000 end
+    return v
 end
 
 -- ---------------------------------------------------------------------------
@@ -105,144 +87,139 @@ end
 local Archive = {}
 Archive.__index = Archive
 
-local function tile_key(z, x, y)
-    return z * 0x100000000 + x * 0x10000 + y
-end
-
--- Binary search the packed tile index. idx_bytes holds tile_count × 11-byte
--- entries already sorted by (z, x, y) when the archive was written. We
--- decode candidates on the fly instead of materializing 166k Lua tables,
--- which on country-scale z15 archives would otherwise blow the Lua heap.
-function Archive:find_tile(z, x, y)
-    local idx = self.idx_bytes
-    if not idx then return nil end
-    local lo, hi = 0, self.header.tile_count - 1
-    while lo <= hi do
-        local mid  = (lo + hi) >> 1
-        local p    = mid * INDEX_ENTRY_SIZE + 1
-        local mz   = u8(idx,  p)
-        local mx   = u16(idx, p + 1)
-        local my   = u16(idx, p + 3)
-        if mz == z and mx == x and my == y then
-            return {
-                z      = mz,
-                x      = mx,
-                y      = my,
-                offset = u32(idx, p + 5),
-                size   = u16(idx, p + 9),
-            }
-        end
-        if mz < z or (mz == z and (mx < x or (mx == x and my < y))) then
-            lo = mid + 1
-        else
-            hi = mid - 1
-        end
+-- Decode a compressed geometry record into a flat {lat_e6, lon_e6, ...}
+-- array (still microdegree integers so callers can project once with cheap
+-- float math). Returns nil on decompression failure.
+function Archive:_decode_geometry(entry)
+    local raw_comp = ez.storage.async_read_bytes(
+        self.path, self.data_offset + entry.data_offset, entry.data_size)
+    if not raw_comp then return nil end
+    local raw = ez.compression.inflate(raw_comp, MAX_GEOM_DECOMP_BYTES)
+    if not raw then return nil end
+    local n = u8(raw, 1)
+    local origin_lat = i32(raw, 2)
+    local origin_lon = i32(raw, 6)
+    local verts = { origin_lat, origin_lon }
+    local lat = origin_lat
+    local lon = origin_lon
+    local p = 10
+    for _ = 2, n do
+        local d_lat = i16(raw, p)
+        local d_lon = i16(raw, p + 2)
+        lat = lat + d_lat
+        lon = lon + d_lon
+        verts[#verts + 1] = lat
+        verts[#verts + 1] = lon
+        p = p + 4
     end
-    return nil
+    return verts
 end
 
--- LRU touch: update access counter and evict oldest entries if over capacity.
-function Archive:_cache_store(key, data)
+function Archive:_cache_store(idx, data)
     self._tick = self._tick + 1
-    self.tile_cache[key] = { data = data, access = self._tick }
-
-    -- Evict-if-needed. We only evict past MAX_CACHE to avoid repeated work.
+    self.geom_cache[idx] = { data = data, access = self._tick }
     local count = 0
-    for _ in pairs(self.tile_cache) do count = count + 1 end
+    for _ in pairs(self.geom_cache) do count = count + 1 end
     if count <= self.MAX_CACHE then return end
-
-    -- Find the (count - MAX_CACHE) oldest entries and drop them.
     local candidates = {}
-    for k, v in pairs(self.tile_cache) do
+    for k, v in pairs(self.geom_cache) do
         candidates[#candidates + 1] = { k, v.access }
     end
     table.sort(candidates, function(a, b) return a[2] < b[2] end)
     for i = 1, count - self.MAX_CACHE do
-        self.tile_cache[candidates[i][1]] = nil
+        self.geom_cache[candidates[i][1]] = nil
     end
 end
 
--- Returns decoded tile bytes (cache hit), the string "pending" (async load in
--- flight), or nil (tile known-absent from archive).
-function Archive:get_tile(z, x, y)
-    local key = tile_key(z, x, y)
-
-    local cached = self.tile_cache[key]
+-- Get decoded geometry for an index slot, async-decompressing if needed.
+-- Returns nil while the load is in flight; the caller is expected to redraw
+-- once the on_geometry_loaded hook fires.
+function Archive:get_geometry(index_slot)
+    local cached = self.geom_cache[index_slot]
     if cached then
         self._tick = self._tick + 1
         cached.access = self._tick
         return cached.data
     end
+    if self.pending[index_slot] then return nil end
+    self.pending[index_slot] = true
 
-    if self.missing[key] then return nil end
-    if self.pending[key] then return "pending" end
-
-    local entry = self:find_tile(z, x, y)
+    local entry = self.entries[index_slot]
     if not entry then
-        self.missing[key] = true
+        self.pending[index_slot] = nil
         return nil
     end
 
-    self.pending[key] = true
-    local path = self.path
-    local compression = self.header.compression
-    -- async.task wraps spawn() with begin()/done(); each in-flight
-    -- tile load participates in the status-bar busy indicator, and
-    -- the counter drops even if a read / decompress errors out.
     local async = require("ezui.async")
     async.task(function()
-        local compressed = ez.storage.async_read_bytes(path, entry.offset, entry.size)
-        self.pending[key] = nil
-        if not compressed or #compressed == 0 then
-            self.missing[key] = true
-        else
-            local raw = decompress_tile(compression, compressed)
-            if raw then
-                self:_cache_store(key, raw)
-            else
-                self.missing[key] = true
-            end
-        end
-        -- Optional hook so the UI layer can schedule a redraw now that the
-        -- tile lives in cache. Set by the map screen after open() to avoid
-        -- coupling this data module to ezui.screen.
-        if self.on_tile_loaded then self.on_tile_loaded() end
+        local data = self:_decode_geometry(entry)
+        self.pending[index_slot] = nil
+        if data then self:_cache_store(index_slot, data) end
+        if self.on_geometry_loaded then self.on_geometry_loaded() end
     end)
-    return "pending"
-end
-
--- Walk up zoom levels for the nearest cached ancestor. Returns
--- (data, src_x, src_y, src_w, src_h) suitable for draw_indexed_bitmap_scaled,
--- or nil if no ancestor is cached.
-function Archive:get_parent_fallback(z, x, y)
-    local cx, cy = x, y
-    local min_zoom = self.header.min_zoom
-    for level = z - 1, min_zoom, -1 do
-        cx = cx >> 1
-        cy = cy >> 1
-        local cached = self.tile_cache[tile_key(level, cx, cy)]
-        if cached then
-            cached.access = self._tick
-            local dz = z - level
-            local scale = 1 << dz
-            local src_w = TILE_SIZE // scale
-            local src_h = TILE_SIZE // scale
-            local sub_x = x - (cx << dz)
-            local sub_y = y - (cy << dz)
-            return cached.data, sub_x * src_w, sub_y * src_h, src_w, src_h
-        end
-    end
     return nil
 end
 
--- Flush the negative cache. Call after zoom changes so known-missing tiles can
--- be re-checked against the archive (they are zoom-level specific).
-function Archive:invalidate_missing()
-    self.missing = {}
+-- Compute which cell-index entries fall inside a viewport. Returns a list of
+-- index_slot integers. The index is sorted by (cell_index, min_zoom), so we
+-- binary-search for the first entry in each cell and scan forward.
+--
+-- viewport: { min_lat, min_lon, max_lat, max_lon } in degrees.
+-- zoom:     current display zoom (drops records whose [zmin,zmax] excludes it).
+function Archive:viewport_geometries(viewport, zoom)
+    local bounds = self.header.bounds
+    if not bounds then return {} end
+    local grid_dim = self.header.grid_dim
+    local west, south = bounds.west, bounds.south
+    local east, north = bounds.east, bounds.north
+    if east == west or north == south then return {} end
+
+    local function clamp_cell(v)
+        if v < 0 then return 0 end
+        if v > grid_dim - 1 then return grid_dim - 1 end
+        return v
+    end
+
+    local col_lo = clamp_cell(math.floor((viewport[2] - west) / (east - west) * grid_dim))
+    local col_hi = clamp_cell(math.floor((viewport[4] - west) / (east - west) * grid_dim))
+    local row_lo = clamp_cell(math.floor((north - viewport[3]) / (north - south) * grid_dim))
+    local row_hi = clamp_cell(math.floor((north - viewport[1]) / (north - south) * grid_dim))
+    if col_lo > col_hi then col_lo, col_hi = col_hi, col_lo end
+    if row_lo > row_hi then row_lo, row_hi = row_hi, row_lo end
+
+    -- Binary search for the first index slot whose cell_index equals or
+    -- exceeds target.
+    local function lower_bound(target)
+        local lo, hi = 1, #self.entries
+        while lo <= hi do
+            local mid = (lo + hi) >> 1
+            if self.entries[mid].cell_index < target then
+                lo = mid + 1
+            else
+                hi = mid - 1
+            end
+        end
+        return lo
+    end
+
+    local result = {}
+    for row = row_lo, row_hi do
+        local cell_lo = (row << 16) | col_lo
+        local cell_hi = (row << 16) | col_hi
+        local i = lower_bound(cell_lo)
+        local n = #self.entries
+        while i <= n do
+            local e = self.entries[i]
+            if e.cell_index > cell_hi then break end
+            if zoom >= e.min_zoom and zoom <= e.max_zoom then
+                result[#result + 1] = i
+            end
+            i = i + 1
+        end
+    end
+    return result
 end
 
--- Linear scan over parsed labels. Archives cap at ~30k labels so this is cheap
--- even at 30 FPS; no spatial index yet.
 function Archive:labels_in_bounds(z, min_lat, max_lat, min_lon, max_lon)
     local result = {}
     for i = 1, #self.labels do
@@ -257,11 +234,10 @@ function Archive:labels_in_bounds(z, min_lat, max_lat, min_lon, max_lon)
 end
 
 function Archive:close()
-    self.tile_cache = {}
+    self.geom_cache = {}
     self.pending = {}
-    self.missing = {}
     self.labels = {}
-    self.idx_bytes = nil
+    self.entries = {}
 end
 
 -- ---------------------------------------------------------------------------
@@ -279,8 +255,8 @@ function map_archive.open(path)
     local version = u8(hdr, 7)
     if version ~= TDMAP_VERSION then
         return nil, string.format(
-            "unsupported TDMAP version: %d (reader expects v%d; pre-v6 "
-            .. "archives are no longer supported — regenerate with the "
+            "unsupported TDMAP version: %d (reader expects v%d; pre-v7 "
+            .. "archives are no longer supported -- regenerate with the "
             .. "current writer)",
             version, TDMAP_VERSION)
     end
@@ -288,25 +264,23 @@ function map_archive.open(path)
     local header = {
         version       = version,
         compression   = u8(hdr, 8),
-        tile_size     = u16(hdr, 9),
-        palette_count = u8(hdr, 11),  -- always 0 in v6
-        tile_count    = u32(hdr, 12),
+        grid_dim      = u16(hdr, 9),
+        reserved      = u8(hdr, 11),
+        geom_count    = u32(hdr, 12),
         index_offset  = u32(hdr, 16),
         data_offset   = u32(hdr, 20),
         min_zoom      = i8(hdr, 24),
         max_zoom      = i8(hdr, 25),
         label_offset  = u32(hdr, 26),
         label_count   = u32(hdr, 30),
-        -- TLV metadata, populated below if any tags are set
         region_name     = nil,
         bounds          = nil,
         build_timestamp = nil,
         tool_version    = nil,
     }
+    if header.grid_dim == 0 then header.grid_dim = 256 end
 
-    -- Metadata block sits right after the header: 4-byte length + TLV tags.
-    -- Parsed eagerly into the header so screens can surface region/bounds.
-    local metadata = {}
+    -- Metadata block (length-prefixed TLV) sits right after the header.
     local meta_len_bytes = ez.storage.read_bytes(path, HEADER_SIZE, 4)
     if meta_len_bytes and #meta_len_bytes >= 4 then
         local meta_len = u32(meta_len_bytes, 1)
@@ -323,24 +297,22 @@ function map_archive.open(path)
                     if vend > plen then break end
                     local value = meta_payload:sub(vstart, vend)
                     if tag == "RG" then
-                        metadata.region_name = value
+                        header.region_name = value
                     elseif tag == "BB" and vlen == 16 then
                         local south_e6 = i32(value, 1)
                         local west_e6  = i32(value, 5)
                         local north_e6 = i32(value, 9)
                         local east_e6  = i32(value, 13)
-                        metadata.bounds = {
+                        header.bounds = {
                             west  = west_e6  / 1e6,
                             south = south_e6 / 1e6,
                             east  = east_e6  / 1e6,
                             north = north_e6 / 1e6,
                         }
                     elseif tag == "TS" and vlen == 8 then
-                        -- uint64 → Lua integer; high 32 bits likely 0 for
-                        -- reasonable timestamps, don't bother with bit-shift.
-                        metadata.build_timestamp = u32(value, 1)
+                        header.build_timestamp = u32(value, 1)
                     elseif tag == "TV" then
-                        metadata.tool_version = value
+                        header.tool_version = value
                     end
                     p = vend + 1
                 end
@@ -348,20 +320,36 @@ function map_archive.open(path)
         end
     end
 
-    -- Tile index. Country-scale archives at z=15 push this past 1.5 MB.
-    -- We keep the block as a single immutable string and binary-search it
-    -- directly in find_tile; materializing one Lua table per entry would
-    -- cost ~100 B × tile_count and easily blow the internal heap on z15
-    -- country archives.
-    local index_len = header.tile_count * INDEX_ENTRY_SIZE
-    local idx_bytes, idx_err = read_range(path, header.index_offset, index_len)
-    if not idx_bytes or #idx_bytes < index_len then
-        return nil, "cannot read tile index: " .. tostring(idx_err or "short read")
+    if not header.bounds then
+        return nil, "v7 archive missing BB metadata: cannot lay out spatial index"
     end
 
-    -- Labels: 1-2 MB at z=15. The same chunked reader handles both cases
-    -- — we just need to propagate its error message so silent truncation
-    -- surfaces as a real failure instead of a mystery blank map.
+    -- Read the index block whole. 14 bytes/entry × 200k geoms ~= 2.8 MB
+    -- on a Netherlands-scale archive; same memory footprint as the v6 tile
+    -- index. We materialise entries into Lua tables here (one per slot) so
+    -- callers can chase fields cheaply; the inner search loop is hot enough
+    -- that the per-table overhead is preferable to repeated byte unpacking.
+    local index_len = header.geom_count * INDEX_ENTRY_SIZE
+    local idx_bytes, idx_err = read_range(path, header.index_offset, index_len)
+    if not idx_bytes or #idx_bytes < index_len then
+        return nil, "cannot read geometry index: " .. tostring(idx_err or "short read")
+    end
+
+    local entries = {}
+    for i = 0, header.geom_count - 1 do
+        local p = i * INDEX_ENTRY_SIZE + 1
+        entries[i + 1] = {
+            cell_index    = u32(idx_bytes, p),
+            feature_class = u8(idx_bytes,  p + 4),
+            geom_type     = u8(idx_bytes,  p + 5),
+            min_zoom      = u8(idx_bytes,  p + 6),
+            max_zoom      = u8(idx_bytes,  p + 7),
+            data_offset   = u32(idx_bytes, p + 8),
+            data_size     = u16(idx_bytes, p + 12),
+        }
+    end
+
+    -- Labels (unchanged layout from v6).
     local labels = {}
     if header.label_count > 0 and header.label_offset > 0 then
         local file_size = ez.storage.file_size(path) or 0
@@ -394,17 +382,14 @@ function map_archive.open(path)
         end
     end
 
-    -- Merge metadata into the header for ergonomic access at the screen layer.
-    for k, v in pairs(metadata) do header[k] = v end
-
     local archive = setmetatable({
         path        = path,
         header      = header,
-        idx_bytes   = idx_bytes,
+        entries     = entries,
         labels      = labels,
-        tile_cache  = {},
+        data_offset = header.data_offset,
+        geom_cache  = {},
         pending     = {},
-        missing     = {},
         _tick       = 0,
         MAX_CACHE   = DEFAULT_CACHE_SIZE,
     }, Archive)
@@ -412,8 +397,8 @@ function map_archive.open(path)
 end
 
 -- ---------------------------------------------------------------------------
--- Coordinate helpers (Web Mercator). Exported for use by the map_view widget
--- so projection math stays consistent across screens.
+-- Coordinate helpers (Web Mercator). Exported so the map_view widget can
+-- project consistently across screens.
 -- ---------------------------------------------------------------------------
 
 function map_archive.lat_lon_to_tile(lat, lon, zoom)
@@ -427,13 +412,25 @@ end
 function map_archive.tile_to_lat_lon(x, y, zoom)
     local n = 2 ^ zoom
     local lon = x / n * 360 - 180
-    local lat_rad = math.atan((math.exp(math.pi * (1 - 2 * y / n)) - math.exp(-math.pi * (1 - 2 * y / n))) / 2)
+    local lat_rad = math.atan((math.exp(math.pi * (1 - 2 * y / n))
+                              - math.exp(-math.pi * (1 - 2 * y / n))) / 2)
     local lat = lat_rad * 180 / math.pi
     return lat, lon
 end
 
-map_archive.TILE_SIZE         = TILE_SIZE
-map_archive.PACKED_TILE_BYTES = PACKED_TILE_BYTES
-map_archive.VERSION           = TDMAP_VERSION  -- v6
+map_archive.VERSION = TDMAP_VERSION
+
+-- Feature class constants. Mirror tools/maps/tdmap.py.
+map_archive.F_LAND       = 0
+map_archive.F_WATER      = 1
+map_archive.F_PARK       = 2
+map_archive.F_BUILDING   = 3
+map_archive.F_ROAD_MINOR = 4
+map_archive.F_ROAD_MAJOR = 5
+map_archive.F_HIGHWAY    = 6
+map_archive.F_RAILWAY    = 7
+
+map_archive.G_POLYLINE = 0
+map_archive.G_POLYGON  = 1
 
 return map_archive
