@@ -687,6 +687,22 @@ After making a fix:
 3. Verify with appropriate capture mode (text/primitives/screenshot)
 4. Check logs for any errors
 
+### Test-only Lua surfaces (ez.debug / ez.bench)
+
+`ez.debug.*` (AsyncIO queue stats, SD remount, heap snapshots, last
+panic) and `ez.bench.*` (micro-benchmark scenarios + boot profile
+timeline) are test-only scaffolding for the pytest harness under
+`tools/remote/tests/`. They live alongside the public bindings but are
+**not** part of the public Lua API -- same trust model: don't depend on
+them from app Lua, and don't add UI surfaces that expose them. The bench
+scenarios are registered in a static array in
+`src/lua/bindings/bench_bindings.cpp` -- adding more is a one-line
+Scenario struct plus a `run()` function. Boot profile markers are
+recorded by `bootProfileMark()` in C++ (early `main.cpp` checkpoints)
+and `ez.bench.mark()` in Lua (`lua/boot.lua` service-init marks); the
+ring buffer is fixed at 64 entries and dumped via
+`ez.bench.boot_profile()`.
+
 ## Key Components
 
 ### Identity System (Ed25519)

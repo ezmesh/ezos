@@ -174,14 +174,18 @@ local function boot_sequence()
     local log_persist = require("services.log_persist")
     log_persist.init()
 
+    if ez.bench and ez.bench.mark then ez.bench.mark("svc_log_persist") end
+
     local contacts_svc = require("services.contacts")
     contacts_svc.init()
+    if ez.bench and ez.bench.mark then ez.bench.mark("svc_contacts") end
 
     local channels_svc = require("services.channels")
     channels_svc.init()
 
     local dm_svc = require("services.direct_messages")
     dm_svc.init()
+    if ez.bench and ez.bench.mark then ez.bench.mark("svc_dm") end
 
     -- Sharing: encode/decode for ezme.sh share URLs that ride inside
     -- DM bubbles (contact pubkeys, channel-invite tokens). Must come
@@ -515,6 +519,7 @@ local function boot_sequence()
     gps_svc.start_sync_loop()
 
     ez.log("[Boot] Services started")
+    if ez.bench and ez.bench.mark then ez.bench.mark("svc_done") end
 
     -- Run version migrations before applying settings. Migrations may
     -- rename or transform prefs, so they must run before anything reads
@@ -611,6 +616,7 @@ local function boot_sequence()
     end
 
     ez.log("[Boot] Boot complete")
+    if ez.bench and ez.bench.mark then ez.bench.mark("boot_complete") end
 end
 
 -- Run boot in a coroutine — async_read needs coroutine context for filesystem I/O
