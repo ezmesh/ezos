@@ -23,6 +23,7 @@
 #include "lua/lua_runtime.h"
 #include "remote/remote_control.h"
 #include "boot_splash.h"
+#include "boot_profile.h"
 
 
 // Track initialization status
@@ -45,6 +46,10 @@ MeshCore* mesh = nullptr;
 static Settings* settings = nullptr;
 
 void setup() {
+    // Boot profile starts as the first thing in setup() so every later
+    // marker is measured relative to the same baseline.
+    bootProfileMark("setup_start");
+
     // Enable power - MUST be first on T-Deck Plus
     pinMode(BOARD_POWERON, OUTPUT);
     digitalWrite(BOARD_POWERON, HIGH);
@@ -112,6 +117,7 @@ void setup() {
     } else {
         Serial.println("WARNING: Display init failed");
     }
+    bootProfileMark("display_init");
 
     // Show boot splash as soon as the display is up, so the user sees
     // the logo within ~150 ms of power-on instead of staring at a black
@@ -165,6 +171,7 @@ void setup() {
     } else {
         Serial.println("WARNING: Radio init failed");
     }
+    bootProfileMark("radio_init");
     boot_splash::step(display);
 
     // Initialize GPS (T-Deck Plus with u-blox module)
@@ -222,6 +229,7 @@ void setup() {
     } else {
         Serial.println("WARNING: LittleFS init failed");
     }
+    bootProfileMark("littlefs_init");
     boot_splash::step(display);
 
     // Register a shutdown handler that drains the in-memory log
@@ -245,6 +253,7 @@ void setup() {
     } else {
         Serial.println("WARNING: Lua init failed");
     }
+    bootProfileMark("lua_runtime");
     boot_splash::step(display);
 
     // Run boot script (requires display and keyboard). Fill the
@@ -349,6 +358,16 @@ void setup() {
 extern uint32_t g_loopDelayMs;
 
 void loop() {
+    // Record the first time the Arduino loop actually fires -- everything
+    // up to setup() returning lives under one of the *_init marks, this
+    // one captures the setup -> loop transition. Static guard so the
+    // mark only lands once per boot.
+    static bool firstLoop = true;
+    if (firstLoop) {
+        firstLoop = false;
+        bootProfileMark("main_loop");
+    }
+
     uint32_t frameStart = millis();
 
     // Process remote control commands (non-blocking)

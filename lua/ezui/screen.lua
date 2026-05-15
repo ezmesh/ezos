@@ -139,8 +139,13 @@ local function ensure_toast_subscribed()
         local ok, svc = pcall(require, "services.notifications")
         if not ok then return end
         local list = svc.list()
-        if list and list[1] then
-            screen.show_toast(list[1])
+        local top = list and list[1]
+        -- DND-silenced notifications still land in the list (so the
+        -- unread count updates) but don't render a toast and don't
+        -- wake the panel. The user catches up next time they look at
+        -- the device.
+        if top and not top.silent then
+            screen.show_toast(top)
         end
         -- An incoming notification is a "high-priority" wake signal:
         -- if the panel is off or dim the user should see the toast
@@ -150,8 +155,10 @@ local function ensure_toast_subscribed()
         -- (which fire the same bus event) don't wake the panel from
         -- background subscribers -- e.g. the OTA flow calling
         -- dismiss_source("ota") after an update would otherwise pull
-        -- the device out of stage 3 every time.
-        if screen.idle_stage ~= 0 then
+        -- the device out of stage 3 every time. Also skip the wake on
+        -- silent (DND) notifications -- the whole point is "don't
+        -- light the panel".
+        if screen.idle_stage ~= 0 and not (top and top.silent) then
             screen.notify_input()
         end
     end)
