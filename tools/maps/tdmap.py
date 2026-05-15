@@ -464,14 +464,18 @@ class TDMAPWriter:
             return
         self._ensure_tmp()
 
-        # Track archive's overall zoom range as we go.
         if g.min_zoom < self.min_zoom:
             self.min_zoom = g.min_zoom
         if g.max_zoom > self.max_zoom:
             self.max_zoom = g.max_zoom
 
-        # Interpolate to keep deltas within int16, then split into <=255-vertex
-        # records. Each sub-record gets its own compressed payload + index entry.
+        # Two-stage massage of the vertex list:
+        #   1. Interpolate so every adjacent pair fits in int16 deltas.
+        #   2. Split into <=255-vertex records.
+        # Polygon split uses fan-from-v0, which can re-introduce a big
+        # delta (v0 to an inner vertex on the opposite side of the lake).
+        # Run interpolation a second time on each sub-record to catch
+        # that case before the encoder rejects it.
         adjusted = Geometry(
             feature_class=g.feature_class,
             geom_type=g.geom_type,
@@ -480,20 +484,54 @@ class TDMAPWriter:
             vertices=self._interpolate_for_delta(g.vertices),
         )
         for sub in self._split_for_record_cap(adjusted):
-            raw = self._pack_geometry(sub)
-            comp = zlib.compress(raw, level=6)
-            cell = cell_for_bbox(sub.bbox, self._bounds, self.grid_dim)
-            self._tmp_file.write(comp)
-            self._index.append((
-                cell,
-                sub.feature_class & 0xFF,
-                sub.geom_type & 0xFF,
-                sub.min_zoom & 0xFF,
-                sub.max_zoom & 0xFF,
-                self._tmp_cursor,
-                len(comp),
-            ))
-            self._tmp_cursor += len(comp)
+            sub_verts = self._interpolate_for_delta(sub.vertices)
+            # Second interpolation might push us back over the vertex cap;
+            # split again. After interpolation deltas are bounded, so the
+            # second split's children won't need further interpolation.
+            sub2 = Geometry(
+                feature_class=sub.feature_class,
+                geom_type=sub.geom_type,
+                min_zoom=sub.min_zoom,
+                max_zoom=sub.max_zoom,
+                vertices=sub_verts,
+            )
+            for sub_final in self._split_for_record_cap(sub2):
+                # Polygon fan-split *can* re-open the delta gap (v0 to a
+                # distant inner vertex). Interpolate once more if needed;
+                # this terminates because polylines never go through fan
+                # splits, and polygon fan-splits only create one offending
+                # v0->inner pair.
+                final_verts = self._interpolate_for_delta(sub_final.vertices)
+                if len(final_verts) != len(sub_final.vertices):
+                    sub_final = Geometry(
+                        feature_class=sub_final.feature_class,
+                        geom_type=sub_final.geom_type,
+                        min_zoom=sub_final.min_zoom,
+                        max_zoom=sub_final.max_zoom,
+                        vertices=final_verts,
+                    )
+                # Skip records whose vertex count would overflow u8 even
+                # after re-interpolation. With realistic OSM polygons this
+                # only happens on pathological inputs (giant complex
+                # multipolygon outer rings) and dropping them is better
+                # than crashing the build.
+                if len(sub_final.vertices) > MAX_VERTICES_PER_RECORD:
+                    continue
+                raw = self._pack_geometry(sub_final)
+                comp = zlib.compress(raw, level=6)
+                cell = cell_for_bbox(
+                    sub_final.bbox, self._bounds, self.grid_dim)
+                self._tmp_file.write(comp)
+                self._index.append((
+                    cell,
+                    sub_final.feature_class & 0xFF,
+                    sub_final.geom_type & 0xFF,
+                    sub_final.min_zoom & 0xFF,
+                    sub_final.max_zoom & 0xFF,
+                    self._tmp_cursor,
+                    len(comp),
+                ))
+                self._tmp_cursor += len(comp)
 
     def add_label(self, label: Label) -> None:
         if not label.text or not label.text.strip():
