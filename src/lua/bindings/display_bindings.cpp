@@ -4,6 +4,9 @@
 #include "../lua_bindings.h"
 #include "../../hardware/display.h"
 
+#include <algorithm>
+#include <vector>
+
 // @module ez.display
 // @brief 2D drawing primitives and text rendering for the 320x240 LCD
 // @description
@@ -695,6 +698,178 @@ LUA_FUNCTION(l_display_fill_triangle) {
 
     if (display) {
         display->fillTriangle(x1, y1, x2, y2, x3, y3, color);
+    }
+    return 0;
+}
+
+// ----------------------------------------------------------------------------
+// Polygon fill + polyline batch — used by the map renderer to draw vector
+// TDMAP geometry. Both take a flat Lua array {x1,y1,x2,y2,...} and run the
+// inner loop entirely in C++ to amortise the Lua→C crossing cost across many
+// vertices (a map frame has hundreds of polylines and dozens of polygons).
+// ----------------------------------------------------------------------------
+
+// Read a flat {x1,y1,x2,y2,...} Lua array into two int vectors. Returns the
+// vertex count, or 0 if the table is empty / malformed. Tables longer than
+// `max_verts` are clamped (per-frame polygon budget guard).
+static int readPolyVerts(lua_State* L, int idx,
+                         std::vector<int>& xs, std::vector<int>& ys,
+                         size_t max_verts = 4096) {
+    if (!lua_istable(L, idx)) return 0;
+    int len = (int)lua_rawlen(L, idx);
+    if (len < 4 || (len & 1) != 0) return 0;
+    int n = len / 2;
+    if ((size_t)n > max_verts) n = (int)max_verts;
+    xs.resize(n);
+    ys.resize(n);
+    for (int i = 0; i < n; ++i) {
+        lua_rawgeti(L, idx, i * 2 + 1);
+        lua_rawgeti(L, idx, i * 2 + 2);
+        xs[i] = (int)lua_tointeger(L, -2);
+        ys[i] = (int)lua_tointeger(L, -1);
+        lua_pop(L, 2);
+    }
+    return n;
+}
+
+// Ear-clipping triangulation of a simple polygon. The polygons we feed it
+// (lakes, parks, building footprints, coastline patches) are convex enough
+// after Douglas-Peucker simplification that the O(n²) cost stays tame
+// (n is typically < 50 per record). We don't validate self-intersection —
+// pathological inputs render with the wrong fill but never crash, which is
+// the right tradeoff at runtime.
+static inline long polySignedArea(const std::vector<int>& xs,
+                                  const std::vector<int>& ys) {
+    long area = 0;
+    int n = (int)xs.size();
+    for (int i = 0; i < n; ++i) {
+        int j = (i + 1) % n;
+        area += (long)xs[i] * ys[j] - (long)xs[j] * ys[i];
+    }
+    return area;
+}
+
+static inline bool pointInTri(int px, int py,
+                              int ax, int ay, int bx, int by, int cx, int cy) {
+    long d1 = (long)(px - bx) * (ay - by) - (long)(ax - bx) * (py - by);
+    long d2 = (long)(px - cx) * (by - cy) - (long)(bx - cx) * (py - cy);
+    long d3 = (long)(px - ax) * (cy - ay) - (long)(cx - ax) * (py - ay);
+    bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+    bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+    return !(has_neg && has_pos);
+}
+
+// @lua ez.display.fill_polygon(verts, color)
+// @brief Fill a simple polygon
+// @description Fills a simple (non-self-intersecting) polygon using ear-
+// clipping triangulation. The `verts` argument is a flat array
+// `{x1, y1, x2, y2, ..., xN, yN}` of N vertices in either CW or CCW order;
+// the polygon implicitly closes from xN,yN back to x1,y1. Tables shorter
+// than 3 vertices, or with an odd number of values, are silently ignored.
+// Designed for the TDMAP vector map renderer — runs the whole triangulation
+// in C++ so a map frame's worth of polygon fills don't pay the Lua→C cost
+// per triangle.
+// @param verts Flat array of vertex coords
+// @param color RGB565 fill color
+// @example
+// ez.display.fill_polygon({10,10, 50,10, 50,40, 30,60, 10,40}, colors.BLUE)
+// @end
+LUA_FUNCTION(l_display_fill_polygon) {
+    LUA_CHECK_ARGC_RANGE(L, 2, 2);
+    std::vector<int> xs, ys;
+    int n = readPolyVerts(L, 1, xs, ys);
+    if (n < 3 || !display) return 0;
+    uint16_t color = (uint16_t)luaL_checkinteger(L, 2);
+
+    // Ensure CCW for the ear-clipping below.
+    long area = polySignedArea(xs, ys);
+    if (area < 0) {
+        std::reverse(xs.begin(), xs.end());
+        std::reverse(ys.begin(), ys.end());
+    } else if (area == 0) {
+        return 0;  // degenerate
+    }
+
+    std::vector<int> indices(n);
+    for (int i = 0; i < n; ++i) indices[i] = i;
+
+    int guard = 0;
+    while ((int)indices.size() >= 3 && guard < n * n + 8) {
+        ++guard;
+        int m = (int)indices.size();
+        bool clipped = false;
+        for (int i = 0; i < m; ++i) {
+            int i0 = indices[(i + m - 1) % m];
+            int i1 = indices[i];
+            int i2 = indices[(i + 1) % m];
+            int ax = xs[i0], ay = ys[i0];
+            int bx = xs[i1], by = ys[i1];
+            int cx = xs[i2], cy = ys[i2];
+            long cross = (long)(bx - ax) * (cy - ay) - (long)(by - ay) * (cx - ax);
+            if (cross <= 0) continue;  // reflex or colinear
+
+            bool ok = true;
+            for (int j = 0; j < m; ++j) {
+                int idx = indices[j];
+                if (idx == i0 || idx == i1 || idx == i2) continue;
+                if (pointInTri(xs[idx], ys[idx], ax, ay, bx, by, cx, cy)) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (!ok) continue;
+
+            display->fillTriangle(ax, ay, bx, by, cx, cy, color);
+            indices.erase(indices.begin() + i);
+            clipped = true;
+            break;
+        }
+        if (!clipped) break;  // self-intersecting input; bail rather than loop
+    }
+    return 0;
+}
+
+// @lua ez.display.draw_polyline(verts, color, width)
+// @brief Draw a polyline with optional pixel width
+// @description Draws N-1 line segments between successive vertices in a flat
+// array `{x1, y1, x2, y2, ..., xN, yN}`. When `width > 1`, each segment is
+// emulated by drawing the line and offsetting up to `width-1` additional
+// passes perpendicular to it (1-pixel offsets — good enough for the map
+// renderer's road/coastline strokes; not anti-aliased).
+// @param verts Flat array of vertex coords
+// @param color RGB565 line color
+// @param width Stroke width in pixels (default 1)
+// @example
+// ez.display.draw_polyline({10,10, 50,30, 90,20}, colors.WHITE, 2)
+// @end
+LUA_FUNCTION(l_display_draw_polyline) {
+    LUA_CHECK_ARGC_RANGE(L, 2, 3);
+    std::vector<int> xs, ys;
+    int n = readPolyVerts(L, 1, xs, ys);
+    if (n < 2 || !display) return 0;
+    uint16_t color = (uint16_t)luaL_checkinteger(L, 2);
+    int width = (int)luaL_optinteger(L, 3, 1);
+    if (width < 1) width = 1;
+    if (width > 8) width = 8;
+
+    for (int i = 0; i < n - 1; ++i) {
+        int x1 = xs[i],     y1 = ys[i];
+        int x2 = xs[i + 1], y2 = ys[i + 1];
+        display->drawLine(x1, y1, x2, y2, color);
+        if (width > 1) {
+            int dx = x2 - x1;
+            int dy = y2 - y1;
+            // Pick the offset axis based on the segment's slope so wider
+            // strokes stay visually centred rather than thickening only
+            // on one side of the line.
+            bool horiz = (dx < 0 ? -dx : dx) > (dy < 0 ? -dy : dy);
+            for (int w = 1; w < width; ++w) {
+                int dxo = horiz ? 0 : ((w & 1) ? (w + 1) / 2 : -(w / 2));
+                int dyo = horiz ? ((w & 1) ? (w + 1) / 2 : -(w / 2)) : 0;
+                display->drawLine(x1 + dxo, y1 + dyo,
+                                  x2 + dxo, y2 + dyo, color);
+            }
+        }
     }
     return 0;
 }
@@ -2075,9 +2250,6 @@ LUA_FUNCTION(l_display_clear_clip_rect) {
 //                           focal, cx, cy, near, fog_k)
 // ============================================================================
 
-#include <vector>
-#include <algorithm>
-
 #define SCENE3D_METATABLE "ez.Scene3D"
 
 struct Scene3D {
@@ -3147,6 +3319,8 @@ static const luaL_Reg display_funcs[] = {
     {"fill_circle",       l_display_fill_circle},
     {"draw_triangle",     l_display_draw_triangle},
     {"fill_triangle",     l_display_fill_triangle},
+    {"fill_polygon",      l_display_fill_polygon},
+    {"draw_polyline",     l_display_draw_polyline},
     {"draw_round_rect",   l_display_draw_round_rect},
     {"fill_round_rect",   l_display_fill_round_rect},
     {"draw_progress",     l_display_draw_progress},
