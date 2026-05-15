@@ -17,10 +17,10 @@ Three independent toggles pick which peer categories appear as pins:
   contacts. Off if you would rather not see them on the map even
   though you have their key.
 - **All chat nodes** (default off). Every chat node we have ever
-  heard from with a location. Off by default for privacy: turning
-  it on exposes the rough position of every node within radio
-  range that has chosen to advertise its location, which may not
-  be what they expect a passing receiver to do.
+  heard from with a location. Off by default to keep the map
+  uncluttered -- on a busy mesh this can be dozens of pins, most
+  of which you don't have a relationship with. Turn it on when
+  you want a full view of who's around.
 
 A node only renders when its ADVERT carried a location. Nodes
 without a location are never drawn regardless of the toggles.

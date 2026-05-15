@@ -357,7 +357,8 @@ subscribes once and renders the most recent entry as a toast.
 Public API:
 
 - `notifications.post(opts)` — `{ title, body?, source?, sticky?,
-  action? = { label, on_press }, read? }`. Returns the new id, or
+  action? = { label, on_press }, read?, dnd_fav?, dnd_mention? }`.
+  Returns the new id, or
   nil if suppressed (muted source, missing title). `title` and
   `body` are sanitized to printable ASCII before being stored — the
   on-device fonts can't render anything else (see "On-device font
@@ -370,6 +371,9 @@ Public API:
 - `notifications.dismiss(id)` / `notifications.dismiss_source(s)` /
   `notifications.list()` / `notifications.unread_count()` /
   `notifications.mark_all_read()`.
+- `notifications.dnd_active()` — returns `true` when DND is currently
+  active (manual override or scheduled quiet window). Safe to poll;
+  fails open (returns `false`) when the clock is unset.
 
 Per-source mute pref: every `post()` consults `notify_<source>` in
 NVS (default `"1"` = on). Setting `notify_dm = "0"`, for instance,
@@ -377,6 +381,23 @@ silences every DM toast without touching the wiring. The namespace
 is meant for a future Settings panel; pref keys must stay under
 NVS's 15-character limit, so source tags should be short
 (`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `system`).
+
+Do Not Disturb (issue #116): `notifications.post()` also evaluates a
+time-window DND mode after the source-mute check. When the manual
+override `dnd_manual` is `"1"`, OR `dnd_enabled` is `"1"` and the
+wall clock falls inside `[dnd_start, dnd_end)` (minutes since
+midnight; window wraps midnight if end <= start), the notification
+still lands in the list (so `unread_count` advances) but is flagged
+`silent = true`. The toast subscriber in `ezui/screen.lua` skips
+silent items, and the panel-wake on incoming notification is also
+suppressed. Two opt-in exemptions can pass an event through anyway:
+`opts.dnd_fav` (DM from a starred contact -- not wired yet pending
+a favourites field on `services.contacts`) and `opts.dnd_mention`
+(channel message containing the user's node name -- wired in
+`boot.lua`'s `channel/message` subscriber). User-facing toggles
+live under Settings -> Notifications. DND is treated as off when
+the clock is unset (year < 2020) so a cold boot before NTP/GPS
+sync doesn't accidentally swallow notifications.
 
 ### Module Loading
 
@@ -686,6 +707,22 @@ After making a fix:
 2. Navigate to relevant screen via remote key injection
 3. Verify with appropriate capture mode (text/primitives/screenshot)
 4. Check logs for any errors
+
+### Test-only Lua surfaces (ez.debug / ez.bench)
+
+`ez.debug.*` (AsyncIO queue stats, SD remount, heap snapshots, last
+panic) and `ez.bench.*` (micro-benchmark scenarios + boot profile
+timeline) are test-only scaffolding for the pytest harness under
+`tools/remote/tests/`. They live alongside the public bindings but are
+**not** part of the public Lua API -- same trust model: don't depend on
+them from app Lua, and don't add UI surfaces that expose them. The bench
+scenarios are registered in a static array in
+`src/lua/bindings/bench_bindings.cpp` -- adding more is a one-line
+Scenario struct plus a `run()` function. Boot profile markers are
+recorded by `bootProfileMark()` in C++ (early `main.cpp` checkpoints)
+and `ez.bench.mark()` in Lua (`lua/boot.lua` service-init marks); the
+ring buffer is fixed at 64 entries and dumped via
+`ez.bench.boot_profile()`.
 
 ## Key Components
 
