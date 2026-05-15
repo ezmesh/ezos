@@ -195,9 +195,17 @@ local POLL_MS = 2000    -- how often to check for a fix
 -- Internal state so multiple start() calls don't stack coroutines.
 local _sync_started = false
 
+local function power_blocks_sync()
+    local ok, power = pcall(require, "services.power")
+    if not ok or not power then return false end
+    return not power.gps_sync_allowed()
+end
+
 local function try_sync_once(max_wait_ms)
+    if power_blocks_sync() then return false end
     local started = ez.system.millis()
     while ez.system.millis() - started < max_wait_ms do
+        if power_blocks_sync() then return false end
         if gps.is_enabled() then
             -- Time doesn't need a position fix — the module emits a valid
             -- UTC in GPRMC/GPZDA as soon as it's decoded the time-of-week

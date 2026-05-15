@@ -345,6 +345,13 @@ Services are initialized in order in `lua/boot.lua`:
 12. **gps** — `gps_svc.start_sync_loop()` is always called; the loop itself
     respects the user's "never / at boot / hourly" pref and is a no-op when
     GPS is disabled
+12. **power** — `power_svc.start()` spawns a 30 s battery poll that
+    transitions between Normal / Frugal / Survival tiers with
+    hysteresis. Other services (`gps`, `ntp`, `custom_packets`)
+    consult `power.gps_sync_allowed()` / `power.ntp_allowed()` /
+    `power.allow_non_dm()` predicates rather than subscribing to
+    `power/mode_changed`, so a missed bus event only delays the gate
+    by 30 s. DM traffic is never gated. See "Power policy" below.
 
 After services start, `migrations.run()` runs version migrations and an
 `ntp` sync is kicked. Other modules under `lua/services/` (e.g.
@@ -409,6 +416,61 @@ a favourites field on `services.contacts`) and `opts.dnd_mention`
 live under Settings -> Notifications. DND is treated as off when
 the clock is unset (year < 2020) so a cold boot before NTP/GPS
 sync doesn't accidentally swallow notifications.
+
+### Power policy
+
+`services/power` polls `ez.system.get_battery_percent()` every 30 s
+and moves between three tiers with hysteresis:
+
+| Tier      | Enter        | Exit         |
+|-----------|--------------|--------------|
+| normal    | (default)    | --           |
+| frugal    | pct <= 30    | pct >= 35    |
+| survival  | pct <= 10    | pct >= 15    |
+
+Charging snaps the tier toward normal (survival -> frugal, frugal ->
+normal) so a USB plug is treated as "full" without flapping. When
+`ez.system.get_battery_percent()` returns nil the policy stays in the
+current tier.
+
+On a tier transition the service:
+- `ez.mesh.set_announce_interval(...)` -- 120 s (normal), 240 s
+  (frugal), 480 s (survival).
+- `ez.radio.set_tx_power(dbm)` -- 22 dBm (normal/frugal), 17 dBm
+  (survival).
+- `services.ntp.stop()` on entry to survival; `start_if_enabled()` on
+  exit. Frugal leaves NTP alone -- lwIP's SNTP cadence is not
+  reachable from Lua, so we can stop NTP cleanly but cannot slow it
+  down without a new binding.
+- Clamps display brightness to <= 80 / 255 in survival (caches the
+  pre-clamp value so it's restored when leaving the tier; the user's
+  saved `screen_bright` pref is not touched).
+- Posts a notification (source `"power"`) with `dismiss_source` first
+  so re-entering doesn't pile up duplicates.
+- Emits `power/mode_changed = { mode = "normal" | "frugal" | "survival" }`
+  for any UI that wants to react. Consumers in critical paths
+  (gps/ntp/custom_packets) poll predicates rather than subscribing,
+  so the missed-event case just delays gating by 30 s.
+
+Two prefs gate the policy from settings:
+- `pwr_always_norm` -- pin to normal regardless of battery.
+- `pwr_force_surv` -- pin to survival regardless of battery.
+
+The two are mutually exclusive; `power.set_always_normal(true)`
+clears `pwr_force_surv` and vice versa, so the pref state cannot end
+up confused. Both keys are <= 15 chars to dodge the silent-NVS-
+truncation trap.
+
+DM traffic (TXT_MSG) is NEVER gated by power -- someone in trouble
+might be on 4 % battery and we won't drop their DMs to save airtime.
+Only RAW_CUSTOM senders flow through `custom_packets.send()` and get
+suppressed in survival. Channel GRP_TXT sends are also not gated;
+they're rare and user-initiated.
+
+Status bar surfacing: `power.short_indicator()` returns `""` /
+`"lp"` / `"LP"` and `lua/ezui/screen.lua`'s status updater copies it
+into `screen.status.power_tag`. The `status_bar` widget renders the
+tag in `ACCENT` left of the battery glyph.
 
 ### Module Loading
 
