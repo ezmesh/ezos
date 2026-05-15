@@ -35,8 +35,8 @@ function Privacy:build(state)
     content[#content + 1] = ui.padding({ 2, 6, 2, 6 },
         ui.toggle("Send DM read receipts", state.read_receipts, {
             on_change = function(val)
-                state.read_receipts = val
                 set_pref_bool("send_read_rcpt", val)
+                self:set_state({ read_receipts = val })
             end,
         }))
 

@@ -562,9 +562,16 @@ local function build_and_queue_txt_msg(pub_key_hex, encrypted)
     return ok, route == ROUTE_DIRECT
 end
 
-local function build_inner(text, attempt)
-    local timestamp = 0
-    if ez.system.get_time then
+-- `wire_ts` is the epoch second the caller wants embedded in the inner
+-- plaintext. Captured by dm.send at call time so the local bubble can
+-- store the SAME value (in `msg.wire_ts`) the receiver will see -- the
+-- ACK match path hashes against it on both sides. Falling back to the
+-- live clock here is only for callers that don't care (legacy
+-- non-receipt sites); receipt-bearing sends MUST pass a value or
+-- read receipts won't match.
+local function build_inner(text, attempt, wire_ts)
+    local timestamp = wire_ts or 0
+    if not wire_ts and ez.system.get_time then
         local t = ez.system.get_time()
         if t and t.epoch then timestamp = t.epoch end
     end
@@ -581,10 +588,10 @@ end
 --   used_direct — true if the packet went out via ROUTE_DIRECT using a
 --                 cached return path; the caller tags pending_acks so
 --                 an ACK timeout can drop the stale path.
-local function transmit(pub_key_hex, text, attempt)
+local function transmit(pub_key_hex, text, attempt, wire_ts)
     local enc = get_enc_key(pub_key_hex)
     if not enc then return false end
-    local inner = build_inner(text, attempt)
+    local inner = build_inner(text, attempt, wire_ts)
     local encrypted = encrypt_then_mac(enc.secret, enc.key, inner)
     if not encrypted then return false end
     local ok, used_direct = build_and_queue_txt_msg(pub_key_hex, encrypted)
@@ -1020,6 +1027,7 @@ function dm.init()
                     -- ADVERT clobbers our follow-up TX. See
                     -- POST_ADVERT_WAIT_MS.
                     local pk, txt, att = pending.pub_key_hex, pending.text, pending.attempt
+                    local pending_wire_ts = pending.wire_ts
                     local entry = pending
                     local need_advert = not contacts_svc.is_known_by(pk)
                     spawn(function()
@@ -1027,7 +1035,7 @@ function dm.init()
                             ez.mesh.send_announce()
                             wait_ms(POST_ADVERT_WAIT_MS)
                         end
-                        local ok, new_ack, direct = transmit(pk, txt, att)
+                        local ok, new_ack, direct = transmit(pk, txt, att, pending_wire_ts)
                         if ok and new_ack then
                             entry.expected_ack = new_ack
                             entry.used_direct = direct
@@ -1128,7 +1136,7 @@ function dm.send(pub_key_hex, text, opts)
             end
         end
 
-        local sent, expected_ack, used_direct = transmit(pub_key_hex, text, 0)
+        local sent, expected_ack, used_direct = transmit(pub_key_hex, text, 0, wire_ts)
         if not sent then
             stored.status = "failed"
             ez.bus.post("dm/status", {
@@ -1136,6 +1144,16 @@ function dm.send(pub_key_hex, text, opts)
             })
             schedule_save()
             return
+        end
+
+        -- Fire after the radio queue has accepted the packet; callers
+        -- use this to stamp "I have actually attempted delivery" state
+        -- they can't safely persist before the spawn started (e.g.
+        -- read-receipt dedup). MeshCore ACKs are still asynchronous;
+        -- this is "queued for TX", not "delivered". Wrapped in pcall
+        -- so a buggy callback can't poison the retry path.
+        if opts and type(opts.on_success) == "function" then
+            pcall(opts.on_success)
         end
 
         local ack_setting = contacts_svc.is_ack_enabled(pub_key_hex)
@@ -1156,6 +1174,7 @@ function dm.send(pub_key_hex, text, opts)
                 msg_ref      = stored,
                 expected_ack = expected_ack,
                 used_direct  = used_direct,
+                wire_ts      = wire_ts,
             }
         end
     end)
@@ -1221,7 +1240,6 @@ local function maybe_send_read_receipts(pub_key_hex)
         return digest and digest:sub(1, 4) or nil
     end
 
-    local sent_any = false
     for _, msg in ipairs(h) do
         if not msg.is_self and not msg.receipt_sent then
             local target_hash = compute_msg_hash(
@@ -1230,19 +1248,25 @@ local function maybe_send_read_receipts(pub_key_hex)
                 local url = sharing_svc.encode_ack(target_hash,
                     sharing_svc.ACK_READ)
                 if url then
-                    msg.receipt_sent = true
-                    sent_any = true
-                    -- Use dm.send for the airtime/ACK plumbing; this
-                    -- is a normal TXT_MSG carrying a URI. `protocol`
-                    -- suppresses the local outgoing bubble.
+                    -- Stamp + persist receipt_sent only once dm.send
+                    -- confirms the packet was queued on the radio.
+                    -- Stamping upfront would burn the slot on a
+                    -- mesh-not-initialized cold-boot open (dm.send
+                    -- bails synchronously) and never re-attempt.
+                    local target = msg
                     spawn(function()
-                        dm.send(pub_key_hex, url, { protocol = "ack" })
+                        dm.send(pub_key_hex, url, {
+                            protocol = "ack",
+                            on_success = function()
+                                target.receipt_sent = true
+                                schedule_save()
+                            end,
+                        })
                     end)
                 end
             end
         end
     end
-    if sent_any then schedule_save() end
 end
 
 function dm.mark_read(pub_key_hex)
