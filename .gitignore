@@ -42,6 +42,13 @@ node_modules/
 /docs/manual/
 /docs/index.html
 
+# Generated web console (built by .github/workflows/docs.yml via `npm run
+# build` in console/; output goes here and is uploaded as part of the
+# Pages artifact alongside the manual/API reference).
+/docs/console/
+/console/node_modules/
+/console/dist/
+
 # Claude local state (per-machine). Shared skills under .claude/skills/
 # are tracked; settings.local.json holds machine-specific permissions.
 .claude/settings.local.json
