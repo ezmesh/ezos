@@ -6,6 +6,8 @@ local ui = require("ezui")
 local channels_svc = require("services.channels")
 local sharing_svc = require("services.sharing")
 local time_share = require("screens.chat.time_share")
+local gps_share = require("screens.chat.gps_share")
+local gps_svc = require("services.gps")
 local cal_share = require("screens.chat.cal_share")
 require("screens.chat.chat_common")  -- registers chat_bubble node type
 
@@ -49,6 +51,12 @@ local function show_context_menu(self, channel, msg)
 
         -- Time share actions (before generic actions)
         for _, item in ipairs(time_share.build_actions(msg)) do
+            actions[#actions + 1] = item
+        end
+
+        -- GPS share actions. Channel GPS shares are cleartext so we
+        -- don't need a sender pubkey to decode them.
+        for _, item in ipairs(gps_share.build_actions(msg, nil)) do
             actions[#actions + 1] = item
         end
 
@@ -176,7 +184,9 @@ function ChannelChat:build(state)
             content_items[#content_items + 1] = {
                 type = "chat_bubble",
                 msg = msg,
-                share = time_share.card_for_message(msg) or cal_share.card_for_message(msg),
+                share = time_share.card_for_message(msg)
+                    or gps_share.card_for_message(msg, nil)
+                    or cal_share.card_for_message(msg),
                 on_press = function()
                     show_context_menu(self, channel, msg)
                 end,
@@ -228,6 +238,42 @@ function ChannelChat:menu()
             subtitle = "Send your current clock to the channel",
             on_press = function()
                 local url, err = sharing_svc.encode_time()
+                if url then
+                    channels_svc.send(channel, url)
+                end
+            end,
+        },
+        {
+            -- Location share. Channel shares are plaintext: anyone with
+            -- the channel key already sees every message and decoding
+            -- the URL adds no privacy. Falls back to broadcast-home if
+            -- there's no live fix -- the user already accepted that
+            -- point as public via the Map screen's home setter.
+            title = "Share my location",
+            subtitle = "Post current GPS fix to the channel (visible to all members)",
+            on_press = function()
+                local lat, lon, why
+                local loc = gps_svc.get_location()
+                if loc and loc.valid then
+                    lat, lon = loc.lat, loc.lon
+                else
+                    local hlat = tonumber(ez.storage.get_pref("adv_home_lat", ""))
+                    local hlon = tonumber(ez.storage.get_pref("adv_home_lon", ""))
+                    if hlat and hlon then
+                        lat, lon = hlat / 1e6, hlon / 1e6
+                    else
+                        why = "no GPS fix and no broadcast home set"
+                    end
+                end
+                if why then
+                    require("services.notifications").post({
+                        title = "Location share failed",
+                        body  = why,
+                        source = "system",
+                    })
+                    return
+                end
+                local url, err = sharing_svc.encode_gps_channel(lat, lon, nil)
                 if url then
                     channels_svc.send(channel, url)
                 end

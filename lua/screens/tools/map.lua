@@ -78,9 +78,15 @@ function Map.initial_state(archive_path)
 end
 
 function Map:on_enter()
+    local inst = self
+
+    -- Tap-to-recenter and drag-to-pan are handled inside the map_view
+    -- widget itself (on_touch_down / on_touch_drag / on_touch_up). The
+    -- bridge cancels touch/tap dispatch the moment an owns_touch widget
+    -- sees a move event, so this screen used to leak a duplicate
+    -- subscriber on every re-entry without ever firing it.
     local s = self._state
     if s.archive or s.error then return end
-    local inst = self
     local path = s.archive_path or "/sd/maps/world.tdmap"
     -- async.task wraps spawn with begin()/done() so the status-bar
     -- spinner reflects this load and clears even if something errors.
@@ -242,6 +248,31 @@ local function home_is_set()
     return (lat ~= "" and lat ~= nil) or (lon ~= "" and lon ~= nil)
 end
 
+-- Push a list-of-options menu. Used by the location-sharing actions to
+-- pick a destination contact or channel after the user has panned to
+-- the point they want to share. Pops itself before invoking on_pick so
+-- the user lands back on the map (not on a stale picker) when the
+-- destination chat takes over.
+local function push_destination_picker(title, items, on_pick)
+    local MenuDialog = require("screens.dialog.menu")
+    local entries = {}
+    for _, item in ipairs(items) do
+        entries[#entries + 1] = {
+            title = item.title,
+            subtitle = item.subtitle,
+            on_press = function() on_pick(item.value) end,
+        }
+    end
+    if #entries == 0 then
+        entries[#entries + 1] = {
+            title = "(nothing to share to)",
+            disabled = true,
+        }
+    end
+    screen_mod.push(screen_mod.create(MenuDialog,
+        MenuDialog.initial_state(entries, title)))
+end
+
 function Map:menu()
     local notifications = require("services.notifications")
     local items = {}
@@ -294,6 +325,101 @@ function Map:menu()
             end,
         }
     end
+
+    -- Share the current map center (the crosshair) as an ezme.sh
+    -- location share. The DM variant encrypts to the recipient; the
+    -- channel variant is plaintext. Both flow through the same
+    -- chat send pipeline as a regular message, so the recipient sees
+    -- a chat bubble they can act on via the standard context menu.
+    local sharing_svc = require("services.sharing")
+
+    items[#items + 1] = {
+        title    = "Share this point -> DM...",
+        subtitle = "Send the map center to a contact (encrypted)",
+        on_press = function()
+            local s = self._state
+            local lat, lon = s.center_lat, s.center_lon
+            if type(lat) ~= "number" or type(lon) ~= "number" then
+                notifications.post({
+                    title = "Cannot share",
+                    body = "No map center -- open a map archive first.",
+                    source = "system",
+                })
+                return
+            end
+            local contacts_svc = require("services.contacts")
+            local picker = {}
+            for _, c in ipairs(contacts_svc.get_all()) do
+                picker[#picker + 1] = {
+                    title = c.name or c.pub_key_hex:sub(1, 8),
+                    subtitle = c.pub_key_hex:sub(1, 12) .. "...",
+                    value = c,
+                }
+            end
+            push_destination_picker("Share location to", picker, function(contact)
+                local dm_svc = require("services.direct_messages")
+                local url, err = sharing_svc.encode_gps_dm(
+                    contact.pub_key_hex, lat, lon, nil)
+                if url then
+                    dm_svc.send(contact.pub_key_hex, url)
+                    notifications.post({
+                        title = "Location shared",
+                        body = "Sent to " .. (contact.name or "contact"),
+                        source = "system",
+                    })
+                else
+                    notifications.post({
+                        title = "Share failed",
+                        body = err or "unknown error",
+                        source = "system",
+                    })
+                end
+            end)
+        end,
+    }
+
+    items[#items + 1] = {
+        title    = "Share this point -> Channel...",
+        subtitle = "Post the map center to a channel (visible to all)",
+        on_press = function()
+            local s = self._state
+            local lat, lon = s.center_lat, s.center_lon
+            if type(lat) ~= "number" or type(lon) ~= "number" then
+                notifications.post({
+                    title = "Cannot share",
+                    body = "No map center -- open a map archive first.",
+                    source = "system",
+                })
+                return
+            end
+            local channels_svc = require("services.channels")
+            local picker = {}
+            for _, ch in ipairs(channels_svc.get_list()) do
+                picker[#picker + 1] = {
+                    title = ch.name,
+                    subtitle = "Post to this channel",
+                    value = ch.name,
+                }
+            end
+            push_destination_picker("Share location to", picker, function(channel_name)
+                local url, err = sharing_svc.encode_gps_channel(lat, lon, nil)
+                if url then
+                    channels_svc.send(channel_name, url)
+                    notifications.post({
+                        title = "Location shared",
+                        body = "Posted to " .. channel_name,
+                        source = "system",
+                    })
+                else
+                    notifications.post({
+                        title = "Share failed",
+                        body = err or "unknown error",
+                        source = "system",
+                    })
+                end
+            end)
+        end,
+    }
 
     return items
 end
@@ -526,37 +652,39 @@ function Map:build(state)
     }
     if state.follow_gps then segments[#segments + 1] = "GPS" end
 
+    local mv_node = map_view({
+        grow        = 1,
+        archive     = state.archive,
+        center_lat  = state.center_lat,
+        center_lon  = state.center_lon,
+        zoom        = state.zoom,
+        show_labels = state.show_labels,
+        overlay_fn  = (function()
+            -- Peers paint first, GPS dot on top so the user's own
+            -- position is never occluded by a colocated peer pin.
+            local peers_fn = make_peers_overlay()
+            local gps_fn   = make_gps_overlay()
+            return function(d, x, y, w, h, project)
+                peers_fn(d, x, y, w, h, project)
+                gps_fn(d, x, y, w, h, project)
+            end
+        end)(),
+        on_move     = function(lat, lon, z)
+            -- Mutate state in place: the widget is re-drawing every frame
+            -- anyway and a set_state here would force tree rebuilds at
+            -- trackball rate. The status strip catches up on the next
+            -- rebuild triggered by a zoom/theme/label change.
+            state.center_lat = lat
+            state.center_lon = lon
+            state.zoom = z
+            -- Panning breaks follow-mode: the user is taking over.
+            if state.follow_gps then state.follow_gps = false end
+        end,
+    })
+
     return ui.vbox({ gap = 0 }, {
         ui.title_bar("Map", { back = true }),
-        map_view({
-            grow        = 1,
-            archive     = state.archive,
-            center_lat  = state.center_lat,
-            center_lon  = state.center_lon,
-            zoom        = state.zoom,
-            show_labels = state.show_labels,
-            overlay_fn  = (function()
-                -- Peers paint first, GPS dot on top so the user's own
-                -- position is never occluded by a colocated peer pin.
-                local peers_fn = make_peers_overlay()
-                local gps_fn   = make_gps_overlay()
-                return function(d, x, y, w, h, project)
-                    peers_fn(d, x, y, w, h, project)
-                    gps_fn(d, x, y, w, h, project)
-                end
-            end)(),
-            on_move     = function(lat, lon, z)
-                -- Mutate state in place: the widget is re-drawing every frame
-                -- anyway and a set_state here would force tree rebuilds at
-                -- trackball rate. The status strip catches up on the next
-                -- rebuild triggered by a zoom/theme/label change.
-                state.center_lat = lat
-                state.center_lon = lon
-                state.zoom = z
-                -- Panning breaks follow-mode: the user is taking over.
-                if state.follow_gps then state.follow_gps = false end
-            end,
-        }),
+        mv_node,
         ui.padding({ 2, 6, 2, 6 },
             -- Pipe separator: the device font (FreeSans 7pt) covers only ASCII
             -- 0x20..0x7E, so "·" / "•" render as missing-glyph boxes.
