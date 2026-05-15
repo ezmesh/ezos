@@ -19,11 +19,19 @@ A complete embedded operating system for the **LilyGo T-Deck Plus** (ESP32-S3 wi
 
 > ⚠️ **Warning:** This firmware has only been tested on the **T-Deck Plus**. Use at your own risk — no warranty or guarantee is provided.
 
-**Easiest method** - Use the web flasher (no software install required):
+**Easiest method** - Use the **ezOS Console** in a Chromium-based
+browser. No download, no installer, no terminal. Picks the latest
+release for you, flashes via Web Serial, and can pre-seed first-boot
+settings (node name, region, WiFi, theme...) so the device boots
+straight to the desktop without going through the on-device onboarding
+wizard:
 
-1. Download the latest `ezos-vX.X.X-full.bin` from [Releases](../../releases/latest)
-2. Open the [MeshCore Web Flasher](https://flasher.meshcore.co/)
-3. Connect your T-Deck Plus via USB and flash
+- **Console:** <https://ezmesh.github.io/ezos/console/>
+
+For air-gapped or non-Chromium setups, the generic
+[MeshCore Web Flasher](https://flasher.meshcore.co/) still works with
+the `firmware-full.bin` from [Releases](../../releases/latest), but it
+doesn't know about ezOS-specific settings.
 
 [![Download Latest](https://img.shields.io/github/v/release/ezmesh/ezos?label=Download&style=for-the-badge)](../../releases/latest)
 

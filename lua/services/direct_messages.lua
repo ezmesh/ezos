@@ -194,6 +194,11 @@ local function do_save()
                 count = msg.count,
                 rssi = msg.rssi,
                 snr = msg.snr,
+                -- Preserve the protocol-carrier flag across reboots so
+                -- stamped SIGT entries stay hidden after restart; the
+                -- stamp itself only happens during an active test, so
+                -- this is just "don't lose what we already classified".
+                protocol = msg.protocol,
             }
         end
         data.conversations[key] = saved
@@ -338,8 +343,13 @@ local function try_decrypt_pending(id, pending, candidate_pub_key_hex)
         -- Marker so the UI can indicate this was a retroactive delivery.
         retroactive = true,
     }
+    classify_inbound_protocol(msg)
     store_message(candidate_pub_key_hex, msg)
-    unread[candidate_pub_key_hex] = (unread[candidate_pub_key_hex] or 0) + 1
+    -- Same protocol-message filter as the live RX path -- a SIGT ping
+    -- that decrypts retroactively shouldn't surface as an unread.
+    if not require("services.sharing").is_protocol_message(msg) then
+        unread[candidate_pub_key_hex] = (unread[candidate_pub_key_hex] or 0) + 1
+    end
 
     pending_ciphertexts[id] = nil
     pending_count = pending_count - 1
@@ -414,6 +424,21 @@ local function fold_signal(target, src)
     if src.hop_count then
         target.hops_min = math.min(target.hops_min or src.hop_count, src.hop_count)
         target.hops_max = math.max(target.hops_max or src.hop_count, src.hop_count)
+    end
+end
+
+-- Stamp `msg.protocol` if this looks like a known protocol carrier
+-- AND the originating service is currently active. The active-scope
+-- predicate is critical: it stops a peer from hand-typing a "SIGT
+-- URL" outside an active test and silently disappearing on the
+-- recipient. Today only signal_test consults this, but the helper is
+-- the natural seam for any future protocol DM (file-offer beacons,
+-- etc.) -- they'd plug into the same active-scope flow.
+local function classify_inbound_protocol(msg)
+    if msg.protocol then return end  -- already stamped (e.g. by sender)
+    local ok, sigt = pcall(require, "services.signal_test")
+    if ok and sigt.matches_protocol and sigt.matches_protocol(msg) then
+        msg.protocol = "sigt"
     end
 end
 
@@ -793,8 +818,17 @@ function dm.init()
                                     is_self = false,
                                 }
 
+                                classify_inbound_protocol(msg)
                                 store_message(candidate.pub_key_hex, msg)
-                                unread[candidate.pub_key_hex] = (unread[candidate.pub_key_hex] or 0) + 1
+                                -- Don't bump unread for protocol carriers
+                                -- (signal-test pingpong). The conversation
+                                -- index already filters them out of last_msg;
+                                -- bumping unread would make the message list
+                                -- show a phantom "1" badge for every ping
+                                -- during a test.
+                                if not require("services.sharing").is_protocol_message(msg) then
+                                    unread[candidate.pub_key_hex] = (unread[candidate.pub_key_hex] or 0) + 1
+                                end
                                 ez.bus.post("dm/message", msg)
 
                                 -- Receiving a DM proves the sender has our
@@ -956,7 +990,7 @@ function dm.init()
     ez.log("[DM] Service initialized")
 end
 
-function dm.send(pub_key_hex, text)
+function dm.send(pub_key_hex, text, opts)
     if not text or #text == 0 then return false end
     if #text > MAX_TEXT then text = text:sub(1, MAX_TEXT) end
     if not ez.mesh.is_initialized() then return false end
@@ -974,6 +1008,11 @@ function dm.send(pub_key_hex, text)
         timestamp   = ez.system.millis(),
         is_self     = true,
         status      = "pending",
+        -- `opts.protocol` stamps the outbound carrier (e.g. signal
+        -- tester pingpong). Stamping at the send seam means the chat
+        -- filters in sharing.is_protocol_message can rely on a real
+        -- intent signal instead of guessing from the text.
+        protocol    = opts and opts.protocol or nil,
     }
     local stored = store_message(pub_key_hex, msg)
     ez.bus.post("dm/message", msg)
@@ -1151,12 +1190,23 @@ function dm.get_pending_summary()
     return out
 end
 
--- Get list of conversations with last message info, sorted by recency
+-- Get list of conversations with last message info, sorted by recency.
+-- Signal-test pingpong DMs (sharing kind "sigt") are protocol traffic;
+-- they're skipped here so an active test doesn't yank the contact to
+-- the top of the chat list every ping cycle or replace the real last
+-- message with a "https://ezme.sh/#sigt/..." preview.
 function dm.get_conversations()
+    local sharing = require("services.sharing")
     local result = {}
     for key, msgs in pairs(conversations) do
-        if #msgs > 0 then
-            local last = msgs[#msgs]
+        local last
+        for i = #msgs, 1, -1 do
+            if not sharing.is_protocol_message(msgs[i]) then
+                last = msgs[i]
+                break
+            end
+        end
+        if last then
             local contact = contacts_svc.get(key)
             result[#result + 1] = {
                 pub_key_hex = key,
