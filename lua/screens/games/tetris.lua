@@ -631,7 +631,12 @@ function Game:build(_state)
                     { font = "tiny_aa", color = "TEXT_MUTED",
                       text_align = "center", wrap = true })
             ),
-            ui.padding({ 8, 20, 0, 20 },
+            ui.padding({ 2, 40, 2, 40 },
+                ui.button("Leaderboard", { on_press = function()
+                    ui.push_screen("$screens/games/tetris_leaderboard.lua")
+                end })
+            ),
+            ui.padding({ 6, 20, 0, 20 },
                 ui.text_widget(
                     "LEFT/RIGHT move | UP rotate | DOWN soft drop | SPACE hard drop | Q back",
                     { font = "tiny_aa", color = "TEXT_MUTED",
