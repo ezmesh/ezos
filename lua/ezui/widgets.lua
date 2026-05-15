@@ -487,6 +487,14 @@ node.register("text_input", {
                 n.value = val:sub(1, cursor - 1) .. val:sub(cursor + 1)
                 n._cursor = cursor - 1
                 if n.on_change then n.on_change(n.value) end
+                return "handled"
+            end
+            -- Empty input: let the caller treat this as "back / cancel"
+            -- so screens that auto-enter edit mode still have a keyboard
+            -- exit path (the T-Deck has no Esc key).
+            if n.on_empty_backspace then
+                local r = n.on_empty_backspace()
+                if r then return r end
             end
             return "handled"
         elseif key.special == "DELETE" then

@@ -322,6 +322,13 @@ function Search:build(state)
                 state.query = val
                 state.last_input_ms = ez.system.millis()
             end,
+            -- BACKSPACE on an empty query pops the screen, so a user
+            -- on a T-Deck (no Esc key) has a keyboard back-path out of
+            -- this auto-edit-mode screen. See on_enter -> enter_edit().
+            on_empty_backspace = function()
+                screen_mod.pop()
+                return "handled"
+            end,
         }))
 
     local body = {}
