@@ -35,3 +35,41 @@ repaints tiles in the same frame -- no archive reload required.
 A `.tdmap` archive bakes one rasterization. To show a different layer
 mix (e.g. without buildings), generate a new archive with a different
 config and pick it from the loader.
+
+## Broadcast home location
+
+Other nodes can see a coarse location for your device on their own
+maps and in the Network screen, but only if you tell ezOS what point
+to publish. There is no live GPS broadcast and no automatic update --
+the value is a deliberate "approximately me" coordinate that you
+author once.
+
+To set it: open Map, pan with the trackball / arrow keys so the
+centre of the screen sits on the point you want to publish, then
+press Alt+M and pick "Set as broadcast home". Alt+M -> "Clear
+broadcast home" removes it.
+
+What gets broadcast:
+
+- The exact coordinate you chose, every time your device sends an
+  ADVERT. No randomization, no fuzz radius, no live updates from GPS.
+- The location bit is added to the ADVERT app_data (MeshCore
+  protocol). Anyone receiving your ADVERT sees this coordinate in
+  cleartext.
+
+Privacy guidance:
+
+- Pick a point that is **deliberately approximate**. Your town
+  centre, a nearby park, or any landmark a few hundred metres from
+  where you actually are. Not your home, not your office.
+- The broadcast home only controls what you **announce**. A
+  determined adversary with multiple LoRa receivers can still
+  triangulate your real transmitter position from signal strength
+  regardless of what this field says.
+- For sharing your precise current location with a specific contact,
+  use a share-location card from the chat compose menu instead --
+  that goes encrypted, point-to-point, and is opt-in per recipient.
+
+The setting persists across reboots. There is no on-map indicator of
+the current broadcast home (yet); re-set it the same way to change
+it.
