@@ -322,6 +322,27 @@ LUA_FUNCTION(l_keyboard_set_trackball_mode) {
     return 0;
 }
 
+// @lua ez.keyboard.get_last_trackball_ms() -> integer
+// @brief Get millis() of the most recent trackball event
+// @description Returns the C++ millis() timestamp of the last UP / DOWN /
+// LEFT / RIGHT or click event produced by the trackball. 0 if the
+// trackball has not fired since boot. The touch bridge uses this to
+// apply a brief deadzone at the bottom of the screen while the
+// trackball is in active use -- the ball sits right under the
+// touchscreen, and a finger sliding off the ball lands on the panel
+// as a spurious touch/down.
+// @return millis() of the last trackball event, or 0 if none yet
+// @example
+// local since = ez.system.millis() - ez.keyboard.get_last_trackball_ms()
+// if since < 1500 then -- trackball was just active
+// end
+// @end
+LUA_FUNCTION(l_keyboard_get_last_trackball_ms) {
+    uint32_t ms = keyboard ? keyboard->getLastTrackballMs() : 0;
+    lua_pushinteger(L, (lua_Integer)ms);
+    return 1;
+}
+
 // @lua ez.keyboard.get_backlight() -> integer
 // @brief Get current keyboard backlight level
 // @description Returns the current keyboard backlight brightness. The T-Deck has
@@ -689,6 +710,7 @@ static const luaL_Reg keyboard_funcs[] = {
     {"set_trackball_sensitivity", l_keyboard_set_trackball_sensitivity},
     {"get_trackball_mode",       l_keyboard_get_trackball_mode},
     {"set_trackball_mode",       l_keyboard_set_trackball_mode},
+    {"get_last_trackball_ms",    l_keyboard_get_last_trackball_ms},
     {"get_backlight",            l_keyboard_get_backlight},
     {"set_backlight",            l_keyboard_set_backlight},
     {"get_repeat_enabled",       l_keyboard_get_repeat_enabled},
