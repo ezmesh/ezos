@@ -63,7 +63,12 @@ function PowerSettings:build(state)
                 power.set_always_normal(v)
                 self:set_state({
                     always_normal = v,
-                    force_surv = v and false or state.force_surv,
+                    -- `v and false or state.force_surv` would always
+                    -- return state.force_surv (Lua: v and false == false,
+                    -- false or x == x). Use `not v and state.force_surv`
+                    -- so flipping Always Normal on clears the visual
+                    -- state of the mutually-exclusive Force Survival.
+                    force_surv = not v and state.force_surv,
                 })
             end,
         })
@@ -83,7 +88,7 @@ function PowerSettings:build(state)
                 power.set_force_survival(v)
                 self:set_state({
                     force_surv = v,
-                    always_normal = v and false or state.always_normal,
+                    always_normal = not v and state.always_normal,
                 })
             end,
         })

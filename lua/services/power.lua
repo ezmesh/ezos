@@ -189,10 +189,17 @@ local function describe(mode)
     return nil
 end
 
-local function notify_transition(new_mode)
+local function notify_transition(new_mode, charging)
     if new_mode == "normal" then
         -- Don't toast on the way back to normal; the user already
         -- knows they plugged in or charged up.
+        return
+    end
+    if charging then
+        -- Charging-induced step-up (e.g. survival -> frugal because
+        -- the user plugged in). The "Battery low" framing would be
+        -- misleading right after a plug-in, and the next 30 s tick
+        -- will step us up to normal anyway.
         return
     end
     local ok, notifications = pcall(require, "services.notifications")
@@ -207,11 +214,11 @@ local function notify_transition(new_mode)
     })
 end
 
-local function transition_to(new_mode)
+local function transition_to(new_mode, charging)
     if new_mode == _mode then return end
     _mode = new_mode
     apply(new_mode)
-    notify_transition(new_mode)
+    notify_transition(new_mode, charging)
     if ez and ez.bus and ez.bus.post then
         ez.bus.post("power/mode_changed", { mode = new_mode })
     end
@@ -225,7 +232,7 @@ function power.evaluate()
     local pct = read_battery()
     local chg = is_charging()
     local next_mode = decide(pct, chg, _mode)
-    transition_to(next_mode)
+    transition_to(next_mode, chg)
 end
 
 function power.current_mode()
