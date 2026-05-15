@@ -7,6 +7,7 @@ local screen_mod  = require("ezui.screen")
 local map_archive = require("services.map_archive")
 local map_view    = require("ezui.widgets.map_view").map_view
 local gps_svc     = require("services.gps")
+local gps_track   = require("services.gps_track")
 local contacts    = require("services.contacts")
 
 -- Peer visibility prefs. Defaults intentionally favour "show nearby
@@ -141,9 +142,18 @@ function Map:on_exit()
 end
 
 -- Called from screen.update() each frame. Cheap on non-follow frames; when
--- follow_gps is on, pulls the latest fix and recenters the map.
+-- follow_gps is on, pulls the latest fix and recenters the map. While a
+-- track recording session is active we invalidate every ~1 s so the live
+-- polyline tail extends in step with the recorder's sampling cadence.
 function Map:update()
     local s = self._state
+    if gps_track.is_active() then
+        local now = ez.system.millis()
+        if (now - (self._last_track_tick or 0)) > 1000 then
+            self._last_track_tick = now
+            screen_mod.invalidate()
+        end
+    end
     if not (s.follow_gps and s.archive) then return end
     local loc = gps_svc.get_location()
     if not (loc and loc.valid) then return end
@@ -325,6 +335,58 @@ function Map:menu()
             end,
         }
     end
+
+    -- ---- Track recording (issue #108) ----
+    if gps_track.is_active() then
+        items[#items + 1] = {
+            title    = "Stop recording route",
+            subtitle = "Finalise and save the current track",
+            on_press = function()
+                local info = gps_track.stop()
+                if info then
+                    notifications.post({
+                        title = "Track saved",
+                        body  = (info.label or "track")
+                            .. "  (" .. tostring(#(info.points or {})) .. " points)",
+                        source = "system",
+                    })
+                    -- Force a rebuild so the status strip drops the REC badge.
+                    self:set_state({})
+                end
+            end,
+        }
+    else
+        items[#items + 1] = {
+            title    = "Start recording route",
+            subtitle = "Append every fix to /sd/tracks/...eztrack",
+            on_press = function()
+                local ok, err = gps_track.start({})
+                if not ok then
+                    notifications.post({
+                        title = "Cannot start recording",
+                        body  = err or "unknown error",
+                        source = "system",
+                    })
+                    return
+                end
+                notifications.post({
+                    title = "Recording started",
+                    body  = "Stop via Alt+M when done.",
+                    source = "system",
+                })
+                self:set_state({})
+            end,
+        }
+    end
+
+    items[#items + 1] = {
+        title    = "Open saved track...",
+        subtitle = "Browse and open previous recordings",
+        on_press = function()
+            local Viewer = require("screens.tools.track_viewer")
+            screen_mod.push(screen_mod.create(Viewer, Viewer.initial_state()))
+        end,
+    }
 
     -- Share the current map center (the crosshair) as an ezme.sh
     -- location share. The DM variant encrypts to the recipient; the
@@ -581,6 +643,46 @@ local function make_peers_overlay()
     end
 end
 
+-- Polyline overlay used for both the live in-progress recording and the
+-- "Open saved track" preview from track_viewer. `pts` is an array of
+-- { lat, lon } in chronological order. Draws line segments in the theme
+-- accent colour with a small dot at the head (most recent point) so the
+-- user can tell direction at a glance.
+local function make_track_overlay(pts, opts)
+    opts = opts or {}
+    local accent_token = opts.color_token or "ACCENT"
+    return function(d, x, y, w, h, project)
+        if not pts or #pts < 1 then return end
+        local ink = theme.color(accent_token)
+        local halo = theme.color("BG")
+        -- Track previous projected coord so we draw a single segment per
+        -- pair. project() returns nil for out-of-archive lookups, in which
+        -- case we restart the segment.
+        local prev_px, prev_py
+        for i, p in ipairs(pts) do
+            local px, py = project(p.lat, p.lon)
+            if not (px and py) then
+                prev_px, prev_py = nil, nil
+            else
+                if prev_px then
+                    -- Clip is cheap relative to redraw, so just draw and
+                    -- let the framebuffer ignore off-screen pixels. The
+                    -- overlay runs once per frame.
+                    d.draw_line(math.floor(prev_px), math.floor(prev_py),
+                                math.floor(px), math.floor(py), ink)
+                end
+                prev_px, prev_py = px, py
+            end
+            -- Head dot
+            if i == #pts and px and py then
+                local ix, iy = math.floor(px), math.floor(py)
+                d.fill_circle(ix, iy, 3, ink)
+                d.draw_circle(ix, iy, 4, halo)
+            end
+        end
+    end
+end
+
 -- GPS overlay: user-position dot when visible, edge arrow when off-screen.
 -- Nothing if GPS is disabled in settings or no fix is available.
 local function make_gps_overlay()
@@ -645,12 +747,16 @@ function Map:build(state)
         })
     end
 
-    -- Status strip: coords, zoom, and GPS follow indicator.
+    -- Status strip: coords, zoom, and GPS follow indicator. The REC
+    -- badge appears whenever a track recording session is active so
+    -- the user has constant visual confirmation -- compensates for
+    -- not having a global indicator outside the map screen.
     local segments = {
         string.format("%.4f,%.4f", state.center_lat or 0, state.center_lon or 0),
         "Z" .. tostring(state.zoom or 0),
     }
     if state.follow_gps then segments[#segments + 1] = "GPS" end
+    if gps_track.is_active() then segments[#segments + 1] = "REC" end
 
     local mv_node = map_view({
         grow        = 1,
@@ -660,12 +766,25 @@ function Map:build(state)
         zoom        = state.zoom,
         show_labels = state.show_labels,
         overlay_fn  = (function()
-            -- Peers paint first, GPS dot on top so the user's own
-            -- position is never occluded by a colocated peer pin.
+            -- Peers paint first, then any track polyline (saved or
+            -- in-progress), then the GPS dot on top so the user's
+            -- own position is never occluded by a colocated peer
+            -- pin or by the track head dot.
             local peers_fn = make_peers_overlay()
             local gps_fn   = make_gps_overlay()
+            -- state.track_overlay is set by track_viewer; the live
+            -- in-progress polyline is read fresh every frame via
+            -- gps_track.live_points() so newly captured points
+            -- appear without a state rebuild.
+            local viewer_pts = state.track_overlay
+            local viewer_fn  = viewer_pts and make_track_overlay(viewer_pts) or nil
             return function(d, x, y, w, h, project)
                 peers_fn(d, x, y, w, h, project)
+                if viewer_fn then viewer_fn(d, x, y, w, h, project) end
+                local live_pts = gps_track.live_points()
+                if live_pts and #live_pts > 0 then
+                    make_track_overlay(live_pts)(d, x, y, w, h, project)
+                end
                 gps_fn(d, x, y, w, h, project)
             end
         end)(),

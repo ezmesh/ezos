@@ -74,6 +74,22 @@ isolates you from the rest of the network.
 Enable / disable the GPS receiver. When off, the location services
 do not poll the chip and the chip can sleep.
 
+### Track recording
+
+Controls the sampling rule the track recorder uses. The recorder
+itself is started and stopped from the Map screen (Alt+M -> Record
+track / Stop track); this panel only decides when a new point is
+written to the `.eztrack` file.
+
+- Min interval: minimum seconds between recorded points. Choices:
+  1, 2, 5 (default), 10, 30 seconds.
+- Min distance: minimum metres from the previous recorded point.
+  Choices: Off, 2, 5 (default), 10, 25 metres.
+
+A point is recorded only when BOTH thresholds clear. Tighter rules
+grow the file faster; looser rules can lose corners on a winding
+track.
+
 ## Time
 
 Set the system clock. GPS supplies time when a fix is available.
@@ -85,6 +101,19 @@ Device-level operations.
 - Repeat onboarding: re-runs the first-run wizard from the welcome
   screen. The flow over-writes prefs idempotently, so it's safe to
   rerun on an already-onboarded device.
+
+## Security
+
+Encrypts the Ed25519 identity private key at rest behind a user
+passphrase. By default the key is stored in plaintext NVS and anyone
+with USB / serial access can read it. Enabling encryption wraps the
+private key with PBKDF2-SHA256 + AES-256-GCM keyed off your
+passphrase; the wrapped blob is asked for at every subsequent boot.
+
+There is no recovery if you forget the passphrase. See the dedicated
+Security page (Settings -- Security on the device, or
+`settings/security.md` in the manual) for the full set / change /
+remove ceremonies and the trust model notes.
 
 ## Firmware
 

@@ -20,6 +20,8 @@
 #include "mbedtls/sha256.h"
 #include "mbedtls/sha512.h"
 #include "mbedtls/base64.h"
+#include "mbedtls/pkcs5.h"
+#include "mbedtls/gcm.h"
 
 // Ed25519 from rweather/Crypto -- already linked for MeshCore identity.
 #include <Ed25519.h>
@@ -650,6 +652,257 @@ static int l_crypto_ed25519_verify(lua_State* L) {
     return 1;
 }
 
+// @lua ez.crypto.pbkdf2_sha256(password, salt, iterations, length) -> string
+// @brief PBKDF2 key derivation with HMAC-SHA256
+// @description Derives a key from a passphrase using PBKDF2 with HMAC-SHA256
+// as the underlying PRF. Used to wrap the identity private key behind a user
+// passphrase (issue #118). Iteration count is picked at the call site to
+// trade unlock latency against brute-force resistance -- on the ESP32-S3,
+// 100,000 iterations is ~1 s. Salt should be at least 16 random bytes.
+// @param password Passphrase (any length, treated as UTF-8 bytes)
+// @param salt Per-key random salt (>= 1 byte; recommended 16-32 bytes)
+// @param iterations PBKDF2 iteration count (>= 1)
+// @param length Output key length in bytes (1..512)
+// @return Derived key as binary string, or nil and error on failure
+// @example
+// local salt = ez.crypto.random_bytes(16)
+// local kek = ez.crypto.pbkdf2_sha256("hunter2", salt, 100000, 32)
+// @end
+LUA_FUNCTION(l_crypto_pbkdf2_sha256) {
+    LUA_CHECK_ARGC(L, 4);
+
+    size_t pwLen, saltLen;
+    const char* password = luaL_checklstring(L, 1, &pwLen);
+    const char* salt     = luaL_checklstring(L, 2, &saltLen);
+    int iterations       = luaL_checkinteger(L, 3);
+    int length           = luaL_checkinteger(L, 4);
+
+    if (iterations < 1) {
+        lua_pushnil(L);
+        lua_pushstring(L, "iterations must be >= 1");
+        return 2;
+    }
+    if (length < 1 || length > 512) {
+        lua_pushnil(L);
+        lua_pushstring(L, "length must be 1..512");
+        return 2;
+    }
+    if (saltLen < 1) {
+        lua_pushnil(L);
+        lua_pushstring(L, "salt must be non-empty");
+        return 2;
+    }
+
+    uint8_t* out = new uint8_t[length];
+
+    const mbedtls_md_info_t* md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    if (!md_info) {
+        delete[] out;
+        lua_pushnil(L);
+        lua_pushstring(L, "SHA-256 MD info missing");
+        return 2;
+    }
+
+    mbedtls_md_context_t ctx;
+    mbedtls_md_init(&ctx);
+    int ret = mbedtls_md_setup(&ctx, md_info, 1);
+    if (ret != 0) {
+        mbedtls_md_free(&ctx);
+        delete[] out;
+        lua_pushnil(L);
+        lua_pushstring(L, "md_setup failed");
+        return 2;
+    }
+
+    ret = mbedtls_pkcs5_pbkdf2_hmac(&ctx,
+        reinterpret_cast<const unsigned char*>(password), pwLen,
+        reinterpret_cast<const unsigned char*>(salt),     saltLen,
+        static_cast<unsigned int>(iterations),
+        static_cast<uint32_t>(length),
+        out);
+    mbedtls_md_free(&ctx);
+
+    if (ret != 0) {
+        delete[] out;
+        lua_pushnil(L);
+        lua_pushstring(L, "pbkdf2 failed");
+        return 2;
+    }
+
+    lua_pushlstring(L, reinterpret_cast<char*>(out), length);
+    // Best-effort scrub of the derived key from this transient buffer
+    // so a heap snapshot taken right after the call doesn't expose it.
+    memset(out, 0, length);
+    delete[] out;
+    return 1;
+}
+
+// @lua ez.crypto.aes_gcm_encrypt(key, nonce, plaintext [, aad]) -> string
+// @brief Encrypt with AES-GCM (authenticated)
+// @description Encrypts and authenticates `plaintext` with AES-GCM using the
+// given `key` (16, 24, or 32 bytes -> AES-128/192/256) and `nonce` (1..16
+// bytes; 12 bytes is the recommended default). Optional `aad` is associated
+// data covered by the auth tag but not encrypted. Returns ciphertext || tag
+// where the 16-byte tag is appended at the end. Nonces MUST be unique per
+// key -- prefer a fresh random nonce for each encryption.
+// @param key 16/24/32 bytes
+// @param nonce 1..16 bytes (12 recommended)
+// @param plaintext Bytes to encrypt
+// @param aad Optional associated data (default empty)
+// @return Ciphertext + 16-byte tag, or nil + error
+// @example
+// local key = ez.crypto.pbkdf2_sha256(pass, salt, 100000, 32)
+// local nonce = ez.crypto.random_bytes(12)
+// local ct = ez.crypto.aes_gcm_encrypt(key, nonce, "secret")
+// @end
+LUA_FUNCTION(l_crypto_aes_gcm_encrypt) {
+    int argc = lua_gettop(L);
+    if (argc < 3 || argc > 4) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected 3 or 4 args (key, nonce, plaintext [, aad])");
+        return 2;
+    }
+
+    size_t keyLen, nonceLen, ptLen, aadLen = 0;
+    const char* key    = luaL_checklstring(L, 1, &keyLen);
+    const char* nonce  = luaL_checklstring(L, 2, &nonceLen);
+    const char* pt     = luaL_checklstring(L, 3, &ptLen);
+    const char* aad    = nullptr;
+    if (argc == 4 && !lua_isnil(L, 4)) {
+        aad = luaL_checklstring(L, 4, &aadLen);
+    }
+
+    if (keyLen != 16 && keyLen != 24 && keyLen != 32) {
+        lua_pushnil(L);
+        lua_pushstring(L, "key must be 16/24/32 bytes");
+        return 2;
+    }
+    if (nonceLen < 1 || nonceLen > 16) {
+        lua_pushnil(L);
+        lua_pushstring(L, "nonce must be 1..16 bytes");
+        return 2;
+    }
+
+    mbedtls_gcm_context gcm;
+    mbedtls_gcm_init(&gcm);
+    int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES,
+                                 reinterpret_cast<const unsigned char*>(key),
+                                 static_cast<unsigned int>(keyLen) * 8);
+    if (ret != 0) {
+        mbedtls_gcm_free(&gcm);
+        lua_pushnil(L);
+        lua_pushstring(L, "gcm_setkey failed");
+        return 2;
+    }
+
+    size_t outLen = ptLen + 16;   // ciphertext || tag
+    uint8_t* out = new uint8_t[outLen];
+
+    ret = mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT,
+        ptLen,
+        reinterpret_cast<const unsigned char*>(nonce), nonceLen,
+        reinterpret_cast<const unsigned char*>(aad),   aadLen,
+        reinterpret_cast<const unsigned char*>(pt),
+        out,
+        16, out + ptLen);
+    mbedtls_gcm_free(&gcm);
+
+    if (ret != 0) {
+        memset(out, 0, outLen);
+        delete[] out;
+        lua_pushnil(L);
+        lua_pushstring(L, "gcm encrypt failed");
+        return 2;
+    }
+
+    lua_pushlstring(L, reinterpret_cast<char*>(out), outLen);
+    memset(out, 0, outLen);
+    delete[] out;
+    return 1;
+}
+
+// @lua ez.crypto.aes_gcm_decrypt(key, nonce, ciphertext_and_tag [, aad]) -> string
+// @brief Decrypt + verify AES-GCM
+// @description Inverse of aes_gcm_encrypt. The input is ciphertext || 16-byte
+// tag concatenated; the tag is verified before any plaintext is returned. On
+// auth failure returns nil (no error message -- avoid leaking which key /
+// nonce / tag combination failed via timing). The `aad` must match the value
+// passed at encryption or auth will fail.
+// @param key 16/24/32 bytes
+// @param nonce 1..16 bytes
+// @param ciphertext_and_tag Output of aes_gcm_encrypt (ct || 16-byte tag)
+// @param aad Optional associated data (default empty)
+// @return Plaintext, or nil on auth failure / malformed input
+// @example
+// local pt = ez.crypto.aes_gcm_decrypt(key, nonce, ct)
+// if not pt then error("unlock failed") end
+// @end
+LUA_FUNCTION(l_crypto_aes_gcm_decrypt) {
+    int argc = lua_gettop(L);
+    if (argc < 3 || argc > 4) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    size_t keyLen, nonceLen, ctLen, aadLen = 0;
+    const char* key   = luaL_checklstring(L, 1, &keyLen);
+    const char* nonce = luaL_checklstring(L, 2, &nonceLen);
+    const char* ct    = luaL_checklstring(L, 3, &ctLen);
+    const char* aad   = nullptr;
+    if (argc == 4 && !lua_isnil(L, 4)) {
+        aad = luaL_checklstring(L, 4, &aadLen);
+    }
+
+    if (keyLen != 16 && keyLen != 24 && keyLen != 32) {
+        lua_pushnil(L);
+        return 1;
+    }
+    if (nonceLen < 1 || nonceLen > 16) {
+        lua_pushnil(L);
+        return 1;
+    }
+    if (ctLen < 16) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    size_t ptLen = ctLen - 16;
+    const uint8_t* tag = reinterpret_cast<const uint8_t*>(ct) + ptLen;
+
+    mbedtls_gcm_context gcm;
+    mbedtls_gcm_init(&gcm);
+    int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES,
+                                 reinterpret_cast<const unsigned char*>(key),
+                                 static_cast<unsigned int>(keyLen) * 8);
+    if (ret != 0) {
+        mbedtls_gcm_free(&gcm);
+        lua_pushnil(L);
+        return 1;
+    }
+
+    uint8_t* out = new uint8_t[ptLen ? ptLen : 1];
+    ret = mbedtls_gcm_auth_decrypt(&gcm,
+        ptLen,
+        reinterpret_cast<const unsigned char*>(nonce), nonceLen,
+        reinterpret_cast<const unsigned char*>(aad),   aadLen,
+        tag, 16,
+        reinterpret_cast<const unsigned char*>(ct),
+        out);
+    mbedtls_gcm_free(&gcm);
+
+    if (ret != 0) {
+        memset(out, 0, ptLen ? ptLen : 1);
+        delete[] out;
+        lua_pushnil(L);
+        return 1;
+    }
+
+    lua_pushlstring(L, reinterpret_cast<char*>(out), ptLen);
+    memset(out, 0, ptLen ? ptLen : 1);
+    delete[] out;
+    return 1;
+}
+
 // Function table for ez.crypto
 static const luaL_Reg crypto_funcs[] = {
     {"sha256",              l_crypto_sha256},
@@ -657,6 +910,9 @@ static const luaL_Reg crypto_funcs[] = {
     {"hmac_sha256",         l_crypto_hmac_sha256},
     {"aes128_ecb_encrypt",  l_crypto_aes128_ecb_encrypt},
     {"aes128_ecb_decrypt",  l_crypto_aes128_ecb_decrypt},
+    {"aes_gcm_encrypt",     l_crypto_aes_gcm_encrypt},
+    {"aes_gcm_decrypt",     l_crypto_aes_gcm_decrypt},
+    {"pbkdf2_sha256",       l_crypto_pbkdf2_sha256},
     {"random_bytes",        l_crypto_random_bytes},
     {"random_int",          l_crypto_random_int},
     {"channel_hash",        l_crypto_channel_hash},

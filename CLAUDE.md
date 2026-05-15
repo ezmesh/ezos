@@ -230,7 +230,14 @@ Services init in order in `lua/boot.lua`:
 12. **apps** -- file-type → screen handler registry (used by file manager)
 13. **gps** -- `start_sync_loop()` always called; loop respects the
     "never / at boot / hourly" pref and no-ops when GPS is disabled
-14. **power** -- 30 s battery poll that transitions between Normal /
+14. **gps_track** -- boot-time `reap_unfinalised()` that flips the
+    `FLAG_CLOSED` bit on any `.eztrack` session left open by a power
+    loss / hard reset, so the viewer doesn't keep showing
+    `(in progress)` forever. The recorder itself is started/stopped
+    from the Map screen on demand; only the reaper is wired here.
+    See the GPS track recordings section below for the on-disk
+    format.
+15. **power** -- 30 s battery poll that transitions between Normal /
     Frugal / Survival tiers with hysteresis. Other services (`gps`,
     `ntp`, `custom_packets`) consult `power.gps_sync_allowed()` /
     `power.ntp_allowed()` / `power.allow_non_dm()` predicates rather
@@ -858,6 +865,30 @@ Source-of-truth split:
 - Keypairs in NVS (`privkey`, `pubkey`).
 - Node ID = first 6 bytes of SHA-256(pubkey).
 - Sign/verify for message authentication.
+- **Encrypted at rest (optional, issue #118):** if NVS key `id_wrap`
+  exists, the plaintext `privkey` is absent and `Identity::init()`
+  enters the `_locked` state. C++ loads the public key + node name
+  but `_hasKeypair=false` so any sign / send_announce / shared-secret
+  call refuses cleanly. Lua boot detects the state via
+  `ez.identity.is_locked()` and pushes
+  `screens/onboarding/passphrase.lua` over the desktop; on a correct
+  passphrase, `services/identity_lock.unlock()` decrypts the wrapped
+  blob (PBKDF2-SHA256 KEK + AES-256-GCM AEAD, pubkey in AAD) and
+  calls `ez.identity.unlock(priv, pub, name)` to feed the keys in.
+  After unlock, mesh signing works again with no service restart.
+- **Wrap format** (`id_wrap` blob, owned by Lua): `[magic:4 "EZL1"]
+  [version:1][kdf:1][iters:4 LE][salt_len:1][salt][nonce_len:1]
+  [nonce][ct_len:2 LE][ct]`. Ciphertext is ct || 16-byte GCM tag.
+- **Two-phase wrap commit:** wrap writes `id_wrap` first, then
+  deletes plain `privkey`. Power loss between the two leaves both
+  present; `Identity::init()` detects the inconsistent state and
+  rolls back by deleting `id_wrap`, so the next boot is unwrapped
+  on the original key.
+- **Trapdoor:** `Identity::getPrivateKeyForWrap()` (used by
+  `ez.identity.get_privkey_for_wrap`) refuses to return the
+  plaintext private key when a wrapped blob already exists. This is
+  what prevents a wrapped device's terminal from exposing the
+  cleartext key once unlock has happened in RAM.
 
 ### Channels
 - Default `#Public`, joined automatically at startup.
@@ -920,6 +951,48 @@ Source-of-truth split:
   blobs or older-firmware saves can't poison `draw_text` callers.
   Live ADVERT names still flow unsanitized through `updateNode()`;
   fixing that seam is out of scope.
+
+### GPS track recordings (`.eztrack` v1)
+
+The GPS recorder (`lua/services/gps_track.lua`) writes one
+`.eztrack` file per session under `/sd/tracks/`. Header is
+13 bytes + variable-length label; payload is a stream of 13-byte
+fixed records. All multi-byte integers are little-endian.
+
+- Path: `/sd/tracks/<start_unix>-<ascii_slug>.eztrack`. The slug
+  comes from the user-supplied label, sanitized to `[A-Za-z0-9_-]`
+  and capped at 24 chars.
+- Header: `[magic:6 "EZTRK1"][flags:1][reserved:1][start_unix:4 LE]
+  [label_len:1][label:label_len]`. `flags` is currently a single
+  bit: `FLAG_CLOSED = 0x01`, flipped from 0 to 1 by `stop()` /
+  `finalise_on_disk()` once the session ends. Files with the bit
+  still clear are surfaced as `(in progress)` in the viewer.
+- Record: `[ts_delta_u16 LE][lat_e6 i32 LE][lon_e6 i32 LE]
+  [alt_m i16 LE][hdop_t u8]` = 13 bytes each. `ts_delta` is seconds
+  since the header's `start_unix`, clamped to `[0, 0xFFFF]` (~18 h
+  per session; longer recordings would saturate but no overflow).
+  `lat_e6` / `lon_e6` are decimal degrees * 1e6, same encoding the
+  MeshCore ADVERT uses. `hdop_t` is HDOP * 10, clamped to
+  `[0, 255]`.
+- In-memory ring: `state.points` keeps the last 1024 points for the
+  live overlay only. The on-disk file is the source of truth across
+  reboots and is always appended to, never rewritten.
+- Sampling: gated by user-tunable `trk_interval` (min seconds
+  between records) and `trk_distance` (min meters from the previous
+  point); defaults 5 s / 5 m. Set via the GPS settings panel.
+- Sentinel close: `stop()` patches the flags byte at offset 6 to
+  `FLAG_CLOSED` via the `ez.storage.write_at` binding, which seeks
+  + writes without reading the file, so the close path is not
+  bound by `read_file`'s 1 MB cap. A read-rewrite fallback is kept
+  for firmware predating the binding. Reaper on boot retries
+  failed closes either way.
+- ASCII boundary: header label is sanitized at read time (`?` for
+  any byte outside `0x20..0x7E`), same policy as the Node Store.
+
+`MAGIC` / `FLAG_CLOSED` / the in-memory cap are defined at the top
+of `lua/services/gps_track.lua`. Bump the magic suffix (e.g.
+`EZTRK2`) in lockstep with any wire-format change so older firmware
+loading a newer file fails fast on the magic check.
 
 ## MeshCore protocol reference
 
