@@ -13,8 +13,9 @@ The on-device keyboard has:
 - two black side keys (mic / speaker)
 - trackball (UP/DOWN/LEFT/RIGHT/ENTER from click)
 
-No Ctrl, no Esc, no Tab, no function keys, no number row. Numbers and
-most punctuation only arrive via `alt+letter` chords.
+No Ctrl, no Esc, no Tab, no function keys, no number row. The `0` key
+is a dedicated physical key on Row 4; digits 1-9 and most punctuation
+only arrive via `alt+letter` chords.
 
 Scope of this pass: bindings that block a user-reachable action on the
 T-Deck. Remote-tool-only synonyms (e.g. ESCAPE alongside BACKSPACE,
@@ -23,8 +24,8 @@ Ctrl in dev-only paths) are not findings.
 ## Summary of findings
 
 - **0 instances of `key.ctrl`** in Lua. No work needed there.
-- **6 `ESCAPE`-only files** -- 5 of them also accept `q` so the user
-  has a reachable exit. 1 (`map_loader.lua`) has a usable `q`.
+- **6 `ESCAPE`-only files** -- all 6 also accept `q`, so the user
+  has a reachable exit; no functional fix needed for any of them.
 - **1 user-visible hint mentions "Esc"** (`solitaire.lua:607`).
 - **2 user-visible help screens binding bare digits** without
   documenting the alt-chord (`wasteland.lua:2343`, `sudoku.lua` --
@@ -56,9 +57,9 @@ must say so.
 - `lua/screens/games/sudoku.lua:268,274` -- the entire gameplay is
   digit entry into the grid. Sudoku without digits doesn't really
   work; the alt-chord requirement should be called out on-screen.
-  - **Suggested fix:** show a one-line hint (`alt+1..9 fill, alt+0
-    clear`) on the sudoku screen, similar to wasteland's help
-    layout.
+  - **Suggested fix:** show a one-line hint (`alt+1..9 fill, 0/Back
+    clear`) on the sudoku screen. `0` is the dedicated Row 4 key (no
+    alt chord needed); BACKSPACE already clears via the handler at line 274.
 
 ## TAB used as primary input, no on-device fallback
 
@@ -109,17 +110,16 @@ text field) and reference keys the on-device user cannot press
 directly.
 
 - `lua/screens/games/solitaire.lua:607` -- hint reads
-  `"Enter:place  Esc:cancel"`. **Esc is unreachable.**
-  - **Suggested fix:** change to `"Enter:place  Back:cancel"`. The
-    handler at line 686 already handles BACKSPACE via `ESCAPE`'s
-    fall-through being absent -- actually, re-check: at line 685-692,
-    BACKSPACE is NOT handled in this handler. Cancelling the
-    selection on-device requires pressing `q`, which is also not
-    documented in the hint. Either:
-      1. Add `BACKSPACE` handling alongside `ESCAPE` at line 686-692
-         (cleanest), and update hint to `"Enter:place  Back:cancel"`.
-      2. Update hint to `"Enter:place  Q:cancel"` and live with the
-         remote-only ESC.
+  `"Enter:place  Esc:cancel"`. **Esc is unreachable, and `q` is not
+  a substitute.** At lines 685-692, `q` returns `"pop"`
+  unconditionally (it quits the game); only the `ESCAPE` branch does
+  the conditional cancel-or-pop, and `ESCAPE` is unreachable
+  on-device. So on-device there is currently **no way to cancel a
+  selection** -- the user can only quit.
+  - **Suggested fix:** add `BACKSPACE` handling alongside `ESCAPE`
+    at line 686-692 (same conditional cancel-or-pop behaviour), and
+    update the hint to `"Enter:place  Back:cancel"`. A `"Q:cancel"`
+    hint would be actively misleading because `q` does not cancel.
 
 - `lua/screens/games/wasteland.lua:2343` -- help line
   `"1/2/3/4/5 Weapon slot"`. Reachable only via alt+chord on
@@ -146,7 +146,7 @@ should be cleaned up during any future touch of the file:
 - `lua/screens/tools/image_viewer.lua:2` -- header says
   "q/ESC quits". Misleading; handler also accepts BACKSPACE
   (line 168) which is the actual on-device exit. Suggest:
-  `"Arrows pan, z/x zoom in/out, r resets, Back/q quits"`.
+  `"Arrows pan, z/x zoom in/out, r resets, Back quits"`.
 - `lua/screens/onboarding/welcome.lua:3` -- "BACKSPACE/ESC are
   deliberately ignored" -- accurate.
 - `lua/screens/games/shooter.lua:1789` -- "ESC / BACKSPACE / Q
