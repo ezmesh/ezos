@@ -174,14 +174,18 @@ local function boot_sequence()
     local log_persist = require("services.log_persist")
     log_persist.init()
 
+    if ez.bench and ez.bench.mark then ez.bench.mark("svc_log_persist") end
+
     local contacts_svc = require("services.contacts")
     contacts_svc.init()
+    if ez.bench and ez.bench.mark then ez.bench.mark("svc_contacts") end
 
     local channels_svc = require("services.channels")
     channels_svc.init()
 
     local dm_svc = require("services.direct_messages")
     dm_svc.init()
+    if ez.bench and ez.bench.mark then ez.bench.mark("svc_dm") end
 
     -- Sharing: encode/decode for ezme.sh share URLs that ride inside
     -- DM bubbles (contact pubkeys, channel-invite tokens). Must come
@@ -466,18 +470,22 @@ local function boot_sequence()
         if not name then return end
         local mode = channels_svc.get_notify_mode(name)
         if mode == "none" then return end
-        if mode == "mentions" then
-            local my = ez.mesh and ez.mesh.get_node_name and ez.mesh.get_node_name()
-            if not my or my == "" then return end
-            local hit = msg.text and msg.text:lower():find(my:lower(), 1, true)
-            if not hit then return end
+        local my = ez.mesh and ez.mesh.get_node_name and ez.mesh.get_node_name()
+        local is_mention = false
+        if my and my ~= "" and msg.text then
+            is_mention = msg.text:lower():find(my:lower(), 1, true) ~= nil
         end
+        if mode == "mentions" and not is_mention then return end
         notifications.post_unless_focused({
             title  = name,
             body   = string.format("%s: %s",
                                    msg.sender_name or "?",
                                    (msg.text or ""):sub(1, 80)),
             source = "channel",
+            -- Pass the mention hint through to the DND evaluator so a
+            -- user with "Allow channel mentions during quiet hours"
+            -- on still hears the ping.
+            dnd_mention = is_mention,
             action = {
                 label    = "Open",
                 on_press = function()
@@ -551,6 +559,7 @@ local function boot_sequence()
     gps_svc.start_sync_loop()
 
     ez.log("[Boot] Services started")
+    if ez.bench and ez.bench.mark then ez.bench.mark("svc_done") end
 
     -- Run version migrations before applying settings. Migrations may
     -- rename or transform prefs, so they must run before anything reads
@@ -647,6 +656,7 @@ local function boot_sequence()
     end
 
     ez.log("[Boot] Boot complete")
+    if ez.bench and ez.bench.mark then ez.bench.mark("boot_complete") end
 end
 
 -- Run boot in a coroutine — async_read needs coroutine context for filesystem I/O
