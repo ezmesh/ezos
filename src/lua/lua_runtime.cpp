@@ -51,6 +51,8 @@ void registerNetModule(lua_State* L);
 #include "bindings/image_bindings.h"
 // ez.debug.* (test-only): asyncio_stats, sd_remount, heap, last_panic.
 #include "bindings/debug_bindings.h"
+// ez.bench.* (test-only): scenario harness + boot profile timeline.
+#include "bindings/bench_bindings.h"
 
 LuaRuntime& LuaRuntime::instance() {
     static LuaRuntime runtime;
@@ -242,6 +244,10 @@ void LuaRuntime::registerAllModules() {
     // so it can reach into AsyncIO / SDManager / esp-idf state once
     // everything else is wired up.
     debug_bindings::registerBindings(_state);
+
+    // ez.bench.* test-only micro-benchmark harness + boot profile.
+    // Same trust model as ez.debug.* -- not part of the public API.
+    bench_bindings::registerBindings(_state);
 
     LOG("LuaRuntime", "Modules registered");
 }
