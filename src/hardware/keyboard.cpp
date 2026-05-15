@@ -283,6 +283,7 @@ KeyEvent Keyboard::read() {
         interrupts();
 
         if (clickEvent) {
+            _lastTrackballMs = now;
             return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
         }
 
@@ -326,6 +327,7 @@ KeyEvent Keyboard::read() {
         lastRight = right;
 
         if (clickEvent) {
+            _lastTrackballMs = now;
             return KeyEvent::fromSpecial(SpecialKey::ENTER, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
         }
 
@@ -339,18 +341,22 @@ KeyEvent Keyboard::read() {
     // Generate directional keys when threshold reached
     if (_trackballY <= -_trackballThreshold) {
         _trackballY = 0;
+        _lastTrackballMs = now;
         return KeyEvent::fromSpecial(SpecialKey::UP, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
     if (_trackballY >= _trackballThreshold) {
         _trackballY = 0;
+        _lastTrackballMs = now;
         return KeyEvent::fromSpecial(SpecialKey::DOWN, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
     if (_trackballX <= -_trackballThreshold) {
         _trackballX = 0;
+        _lastTrackballMs = now;
         return KeyEvent::fromSpecial(SpecialKey::LEFT, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
     if (_trackballX >= _trackballThreshold) {
         _trackballX = 0;
+        _lastTrackballMs = now;
         return KeyEvent::fromSpecial(SpecialKey::RIGHT, _shiftHeld, _ctrlHeld, _altHeld, _fnHeld);
     }
 
