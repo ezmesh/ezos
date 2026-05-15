@@ -117,6 +117,81 @@ function notifications.dnd_active()
         pref_int("dnd_end",   DND_DEFAULT_END))
 end
 
+-- ---------------------------------------------------------------------------
+-- Trigger-word matching (issue #115)
+-- ---------------------------------------------------------------------------
+-- "Mentions only" channels match the user's node name by default.
+-- Users can extend that to a configurable list of trigger words, so a
+-- "lost dog" alert channel can be on Mentions only and still ring
+-- through on "dog" or "missing", or a watch-list channel can wake the
+-- user on "outage" / "storm" without flooding on everything else.
+--
+-- The list is stored in NVS as a single comma-separated string under
+-- `notify_words` (12 chars, fits under NVS's 15-char key cap). Matching
+-- is a case-insensitive substring search; tokens are trimmed of
+-- surrounding whitespace and empty tokens are skipped. Users edit the
+-- list from Settings -> Notifications -> Trigger words.
+--
+-- The channel/message subscriber in boot.lua ORs this against the
+-- existing node-name match, so a trigger-word match is functionally
+-- identical to a name mention (also gates the DND `opts.dnd_mention`
+-- exemption when "Allow channel mentions" is on).
+
+local function trim(s)
+    return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+function notifications.get_trigger_words()
+    local raw = pref_str("notify_words", "")
+    if type(raw) ~= "string" or raw == "" then return {} end
+    local out = {}
+    for tok in raw:gmatch("[^,]+") do
+        local t = trim(tok)
+        if t ~= "" then out[#out + 1] = t end
+    end
+    return out
+end
+
+-- Store a list (table of strings) or a comma-joined string. Empty
+-- input clears the list. Tokens with embedded commas are split.
+function notifications.set_trigger_words(value)
+    if not (ez and ez.storage and ez.storage.set_pref) then return end
+    local joined
+    if type(value) == "table" then
+        local parts = {}
+        for _, v in ipairs(value) do
+            if type(v) == "string" then
+                local t = trim(v)
+                if t ~= "" then parts[#parts + 1] = t end
+            end
+        end
+        joined = table.concat(parts, ",")
+    elseif type(value) == "string" then
+        local parts = {}
+        for tok in value:gmatch("[^,]+") do
+            local t = trim(tok)
+            if t ~= "" then parts[#parts + 1] = t end
+        end
+        joined = table.concat(parts, ",")
+    else
+        joined = ""
+    end
+    ez.storage.set_pref("notify_words", joined)
+end
+
+-- Returns true when `text` contains any configured trigger word as a
+-- case-insensitive substring. Safe on nil / non-string input.
+function notifications.matches_trigger_words(text)
+    if type(text) ~= "string" or text == "" then return false end
+    local words = notifications.get_trigger_words()
+    if #words == 0 then return false end
+    local lower = text:lower()
+    for _, w in ipairs(words) do
+        if lower:find(w:lower(), 1, true) then return true end
+    end
+    return false
+end
+
 -- A post is exempt from DND when it carries an exception flag the user
 -- has allowed through. Two flags are wired today:
 --   opts.dnd_fav      -- DM from a starred contact (set in boot.lua's

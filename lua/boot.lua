@@ -439,6 +439,10 @@ local function boot_sequence()
         if my and my ~= "" and msg.text then
             is_mention = msg.text:lower():find(my:lower(), 1, true) ~= nil
         end
+        if not is_mention and msg.text then
+            -- Trigger-word list from Settings -> Notifications.
+            is_mention = notifications.matches_trigger_words(msg.text)
+        end
         if mode == "mentions" and not is_mention then return end
         notifications.post_unless_focused({
             title  = name,

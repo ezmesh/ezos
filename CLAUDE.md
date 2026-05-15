@@ -380,7 +380,15 @@ NVS (default `"1"` = on). Setting `notify_dm = "0"`, for instance,
 silences every DM toast without touching the wiring. The namespace
 is meant for a future Settings panel; pref keys must stay under
 NVS's 15-character limit, so source tags should be short
-(`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `system`).
+(`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `system`). Note
+that `notify_words` lives in the same `notify_*` keyspace but is
+NOT a mute pref -- it holds the comma-separated trigger-word list
+for "Mentions only" channels (see `matches_trigger_words()` /
+`get_trigger_words()` / `set_trigger_words()` on the service).
+The `channel/message` subscriber in `boot.lua` ORs a trigger-word
+match against the existing node-name mention check, so a trigger
+hit behaves identically to a name mention (gates the DND
+`dnd_mention` exemption too).
 
 Do Not Disturb (issue #116): `notifications.post()` also evaluates a
 time-window DND mode after the source-mute check. When the manual
