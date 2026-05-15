@@ -95,11 +95,86 @@ local function set_zoom(n, new_zoom)
     if n.on_move then n.on_move(n.center_lat, n.center_lon, n.zoom) end
 end
 
+-- Tap-to-recenter helper. Takes the map_view node and a screen-space
+-- tap point; if the tap falls within the widget's last-drawn bounds,
+-- pans the viewport so the tapped point ends up under the crosshair.
+-- Caller is responsible for invalidating the screen so the new center
+-- renders. Returns true when the tap was consumed, false when it fell
+-- outside the widget.
+--
+-- Also exported on the module for screens that want to drive it from
+-- their own input path (long-press menu, programmatic recenter).
+local function recenter_on_screen_point(n, sx, sy)
+    if not n._draw_x then return false end
+    local x, y, w, h = n._draw_x, n._draw_y, n._draw_w, n._draw_h
+    if sx < x or sx >= x + w or sy < y or sy >= y + h then
+        return false
+    end
+    local cx = x + w / 2
+    local cy = y + h / 2
+    local dx = sx - cx
+    local dy = sy - cy
+    -- No early return on (0, 0): pan_by_pixels is the only path that
+    -- calls n.on_move, which is what clears state.follow_gps in the
+    -- parent screen. Hitting the exact center pixel still needs to
+    -- disable follow-mode.
+    pan_by_pixels(n, dx, dy)
+    return true
+end
+
+-- Single source of truth for the bridge's tap slop. Required for the
+-- on_touch_up tap-vs-drag decision below; reading it from touch_input
+-- avoids two different thresholds drifting apart.
+local TAP_SLOP = require("ezui.touch_input").TAP_SLOP or 12
+
 node.register("map_view", {
     focusable = true,
 
     measure = function(n, max_w, max_h)
         return max_w, max_h
+    end,
+
+    -- Touch handling: the global bridge (lua/ezui/touch_input.lua)
+    -- dispatches on_touch_down / on_touch_drag / on_touch_up to any
+    -- node that registers them. We use that to convert a finger drag
+    -- into a screen-pixel pan delta, the same primitive arrow-keys
+    -- already feed into pan_by_pixels(). Tap-to-recenter is handled
+    -- here in on_touch_up rather than via the touch/tap bus: the
+    -- bridge cancels its own tap detection the moment a widget that
+    -- owns the touch sees any move event (even a sub-slop jitter
+    -- pixel from the capacitive panel), so touch/tap never fires
+    -- once on_touch_down has been registered.
+    on_touch_down = function(n, x, y)
+        -- Stamp the down point so on_touch_drag can compute an
+        -- incremental delta on every move event. (The bridge gives
+        -- us absolute screen coords; we want frame-to-frame deltas.)
+        n._touch_last_x = x
+        n._touch_last_y = y
+    end,
+
+    on_touch_drag = function(n, x, y, _total_dx, _total_dy)
+        local lx = n._touch_last_x or x
+        local ly = n._touch_last_y or y
+        local dx = x - lx
+        local dy = y - ly
+        n._touch_last_x = x
+        n._touch_last_y = y
+        if dx ~= 0 or dy ~= 0 then
+            -- Drag content with the finger: when the user drags
+            -- their finger right, the viewport should move left
+            -- (the world under the finger stays put). pan_by_pixels
+            -- pans the viewport, so the delta is negated.
+            pan_by_pixels(n, -dx, -dy)
+        end
+    end,
+
+    on_touch_up = function(n, x, y, total_dx, total_dy)
+        -- Tap = down + up within TAP_SLOP. A drag-pan already moved
+        -- the viewport frame by frame in on_touch_drag, so anything
+        -- past slop is a drag and the up is just the lift.
+        if math.abs(total_dx or 0) <= TAP_SLOP and math.abs(total_dy or 0) <= TAP_SLOP then
+            recenter_on_screen_point(n, x, y)
+        end
     end,
 
     draw = function(n, d, x, y, w, h)
@@ -109,6 +184,12 @@ node.register("map_view", {
             d.draw_text(x + 8, y + 8, "No map archive loaded", theme.color("TEXT_MUTED"))
             return
         end
+
+        -- Cache the last-drawn bounds so external callers (the parent
+        -- screen's touch/tap subscriber) can hit-test against the widget
+        -- without knowing the layout. Refreshed every draw, so a layout
+        -- change is reflected on the next frame.
+        n._draw_x, n._draw_y, n._draw_w, n._draw_h = x, y, w, h
 
         d.set_clip_rect(x, y, w, h)
 
@@ -289,4 +370,5 @@ end
 
 return {
     map_view = map_view,
+    recenter_on_screen_point = recenter_on_screen_point,
 }
