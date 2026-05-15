@@ -5,10 +5,20 @@
 -- URL formats:
 --   https://ezme.sh/#add/v1?k=<64-hex pubkey>&n=<urlencoded name>
 --   https://ezme.sh/#join/v1?t=<base64url(nonce8 || aes128_ecb(secret, blob))>
+--   https://ezme.sh/#time/v1?t=<unix>
+--   https://ezme.sh/#gps/v1?lat=<e6>&lon=<e6>&n=<urlencoded label>    (channel)
+--   https://ezme.sh/#gps/v1?t=<base64url(nonce8 || aes128_ecb(secret, blob))> (DM)
 --
 -- The fragment-only design means non-ezOS receivers see a normal
 -- clickable link; the ezme.sh landing page reads location.hash
 -- client-side, so no payload data ever reaches the web server.
+--
+-- GPS coordinates carry two flavors. Channel posts are plaintext because
+-- channel members already see each other's traffic in the clear, so
+-- encrypting the URL would just bloat the payload. DM posts use the
+-- same X25519-scoped envelope as channel invites so coords aren't
+-- leaked in the rendezvous URL to anyone other than the intended
+-- recipient.
 --
 -- Channel invites are encrypted to the recipient's identity using the
 -- same X25519 shared secret the DM service uses, so a leaked URL is
@@ -31,6 +41,12 @@ local URL_PREFIX = "https://ezme.sh/#"
 local CONTACT_VERB = "add/v1"
 local INVITE_VERB = "join/v1"
 local TIME_VERB = "time/v1"
+local GPS_VERB = "gps/v1"
+
+-- Cap on the encrypted-GPS plaintext body before AES padding. 8 bytes
+-- of lat+lon + 1 byte len + label keeps the resulting base64url URL
+-- under DM's MAX_TEXT (120). Sender-side rejects oversize labels.
+local GPS_BODY_MAX = 48
 
 local NONCE_SIZE = 8
 local AES_BLOCK_SIZE = 16
@@ -186,6 +202,91 @@ function sharing.encode_time()
     return URL_PREFIX .. TIME_VERB .. "?t=" .. tostring(ts)
 end
 
+-- Encode a (lat, lon) pair plus optional label as a plaintext share URL
+-- suitable for channel posts. Channel members already see each other's
+-- traffic in cleartext, so wrapping is pointless overhead. The label is
+-- forwarded verbatim through the URL encoder; receivers must sanitize
+-- to printable ASCII at render time (the on-device fonts only cover
+-- 0x20..0x7E).
+local function to_e6(v)  -- round half-away-from-zero
+    return math.floor(v * 1e6 + (v >= 0 and 0.5 or -0.5))
+end
+
+function sharing.encode_gps_channel(lat, lon, label)
+    if type(lat) ~= "number" or type(lon) ~= "number" then
+        return nil, "missing coords"
+    end
+    if lat < -90 or lat > 90 or lon < -180 or lon > 180 then
+        return nil, "coords out of range"
+    end
+    local url = URL_PREFIX .. GPS_VERB
+        .. "?lat=" .. tostring(to_e6(lat))
+        .. "&lon=" .. tostring(to_e6(lon))
+    if label and label ~= "" then
+        url = url .. "&n=" .. url_encode(label)
+    end
+    return url
+end
+
+-- Encode (lat, lon) + optional label as a DM-targeted share URL, encrypted
+-- to the recipient via X25519 -> AES-128-ECB (same envelope shape as
+-- channel invites). Blob = [lat_e6:4 LE i32][lon_e6:4 LE i32]
+-- [label_len:1][label:N] padded to 16 bytes. The redeemer recovers the
+-- exact label length from the embedded prefix, so trailing zero bytes
+-- are unambiguous.
+local function pack_i32_le(v)
+    v = v or 0
+    if v < 0 then v = v + 0x100000000 end
+    return string.char(v & 0xFF, (v >> 8) & 0xFF,
+                       (v >> 16) & 0xFF, (v >> 24) & 0xFF)
+end
+
+local function unpack_i32_le(s, o)
+    local b1, b2, b3, b4 = s:byte(o, o + 3)
+    local v = b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
+    if v >= 0x80000000 then v = v - 0x100000000 end
+    return v
+end
+
+function sharing.encode_gps_dm(recipient_pub_key_hex, lat, lon, label)
+    if not recipient_pub_key_hex or #recipient_pub_key_hex ~= PUBKEY_HEX_LEN then
+        return nil, "invalid recipient"
+    end
+    if type(lat) ~= "number" or type(lon) ~= "number" then
+        return nil, "missing coords"
+    end
+    if lat < -90 or lat > 90 or lon < -180 or lon > 180 then
+        return nil, "coords out of range"
+    end
+
+    label = label or ""
+    if #label > 32 then return nil, "label too long" end
+
+    local body = pack_i32_le(to_e6(lat))
+        .. pack_i32_le(to_e6(lon))
+        .. string.char(#label) .. label
+    if #body > GPS_BODY_MAX then
+        return nil, "label too long for one URL"
+    end
+
+    local rem = #body % AES_BLOCK_SIZE
+    if rem ~= 0 then body = body .. string.rep("\0", AES_BLOCK_SIZE - rem) end
+
+    local recipient_pub = hex_to_bytes(recipient_pub_key_hex)
+    if not recipient_pub or #recipient_pub ~= 32 then return nil, "bad recipient key" end
+
+    local secret = ez.mesh.calc_shared_secret(recipient_pub)
+    if not secret or #secret ~= 32 then return nil, "shared secret unavailable" end
+    local key = secret:sub(1, 16)
+
+    local ciphertext = ez.crypto.aes128_ecb_encrypt(key, body)
+    if not ciphertext then return nil, "encrypt failed" end
+
+    local nonce = random_nonce()
+    local token = base64url_encode(nonce .. ciphertext)
+    return URL_PREFIX .. GPS_VERB .. "?t=" .. token
+end
+
 -- Parse arbitrary text and return a structured share descriptor if it
 -- contains a recognised share URL, or nil otherwise. Looks for the
 -- URL prefix anywhere in the text -- bubbles can have leading words
@@ -224,8 +325,72 @@ function sharing.parse(text)
             kind = "time",
             timestamp = ts,
         }
+    elseif verb == GPS_VERB then
+        -- DM variant carries everything inside an opaque token; the
+        -- channel variant exposes lat/lon plain. Receivers handle each
+        -- via `decode_gps_dm` or by reading the fields directly.
+        if params.t and params.t ~= "" then
+            return { kind = "gps_dm", token = params.t }
+        end
+        local lat_e6_p = tonumber(params.lat)
+        local lon_e6_p = tonumber(params.lon)
+        if not lat_e6_p or not lon_e6_p then return nil end
+        local lat = lat_e6_p / 1e6
+        local lon = lon_e6_p / 1e6
+        if lat < -90 or lat > 90 or lon < -180 or lon > 180 then return nil end
+        return {
+            kind = "gps",
+            lat  = lat,
+            lon  = lon,
+            name = params.n,
+        }
     end
     return nil
+end
+
+-- Decrypt an encrypted GPS share token from a known sender. Returns
+-- { lat, lon, label } on success or (nil, "reason") on failure. Sender
+-- key must match the recipient passed to encode_gps_dm so the same
+-- shared secret resolves.
+function sharing.decode_gps_dm(token, sender_pub_key_hex)
+    if not token or not sender_pub_key_hex
+        or #sender_pub_key_hex ~= PUBKEY_HEX_LEN then
+        return nil, "bad input"
+    end
+
+    local raw = base64url_decode(token)
+    if not raw or #raw < NONCE_SIZE + AES_BLOCK_SIZE then
+        return nil, "token too short"
+    end
+    if (#raw - NONCE_SIZE) % AES_BLOCK_SIZE ~= 0 then
+        return nil, "token misaligned"
+    end
+
+    local ciphertext = raw:sub(NONCE_SIZE + 1)
+
+    local sender_pub = hex_to_bytes(sender_pub_key_hex)
+    if not sender_pub or #sender_pub ~= 32 then return nil, "bad sender key" end
+
+    local secret = ez.mesh.calc_shared_secret(sender_pub)
+    if not secret or #secret ~= 32 then return nil, "no shared secret" end
+    local key = secret:sub(1, 16)
+
+    local plaintext = ez.crypto.aes128_ecb_decrypt(key, ciphertext)
+    if not plaintext or #plaintext < 9 then return nil, "decrypt failed" end
+
+    local lat = unpack_i32_le(plaintext, 1) / 1e6
+    local lon = unpack_i32_le(plaintext, 5) / 1e6
+    if lat < -90 or lat > 90 or lon < -180 or lon > 180 then
+        return nil, "coords out of range"
+    end
+
+    local label_len = plaintext:byte(9)
+    if not label_len or 9 + label_len > #plaintext then
+        return nil, "malformed label"
+    end
+    local label = label_len > 0 and plaintext:sub(10, 9 + label_len) or ""
+
+    return { lat = lat, lon = lon, label = label }
 end
 
 -- Decrypt a channel-invite token from a known sender. Returns the

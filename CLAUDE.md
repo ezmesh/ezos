@@ -376,7 +376,7 @@ NVS (default `"1"` = on). Setting `notify_dm = "0"`, for instance,
 silences every DM toast without touching the wiring. The namespace
 is meant for a future Settings panel; pref keys must stay under
 NVS's 15-character limit, so source tags should be short
-(`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `system`).
+(`dm`, `file`, `battery`, `sd`, `ota`, `channel`, `gps`, `system`).
 
 ### Module Loading
 
