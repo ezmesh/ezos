@@ -239,7 +239,14 @@ end
 -- without per-subscriber changes.
 function M.is_locked()
     local ok, lock_svc = pcall(require, "services.input_lock")
-    return ok and lock_svc.is_locked()
+    if ok and lock_svc.is_locked() then return true end
+    -- Session lockscreen (PIN / passphrase) gates touch the same way
+    -- the input lock does. Without this, a screen beneath the
+    -- lockscreen overlay with a direct touch/* subscriber would still
+    -- fire while the device is locked because the bus broadcasts to
+    -- every subscriber regardless of screen stack depth.
+    local lk_ok, lk = pcall(require, "services.lockscreen")
+    return lk_ok and lk.is_locked() or false
 end
 
 local locked_swallow = M.is_locked
