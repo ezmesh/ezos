@@ -543,11 +543,10 @@ local function build_and_queue_txt_msg(pub_key_hex, encrypted)
 end
 
 local function build_inner(text, attempt)
-    local timestamp = 0
-    if ez.system.get_time then
-        local t = ez.system.get_time()
-        if t and t.epoch then timestamp = t.epoch end
-    end
+    -- Unix seconds, same source the receiver stores on its bubble.
+    -- Reactions (services.reactions) hash over this value so both
+    -- peers must derive it from the same basis.
+    local timestamp = (ez.system.get_time_unix and ez.system.get_time_unix()) or 0
     -- Lower 2 bits of flags = attempt number
     local flags = math.min(attempt or 0, 3)
     return pack_u32le(timestamp) .. string.char(flags) .. text
@@ -982,10 +981,16 @@ function dm.init()
     ez.log("[DM] Service initialized")
 end
 
-function dm.send(pub_key_hex, text)
+function dm.send(pub_key_hex, text, opts)
     if not text or #text == 0 then return false end
     if #text > MAX_TEXT then text = text:sub(1, MAX_TEXT) end
     if not ez.mesh.is_initialized() then return false end
+    -- opts.meta = true sends without producing a visible bubble or
+    -- queueing an ACK retry. Used by services.reactions to ship its
+    -- rxn/v1 URL through the same crypto + flood path as a regular
+    -- DM while the receiver's try_handle_inbound suppresses display
+    -- on its side.
+    local meta = opts and opts.meta == true
 
     -- Create the local bubble FIRST and notify the UI so the chat
     -- screen paints the "pending" message on the next frame. Then
@@ -993,16 +998,24 @@ function dm.send(pub_key_hex, text)
     -- (first send only), AES + HMAC, packet assembly. Every crypto
     -- step yields onto the AsyncIO worker thread, so the main loop
     -- stays free to draw and handle input while the worker grinds.
-    local msg = {
-        sender_key  = ez.mesh.get_public_key_hex(),
-        sender_name = ez.mesh.get_node_name() or "Me",
-        text        = text,
-        timestamp   = ez.system.millis(),
-        is_self     = true,
-        status      = "pending",
-    }
-    local stored = store_message(pub_key_hex, msg)
-    ez.bus.post("dm/message", msg)
+    -- Unix seconds so reactions can hash against the same timestamp
+    -- the receiver bakes into its bubble (the wire carries epoch
+    -- seconds in the inner plaintext; receivers store msg_timestamp
+    -- directly). Mixed bases here used to make reactions.compute_msg_hash
+    -- diverge between peers, so reactions never attached on the sender.
+    local stored
+    if not meta then
+        local msg = {
+            sender_key  = ez.mesh.get_public_key_hex(),
+            sender_name = ez.mesh.get_node_name() or "Me",
+            text        = text,
+            timestamp   = (ez.system.get_time_unix and ez.system.get_time_unix()) or 0,
+            is_self     = true,
+            status      = "pending",
+        }
+        stored = store_message(pub_key_hex, msg)
+        ez.bus.post("dm/message", msg)
+    end
 
     spawn(function()
         -- Auto-advert for first-contact DMs. send_announce itself is
@@ -1024,13 +1037,19 @@ function dm.send(pub_key_hex, text)
 
         local sent, expected_ack, used_direct = transmit(pub_key_hex, text, 0)
         if not sent then
-            stored.status = "failed"
-            ez.bus.post("dm/status", {
-                pub_key_hex = pub_key_hex, status = "failed",
-            })
-            schedule_save()
+            if stored then
+                stored.status = "failed"
+                ez.bus.post("dm/status", {
+                    pub_key_hex = pub_key_hex, status = "failed",
+                })
+                schedule_save()
+            end
             return
         end
+
+        -- Meta sends (reactions): no bubble to update, no ACK retry
+        -- queued. The radio took the packet; that's all we report.
+        if meta then return end
 
         local ack_setting = contacts_svc.is_ack_enabled(pub_key_hex)
         if ack_setting == false then

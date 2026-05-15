@@ -332,14 +332,20 @@ Services are initialized in order in `lua/boot.lua`:
 4. **direct_messages** — Encrypted DMs via TXT_MSG packets
 5. **sharing** — Share-card construction and dispatch
 6. **custom_packets** — Custom (non-MeshCore) packet handlers
-7. **file_transfer** — Mesh-based file send/receive
-8. **ui_sounds** — UI sound effects via the audio engine
-9. **notifications** — Toast queue + bus subscribers for OTA, DMs,
-   file transfer, low battery, SD connect/disconnect, and panic /
-   brownout recovery. See "Notifications service" below for the
-   public API and per-source mute pref namespace.
-10. **apps** — Registered file-type → screen handlers (used by the file manager)
-11. **gps** — `gps_svc.start_sync_loop()` is always called; the loop itself
+7. **reactions** — Tiny-emoji reactions. Inbound `rxn/v1` share URLs
+   are intercepted by `direct_messages` before they surface as chat
+   bubbles; outbound reactions ride through `dm.send(..., {meta=true})`
+   so the radio path is shared with normal DMs but no visible bubble
+   is created on the sender. Must come after `sharing` and
+   `direct_messages`.
+8. **file_transfer** — Mesh-based file send/receive
+9. **ui_sounds** — UI sound effects via the audio engine
+10. **notifications** — Toast queue + bus subscribers for OTA, DMs,
+    file transfer, low battery, SD connect/disconnect, and panic /
+    brownout recovery. See "Notifications service" below for the
+    public API and per-source mute pref namespace.
+11. **apps** — Registered file-type → screen handlers (used by the file manager)
+12. **gps** — `gps_svc.start_sync_loop()` is always called; the loop itself
     respects the user's "never / at boot / hourly" pref and is a no-op when
     GPS is disabled
 

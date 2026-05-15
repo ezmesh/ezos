@@ -180,7 +180,10 @@ function M.send(target_pub_hex, target_msg_hash, emoji_index)
         })
     end
 
-    return dm.send(target_pub_hex, url)
+    -- meta = true so the raw rxn/v1 URL doesn't show up as an
+    -- outgoing text bubble on the sender's side; the optimistic
+    -- record() above is the only local UI surface for our reaction.
+    return dm.send(target_pub_hex, url, { meta = true })
 end
 
 -- Try to interpret an inbound DM text as a reaction. Called by
@@ -195,7 +198,10 @@ function M.try_handle_inbound(sender_pub_hex, text, sender_name)
     if not sender_pub_hex or not text then return false end
     local share = sharing.parse(text)
     if not share or share.kind ~= "reaction" then return false end
-    if not M.EMOJI_PALETTE[share.emoji_index] then return true end
+    -- Unknown index (forward-compat: a peer running newer firmware
+    -- with palette entries we don't have yet). Fall through to the
+    -- normal text-bubble path rather than silently dropping the DM.
+    if not M.EMOJI_PALETTE[share.emoji_index] then return false end
 
     record(sender_pub_hex, share.msg_hash, sender_pub_hex, share.emoji_index)
     ez.bus.post("chat/reaction", {
