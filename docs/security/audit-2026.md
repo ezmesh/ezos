@@ -25,11 +25,13 @@ Top three findings:
    unique-pubkey ADVERTs and grow the in-memory node table without limit;
    only the *persist* layer caps at 64/128. Eventual heap exhaustion or
    wedged Lua callbacks on a busy mesh (P1, remote DoS).
-2. **F-02 — DM replay window is text-equality based, not packet-identity.**
+2. **F-02 — DM replay accepted once the peer sends any other message.**
    AES-128-ECB has no nonce; an attacker who captures a ciphertext can
-   replay it indefinitely. The DM service dedups by `(text, timestamp)`
-   inside a 60 s window, so any replay older than 60 s shows up as a
-   fresh message in the user's chat (P1, remote message injection).
+   replay it indefinitely. The DM service's dedup compares against the
+   last entry by `(text, timestamp)`; once a different message arrives
+   it displaces the captured plaintext, and the next replay is accepted
+   as a fresh message regardless of wall-clock elapsed time (P1, remote
+   message injection).
 3. **F-03 — Unsanitized sender names + text in GRP_TXT path.** Inner
    relay sender names are ASCII-checked, but the outer `sender_name`
    field and the message text itself are not. Garbage bytes paint as
@@ -80,7 +82,7 @@ the cap and does not grow further.
 
 ---
 
-### F-02 — DM replay attack survives outside 60s dedup window  [severity: P1] [status: open]
+### F-02 — DM replay accepted once the peer sends any other message  [severity: P1] [status: open]
 
 **Location:** `lua/services/direct_messages.lua:392-435` (constant
 `RECV_DEDUP_WINDOW_S = 60` and `store_message` dedup)
@@ -90,8 +92,10 @@ the cap and does not grow further.
 `[timestamp:4 LE][flags:1][text:N]` is identical for every replay of a
 captured ciphertext. The DM service's dedup logic merges only when
 `text` matches a recent entry AND
-`msg.timestamp - last.timestamp <= RECV_DEDUP_WINDOW_S` (60 s). The
-timestamp is from the inner plaintext, which the original sender set.
+`msg.timestamp - last.timestamp <= RECV_DEDUP_WINDOW_S` (60 s).
+**Both timestamps are static inner-plaintext values set by the
+original sender** — they are baked into the captured ciphertext and
+never change between replays.
 
 ```lua
 -- lua/services/direct_messages.lua:427-431
@@ -102,16 +106,30 @@ timestamp is from the inner plaintext, which the original sender set.
             last.timestamp = msg.timestamp
 ```
 
-The MAC check passes (it's the original sender's MAC), the ECDH key is
-unchanged, and the decrypted plaintext is byte-identical to the
-original. Worse: because the timestamp comes from the *replayed*
-ciphertext, it stays old forever; every replay 60 s+ apart is "fresh".
+Replaying the same captured ciphertext after a quiet period produces
+`msg.timestamp - last.timestamp = 0` (same packet, same inner
+timestamp), so the dedup test passes and the replay merges into the
+last entry. The MAC check passes (it's the original sender's MAC),
+the ECDH key is unchanged, and the decrypted plaintext is
+byte-identical to the original.
 
-**Exploit sketch:** Attacker records a victim's DM (or a few). Hours
-later, the attacker re-transmits the captured packet at 5-minute
-intervals. Each replay shows up as a brand-new message in the
-victim's DM thread with the original timestamp. ACK retries are not
-needed; the attacker just resends the on-air bytes.
+The dedup only fails to suppress a replay when `last.text != msg.text`
+— i.e. the peer has sent **any other DM** between the original
+delivery and the replay, displacing the captured plaintext from the
+"last entry" slot. At that point the replay is accepted as fresh
+regardless of wall-clock elapsed time, because the comparison is
+against the new last entry, not the original. Wall-clock elapsed time
+plays no role; the exploit window opens the moment the peer sends a
+different message.
+
+**Exploit sketch:** Attacker records a victim's DM. The attacker
+waits until the peer has sent any other message to the victim
+(observable on the air as a fresh TXT_MSG to the same dest_hash),
+then re-transmits the captured packet. The replay shows up as a
+brand-new message in the victim's DM thread with the original
+timestamp. ACK retries are not needed; the attacker just resends the
+on-air bytes. Repeating the trick requires another intervening peer
+message before each subsequent replay.
 
 **Suggested fix:** Maintain a per-pubkey replay window keyed on the
 ciphertext bytes (or the 2-byte MAC + first 8 bytes of ciphertext as a
@@ -291,9 +309,12 @@ the risk is forward.
 **Suggested fix:** Add a `sig_valid` boolean to `NodeInfo` and to the
 `mesh/packet` bus payload. Lua consumers (signal_test, the map / node
 browser) can then choose to display "unverified" indicators or skip.
-Don't drop unsigned ADVERTs — that would break receivers seeing the
-ADVERT before the sender has the audience's clock — but mark them so
-trust decisions are explicit.
+Marking rather than dropping unsigned ADVERTs preserves
+interoperability with older MeshCore firmware that doesn't sign
+ADVERTs and avoids partitioning the network on a forward-compatible
+field. (Ed25519 verification itself is clock-independent —
+`Identity::verify` takes only `(publicKey, message, signature)` — so
+this is purely a compatibility argument, not a time-sync one.)
 
 **Replay test:**
 `tools/remote/tests/e2e/test_advert_unsigned.py`. Send a malformed
@@ -463,11 +484,21 @@ control path; static-analysis fix only. Document in code.
 keyed by `src_hash` (1 byte). On `contacts/changed`, every stashed
 entry is re-tried against the newly added contact's pubkey. The
 `src_hash` is 1 byte, so 1-in-256 hash collision lets an attacker's
-old ciphertext suddenly "decrypt" against a freshly added contact's
-pubkey if the MAC also matches — practically improbable, but the
-combination of HMAC-2-byte truncation (1-in-65536) and src_hash
-1-in-256 puts the false-positive ceiling at ~1-in-2^24. With a
-captured stream of replays an attacker can grind that down.
+old ciphertext "decrypt" against a freshly added contact's pubkey if
+the 2-byte MAC also matches by coincidence — combined,
+~1-in-2^24 per stashed-entry / contact-add pair.
+
+This is a random-coincidence ceiling, not an attacker-grindable one.
+The MAC is HMAC-SHA256 keyed with the X25519 shared secret between
+the receiver and the supposed sender; the attacker does not possess
+that key and cannot iterate trials against the verifier. A captured
+packet's MAC, checked against any *other* contact's shared secret, is
+effectively a random 2-byte token from the verifier's perspective.
+Stashing more ciphertexts or replaying the same one repeatedly does
+not improve the attacker's odds against a given new contact — only
+the number of distinct (stashed entry, newly added contact) pairs
+does. The risk is "occasionally a garbage entry pops into a new
+contact thread on first add", not "an attacker can target a victim".
 
 **Suggested fix:** Once F-02 lands (per-pubkey replay window), the
 `pending_ciphertexts` flow can also gate on "have we seen this MAC
@@ -567,7 +598,7 @@ before for this peer". Treat as folded into F-02.
 Ordered by severity then by category for easy issue-creation:
 
 - [ ] F-01 — Unbounded `MeshCore::_nodes` vector (P1)
-- [ ] F-02 — DM replay attack survives outside 60s dedup window (P1)
+- [ ] F-02 — DM replay accepted once the peer sends any other message (P1)
 - [ ] F-03 — GRP_TXT sender_name and text not ASCII-sanitized (P2)
 - [ ] F-04 — Unbounded `_pendingRebroadcasts` queue (P2)
 - [ ] F-05 — `apply_full_url` SHA-256 verification is optional at the binding (P2)
