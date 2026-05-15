@@ -90,6 +90,14 @@ local function hex(h)
         h:byte(1), h:byte(2), h:byte(3), h:byte(4))
 end
 
+-- Hard cap on distinct message hashes per peer bucket. try_handle_inbound
+-- admits any ADVERT-cached peer (not just explicit contacts), so a single
+-- misbehaving node could otherwise flood the table with randomised h=
+-- values and OOM the device. 50 is well above any realistic conversation
+-- and turns the OOM vector into a bounded "we ignore further hashes from
+-- this peer this session" failure.
+local MAX_HASHES_PER_PEER = 50
+
 -- Record a (sender, target_msg, emoji) tuple. Posting the same emoji
 -- from the same sender is a no-op (idempotent); posting a different
 -- emoji replaces the previous one (the receiver only sees the latest).
@@ -107,6 +115,12 @@ local function record(target_pub_hex, target_msg_hash, sender_pub_hex, emoji_ind
     local hex_key = hex(target_msg_hash)
     local per_msg = target_bucket[hex_key]
     if not per_msg then
+        -- Cap distinct hashes per peer before allocating. Counts both
+        -- live and previously-allocated entries (Lua tables don't free
+        -- on key removal anyway).
+        local count = 0
+        for _ in pairs(target_bucket) do count = count + 1 end
+        if count >= MAX_HASHES_PER_PEER then return end
         per_msg = {}
         target_bucket[hex_key] = per_msg
     end
