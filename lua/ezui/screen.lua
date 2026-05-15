@@ -625,6 +625,19 @@ function screen.handle_input()
     local inst = screen.peek()
     if not inst then return false end
 
+    -- Global lock chord: Alt+L locks the device immediately when the
+    -- lockscreen mode is set. Runs before focus.handle_key so a text
+    -- field can't swallow the chord. No-op when the lockscreen is
+    -- already on top.
+    if key.alt and key.character
+           and (key.character == "l" or key.character == "L") then
+        local lk_ok, lk = pcall(require, "services.lockscreen")
+        if lk_ok and lk and lk.is_armed() and not lk.is_locked() then
+            lk.lock()
+            return true
+        end
+    end
+
     local result = focus.handle_key(key, inst)
 
     -- Global menu key: Alt+M. Runs AFTER focus / screen handle_key so
@@ -792,6 +805,12 @@ function screen.update()
                     if clamped < 10 then clamped = 10 end
                     ez.display.set_brightness(clamped)
                     ss2.start()
+                    -- Session lockscreen (issue #119): arm the lock
+                    -- as soon as the screensaver starts. The
+                    -- lockscreen sits under the screensaver overlay
+                    -- so the user wakes into the unlock prompt.
+                    local lk_ok, lk = pcall(require, "services.lockscreen")
+                    if lk_ok and lk then lk.maybe_lock("idle") end
                 end
                 screen.idle_stage = 2
 
