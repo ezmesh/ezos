@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="color-scheme" content="light dark" />
+        <title>ezOS Console</title>
+    </head>
+    <body>
+        <header class="topbar">
+            <div class="topbar-inner">
+                <a class="brand" href="/ezos/">ezOS</a>
+                <span class="brand-sep">/</span>
+                <span class="brand-page">Console</span>
+                <span class="topbar-spacer"></span>
+                <a class="topbar-link" href="/ezos/manual/" target="_blank">Manual</a>
+                <a class="topbar-link" href="https://github.com/ezmesh/ezos" target="_blank">Source</a>
+            </div>
+        </header>
+        <main id="app"></main>
+        <footer class="footer">
+            <small>
+                Runs entirely in your browser. Identity keys never leave this
+                machine. <a href="https://github.com/ezmesh/ezos/issues/24">Issue #24</a>.
+            </small>
+        </footer>
+        <script type="module" src="./src/main.ts"></script>
+    </body>
+</html>
