@@ -792,6 +792,45 @@ RGB565 literals so the value can flow through both palettes.
 
 ## C++ Binding Safety Rules
 
+### RNG choice for crypto-adjacent values
+
+`math.random` in Lua 5.x is a non-cryptographic PRNG with weak
+seeding (we call `math.randomseed(ez.system.millis())` at most
+points; an observer who watches a peer come online can narrow the
+seed to a millisecond). It is fine for games (board shuffles,
+spawn positions, snake apple placement) but **must not** be used
+for anything that another node could try to predict or replay:
+
+- invite-token nonces
+- packet sequence / id values
+- file-transfer ids
+- any value passed to a hash that another peer will see
+- random delays that gate retransmit / dedup logic
+
+For those, use:
+
+- `ez.crypto.random_bytes(n)` -- n raw hardware-seeded bytes (1..256).
+  Backed by `esp_fill_random()` -> ESP32-S3 hardware RNG.
+- `ez.crypto.random_int(lo, hi)` -- uniformly distributed integer in
+  the inclusive range `[lo, hi]`, rejection-sampled on top of
+  `esp_fill_random`. Use this when the call site wants a bounded
+  integer (transfer ids, sequence numbers, etc.).
+
+C++ code already does the right thing in most places: `esp_random()`
+is used directly in `wifi_bindings.cpp`, `ota_bindings.cpp`, and
+`Identity::generateKeyPair` via RadioLib's `RNGClass::rand()`.
+Anything new on the C++ side should follow the same pattern -- never
+call `rand()` or `random()` from `<stdlib.h>` for security-sensitive
+output.
+
+Caveat: `esp_fill_random` returns deterministic values **before
+WiFi or BT is initialized**. We init the radio early enough that
+this isn't a problem for steady-state use; for boot-time crypto
+(identity key generation in `Identity::generateKeyPair`) we already
+seed via RadioLib which mixes in hardware noise from the LoRa
+modem. New code that runs before the first `WiFi.begin()` should be
+aware of the constraint.
+
 ### Dangling lua_State* Pointer Bug
 
 **CRITICAL:** Never store a `lua_State* L` parameter in a static/global variable when
