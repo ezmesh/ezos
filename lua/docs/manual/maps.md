@@ -74,6 +74,26 @@ The setting persists across reboots. There is no on-map indicator of
 the current broadcast home (yet); re-set it the same way to change
 it.
 
+## Recording a route
+
+The Map screen can record your movement to a track file on SD. Open
+Map, press Alt+M, and pick "Start recording route" -- the status strip
+at the bottom of the map adds a `REC` badge while a session is active,
+and the live polyline appears in the accent colour as you move.
+
+A point is captured only when both the time and distance thresholds
+pass (defaults: 5 s and 5 m). Tune them in Settings -> GPS -> Track
+recording. Losing the GPS fix pauses the session implicitly; the next
+valid fix starts a new segment, with no interpolation across the gap.
+
+Stop the session via Alt+M -> "Stop recording route". Tracks land in
+`/sd/tracks/<unix>-<label>.eztrack`. Open one again from Alt+M ->
+"Open saved track..." -- the viewer lists every track newest-first and
+offers Open / Stats / Delete actions behind Alt+M.
+
+Nothing is transmitted automatically. The recorder respects the GPS
+power toggle, so disabling GPS mid-session simply stops sampling.
+
 ## Sharing a one-off location
 
 Two share paths exist alongside the broadcast home. Both ride inside

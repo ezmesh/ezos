@@ -593,6 +593,15 @@ local function boot_sequence()
     local gps_svc = require("services.gps")
     gps_svc.start_sync_loop()
 
+    -- Reap any track recording session that didn't finalise its file
+    -- (power loss / hard reset). The reaper just sets the closed bit so
+    -- the track viewer doesn't keep showing "(in progress)" forever.
+    -- Cheap operation: it only touches files under /sd/tracks/.
+    spawn(function()
+        local gps_track = require("services.gps_track")
+        gps_track.reap_unfinalised()
+    end)
+
     -- Power policy: poll battery every 30 s and back off radio / GPS /
     -- NTP / display in two tiers as the battery drains. See
     -- lua/services/power.lua for the truth table. Starts after the
