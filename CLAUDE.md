@@ -224,7 +224,14 @@ Services init in order in `lua/boot.lua`:
 11. **apps** -- file-type → screen handler registry (used by file manager)
 12. **gps** -- `start_sync_loop()` always called; loop respects the
     "never / at boot / hourly" pref and no-ops when GPS is disabled
-13. **power** -- 30 s battery poll that transitions between Normal /
+13. **gps_track** -- boot-time `reap_unfinalised()` that flips the
+    `FLAG_CLOSED` bit on any `.eztrack` session left open by a power
+    loss / hard reset, so the viewer doesn't keep showing
+    `(in progress)` forever. The recorder itself is started/stopped
+    from the Map screen on demand; only the reaper is wired here.
+    See the GPS track recordings section below for the on-disk
+    format.
+14. **power** -- 30 s battery poll that transitions between Normal /
     Frugal / Survival tiers with hysteresis. Other services (`gps`,
     `ntp`, `custom_packets`) consult `power.gps_sync_allowed()` /
     `power.ntp_allowed()` / `power.allow_non_dm()` predicates rather

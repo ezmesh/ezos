@@ -226,7 +226,11 @@ function Viewer:menu()
                 }, function()
                     gps_track.delete(entry.path)
                     if self_ref and self_ref.set_state then
-                        self_ref:set_state({})
+                        -- set_state merges keys, so an empty table is a
+                        -- no-op. Re-fetch the list explicitly so the
+                        -- just-deleted entry disappears without needing
+                        -- a screen pop/push.
+                        self_ref:set_state({ tracks = gps_track.list() })
                     end
                 end)
             end,

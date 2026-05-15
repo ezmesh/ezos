@@ -74,6 +74,22 @@ isolates you from the rest of the network.
 Enable / disable the GPS receiver. When off, the location services
 do not poll the chip and the chip can sleep.
 
+### Track recording
+
+Controls the sampling rule the track recorder uses. The recorder
+itself is started and stopped from the Map screen (Alt+M -> Record
+track / Stop track); this panel only decides when a new point is
+written to the `.eztrack` file.
+
+- Min interval: minimum seconds between recorded points. Choices:
+  1, 2, 5 (default), 10, 30 seconds.
+- Min distance: minimum metres from the previous recorded point.
+  Choices: Off, 2, 5 (default), 10, 25 metres.
+
+A point is recorded only when BOTH thresholds clear. Tighter rules
+grow the file faster; looser rules can lose corners on a winding
+track.
+
 ## Time
 
 Set the system clock. GPS supplies time when a fix is available.
