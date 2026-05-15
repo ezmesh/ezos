@@ -357,7 +357,8 @@ subscribes once and renders the most recent entry as a toast.
 Public API:
 
 - `notifications.post(opts)` — `{ title, body?, source?, sticky?,
-  action? = { label, on_press }, read? }`. Returns the new id, or
+  action? = { label, on_press }, read?, dnd_fav?, dnd_mention? }`.
+  Returns the new id, or
   nil if suppressed (muted source, missing title). `title` and
   `body` are sanitized to printable ASCII before being stored — the
   on-device fonts can't render anything else (see "On-device font
@@ -370,6 +371,9 @@ Public API:
 - `notifications.dismiss(id)` / `notifications.dismiss_source(s)` /
   `notifications.list()` / `notifications.unread_count()` /
   `notifications.mark_all_read()`.
+- `notifications.dnd_active()` — returns `true` when DND is currently
+  active (manual override or scheduled quiet window). Safe to poll;
+  fails open (returns `false`) when the clock is unset.
 
 Per-source mute pref: every `post()` consults `notify_<source>` in
 NVS (default `"1"` = on). Setting `notify_dm = "0"`, for instance,
