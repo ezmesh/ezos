@@ -890,7 +890,7 @@ function screen.update()
                     end
                     local clamped = math.floor(
                         screen._normal_brightness * ss_bright_pct / 100)
-                    if clamped < 10 then clamped = 10 end
+                    if clamped < 30 then clamped = 30 end
                     ez.display.set_brightness(clamped)
                     ss2.start()
                     -- Session lockscreen (issue #119): arm the lock
@@ -917,7 +917,7 @@ function screen.update()
                         ez.storage.get_pref("ss_bright", 30)) or 30
                     local dimmed = math.floor(
                         screen._normal_brightness * ss_bright_pct / 100)
-                    if dimmed < 10 then dimmed = 10 end
+                    if dimmed < 30 then dimmed = 30 end
                     ez.display.set_brightness(dimmed)
                     screen.idle_stage = 1
                 end
