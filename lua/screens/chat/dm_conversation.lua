@@ -16,6 +16,19 @@ require("screens.chat.chat_common")  -- registers chat_bubble node type
 
 local screen_mod = require("ezui.screen")
 
+-- Returns the unix-seconds timestamp the *peer* will hash against. Self-
+-- sent bubbles store the radio's millis() value in `msg.timestamp` for
+-- ordering / display / dedup, but the wire plaintext (and therefore the
+-- receiver's stored `msg.timestamp`) carries unix seconds in `wire_ts`.
+-- Reactions hash over the wire value so both peers agree; inbound bubbles
+-- don't have `wire_ts` because `msg.timestamp` already IS the wire value.
+local function reaction_ts(msg)
+    if msg.is_self and msg.wire_ts and msg.wire_ts > 0 then
+        return msg.wire_ts
+    end
+    return msg.timestamp
+end
+
 -- Build the share-specific menu items for an inbound message whose
 -- text contains an ezme.sh share URL. Returns a list of list_item
 -- nodes, possibly empty. Self-sent shares get a non-actionable status
@@ -160,7 +173,7 @@ local function show_context_menu(self, key, msg, msg_index)
             local target_sender = msg.is_self
                 and ez.mesh.get_public_key_hex() or key
             local target_hash = reactions_svc.compute_msg_hash(
-                target_sender, msg.timestamp, msg.text)
+                target_sender, reaction_ts(msg), msg.text)
             if target_hash then
                 actions[#actions + 1] = ui.list_item({
                     title = "React...",
@@ -450,7 +463,7 @@ function DMConversation:build(state)
             local share_sender = msg.is_self and self_pub or key
             local target_sender = msg.is_self and self_pub or key
             local target_hash = reactions_svc.compute_msg_hash(
-                target_sender, msg.timestamp, msg.text)
+                target_sender, reaction_ts(msg), msg.text)
             local reaction_list = target_hash
                 and reactions_svc.compress(key, target_hash) or nil
             -- Drop the array when empty so the bubble renderer's
