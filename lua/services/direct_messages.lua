@@ -117,12 +117,21 @@ local function hex_to_bytes(hex)
     return bytes
 end
 
+-- Bitwise rather than float division: the firmware compiles Lua with
+-- LUA_32BITS=1, so `v / 256` returns a single-precision float and loses
+-- precision for unix-second timestamps. Empirically that corrupted
+-- byte 1 of the LE u32 for ~half of values in the current year window
+-- -- e.g. pack(1778935511) round-tripped as 1778935767 (+256 s) --
+-- which silently shifted DM wire timestamps and broke any cross-peer
+-- hash (ACK match, read receipt, reaction). Integer shifts stay in
+-- the int subtype and are exact.
 local function pack_u32le(v)
+    v = v & 0xFFFFFFFF
     return string.char(
-        v % 256,
-        math.floor(v / 256) % 256,
-        math.floor(v / 65536) % 256,
-        math.floor(v / 16777216) % 256
+        v & 0xFF,
+        (v >> 8) & 0xFF,
+        (v >> 16) & 0xFF,
+        (v >> 24) & 0xFF
     )
 end
 

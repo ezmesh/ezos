@@ -60,11 +60,16 @@ local initialized = false
 local MAC_SIZE = 2
 local AES_BLOCK_SIZE = 16
 
+-- Bitwise rather than float division: with LUA_32BITS=1 the runtime
+-- uses single-precision floats and `v / 256` loses precision for
+-- unix-second timestamps, which corrupted the second byte of the LE
+-- u32 for many values. Identical fix to direct_messages.pack_u32le.
 local function pack_u32le(v)
-    return string.char(v % 256,
-                       math.floor(v / 256) % 256,
-                       math.floor(v / 65536) % 256,
-                       math.floor(v / 16777216) % 256)
+    v = v & 0xFFFFFFFF
+    return string.char(v & 0xFF,
+                       (v >> 8) & 0xFF,
+                       (v >> 16) & 0xFF,
+                       (v >> 24) & 0xFF)
 end
 
 -- Expand a 16-byte channel key into the 32-byte secret MeshCore HMACs
