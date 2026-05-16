@@ -42,6 +42,8 @@ local CATEGORIES = {
               icon = icons.mail,  screen = "$screens/chat/messages.lua" },
             { title = "Contacts", subtitle = "Known nodes",
               icon = icons.users, mod = "screens.chat.contacts" },
+            { title = "Network", subtitle = "Repeaters, room servers, unsaved nodes",
+              icon = icons.radio_tower, mod = "screens.tools.network" },
         },
     },
     {

@@ -26,5 +26,22 @@ auto-ADVERT so they can answer back.
 
 Direct line-of-sight LoRa range is highly variable -- a few hundred
 meters indoors, several kilometers outdoors with good antennas.
-Repeaters relay packets and extend coverage; check Contacts for any
-repeaters within range.
+Repeaters relay packets and extend coverage.
+
+## Browsing the network
+
+Open Menu -> Communication -> Network to see every node we've heard,
+grouped by role: repeaters, room servers, and unsaved chat clients.
+Each row shows when the last ADVERT arrived, hop count, and signal
+strength. Tap a row to open an info pane with the node's pubkey,
+last advert time, distance, and (where applicable) an action:
+
+- Chat clients -- "Add as contact" saves the node so you can DM them.
+- Room servers -- "Join channel..." opens the join form prefilled
+  with the room's name. The password is not broadcast in adverts;
+  the operator shares it out-of-band.
+- Repeaters    -- info only. Repeaters relay packets transparently;
+  you don't subscribe to them.
+
+Contacts you've already saved are filtered out of the "Other clients"
+group; manage those from Contacts instead.
