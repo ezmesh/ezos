@@ -6,6 +6,7 @@
 #include "../../mesh/meshcore.h"
 #include "../../mesh/identity.h"
 #include "bus_bindings.h"
+#include "mesh_bindings.h"
 #include <deque>
 
 // @module ez.mesh
@@ -81,6 +82,24 @@
 // @example
 // ez.bus.subscribe("message/acked", function(msg_id)
 //     self:mark_delivered(msg_id)
+// end)
+// @end
+
+// @bus mesh/node_discovered
+// @brief Posted on every ADVERT received from a peer node
+// @payload table {path_hash, name, rssi, snr, role, advert_timestamp, age_seconds, last_seen, pub_key_hex?, has_location, lat?, lon?}
+// @description
+// Fires unconditionally on every ADVERT, regardless of whether Lua
+// installed the deprecated ez.mesh.on_node_discovered callback.
+// Published from the default setNodeCallback in src/main.cpp (and from
+// the legacy on_node_discovered registration path, which now routes
+// through the same helper) via postNodeDiscoveredBus() so subscribers
+// like services.link_quality and services.contacts receive ADVERTs
+// reliably. pub_key_hex / lat / lon are present only when the ADVERT
+// carried them (see has_location for the lat/lon case).
+// @example
+// ez.bus.subscribe("mesh/node_discovered", function(node)
+//     print(node.name, node.rssi, node.has_location and node.lat or "?")
 // end)
 // @end
 
@@ -513,6 +532,21 @@ static void pushNodeTable(lua_State* L, const NodeInfo& node) {
     }
 }
 
+// Public helper: post a "mesh/node_discovered" event to the global
+// MessageBus with the full node payload. Declared in mesh_bindings.h
+// and called from main.cpp's default setNodeCallback so the topic
+// fires on every ADVERT regardless of whether Lua ever installed the
+// deprecated ez.mesh.on_node_discovered callback. Copies the
+// NodeInfo into the lambda so the publishing thread does not have to
+// keep the caller's reference alive across the bus dispatch.
+void postNodeDiscoveredBus(const NodeInfo& node) {
+    NodeInfo nodeCopy = node;
+    MessageBus::instance().postTable("mesh/node_discovered",
+        [nodeCopy](lua_State* L) {
+            pushNodeTable(L, nodeCopy);
+        });
+}
+
 // Helper: Push group packet info as Lua table onto stack
 static void pushGroupPacketTable(lua_State* L, uint8_t channelHash, const uint8_t* data, size_t dataLen,
                                   uint8_t senderHash, float rssi, float snr,
@@ -607,11 +641,11 @@ LUA_FUNCTION(l_mesh_on_node_discovered) {
                     }
                 }
 
-                // Post table to message bus with full node data
-                NodeInfo nodeCopy = node;
-                MessageBus::instance().postTable("mesh/node_discovered", [nodeCopy](lua_State* L) {
-                    pushNodeTable(L, nodeCopy);
-                });
+                // Post table to message bus with full node data.
+                // Shared helper -- main.cpp's default setNodeCallback
+                // calls this too, so bus subscribers fire whether or
+                // not Lua ever installed this deprecated callback.
+                postNodeDiscoveredBus(node);
             });
         }
     } else if (lua_isnil(L, 1)) {

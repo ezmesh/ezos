@@ -94,6 +94,28 @@ offers Open / Stats / Delete actions behind Alt+M.
 Nothing is transmitted automatically. The recorder respects the GPS
 power toggle, so disabling GPS mid-session simply stops sampling.
 
+## Observed coverage overlay
+
+The Map screen can draw coarse rings around each known peer (repeaters,
+room servers, contacts) at the empirical distance from your current
+GPS fix to the peer, styled by the radio signal you have actually
+heard from that peer. Toggle it from Alt+M -> "Show observed coverage"
+/ "Hide observed coverage".
+
+This is an honest, observed heuristic -- not a prediction. The ring
+sits at the user-to-peer distance, centred on the peer pin. The style
+depends on the signal bucket:
+
+- Solid ring (good link, RSSI better than -90 dBm). Two extra dashed /
+  dotted rings extend outward as a "where you might reach" envelope.
+- Dashed ring (marginal link, -90 to -110 dBm). No outer rings -- we
+  cannot honestly project further.
+- Dotted ring (poor link, below -110 dBm).
+
+Peers with fewer than four RSSI samples in the last hour are hidden,
+so a single stale ADVERT will not paint a misleading ring. The overlay
+is off by default and requires a current GPS fix to anchor the rings.
+
 ## Sharing a one-off location
 
 Two share paths exist alongside the broadcast home. Both ride inside

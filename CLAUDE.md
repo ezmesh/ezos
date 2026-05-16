@@ -237,7 +237,15 @@ Services init in order in `lua/boot.lua`:
     from the Map screen on demand; only the reaper is wired here.
     See the GPS track recordings section below for the on-disk
     format.
-15. **power** -- 30 s battery poll that transitions between Normal /
+15. **link_quality** -- subscribes once to `mesh/node_discovered` and
+    keeps a 16-sample RSSI ring buffer per `pub_key_hex`. The Map
+    screen's "Observed coverage" overlay (issue #121, toggled via
+    Alt+M) reads this via `link_quality.get_quality(pub_key_hex)`
+    to size the rings drawn around each peer. In-memory only --
+    RSSI describes a packet, not a node, so persisting across reboots
+    would leak stale numbers (same reasoning as the Node Store's
+    refusal to persist `lastRssi`).
+16. **power** -- 30 s battery poll that transitions between Normal /
     Frugal / Survival tiers with hysteresis. Other services (`gps`,
     `ntp`, `custom_packets`) consult `power.gps_sync_allowed()` /
     `power.ntp_allowed()` / `power.allow_non_dm()` predicates rather

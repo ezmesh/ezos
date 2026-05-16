@@ -9,6 +9,7 @@ local map_view    = require("ezui.widgets.map_view").map_view
 local gps_svc     = require("services.gps")
 local gps_track   = require("services.gps_track")
 local contacts    = require("services.contacts")
+local link_quality = require("services.link_quality")
 
 -- Peer visibility prefs. Defaults intentionally favour "show nearby
 -- infrastructure + my contacts, but not strangers" -- see issue #125.
@@ -17,6 +18,11 @@ local PEER_PREF_REPEATERS = "map_peer_inf"  -- repeaters + room servers
 local PEER_PREF_CONTACTS  = "map_peer_con"  -- chat nodes I've added
 local PEER_PREF_ALL_CHAT  = "map_peer_all"  -- every chat node we've heard
 local PEER_PREF_STALE     = "map_peer_stale" -- include 24h-7d old peers
+
+-- Observed-coverage overlay toggle (issue #121). Off by default so the
+-- map stays uncluttered for users who don't care; the M-key menu turns
+-- it on. NVS key <= 15 chars.
+local COVERAGE_PREF = "map_coverage"
 
 -- Staleness thresholds (seconds since the peer's last ADVERT).
 local STALE_DIM_AGE = 24 * 60 * 60      -- 24h: dim
@@ -388,6 +394,21 @@ function Map:menu()
         end,
     }
 
+    -- ---- Observed coverage overlay (issue #121) ----
+    local coverage_on = pref_on(COVERAGE_PREF, false)
+    items[#items + 1] = {
+        title    = coverage_on
+            and "Hide observed coverage"
+            or  "Show observed coverage",
+        subtitle = coverage_on
+            and "Stop drawing distance rings around peers"
+            or  "Ring at peer-to-here distance, styled by signal",
+        on_press = function()
+            ez.storage.set_pref(COVERAGE_PREF, coverage_on and "0" or "1")
+            self:set_state({})
+        end,
+    }
+
     -- Share the current map center (the crosshair) as an ezme.sh
     -- location share. The DM variant encrypts to the recipient; the
     -- channel variant is plaintext. Both flow through the same
@@ -565,11 +586,12 @@ local function gather_peers()
             end
             if include and not ancient and (not stale or show_stale) then
                 out[#out + 1] = {
-                    lat   = n.lat,
-                    lon   = n.lon,
-                    role  = n.role or 0,
-                    name  = ascii_safe(n.name or ""),
-                    stale = stale,
+                    lat         = n.lat,
+                    lon         = n.lon,
+                    role        = n.role or 0,
+                    name        = ascii_safe(n.name or ""),
+                    stale       = stale,
+                    pub_key_hex = n.pub_key_hex,
                 }
             end
         end
@@ -637,6 +659,116 @@ local function make_peers_overlay()
                         d.draw_text(lx,     ly,     label, label_ink)
                     end
                     theme.set_font("medium")
+                end
+            end
+        end
+    end
+end
+
+-- Draw a stippled (dashed / dotted) circle outline. The display
+-- bindings only ship a solid draw_circle, so we walk the angle in
+-- steps and draw / skip pixels by stride. stride 1 = every angle
+-- sample (solid-ish), 2 = dashed, 3+ = dotted. Keeps the perimeter
+-- pixel-counted so we never burn cycles on offscreen circles.
+local function draw_dashed_circle(d, cx, cy, r, color, stride)
+    if r < 2 then
+        d.draw_circle(math.floor(cx), math.floor(cy), math.floor(r), color)
+        return
+    end
+    -- Sample every ~1px along the circumference. 2*pi*r samples is
+    -- finer than we need at small r and reasonable up to r ~120 px
+    -- (the largest ring we'd ever draw before clipping kicks in).
+    local steps = math.max(16, math.floor(2 * math.pi * r))
+    local two_pi = 2 * math.pi
+    for i = 0, steps - 1 do
+        if (i % stride) == 0 then
+            local a = (i / steps) * two_pi
+            local px = math.floor(cx + r * math.cos(a))
+            local py = math.floor(cy + r * math.sin(a))
+            -- A single pixel reads as a dot at the stride densities
+            -- we use (2 / 3 / 4). fill_rect 1x1 is cheaper than a
+            -- draw_line of length 1 and reuses the rect path.
+            d.fill_rect(px, py, 1, 1, color)
+        end
+    end
+end
+
+-- Coverage overlay (issue #121): for each peer with a recent location
+-- and enough RSSI samples in the link_quality buffer, draw rings at
+-- the observed peer-to-here distance. The bucket determines the inner
+-- ring style; "good" links also draw extrapolated outer rings as the
+-- "where can I probably reach" hint.
+--
+-- Honest about limits: this is an _observed_ heuristic, not a
+-- prediction. Peers with fewer than MIN_RECENT samples in the last
+-- hour are skipped (handled inside link_quality.get_quality).
+local function make_coverage_overlay()
+    return function(d, x, y, w, h, project)
+        if not pref_on(COVERAGE_PREF, false) then return end
+        -- Anchor the rings at the user's current GPS fix. Without a
+        -- fix the "distance peer-to-here" has no meaning, so skip the
+        -- whole overlay rather than guessing.
+        local loc = gps_svc.get_location()
+        if not (loc and loc.valid) then return end
+
+        local accent = theme.color("ACCENT")
+        local muted  = theme.color("TEXT_MUTED")
+
+        local peers = gather_peers()
+        for _, peer in ipairs(peers) do
+            if peer.pub_key_hex then
+                local q = link_quality.get_quality(peer.pub_key_hex)
+                if q then
+                    -- Convert the observed distance into screen pixels
+                    -- via the projector. The peer's projected point and
+                    -- the user's projected point are in the same screen
+                    -- frame, so the pixel delta is the ring radius.
+                    local upx, upy = project(loc.lat, loc.lon)
+                    local ppx, ppy = project(peer.lat, peer.lon)
+                    if upx and ppx then
+                        local dx = ppx - upx
+                        local dy = ppy - upy
+                        local r = math.sqrt(dx * dx + dy * dy)
+                        -- Clip cheaply: bail if even the inner ring is
+                        -- entirely beyond the viewport diagonal, or so
+                        -- small a circle round-trips to a degenerate
+                        -- dot under the pin.
+                        local diag = math.sqrt(w * w + h * h)
+                        if r >= 6 and r <= diag * 1.2 then
+                            -- Rings surround each peer at the
+                            -- empirical user-to-peer distance, so the
+                            -- centre is the peer's projected point.
+                            -- Anchoring on the user's GPS dot instead
+                            -- drew every ring as a bullseye through
+                            -- the peer pin, which is not what the
+                            -- "Observed coverage" overlay describes.
+                            local cx, cy = ppx, ppy
+                            -- Inner ring: empirical distance, styled
+                            -- by the observed bucket.
+                            if q.bucket == "good" then
+                                d.draw_circle(math.floor(cx), math.floor(cy),
+                                    math.floor(r), accent)
+                                -- Extrapolated outer rings only for
+                                -- "good" links: we have confidence
+                                -- to project outward to a marginal /
+                                -- poor envelope.
+                                local r_marg = r * 1.6
+                                local r_poor = r * 2.5
+                                if r_marg <= diag * 1.2 then
+                                    draw_dashed_circle(d, cx, cy, r_marg,
+                                        muted, 2)
+                                end
+                                if r_poor <= diag * 1.2 then
+                                    draw_dashed_circle(d, cx, cy, r_poor,
+                                        muted, 3)
+                                end
+                            elseif q.bucket == "marginal" then
+                                draw_dashed_circle(d, cx, cy, r, accent, 2)
+                            else  -- "poor"
+                                draw_dashed_circle(d, cx, cy, r, muted, 3)
+                            end
+                        end
+                    end
                 end
             end
         end
@@ -766,12 +898,14 @@ function Map:build(state)
         zoom        = state.zoom,
         show_labels = state.show_labels,
         overlay_fn  = (function()
-            -- Peers paint first, then any track polyline (saved or
-            -- in-progress), then the GPS dot on top so the user's
-            -- own position is never occluded by a colocated peer
-            -- pin or by the track head dot.
-            local peers_fn = make_peers_overlay()
-            local gps_fn   = make_gps_overlay()
+            -- Coverage rings paint first (deepest layer), then peer
+            -- pins, then any track polyline (saved or in-progress),
+            -- then the GPS dot on top so the user's own position is
+            -- never occluded by a colocated peer pin, ring sample,
+            -- or the track head dot.
+            local coverage_fn = make_coverage_overlay()
+            local peers_fn    = make_peers_overlay()
+            local gps_fn      = make_gps_overlay()
             -- state.track_overlay is set by track_viewer; the live
             -- in-progress polyline is read fresh every frame via
             -- gps_track.live_points() so newly captured points
@@ -779,6 +913,7 @@ function Map:build(state)
             local viewer_pts = state.track_overlay
             local viewer_fn  = viewer_pts and make_track_overlay(viewer_pts) or nil
             return function(d, x, y, w, h, project)
+                coverage_fn(d, x, y, w, h, project)
                 peers_fn(d, x, y, w, h, project)
                 if viewer_fn then viewer_fn(d, x, y, w, h, project) end
                 local live_pts = gps_track.live_points()
