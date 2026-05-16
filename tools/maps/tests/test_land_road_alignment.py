@@ -32,8 +32,7 @@ TILE_Z, TILE_X, TILE_Y = 11, 1051, 667
 def render():
     # Import lazily so collection doesn't fail if the deps aren't installed.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from pmtiles_to_tdmap import render_vector_tile
-    from land_mask import get_land_mask
+    from tdmap import render_vector_tile, get_land_mask
     return render_vector_tile, get_land_mask()
 
 

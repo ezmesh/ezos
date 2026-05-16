@@ -17,11 +17,23 @@ copy archives in via the Files app.
 
 ## Generating archives
 
-`tools/maps/pmtiles_to_tdmap.py` on a host machine converts
-OpenStreetMap PMTiles into the on-device `.tdmap` format. See
-`tools/maps/` for the conversion pipeline. Each archive is keyed by
-filename, so a per-region `last view` pref is saved per archive --
-switching does not strand you outside the new bounds.
+`tools/maps/make_map.py` on a host machine converts a regional
+PMTiles into the on-device `.tdmap` format. The pipeline is one
+command per region preset:
+
+    cd tools/maps
+    pip install -r requirements.txt
+    ./planetiler.sh netherlands 14   # one-time, ~10 min, needs Docker
+    python make_map.py netherlands   # converts to netherlands.tdmap
+
+For a custom area, pass any PMTiles + bounds:
+
+    python make_map.py custom local.pmtiles \
+        --bounds 4.7,52.3,5.05,52.45 --zoom 11,14 -o ams.tdmap
+
+See `tools/maps/regions.py` to add a new region preset. Each archive
+is keyed by filename, so a per-region "last view" pref is saved per
+archive -- switching does not strand you outside the new bounds.
 
 ## Themes and tile colors
 
