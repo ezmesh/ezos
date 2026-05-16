@@ -4,11 +4,14 @@
 # Two modes:
 #   ./planetiler.sh <area-name> [maxzoom]
 #       Downloads the Geofabrik extract for the named area and builds fresh.
-#       Example: ./planetiler.sh netherlands 15
+#       Example: ./planetiler.sh netherlands 14
 #
 #   ./planetiler.sh <path/to.osm.pbf> [maxzoom]
 #       Converts an existing local PBF. Output lands next to the input with a
-#       .pmtiles suffix. Example: ./planetiler.sh netherlands-260126.osm.pbf 15
+#       .pmtiles suffix. Example: ./planetiler.sh netherlands-260126.osm.pbf 14
+#
+# Output for the named-area mode always lands in tools/maps/data/<area>-z<maxz>.pmtiles
+# so make_map.py can pick it up by region name without any further moving.
 #
 # Requires Docker and ~10 GB free disk for the intermediate sort buffer.
 
@@ -16,6 +19,12 @@ set -euo pipefail
 
 input="${1:?Usage: $0 <area-name|pbf-path> [maxzoom]}"
 maxzoom="${2:-14}"
+
+# Resolve script directory so the data/ dir is always alongside this script,
+# regardless of where the user invokes it from.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+data_dir="$script_dir/data"
+mkdir -p "$data_dir"
 
 if [[ -f "$input" ]]; then
     # Local PBF path mode.
@@ -38,12 +47,12 @@ else
     output_name="${area}-z${maxzoom}.pmtiles"
     docker run --rm --pull always \
         -e JAVA_TOOL_OPTIONS='-Xmx4g' \
-        -v "$(pwd):/data" \
+        -v "$data_dir:/data" \
         ghcr.io/onthegomap/planetiler:latest \
         --download \
         --area="$area" \
         --output="/data/$output_name" \
         --maxzoom="$maxzoom" \
         --force
-    echo "Wrote: $(pwd)/$output_name"
+    echo "Wrote: $data_dir/$output_name"
 fi
